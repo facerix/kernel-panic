@@ -1,0 +1,29 @@
+# Enable rewrite engine
+RewriteEngine On
+
+# Force HTTPS
+RewriteCond %{HTTPS} off
+RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+# Cache static assets
+<FilesMatch "\.(ico|jpg|jpeg|png|gif|svg|webp|woff|woff2|ttf|eot|otf)$">
+  Header set Cache-Control "max-age=31536000, public"
+</FilesMatch>
+
+# Cache CSS and JS with shorter duration
+<FilesMatch "\.(css|js)$">
+  Header set Cache-Control "max-age=86400, public"
+</FilesMatch>
+
+# Don't cache HTML files
+<FilesMatch "\.(html|htm)$">
+  Header set Cache-Control "no-cache, no-store, must-revalidate"
+  Header set Pragma "no-cache"
+  Header set Expires 0
+</FilesMatch>
+
+# Serve manifest.json with correct MIME type
+<FilesMatch "manifest\.json$">
+  Header set Content-Type "application/manifest+json"
+  Header set Cache-Control "max-age=3600, public"
+</FilesMatch>

@@ -1,0 +1,269 @@
+/* global styles */
+
+:root {
+  /* Chrome-only for now but this will allow smooth size transitions */
+  interpolate-size: allow-keywords;
+
+  --accent-color: #2ec6fe;
+}
+
+html {
+  box-sizing: border-box;
+}
+
+*,
+*:before,
+*:after {
+  box-sizing: inherit;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  margin: 0;
+  background-color: #f0f0f0;
+  color: #303030;
+
+  font-family: Futura, 'Trebuchet MS', Arial, sans-serif;
+  font-style: normal;
+  font-variant: normal;
+}
+
+footer,
+header {
+  flex: 0;
+  min-height: 50px;
+  height: 50px;
+  display: flex;
+  align-items: center;
+
+  img {
+    max-height: 40px;
+    margin-right: 0.5em;
+  }
+
+  h1 {
+    flex: 1;
+    margin-right: 50px;
+    text-align: center;
+  }
+}
+
+header#main-head {
+  justify-content: space-between;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--accent-color);
+}
+
+.header-identity {
+  text-decoration: none;
+  color: inherit;
+
+  h1 {
+    font-family: 'Arial Black', 'Arial Bold', Gadget, sans-serif;
+    font-size: 24px;
+  }
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: 'Arial Black', 'Arial Bold', Gadget, sans-serif;
+  font-variant: common-ligatures small-caps;
+}
+
+#main-head > * {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+}
+
+#logo {
+  height: 40px;
+  margin: 0 10px 0 5px;
+}
+
+#main-foot {
+  border-top: 1px solid var(--accent-color);
+  justify-content: center;
+}
+
+main {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 80vh;
+  max-width: 100vw;
+  overflow: hidden;
+
+  padding: 8px;
+  overflow-y: auto;
+  background-color: #fafafa;
+}
+
+.btn,
+button,
+input[type='file']::file-selector-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5em;
+  padding: 0.25em 1em;
+  border-radius: 5px;
+  background: transparent;
+  cursor: pointer;
+  font-variant: common-ligatures small-caps;
+  text-decoration: none;
+
+  img {
+    height: 2em;
+    width: 2em;
+    margin: 0 0.25rem;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+
+    img {
+      opacity: 0.5;
+    }
+  }
+
+  &:not(:disabled):hover,
+  &:not(:disabled):focus-visible {
+    outline: var(--accent-color) auto 1px;
+    background-color: #ddbfc67a;
+  }
+}
+
+input[type='file'] {
+  border-radius: 5px;
+  border: 1px solid #ccc;
+  cursor: pointer;
+
+  &::file-selector-button {
+    display: inline-flex;
+  }
+
+  &:not(:disabled):hover,
+  &:not(:disabled):focus-visible {
+    outline: var(--accent-color) auto 1px;
+
+    &::file-selector-button {
+      background-color: #ddbfc67a;
+    }
+  }
+}
+
+a.btn {
+  &:not(:disabled):hover,
+  &:not(:disabled):focus-visible {
+    text-decoration: underline;
+  }
+}
+
+a:focus-visible {
+  outline: var(--accent-color) auto 1px;
+}
+
+/* util classes */
+
+.u-hidden {
+  display: none !important;
+}
+
+.u-flex {
+  display: flex;
+}
+
+.u-flex-column {
+  flex-direction: column;
+}
+
+.u-flex-1 {
+  flex: 1;
+}
+
+.u-left {
+  text-align: left;
+}
+
+.u-center {
+  text-align: center;
+}
+
+.u-fill-width {
+  width: -webkit-fill-available;
+  width: 100%;
+}
+
+.u-fill-height {
+  height: -webkit-fill-available;
+  height: 100vh;
+}
+
+.u-stretch-height {
+  height: -webkit-fill-available;
+  height: 100%;
+  flex: 1;
+}
+
+/* background scroll fix for dialogs */
+dialog {
+  overscroll-behavior: contain;
+}
+
+dialog::backdrop {
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
+/* responsive design tweaks (breakpoints adopted from Bootstrap) */
+
+/* Small devices (e.g. phones, 575px and under) */
+@media (max-width: 575px) {
+  header > img {
+    display: none;
+  }
+}
+
+/* Small devices (landscape phones, 576px and up) */
+@media (min-width: 576px) {
+  header > img {
+    display: none;
+  }
+}
+
+/* Medium devices (tablets, 768px and up) */
+@media (min-width: 768px) {
+  header > img {
+    display: block;
+  }
+}
+
+/* Large devices (desktops, 992px and up) */
+@media (min-width: 992px) {
+  header > img {
+    display: block;
+  }
+}
+
+/* web component placeholders */
+update-notification {
+  display: none;
+  --update-notification-bg: linear-gradient(135deg, #7a7a7a 0%, #3a3a3a 50%, #5a5a5a 100%);
+  --update-notification-color: white;
+  --update-notification-border: transparent;
+  --update-notification-btn-bg: white;
+  --update-notification-btn-color: #5a5a5a;
+  --update-notification-btn-hover: #f0f0f0;
+}
+
+/* view transitions */
+
+@view-transition {
+  navigation: auto;
+  types: slide, forwards;
+}

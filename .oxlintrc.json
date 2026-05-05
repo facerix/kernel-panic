@@ -1,0 +1,53 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "env": {
+    "browser": true,
+    "es2022": true,
+    "serviceworker": true
+  },
+  "globals": {
+    "CacheConfig": "readonly"
+  },
+  "ignorePatterns": [
+    "node_modules",
+    "dist",
+    "build",
+    "*.min.js",
+    "package-lock.json",
+    "sw.js",
+    "sw-dev.js",
+    "sw-core.js"
+  ],
+  "rules": {
+    "no-console": "off",
+    "no-unused-vars": [
+      "error",
+      {
+        "argsIgnorePattern": "^_",
+        "varsIgnorePattern": "^_",
+        "caughtErrorsIgnorePattern": "^_",
+        "ignoreRestSiblings": true
+      }
+    ],
+    "no-empty": ["warn", { "allowEmptyCatch": true }],
+    "prefer-const": "warn",
+    "no-var": "warn",
+    "no-use-before-define": "off",
+    "eqeqeq": "off",
+    "no-eq-null": "off",
+    "no-undef": "warn",
+    "no-redeclare": "warn",
+    "no-unreachable": "warn",
+    "no-constant-condition": "warn",
+    "no-empty-pattern": "warn",
+    "no-func-assign": "warn",
+    "no-import-assign": "warn",
+    "no-setter-return": "warn",
+    "no-sparse-arrays": "warn",
+    "no-this-before-super": "warn",
+    "no-unsafe-finally": "warn",
+    "no-unsafe-negation": "warn",
+    "use-isnan": "warn",
+    "valid-typeof": "warn"
+  }
+}

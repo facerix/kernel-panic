@@ -1,0 +1,14 @@
+# Project Instructions
+
+## Local development
+- local dev server is run via `live-server` npm package on port 8080
+
+## Do
+- prefer ES Modules over HTML script tags
+- default to small files and diffs. avoid repo wide rewrites unless asked
+- prefer modern CSS over Tailwind
+- be concise in your task summaries
+
+## Don't
+- do not add new dependencies without approval
+- do not produce more than one markdown summary doc after making changes

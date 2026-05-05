@@ -1,0 +1,148 @@
+<!doctype html>
+
+<html lang="en" xml:lang="en" xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <title>About - App Name</title>
+    <meta charset="utf-8" />
+    <meta name="description" content="About this app" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#ffffff" />
+    <link rel="canonical" href="https://example.facerix.com/" />
+    <meta property="og:title" content="App Name" />
+    <meta property="og:description" content="About this app" />
+    <meta property="og:url" content="https://example.facerix.com/" />
+    <meta property="og:type" content="website" />
+
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <link rel="stylesheet" href="/main.css" type="text/css" charset="utf-8" />
+    <link rel="manifest" href="/manifest.json" />
+
+    <style>
+      header {
+        h1 {
+          margin: 0;
+        }
+      }
+      body {
+        height: 100vh;
+        overflow-y: scroll;
+      }
+
+      main {
+        flex-direction: column;
+        padding: 3em 15vw;
+
+        line-height: 1.75rem;
+        text-align: justify;
+      }
+
+      details {
+        margin: 2em auto 0;
+        width: 600px;
+        padding: 1em;
+        border: 1px solid #ccc;
+        border-radius: 5px;
+        background-color: #303030;
+        color: #f0f0f0;
+        box-shadow: 0 0 10px 0 rgba(0, 0, 0, 0.1);
+        font-size: 0.875rem;
+        line-height: 1.5;
+
+        summary {
+          font-weight: bold;
+          cursor: pointer;
+          display: block;
+          margin-bottom: 0.5em;
+          padding: 0.5em;
+          border-bottom: 1px dashed #ccc;
+          text-align: center;
+        }
+
+        p {
+          margin: 0.5em 0;
+          padding: 0.5em;
+          display: flex;
+          align-items: center;
+          width: 100%;
+          justify-content: center;
+          text-align: center;
+        }
+
+        button {
+          margin-left: 1em;
+          cursor: pointer;
+          background-color: #f0f0f0;
+          color: #303030;
+          border: none;
+          padding: 0.5em 1em;
+          border-radius: 5px;
+          font-size: 0.875rem;
+          line-height: 1.5;
+        }
+      }
+
+      @media (max-width: 575px) {
+        main {
+          padding: 10px;
+        }
+      }
+
+      @media (min-width: 576px) {
+        main {
+          padding: 2em;
+        }
+      }
+
+      @media (min-width: 768px) {
+        main {
+          padding: 4em;
+        }
+      }
+
+      @media (min-width: 992px) {
+        main {
+          padding: 5em;
+        }
+      }
+    </style>
+  </head>
+
+  <body class="fill-height">
+    <header>
+      <a href="/">
+        <img src="/icon.svg" alt="App logo" />
+      </a>
+      <h1>About App Name</h1>
+    </header>
+    <main>
+      <p>
+        This app was built using standard web technologies by
+        <a href="https://www.facerix.com/about">Rylee Corradini</a>. It's a Progressive Web App,
+        meaning you can install it directly to your tablet/phone screen/desktop like a regular app,
+        and it will behave more or less the same as one, and save its data in your device storage.
+      </p>
+
+      <details>
+        <summary>Debug Info</summary>
+        <p><strong>Current Version:</strong>&nbsp;<span id="version">#...</span></p>
+        <p id="latestVersionContainer" style="display: none">
+          <strong>Latest Version:</strong>&nbsp;<span id="latestVersion">#...</span>
+          <button id="btnUpdate">Update now</button>
+        </p>
+        <p id="noUpdateContainer" style="display: none">
+          <em>You are running the latest version.</em>
+        </p>
+        <p>
+          <button id="btnClearCache">Clear all caches</button>
+          <span id="clearCacheStatus" style="margin-left: 1em; color: #888"></span>
+        </p>
+      </details>
+    </main>
+    <update-notification></update-notification>
+    <confirmation-modal></confirmation-modal>
+    <script src="/about.js" type="module"></script>
+  </body>
+</html>
