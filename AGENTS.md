@@ -2,6 +2,12 @@
 
 Agent-specific guidance. See [README.md](README.md) for project overview, architecture, and coding standards.
 
+## Domain: Kernel Panic
+
+Turn-based cyberpunk roguelike on HTML canvas (ASCII-plus terminal look). **Phase 1** targets Meatspace MVP: grid movement/combat, Merc and Razor archetypes, A* + LOS, hub and death screen. Later phases add jack-in / Matrix layer, ICE, CCTV PIP, Vouch-driven NPCs.
+
+Authoritative design notes: [docs/kernel-panic-v1-blueprint.md](docs/kernel-panic-v1-blueprint.md) and [docs/game-overview.md](docs/game-overview.md).
+
 ## Critical Patterns
 
 ### DataStore
@@ -96,7 +102,7 @@ UpdateNotification (dispatched by component)
 
 ## Testing
 
-Use @Browser at `http://localhost:8080` (assume server is already running). Verify UI, interactions, console, service worker.
+Use @Browser at `http://localhost:8099` (assume server is already running). Verify UI, interactions, console, service worker.
 
 ## Checklist
 

@@ -33,12 +33,18 @@ class UpdateNotification extends HTMLElement {
     this.shadowRoot.innerHTML = `
       <style>
         :host {
-          --update-notification-bg: linear-gradient(135deg, #7a7a7a 0%, #3a3a3a 50%, #5a5a5a 100%);
-          --update-notification-color: white;
-          --update-notification-border: transparent;
-          --update-notification-btn-bg: white;
-          --update-notification-btn-color: #5a5a5a;
-          --update-notification-btn-hover: #f0f0f0;
+          font-family: inherit;
+
+          --update-notification-accent: var(--accent-color, #00d9a5);
+          --update-notification-bg: linear-gradient(155deg, #0a100e 0%, #071210 50%, #0d1815 100%);
+          --update-notification-color: #c5efdf;
+          --update-notification-border: #2a4a42;
+          --update-notification-btn-primary-bg: var(--update-notification-accent);
+          --update-notification-btn-primary-color: #020403;
+          --update-notification-btn-primary-hover: color-mix(in srgb, var(--update-notification-accent) 92%, white);
+          --update-notification-btn-secondary-bg: transparent;
+          --update-notification-btn-secondary-color: var(--update-notification-color);
+          --update-notification-btn-secondary-hover: rgba(0, 217, 165, 0.12);
         }
 
         .update-notification {
@@ -51,7 +57,7 @@ class UpdateNotification extends HTMLElement {
           padding: 15px;
           border-radius: 8px;
           border: 1px solid var(--update-notification-border);
-          box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+          box-shadow: 0 0 24px rgba(0, 217, 165, 0.12), 0 8px 24px rgba(0, 0, 0, 0.4);
           z-index: 1000;
           max-width: min(300px, calc(100vw - 24px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
           box-sizing: border-box;
@@ -76,20 +82,36 @@ class UpdateNotification extends HTMLElement {
         }
 
         .update-notification button {
-          background: var(--update-notification-btn-bg);
-          color: var(--update-notification-btn-color);
-          border: none;
           padding: 8px 16px;
-          border-radius: 4px;
+          border-radius: 5px;
           margin: 8px 8px 0 0;
           cursor: pointer;
-          font-weight: bold;
+          font-weight: 700;
           font-size: 14px;
-          font-family: inherit;
+          font-family: var(--font-heading, Silkscreen, ui-monospace, 'Courier New', monospace);
+          font-variant: common-ligatures small-caps;
         }
 
-        .update-notification button:hover:not(:disabled) {
-          background: var(--update-notification-btn-hover);
+        .update-notification button.update-now {
+          background: var(--update-notification-btn-primary-bg);
+          color: var(--update-notification-btn-primary-color);
+          border: 1px solid var(--update-notification-accent);
+        }
+
+        .update-notification button.update-now:hover:not(:disabled) {
+          background: var(--update-notification-btn-primary-hover);
+        }
+
+        .update-notification button.update-later {
+          background: var(--update-notification-btn-secondary-bg);
+          color: var(--update-notification-btn-secondary-color);
+          border: 1px solid var(--update-notification-border);
+        }
+
+        .update-notification button.update-later:hover:not(:disabled) {
+          background: var(--update-notification-btn-secondary-hover);
+          border-color: var(--update-notification-accent);
+          outline: var(--update-notification-accent) auto 1px;
         }
 
         .update-notification button:active:not(:disabled) {
@@ -121,8 +143,8 @@ class UpdateNotification extends HTMLElement {
           display: inline-block;
           width: 16px;
           height: 16px;
-          border: 2px solid color-mix(in srgb, var(--update-notification-color) 30%, transparent);
-          border-top-color: var(--update-notification-color);
+          border: 2px solid color-mix(in srgb, var(--update-notification-accent) 35%, transparent);
+          border-top-color: var(--update-notification-accent);
           border-radius: 50%;
           animation: spin 0.8s linear infinite;
           vertical-align: middle;

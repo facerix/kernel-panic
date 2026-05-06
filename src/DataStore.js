@@ -2,6 +2,8 @@
 
 import { v4WithTimestamp } from './uuid.js';
 
+const STORAGE_KEY = 'kernelPanicData';
+
 let instance;
 class DataStore extends EventTarget {
   #items = [];
@@ -32,7 +34,7 @@ class DataStore extends EventTarget {
     } catch (error) {
       console.warn('[DataStore] Failed to parse stored JSON, resetting items.', error);
       try {
-        window.localStorage.setItem('items', '[]');
+        window.localStorage.setItem(STORAGE_KEY, '[]');
       } catch (storageError) {
         console.warn('[DataStore] Failed to reset stored items.', storageError);
       }
@@ -41,10 +43,10 @@ class DataStore extends EventTarget {
   }
 
   async init() {
-    let savedItemsJson = window.localStorage.getItem('items');
+    let savedItemsJson = window.localStorage.getItem(STORAGE_KEY);
     if (!savedItemsJson) {
       savedItemsJson = '[]';
-      window.localStorage.setItem('items', savedItemsJson);
+      window.localStorage.setItem(STORAGE_KEY, savedItemsJson);
     }
     this.#items = this.#loadRecordsFromJson(savedItemsJson);
     this.#reindex();
@@ -65,7 +67,7 @@ class DataStore extends EventTarget {
   }
 
   #saveItems() {
-    window.localStorage.setItem('items', JSON.stringify(this.#items));
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(this.#items));
   }
 
   #emitChangeEvent(changeType, affectedRecords) {

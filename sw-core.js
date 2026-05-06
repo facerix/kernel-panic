@@ -7,7 +7,7 @@
  * Creates cache configuration from a version string and provides shared resource lists
  */
 const CacheConfig = {
-  create(version, prefix = 'app-cache-') {
+  create(version, prefix = 'kernel-panic-cache-') {
     return {
       version,
       name: `${prefix}v${version}`,
@@ -33,9 +33,13 @@ const CacheConfig = {
     return [
       '/icon.svg',
       '/favicon.ico',
+      '/apple-touch-icon.png',
+      '/favicon-96x96.png',
+      '/icons/icon-192x192.png',
       '/icons/icon512_maskable.png',
       '/icons/icon512_rounded.png',
-      '/icons/icon-192x192.png',
+      '/fonts/silkscreen/slkscr-webfont.woff',
+      '/fonts/silkscreen/slkscrb-webfont.woff',
     ];
   },
 };

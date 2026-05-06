@@ -1,11 +1,11 @@
 {
-  "name": "facerix-template",
-  "version": "1.0.0",
-  "description": "Template for Facerix Progressive Web Apps",
+  "name": "kernel-panic",
+  "version": "0.1.0",
+  "description": "Turn-based cyberpunk roguelike PWA (ASCII-plus terminal aesthetic)",
   "main": "index.html",
   "type": "module",
   "scripts": {
-    "start": "live-server --no-browser --port=8080",
+    "start": "live-server --no-browser --port=8099",
     "test": "node --test",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",

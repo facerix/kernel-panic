@@ -1,10 +1,27 @@
 /* global styles */
 
+@font-face {
+  font-family: Silkscreen;
+  src: url('/fonts/silkscreen/slkscr-webfont.woff') format('woff');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: Silkscreen;
+  src: url('/fonts/silkscreen/slkscrb-webfont.woff') format('woff');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   /* Chrome-only for now but this will allow smooth size transitions */
   interpolate-size: allow-keywords;
 
-  --accent-color: #2ec6fe;
+  --accent-color: #00d9a5;
+  --font-heading: Silkscreen, ui-monospace, 'Courier New', monospace;
 }
 
 html {
@@ -22,12 +39,20 @@ body {
   flex-direction: column;
   padding: 0;
   margin: 0;
-  background-color: #f0f0f0;
-  color: #303030;
+  background-color: #0a100e;
+  color: #c5efdf;
 
   font-family: Futura, 'Trebuchet MS', Arial, sans-serif;
   font-style: normal;
   font-variant: normal;
+}
+
+a {
+  color: var(--accent-color);
+}
+
+a:visited {
+  color: #6ae8c8;
 }
 
 footer,
@@ -61,7 +86,7 @@ header#main-head {
   color: inherit;
 
   h1 {
-    font-family: 'Arial Black', 'Arial Bold', Gadget, sans-serif;
+    font-family: var(--font-heading);
     font-size: 24px;
   }
 }
@@ -70,8 +95,18 @@ h1,
 h2,
 h3,
 h4 {
-  font-family: 'Arial Black', 'Arial Bold', Gadget, sans-serif;
-  font-variant: common-ligatures small-caps;
+  font-family: var(--font-heading);
+  font-variant: normal;
+}
+
+h1 {
+  font-weight: 700;
+}
+
+h2,
+h3,
+h4 {
+  font-weight: 400;
 }
 
 #main-head > * {
@@ -100,7 +135,34 @@ main {
 
   padding: 8px;
   overflow-y: auto;
-  background-color: #fafafa;
+  background-color: #071210;
+}
+
+.game-shell {
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  min-height: 0;
+}
+
+.game-shell__caption {
+  margin: 0;
+  max-width: 42rem;
+  font-size: 0.9rem;
+  opacity: 0.85;
+}
+
+#game-canvas {
+  display: block;
+  width: 100%;
+  max-width: min(960px, 100%);
+  height: auto;
+  aspect-ratio: 640 / 400;
+  image-rendering: pixelated;
+  background-color: #020403;
+  border: 1px solid var(--accent-color);
+  box-shadow: 0 0 24px rgba(0, 217, 165, 0.12);
 }
 
 .btn,
@@ -134,13 +196,13 @@ input[type='file']::file-selector-button {
   &:not(:disabled):hover,
   &:not(:disabled):focus-visible {
     outline: var(--accent-color) auto 1px;
-    background-color: #ddbfc67a;
+    background-color: rgba(0, 217, 165, 0.12);
   }
 }
 
 input[type='file'] {
   border-radius: 5px;
-  border: 1px solid #ccc;
+  border: 1px solid #2a4a42;
   cursor: pointer;
 
   &::file-selector-button {
@@ -152,7 +214,7 @@ input[type='file'] {
     outline: var(--accent-color) auto 1px;
 
     &::file-selector-button {
-      background-color: #ddbfc67a;
+      background-color: rgba(0, 217, 165, 0.12);
     }
   }
 }
@@ -220,45 +282,9 @@ dialog::backdrop {
   overscroll-behavior: contain;
 }
 
-/* responsive design tweaks (breakpoints adopted from Bootstrap) */
-
-/* Small devices (e.g. phones, 575px and under) */
-@media (max-width: 575px) {
-  header > img {
-    display: none;
-  }
-}
-
-/* Small devices (landscape phones, 576px and up) */
-@media (min-width: 576px) {
-  header > img {
-    display: none;
-  }
-}
-
-/* Medium devices (tablets, 768px and up) */
-@media (min-width: 768px) {
-  header > img {
-    display: block;
-  }
-}
-
-/* Large devices (desktops, 992px and up) */
-@media (min-width: 992px) {
-  header > img {
-    display: block;
-  }
-}
-
 /* web component placeholders */
 update-notification {
   display: none;
-  --update-notification-bg: linear-gradient(135deg, #7a7a7a 0%, #3a3a3a 50%, #5a5a5a 100%);
-  --update-notification-color: white;
-  --update-notification-border: transparent;
-  --update-notification-btn-bg: white;
-  --update-notification-btn-color: #5a5a5a;
-  --update-notification-btn-hover: #f0f0f0;
 }
 
 /* view transitions */

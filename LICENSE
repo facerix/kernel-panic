@@ -22,7 +22,6 @@ For the full license text, see: https://www.gnu.org/licenses/gpl-3.0.txt
 
 ADDITIONAL TERMS:
 
-This template is provided as-is for creating Progressive Web Applications.
-Any applications built using this template must also be licensed under GPL-3.0
-or a compatible license, ensuring that derivative works remain free and open
-source.
+**Kernel Panic** is a Progressive Web Application (game). This program is
+offered under GPL-3.0; derivative works must remain under GPL-3.0 or a
+compatible license.

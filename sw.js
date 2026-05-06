@@ -1,13 +1,13 @@
-// Service Worker for App - Production Version
+// Service Worker for Kernel Panic - Production Version
 // Import shared caching core with cache-busting query parameter
-const VERSION = '1.0.0';
+const VERSION = '0.0.4';
 importScripts(`/sw-core.js?v=${VERSION}`);
 
 const cacheConfig = CacheConfig.create(VERSION);
 const CACHE_VERSION = cacheConfig.version;
 const CACHE_NAMES = cacheConfig;
 const CACHE_PREFIX = cacheConfig.prefix;
-const LOG_PREFIX = `[App ${CACHE_VERSION}]`;
+const LOG_PREFIX = `[KernelPanic ${CACHE_VERSION}]`;
 
 const coreResources = CacheConfig.getCoreResources();
 const staticAssets = CacheConfig.getStaticAssets();

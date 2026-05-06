@@ -9,11 +9,13 @@
  *   modal.showModal('Are you sure you want to delete this?', { optionalContext });
  *
  * CSS variables for customization (set on :host or a parent):
- *   --confirmation-primary: #4a4a4a
- *   --confirmation-border: rgba(0, 0, 0, 0.12)
- *   --confirmation-focus: rgba(74, 74, 74, 0.4)
- *   --confirmation-bg: #ffffff
- *   --confirmation-header-bg: #f5f5f5
+ *   Defaults match main.css (accent #00d9a5, dark panels, mint text).
+ *   --confirmation-primary: var(--accent-color) fallback
+ *   --confirmation-border: panel edge
+ *   --confirmation-focus: accent focus ring
+ *   --confirmation-bg: panel body
+ *   --confirmation-header-bg: panel header
+ *   --confirmation-text: body copy
  */
 
 import { h, CreateSvg } from '../src/domUtils.js';
@@ -26,11 +28,15 @@ const closeIconSvg = CreateSvg(
 
 const CSS = `
 :host {
-  --confirmation-primary: #4a4a4a;
-  --confirmation-border: rgba(0, 0, 0, 0.12);
-  --confirmation-focus: rgba(74, 74, 74, 0.4);
-  --confirmation-bg: #ffffff;
-  --confirmation-header-bg: #f5f5f5;
+  color: var(--confirmation-text);
+  font-family: inherit;
+
+  --confirmation-primary: var(--accent-color, #00d9a5);
+  --confirmation-border: #2a4a42;
+  --confirmation-focus: rgba(0, 217, 165, 0.45);
+  --confirmation-bg: #071210;
+  --confirmation-header-bg: #0a100e;
+  --confirmation-text: #c5efdf;
 
   dialog[open] {
     display: flex;
@@ -44,11 +50,11 @@ const CSS = `
     border: 1px solid var(--confirmation-border);
     border-radius: 8px;
     background-color: var(--confirmation-bg);
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    box-shadow: 0 0 24px rgba(0, 217, 165, 0.12), 0 8px 32px rgba(0, 0, 0, 0.45);
   }
 
   ::backdrop {
-    background-color: rgba(0, 0, 0, 0.5);
+    background-color: rgba(2, 4, 3, 0.72);
   }
 
   header {
@@ -62,8 +68,9 @@ const CSS = `
     h3 {
       margin: 0;
       font-size: 1.25em;
-      color: var(--confirmation-primary);
-      font-weight: 500;
+      font-family: var(--font-heading, Silkscreen, ui-monospace, 'Courier New', monospace);
+      color: var(--confirmation-text);
+      font-weight: 400;
     }
 
     #close-modal {
@@ -102,9 +109,10 @@ const CSS = `
 
     #message {
       margin: 0;
-      color: #303030;
+      color: var(--confirmation-text);
       font-size: 1em;
       line-height: 1.5;
+      opacity: 0.92;
     }
 
     .actions {
@@ -137,22 +145,22 @@ const CSS = `
 
     #btnCancel {
       background-color: transparent;
-      color: var(--confirmation-primary);
+      color: var(--confirmation-text);
     }
 
     #btnCancel:hover {
-      background-color: rgba(0, 0, 0, 0.05);
+      background-color: rgba(0, 217, 165, 0.12);
       border-color: var(--confirmation-primary);
     }
 
     #btnOk {
       background-color: var(--confirmation-primary);
-      color: white;
-      border: none;
+      color: #020403;
+      border-color: var(--confirmation-primary);
     }
 
     #btnOk:hover {
-      opacity: 0.9;
+      filter: brightness(1.06);
     }
 
     #btnOk:active {
@@ -245,15 +253,15 @@ class ConfirmationModal extends HTMLElement {
     this.#modal = h('dialog', { closedby: 'any' }, [
       h('header', {}, [
         h('h3', { innerText: 'Confirmation' }),
-        h('button', { id: 'close-modal' }, [closeIcon])
+        h('button', { id: 'close-modal' }, [closeIcon]),
       ]),
       h('form', { method: 'dialog', autocomplete: 'off' }, [
         h('p', { id: 'message', innerText: 'Are you sure?' }),
         h('div', { className: 'actions' }, [
           h('input', { type: 'button', id: 'btnCancel', value: 'Cancel' }),
-          h('input', { type: 'submit', id: 'btnOk', value: 'OK' })
-        ])
-      ])
+          h('input', { type: 'submit', id: 'btnOk', value: 'OK' }),
+        ]),
+      ]),
     ]);
     shadow.appendChild(this.#modal);
   }

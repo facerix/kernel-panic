@@ -19,18 +19,18 @@ export class ServiceWorkerManager {
 
   async register() {
     if (!('serviceWorker' in navigator)) {
-      console.warn(`[App] Service Workers not supported in this browser`);
+      console.warn(`[KernelPanic] Service Workers not supported in this browser`);
       return null;
     }
 
     const existingRegistration = await navigator.serviceWorker.getRegistration();
     if (existingRegistration) {
-      console.log(`[App] Service Worker already registered`);
+      console.log(`[KernelPanic] Service Worker already registered`);
       this.#registration = existingRegistration;
       this.#isRegistered = true;
 
       this.#checkForMultipleWorkers().catch(error => {
-        console.warn(`[App] Error checking for multiple workers:`, error);
+        console.warn(`[KernelPanic] Error checking for multiple workers:`, error);
       });
 
       if (!this.#listenersSetup) {
@@ -40,7 +40,7 @@ export class ServiceWorkerManager {
     }
 
     if (this.#isRegistered) {
-      console.log(`[App] Service Worker already registered in this instance`);
+      console.log(`[KernelPanic] Service Worker already registered in this instance`);
       return this.#registration;
     }
 
@@ -54,13 +54,16 @@ export class ServiceWorkerManager {
       this.#registration = await navigator.serviceWorker.register(this.#swFile);
       this.#isRegistered = true;
 
-      console.log(`[App] Service Worker registered successfully:`, this.#registration.scope);
+      console.log(
+        `[KernelPanic] Service Worker registered successfully:`,
+        this.#registration.scope
+      );
 
       this.#setupUpdateListeners();
 
       return this.#registration;
     } catch (error) {
-      console.error(`[App] Service Worker registration failed:`, error);
+      console.error(`[KernelPanic] Service Worker registration failed:`, error);
       return null;
     }
   }
@@ -74,7 +77,7 @@ export class ServiceWorkerManager {
     const controller = navigator.serviceWorker.controller;
 
     if ((active && waiting) || (active && installing) || (waiting && installing)) {
-      console.warn(`[App] Multiple service workers detected:`, {
+      console.warn(`[KernelPanic] Multiple service workers detected:`, {
         active: active ? `${active.state} (script: ${active.scriptURL})` : 'none',
         waiting: waiting ? `${waiting.state} (script: ${waiting.scriptURL})` : 'none',
         installing: installing ? `${installing.state} (script: ${installing.scriptURL})` : 'none',
@@ -86,12 +89,14 @@ export class ServiceWorkerManager {
           const activeVersion = await this.getVersion();
           const waitingVersion = await this.getLatestVersion();
           if (activeVersion === waitingVersion) {
-            console.log(`[App] Waiting worker is same version as active. Auto-activating...`);
+            console.log(
+              `[KernelPanic] Waiting worker is same version as active. Auto-activating...`
+            );
             await this.skipWaiting(waiting);
             return;
           }
         } catch (error) {
-          console.warn(`[App] Could not verify versions, proceeding normally:`, error);
+          console.warn(`[KernelPanic] Could not verify versions, proceeding normally:`, error);
         }
       }
     }
@@ -108,14 +113,14 @@ export class ServiceWorkerManager {
           const currentVersion = await this.getVersion();
           const latestVersion = await this.getLatestVersion();
           if (currentVersion === latestVersion) {
-            console.log(`[App] Waiting worker is same version, skipping notification`);
+            console.log(`[KernelPanic] Waiting worker is same version, skipping notification`);
             return;
           }
         } catch (error) {
-          console.warn(`[App] Could not verify versions:`, error);
+          console.warn(`[KernelPanic] Could not verify versions:`, error);
         }
 
-        console.log(`[App] Found waiting service worker from previous session`);
+        console.log(`[KernelPanic] Found waiting service worker from previous session`);
         this.#dispatchUpdateEvent(waitingWorker);
       }
     }, 0);
@@ -124,10 +129,10 @@ export class ServiceWorkerManager {
       const newWorker = this.#registration.installing;
       if (!newWorker) return;
 
-      console.log(`[App] New service worker installing...`);
+      console.log(`[KernelPanic] New service worker installing...`);
 
       const handleStateChange = () => {
-        console.log(`[App] Service worker state changed to: ${newWorker.state}`);
+        console.log(`[KernelPanic] Service worker state changed to: ${newWorker.state}`);
 
         if (
           (newWorker.state === 'installed' || newWorker.state === 'waiting') &&
@@ -138,7 +143,7 @@ export class ServiceWorkerManager {
             .then(latestVersion => {
               return this.getVersion().then(currentVersion => {
                 if (currentVersion === latestVersion) {
-                  console.log(`[App] New worker is same version, skipping notification`);
+                  console.log(`[KernelPanic] New worker is same version, skipping notification`);
                   return false;
                 }
                 return true;
@@ -146,14 +151,18 @@ export class ServiceWorkerManager {
             })
             .then(shouldShow => {
               if (shouldShow) {
-                console.log(`[App] New service worker available. Consider refreshing the page.`);
+                console.log(
+                  `[KernelPanic] New service worker available. Consider refreshing the page.`
+                );
                 this.#dispatchUpdateEvent(newWorker);
               }
               newWorker.removeEventListener('statechange', handleStateChange);
             })
             .catch(error => {
-              console.warn(`[App] Could not verify version, showing notification:`, error);
-              console.log(`[App] New service worker available. Consider refreshing the page.`);
+              console.warn(`[KernelPanic] Could not verify version, showing notification:`, error);
+              console.log(
+                `[KernelPanic] New service worker available. Consider refreshing the page.`
+              );
               this.#dispatchUpdateEvent(newWorker);
               newWorker.removeEventListener('statechange', handleStateChange);
             });
@@ -169,7 +178,7 @@ export class ServiceWorkerManager {
 
   #dispatchUpdateEvent(pendingWorker) {
     if (this.#isUpdating) {
-      console.log(`[App] Update already in progress, skipping notification`);
+      console.log(`[KernelPanic] Update already in progress, skipping notification`);
       return;
     }
 
@@ -184,22 +193,22 @@ export class ServiceWorkerManager {
 
   async checkForUpdates() {
     if (!this.#registration) {
-      console.warn(`[App] Cannot check for updates: no registration`);
+      console.warn(`[KernelPanic] Cannot check for updates: no registration`);
       return;
     }
 
     try {
-      console.log(`[App] Manually checking for service worker updates...`);
+      console.log(`[KernelPanic] Manually checking for service worker updates...`);
       await this.#registration.update();
 
       setTimeout(() => {
         if (this.#registration.waiting && navigator.serviceWorker.controller) {
-          console.log(`[App] Update check found waiting service worker`);
+          console.log(`[KernelPanic] Update check found waiting service worker`);
           this.#dispatchUpdateEvent(this.#registration.waiting);
         }
       }, 100);
     } catch (error) {
-      console.error(`[App] Failed to check for updates:`, error);
+      console.error(`[KernelPanic] Failed to check for updates:`, error);
     }
   }
 
@@ -235,7 +244,7 @@ export class ServiceWorkerManager {
       const cacheInfo = await this.getCacheInfo();
       return cacheInfo?.version || null;
     } catch (error) {
-      console.error(`[App] Failed to get service worker version:`, error);
+      console.error(`[KernelPanic] Failed to get service worker version:`, error);
       return null;
     }
   }
@@ -273,7 +282,7 @@ export class ServiceWorkerManager {
         pendingWorker.postMessage({ type: 'GET_CACHE_INFO' }, [messageChannel.port2]);
       });
     } catch (error) {
-      console.error(`[App] Failed to get latest service worker version:`, error);
+      console.error(`[KernelPanic] Failed to get latest service worker version:`, error);
       return null;
     }
   }
@@ -289,12 +298,12 @@ export class ServiceWorkerManager {
     const targetWorker = worker || this.#registration?.waiting;
 
     if (!this.#registration || !targetWorker) {
-      console.warn(`[App] No waiting service worker to skip waiting`);
+      console.warn(`[KernelPanic] No waiting service worker to skip waiting`);
       return;
     }
 
     this.#dispatchUpdateProgress('Sending activation signal...');
-    console.log(`[App] Sending SKIP_WAITING message to service worker`);
+    console.log(`[KernelPanic] Sending SKIP_WAITING message to service worker`);
     targetWorker.postMessage({ type: 'SKIP_WAITING' });
 
     return new Promise(resolve => {
@@ -304,13 +313,13 @@ export class ServiceWorkerManager {
         if (resolved) return;
         if (navigator.serviceWorker.controller) {
           this.#dispatchUpdateProgress('New service worker activated...');
-          console.log(`[App] New service worker is now controlling the page`);
+          console.log(`[KernelPanic] New service worker is now controlling the page`);
           setTimeout(() => {
             if (!this.#registration.waiting || this.#registration.waiting !== targetWorker) {
-              console.log(`[App] Old waiting worker has been terminated`);
+              console.log(`[KernelPanic] Old waiting worker has been terminated`);
               this.#dispatchUpdateProgress('Preparing to reload...');
             } else {
-              console.warn(`[App] Warning: Waiting worker still exists`);
+              console.warn(`[KernelPanic] Warning: Waiting worker still exists`);
               this.#dispatchUpdateProgress('Waiting for old worker to terminate...');
             }
             if (!resolved) {
@@ -322,14 +331,14 @@ export class ServiceWorkerManager {
           this.#dispatchUpdateProgress('Waiting for service worker activation...');
           setTimeout(() => {
             if (navigator.serviceWorker.controller) {
-              console.log(`[App] New service worker is now controlling the page (delayed)`);
+              console.log(`[KernelPanic] New service worker is now controlling the page (delayed)`);
               this.#dispatchUpdateProgress('Preparing to reload...');
               if (!resolved) {
                 resolved = true;
                 resolve();
               }
             } else {
-              console.warn(`[App] No controller after skipWaiting, resolving anyway`);
+              console.warn(`[KernelPanic] No controller after skipWaiting, resolving anyway`);
               this.#dispatchUpdateProgress('Reloading...');
               if (!resolved) {
                 resolved = true;
@@ -342,7 +351,7 @@ export class ServiceWorkerManager {
 
       const handleMessage = event => {
         if (event.data && event.data.type === 'SW_ACTIVATED') {
-          console.log(`[App] Service worker confirmed activation: ${event.data.version}`);
+          console.log(`[KernelPanic] Service worker confirmed activation: ${event.data.version}`);
           this.#dispatchUpdateProgress('Service worker activated. Reloading...');
           if (!resolved) {
             resolved = true;
@@ -360,7 +369,7 @@ export class ServiceWorkerManager {
 
       setTimeout(() => {
         if (!resolved) {
-          console.log(`[App] Skip waiting timeout, proceeding with reload`);
+          console.log(`[KernelPanic] Skip waiting timeout, proceeding with reload`);
           this.#dispatchUpdateProgress('Reloading page...');
           resolved = true;
           navigator.serviceWorker.removeEventListener('message', handleMessage);
@@ -373,42 +382,42 @@ export class ServiceWorkerManager {
 
   async clearAllCaches() {
     if (!('caches' in window)) {
-      console.warn(`[App] Cache API not supported`);
+      console.warn(`[KernelPanic] Cache API not supported`);
       return;
     }
 
     try {
       const cacheNames = await caches.keys();
-      const appCaches = cacheNames.filter(name => name.startsWith('app-cache-'));
+      const appCaches = cacheNames.filter(name => name.startsWith('kernel-panic-cache-'));
 
-      console.log(`[App] Clearing ${appCaches.length} cache(s):`, appCaches);
+      console.log(`[KernelPanic] Clearing ${appCaches.length} cache(s):`, appCaches);
 
       await Promise.all(appCaches.map(cacheName => caches.delete(cacheName)));
 
-      console.log(`[App] Successfully cleared all caches`);
+      console.log(`[KernelPanic] Successfully cleared all caches`);
 
       if (this.#registration) {
         await this.#registration.unregister();
-        console.log(`[App] Service worker unregistered`);
+        console.log(`[KernelPanic] Service worker unregistered`);
         this.#isRegistered = false;
         this.#registration = null;
       }
 
       window.location.reload();
     } catch (error) {
-      console.error(`[App] Failed to clear caches:`, error);
+      console.error(`[KernelPanic] Failed to clear caches:`, error);
       throw error;
     }
   }
 
   async handleUpdateNow(pendingWorker) {
     if (this.#isUpdating) {
-      console.log(`[App] Update already in progress`);
+      console.log(`[KernelPanic] Update already in progress`);
       return;
     }
 
     this.#isUpdating = true;
-    console.log(`[App] Handling update now request`);
+    console.log(`[KernelPanic] Handling update now request`);
 
     try {
       await this.skipWaiting(pendingWorker);
@@ -416,7 +425,7 @@ export class ServiceWorkerManager {
       if (!navigator.serviceWorker.controller) {
         this.#dispatchUpdateProgress('Verifying service worker activation...');
         console.warn(
-          `[App] No service worker controller after skipWaiting, waiting a bit longer...`
+          `[KernelPanic] No service worker controller after skipWaiting, waiting a bit longer...`
         );
         await new Promise(resolve => setTimeout(resolve, 500));
       }
@@ -424,22 +433,22 @@ export class ServiceWorkerManager {
       if (this.#registration.waiting && this.#registration.waiting === pendingWorker) {
         this.#dispatchUpdateProgress('Waiting for old worker to terminate...');
         console.warn(
-          `[App] Warning: Waiting worker still exists after skipWaiting. Waiting longer...`
+          `[KernelPanic] Warning: Waiting worker still exists after skipWaiting. Waiting longer...`
         );
         await new Promise(resolve => setTimeout(resolve, 1000));
 
         if (this.#registration.waiting === pendingWorker) {
           console.error(
-            `[App] Error: Waiting worker still exists. This may cause multiple workers.`
+            `[KernelPanic] Error: Waiting worker still exists. This may cause multiple workers.`
           );
         }
       }
 
       this.#dispatchUpdateProgress('Reloading page...');
-      console.log(`[App] Reloading page to use new service worker...`);
+      console.log(`[KernelPanic] Reloading page to use new service worker...`);
       window.location.reload();
     } catch (error) {
-      console.error(`[App] Failed to update service worker:`, error);
+      console.error(`[KernelPanic] Failed to update service worker:`, error);
       this.#dispatchUpdateProgress('Update failed. Please try again.');
       this.#isUpdating = false;
       throw error;

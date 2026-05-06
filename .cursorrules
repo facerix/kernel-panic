@@ -1,7 +1,7 @@
 # Project Instructions
 
 ## Local development
-- local dev server is run via `live-server` npm package on port 8080
+- local dev server is run via `live-server` npm package on port 8099
 
 ## Do
 - prefer ES Modules over HTML script tags
