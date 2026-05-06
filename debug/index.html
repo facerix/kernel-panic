@@ -1,36 +1,33 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <title>Kernel Panic — M1 debug</title>
+    <title>Kernel Panic — M2 debug</title>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" href="/favicon.ico" sizes="32x32" />
     <link rel="stylesheet" href="/main.css" type="text/css" />
     <style>
       .debug-shell {
-        max-width: 64ch;
+        max-width: 720px;
         margin: 1rem auto;
         padding: 0 1rem;
-      }
-      .debug-grid {
         font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-        font-size: 1.1rem;
-        line-height: 1.1;
-        background: #0a0e0d;
-        color: #00d9a5;
-        padding: 1rem;
-        border-radius: 4px;
-        white-space: pre;
-        margin: 0;
-        user-select: none;
+      }
+      .debug-canvas {
+        display: block;
+        width: 100%;
+        max-width: 640px;
+        height: auto;
+        background: #06090a;
+        border: 1px solid #1a2422;
+        border-radius: 6px;
+        image-rendering: pixelated;
       }
       .debug-status {
-        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
         margin: 0.75rem 0;
         opacity: 0.85;
       }
       .debug-log {
-        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
         font-size: 0.9rem;
         background: #06090a;
         color: #6ee5c0;
@@ -41,7 +38,6 @@
         white-space: pre-wrap;
       }
       kbd {
-        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
         background: #1a1e1d;
         border: 1px solid #2a2e2d;
         padding: 0 0.35em;
@@ -52,22 +48,28 @@
   </head>
   <body class="debug-shell">
     <header>
-      <h1>Kernel Panic — M1 debug</h1>
+      <h1>Kernel Panic — M2 debug</h1>
       <p>
-        Headless grid + turn engine smoke test. Glyphs:
-        <code>@</code> player · <code>d</code> drone · <code>#</code> wall ·
-        <code>+</code> cover · <code>.</code> floor.
+        Canvas ASCII renderer + CRT post-pass over the M1 grid/turn engine.
+        Glyphs: <code>@</code> player · <code>d</code> drone ·
+        <code>#</code> wall · <code>+</code> cover · <code>.</code> floor.
       </p>
       <p>
         Move: <kbd>←↑↓→</kbd> orthogonal,
         <kbd>q</kbd> <kbd>e</kbd> <kbd>z</kbd> <kbd>c</kbd> diagonal.
-        End turn: <kbd>space</kbd>. Wait (drop AP &amp; end turn): <kbd>.</kbd>.
-        Reset: <kbd>r</kbd>.
+        End turn: <kbd>space</kbd>. Wait: <kbd>.</kbd>. Reset: <kbd>r</kbd>.
       </p>
     </header>
     <main>
+      <canvas
+        id="game-canvas"
+        class="debug-canvas"
+        width="640"
+        height="400"
+        tabindex="0"
+        aria-label="Kernel Panic game grid"
+      ></canvas>
       <div id="status" class="debug-status" aria-live="polite"></div>
-      <pre id="grid" class="debug-grid" tabindex="0" aria-label="Game grid"></pre>
       <h2>Log</h2>
       <pre id="log" class="debug-log" aria-live="polite"></pre>
     </main>
