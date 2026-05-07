@@ -8,8 +8,8 @@ Living plan for Phase 1 of Kernel Panic. Source of truth for milestone scope, cu
 |---|---|
 | M1 — Core grid & turn engine | ✅ Done |
 | M2 — Canvas ASCII renderer + CRT post-pass | ✅ Done |
-| **M3 — Input controller + Merc archetype (Vault)** | **▶ Next** |
-| M4 — Line of Sight + ranged combat | ⏳ |
+| M3 — Input controller + Merc archetype (Vault) | ✅ Done |
+| **M4 — Line of Sight + ranged combat** | **▶ Next** |
 | M5 — A* drone AI | ⏳ |
 | M6 — Razor archetype + melee/stealth | ⏳ |
 | M7 — Hub, Curator, run lifecycle, death screen | ⏳ |
@@ -61,7 +61,7 @@ Pure frame builder + thin canvas painter.
 - `src/render/CrtFilter.js` — DOM: scanlines + radial vignette overlay.
 - `debug/index.{html,js}` — canvas-based smoke harness; corp turn auto-passes (no AI yet).
 
-### M3 — Input controller + Merc archetype ▶ Next
+### M3 — Input controller + Merc archetype ✅
 
 Goal: a playable Merc on the existing engine, with Vault working end-to-end.
 
@@ -70,7 +70,7 @@ Goal: a playable Merc on the existing engine, with Vault working end-to-end.
 - Tests: input keymap dispatches expected intents; Vault legality (must clear cover, no walls in path, target tile passable + unoccupied, AP ≥ 3); Vault commits cleanly and AP debits.
 - Debug harness: bind Vault to `v`+direction so it's playable.
 
-### M4 — Line of Sight + ranged combat
+### M4 — Line of Sight + ranged combat ▶ Next
 
 - `src/rng.js`: `mulberry32` seeded PRNG. Tests assert reproducibility from a seed.
 - `src/game/LineOfSight.js`: symmetric Bresenham (or shadowcasting if Bresenham asymmetry bites). Walls block; cover does not.
