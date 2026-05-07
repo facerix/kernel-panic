@@ -46,7 +46,6 @@ el.dataset.id = '456';
 | `src/DataStore.js` | Central data store (localStorage) |
 | `src/domUtils.js` | `h()` helper, `isDevelopmentMode()` |
 | `src/ServiceWorkerManager.js` | Service worker lifecycle |
-| `src/uuid.js` | UUID generation |
 | `sw-core.js` | Shared service worker logic |
 | `sw.js` | Production service worker |
 | `sw-dev.js` | Development service worker |
@@ -74,7 +73,7 @@ UpdateNotification (dispatched by component)
 | Type | Convention | Examples |
 |------|------------|---------|
 | HTML files | lowercase | `index.html` |
-| JS modules | camelCase | `domUtils.js`, `uuid.js` |
+| JS modules | camelCase | `domUtils.js` |
 | Classes | PascalCase | `DataStore`, `ServiceWorkerManager` |
 | Components | PascalCase | `UpdateNotification.js` |
 | Web Component tags | kebab-case | `<update-notification>` |

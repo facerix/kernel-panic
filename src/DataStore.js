@@ -1,7 +1,5 @@
 // singleton class to manage the user's data
 
-import { v4WithTimestamp } from './uuid.js';
-
 const STORAGE_KEY = 'kernelPanicData';
 
 let instance;
@@ -27,7 +25,7 @@ class DataStore extends EventTarget {
       }
       records.forEach((item, index) => {
         if (!item.id) {
-          records[index].id = v4WithTimestamp();
+          records[index].id = window.crypto.randomUUID();
         }
       });
       return records;
