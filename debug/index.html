@@ -37,6 +37,24 @@
         overflow-y: auto;
         white-space: pre-wrap;
       }
+      .debug-game-container {
+        display: flex;
+        flex-direction: row;
+        gap: 0.5rem;
+      }
+      .debug-canvas-container {
+        flex: 1 1 75%;
+      }
+      .debug-log-container {
+        border: 1px solid var(--accent-color);
+        flex: 1 1 25%;
+
+        h2 {
+          text-align: center;
+          padding: 0;
+          margin: 0;
+        }
+      }
       kbd {
         background: #1a1e1d;
         border: 1px solid #2a2e2d;
@@ -49,6 +67,26 @@
   <body class="debug-shell">
     <header>
       <h1>Kernel Panic — M7 debug</h1>
+    </header>
+    <main>
+      <div class="debug-game-container">
+        <div class="debug-canvas-container">
+          <canvas
+            id="game-canvas"
+            class="debug-canvas"
+            width="640"
+            height="400"
+            tabindex="0"
+            aria-label="Kernel Panic game grid"
+          ></canvas>
+          <div id="status" class="debug-status" aria-live="polite"></div>
+        </div>
+        <aside class="debug-log-container">
+          <h2>Log</h2>
+          <pre id="log" class="debug-log" aria-live="polite"></pre>
+        </aside>
+      </div>
+      <h2>Help</h2>
       <p>
         Razor (default) or Merc vs. a patrolling drone. Drones now react to noise — gunshots and
         footsteps drag patrolling sentries to the source. The Razor's <em>Slide</em> is silent and
@@ -67,19 +105,6 @@
         On a touch device the on-screen keypad appears automatically. Force it on a desktop with
         <code>?touch=force</code> in the URL.
       </p>
-    </header>
-    <main>
-      <canvas
-        id="game-canvas"
-        class="debug-canvas"
-        width="640"
-        height="400"
-        tabindex="0"
-        aria-label="Kernel Panic game grid"
-      ></canvas>
-      <div id="status" class="debug-status" aria-live="polite"></div>
-      <h2>Log</h2>
-      <pre id="log" class="debug-log" aria-live="polite"></pre>
     </main>
     <touch-pad id="touch-pad"></touch-pad>
     <script src="/components/TouchPad.js" type="module"></script>
