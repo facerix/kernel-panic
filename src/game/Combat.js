@@ -29,6 +29,7 @@ import {
   SIGHT_RANGE,
 } from './constants.js';
 import { hasLineOfSight, hasCoverBetween, withinRange } from './LineOfSight.js';
+import { EVENT } from './events.js';
 
 /**
  * Pure pre-flight check. Doesn't mutate, doesn't roll.
@@ -102,6 +103,15 @@ export function resolveRanged(world, attacker, target, rng, options = {}) {
     damage = options.damage ?? RANGED_DAMAGE;
     target.damage(damage);
     killed = !target.alive;
+    // Emit only on a connected hit. Misses still tick the noise model in M6
+    // (a shot is loud regardless), but that's a separate `noise` event.
+    world.events?.emit(EVENT.ENTITY_DAMAGED, {
+      attacker,
+      target,
+      damage,
+      killed,
+      source: 'ranged',
+    });
   }
 
   return { hit, roll, threshold, inCover, damage, killed };

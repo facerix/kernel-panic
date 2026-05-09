@@ -157,6 +157,30 @@ test('World.blockerKeys returns coordinate keys for every live entity', () => {
   assert.ok(keys.has('3,2'));
 });
 
+test('World.moveEntity emits entity:moved with from/to when an event bus is attached', async () => {
+  const { EventBus, EVENT } = await import('../../../src/game/events.js');
+  const bus = new EventBus();
+  const w = new World(new Grid(5, 5), { events: bus });
+  const p = makePlayer(2, 2);
+  w.addEntity(p);
+  const events = [];
+  bus.on(EVENT.ENTITY_MOVED, payload => events.push(payload));
+  w.moveEntity(p, 1, 0);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].entity, p);
+  assert.deepEqual(events[0].from, { x: 2, y: 2 });
+  assert.deepEqual(events[0].to, { x: 3, y: 2 });
+});
+
+test('World without an event bus does not emit (and does not crash)', () => {
+  const w = new World(new Grid(5, 5));
+  const p = makePlayer(2, 2);
+  w.addEntity(p);
+  // Just verifying the optional-chaining path; a thrown error here would fail
+  // every other harness/test that omits the bus.
+  assert.doesNotThrow(() => w.moveEntity(p, 1, 0));
+});
+
 test('World.blockerKeys excludes dead entities', () => {
   const w = new World(new Grid(5, 5));
   const p = makePlayer(1, 1);

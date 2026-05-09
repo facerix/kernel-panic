@@ -4,6 +4,10 @@ import assert from 'node:assert/strict';
 import {
   glyphForTile,
   glyphForEntity,
+  glyphForCorpse,
+  CORPSE_GLYPH_CHAR,
+  CORPSE_DIM,
+  MEMORY_DIM,
   OOB_GLYPH,
   UNSEEN_GLYPH,
   dimColor,
@@ -86,4 +90,37 @@ test('dimGlyph keeps the char and dims the fg', () => {
   const dim = dimGlyph({ char: '#', fg: '#ffffff' }, 0.5);
   assert.equal(dim.char, '#');
   assert.equal(dim.fg, '#808080');
+});
+
+test('glyphForCorpse uses the corpse char and dims the faction colour', () => {
+  const drone = new Entity({ id: 'd', x: 0, y: 0, faction: FACTION.CORP, glyph: 'd' });
+  const c = glyphForCorpse(drone);
+  assert.equal(c.char, CORPSE_GLYPH_CHAR);
+  // Same hue as the live glyph (so factions read), just dimmed.
+  const live = glyphForEntity(drone).fg;
+  assert.equal(c.fg, dimColor(live, CORPSE_DIM));
+  assert.notEqual(c.fg, live, 'corpse must be visibly dimmer than the live glyph');
+});
+
+test('glyphForCorpse uses the corpse char even when the entity glyph differs', () => {
+  // The entity might be a Merc with glyph "@"; corpses are still "%".
+  const merc = new Entity({ id: 'm', x: 0, y: 0, faction: FACTION.PLAYER, glyph: '@' });
+  assert.equal(glyphForCorpse(merc).char, CORPSE_GLYPH_CHAR);
+});
+
+test('glyphForCorpse throws on an unknown faction', () => {
+  const ghost = new Entity({ id: 'g', x: 0, y: 0, faction: 'mystery', glyph: '?' });
+  assert.throws(() => glyphForCorpse(ghost), /unknown faction/i);
+});
+
+test('CORPSE_DIM sits between MEMORY_DIM and full brightness', () => {
+  // Corpses are currently observed (not memory), so they should be brighter
+  // than remembered terrain. Sanity check on the relative tuning — if these
+  // ever invert, a corpse would read as more "ghostly" than the floor under
+  // it, which defeats the point.
+  assert.ok(
+    CORPSE_DIM > MEMORY_DIM,
+    `CORPSE_DIM (${CORPSE_DIM}) must exceed MEMORY_DIM (${MEMORY_DIM})`
+  );
+  assert.ok(CORPSE_DIM < 1, 'CORPSE_DIM must dim something');
 });

@@ -34,9 +34,11 @@ export class VisionField {
    * behind it. The set may include the viewer's own tile; Bresenham excludes
    * trace endpoints so it won't block the viewer's own visibility.
    *
-   * NOTE: today we only recompute on player move. Once the M5 event bus
-   * lands, also recompute when a corp entity moves so a drone walking into
-   * LOS becomes visible without waiting for the player to step.
+   * The module itself is pure — it doesn't subscribe to anything. The harness
+   * (and the eventual game-loop owner) wires this to the M5 `EventBus`:
+   * recompute on the player's own moves, *and* on `entity:moved` for non-
+   * player factions, so a drone walking into LOS becomes visible without
+   * waiting for the player to step.
    */
   recompute(grid, viewer, range = SIGHT_RANGE, options = {}) {
     if (!Number.isInteger(range) || range < 0) {

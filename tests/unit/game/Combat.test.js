@@ -207,3 +207,37 @@ test('resolveRanged crashes if no Rng is supplied (no Math.random fallback)', ()
   const { world, attacker, target } = makeFight();
   assert.throws(() => resolveRanged(world, attacker, target, null), TypeError);
 });
+
+test('resolveRanged emits entity:damaged on a connected hit when a bus is attached', async () => {
+  const { EventBus, EVENT } = await import('../../../src/game/events.js');
+  const bus = new EventBus();
+  const grid = new Grid(8, 8);
+  const world = new World(grid, { events: bus });
+  const attacker = new Entity({ id: 'a', x: 1, y: 1, faction: FACTION.PLAYER, glyph: '@' });
+  const target = new Entity({ id: 't', x: 4, y: 1, faction: FACTION.CORP, glyph: 'd' });
+  world.addEntity(attacker);
+  world.addEntity(target);
+  const damaged = [];
+  bus.on(EVENT.ENTITY_DAMAGED, payload => damaged.push(payload));
+  resolveRanged(world, attacker, target, new StubRng([0])); // guaranteed hit
+  assert.equal(damaged.length, 1);
+  assert.equal(damaged[0].attacker, attacker);
+  assert.equal(damaged[0].target, target);
+  assert.equal(damaged[0].source, 'ranged');
+  assert.equal(damaged[0].damage, 1);
+});
+
+test('resolveRanged does NOT emit entity:damaged on a miss', async () => {
+  const { EventBus, EVENT } = await import('../../../src/game/events.js');
+  const bus = new EventBus();
+  const grid = new Grid(8, 8);
+  const world = new World(grid, { events: bus });
+  const attacker = new Entity({ id: 'a', x: 1, y: 1, faction: FACTION.PLAYER, glyph: '@' });
+  const target = new Entity({ id: 't', x: 4, y: 1, faction: FACTION.CORP, glyph: 'd' });
+  world.addEntity(attacker);
+  world.addEntity(target);
+  const damaged = [];
+  bus.on(EVENT.ENTITY_DAMAGED, payload => damaged.push(payload));
+  resolveRanged(world, attacker, target, new StubRng([0.99])); // guaranteed miss
+  assert.deepEqual(damaged, []);
+});

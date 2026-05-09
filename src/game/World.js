@@ -1,18 +1,23 @@
 import { AP_COST } from './constants.js';
+import { EVENT } from './events.js';
 
 /**
- * Owns the grid and the live entity set. Validates and applies actions; emits
- * no events yet (the event bus lands in M5 alongside the drone AI). Pure
- * data — safe to step in tests without a DOM.
+ * Owns the grid and the live entity set. Validates and applies actions and,
+ * when an event bus is attached, emits domain events for AI / vision / UI
+ * subscribers. Pure data — safe to step in tests without a DOM.
  *
  * Move legality returns a `{ ok, reason }` discriminator so AI and UI layers
  * can branch on the failure mode (e.g. "blocked" → try a different tile).
+ *
+ * The event bus is **optional**: tests that don't care about emissions can
+ * omit it entirely. Wiring tests pass one in and assert the payload shape.
  */
 export class World {
-  constructor(grid) {
+  constructor(grid, options = {}) {
     if (!grid) throw new TypeError('World requires a grid');
     this.grid = grid;
     this.entities = new Map();
+    this.events = options.events ?? null;
   }
 
   addEntity(entity) {
@@ -106,8 +111,16 @@ export class World {
     if (!check.ok) {
       throw new Error(`Illegal move for ${entity.id}: ${check.reason}`);
     }
+    const from = { x: entity.x, y: entity.y };
     entity.spendAp(AP_COST.MOVE);
     entity.x += dx;
     entity.y += dy;
+    // Emit AFTER the commit so listeners (vision recompute, AI hooks) see the
+    // post-move state. Bus is optional — tests that don't subscribe pay nothing.
+    this.events?.emit(EVENT.ENTITY_MOVED, {
+      entity,
+      from,
+      to: { x: entity.x, y: entity.y },
+    });
   }
 }

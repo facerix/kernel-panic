@@ -10,12 +10,12 @@ Living plan for Phase 1 of Kernel Panic. Source of truth for milestone scope, cu
 | M2 — Canvas ASCII renderer + CRT post-pass | ✅ Done |
 | M3 — Input controller + Merc archetype (Vault) | ✅ Done |
 | M4 — Line of Sight + ranged combat | ✅ Done |
-| **M5 — A* drone AI** | **▶ Next** |
-| M6 — Razor archetype + melee/stealth | ⏳ |
+| M5 — A* drone AI | ✅ Done |
+| **M6 — Razor archetype + melee/stealth** | **▶ Next** |
 | M7 — Hub, Curator, run lifecycle, death screen | ⏳ |
 | M8 — Touch / on-screen keypad (Phase 1.5) | ⏳ |
 
-Test count after M4 sweep-up: **178 passing**, lint clean.
+Test count after M5 sweep-up: **216 passing**, lint clean.
 
 ## Locked-in decisions
 
@@ -82,11 +82,13 @@ Goal: a playable Merc on the existing engine, with Vault working end-to-end.
 - Input: keymap adds `FIRE_AIM` mode behind `f` + direction → `{ type: 'fire', dx, dy }`.
 - Debug harness wires fog-of-war + targeting: `f`+dir scans the line and shoots the first hostile in LOS, sharing `withinRange` and `blockerKeys` with Combat so it can never offer a target Combat would later reject.
 
-### M5 — A* drone AI
+### M5 — A* drone AI ✅
 
-- `src/game/Pathfinding.js`: A* over current passable tiles. No path caching across moves — destruction in M7 will mutate the grid.
-- `src/game/ai/CorpDrone.js`: `patrol → investigate (last known position) → engage`. Uses LOS to acquire; investigates noise events.
-- `src/game/events.js`: small event bus (`entity:moved`, `entity:damaged`, `noise`, `turn:ended`) so AI + UI subscribe without coupling.
+- `src/game/Pathfinding.js`: 8-neighbour A* over current passable tiles with a Chebyshev heuristic and an internal binary min-heap. Live entities block by default; the `goal` tile is allowed to be occupied (`allowOccupiedGoal: true`) so an engaging drone can plan a route to the player's tile and take the first step. No caching across calls — destruction in M7 will mutate the grid.
+- `src/game/ai/CorpDrone.js`: `patrol → investigate (last known position) → engage` state machine. Acquires via LOS+range (sharing `withinRange` + `blockerKeys` with Combat so visibility and fire-resolution can never disagree). Engage prefers `resolveRanged` over a step; losing LOS drops to investigate; reaching last-known empty-handed reverts to patrol. Subscribes to `noise` events to set `lastKnownTarget`; engaging drones ignore noise so a clatter can't pull them off a live target. A safety counter inside `takeTurn` crashes loudly if the loop ever fails to spend AP — silent stuck-drone bugs were the obvious failure mode to guard against.
+- `src/game/events.js`: tiny synchronous pub/sub bus with a closed event-type set (`entity:moved`, `entity:damaged`, `noise`, `turn:ended`). Unknown types throw on `on`/`off`/`emit` — typo-protection. Listeners run in registration order; exceptions propagate; the iteration set is snapshotted so a listener can safely unsubscribe mid-dispatch.
+- Wiring: `World.moveEntity` emits `entity:moved` with `{ entity, from, to }` *after* commit; `Combat.resolveRanged` emits `entity:damaged` only on a connected hit; `TurnQueue.endTurn` emits `turn:ended` after the AP refresh. The bus is optional on `World` — tests that don't care pay nothing.
+- Debug harness: replaces the corp auto-pass with `runCorpTurn()` driving every CORP entity through `takeTurn`. Subscribes player vision to `entity:moved` so a drone walking into LOS appears immediately (closes the M4 deferred-fix). Drone HUD now shows `[PATROL/INVESTIGATE/ENGAGE]`.
 
 ### M6 — Razor archetype + melee/stealth
 
@@ -111,15 +113,15 @@ Goal: a playable Merc on the existing engine, with Vault working end-to-end.
 
 Things the standard we walk by has flagged but that are out of current scope:
 
-- **Diagonal movement cost** equals orthogonal — may need √2 rounding once drone behaviour exposes it.
-- **No event bus yet.** Lands in M5 alongside AI; renderer currently re-renders the whole frame on demand, which is fine at this scale.
-- **`World.entityAt` is O(n) linear scan.** Acceptable for V1; revisit if entity count crosses ~hundreds.
+- **Diagonal movement cost** equals orthogonal — drone AI didn't expose obvious cheese in M5 (path lengths feel right), but √2 rounding will probably go in alongside Razor's Slide if positional play gets tighter.
+- **`World.entityAt` is O(n) linear scan.** Acceptable for V1; revisit if entity count crosses ~hundreds. M5 hits it from both `findPath` (per neighbour) and `acquireTarget`; still fine at one drone, watch when M6+ adds more.
 - **CRT vignette uses canvas dimensions directly.** Will look off if the canvas is non-uniformly CSS-stretched. Currently scaled uniformly so it's fine.
 - **Renderer redraws the whole canvas per turn.** No dirty-cell tracking. Reconsider only if/when we animate moves.
 - **Vault-while-firing combo not implemented.** The blueprint has Vault doubling as a fire action. Currently Vault is purely a movement perk; folding in a free shot waits until M5/M6 when targeting UI exists. (Logged in `Merc.js` as a TODO.)
 - **Ranged targeting in the harness is "first hostile along Bresenham."** Fine for a single-drone debug map; a real reticle / target-cycle UI lands with the M5 AI work. Now shares `withinRange` + `blockerKeys` with Combat so the harness can no longer offer targets Combat would reject.
-- **Vision recomputed every player move.** Cheap at V1 grid sizes (~24×16) but it's an O(R²·R) per recompute (each cell does a per-pixel LOS trace). Revisit if maps grow past ~128² or sight range past 16 — shadowcasting would be the swap.
-- **Vision only refreshes on player move.** Once the M5 event bus lands, also recompute on `entity:moved` for corp factions so a drone walking into LOS appears without waiting for the player to step. Noted in `Vision.recompute`.
+- **Vision recomputed every entity move.** Cheap at V1 grid sizes (~24×16) but it's an O(R²·R) per recompute (each cell does a per-pixel LOS trace), and M5 now triggers it on *any* `entity:moved` so a multi-drone scene compounds the cost. Revisit if maps grow past ~128² or sight range past 16 — shadowcasting would be the swap.
+- **Vault doesn't go through `World.moveEntity`.** It mutates `entity.x`/`y` directly so the bus doesn't see it; the harness compensates by calling `recomputeVision()` inline. Folding Vault into the move emission (or its own `entity:vaulted` event) lands when the M5/M6 vault-while-firing combo arrives.
+- **Corpse positions aren't memorised.** Live and dead entities follow the same "we don't track where things were" rule — duck out of LOS and the corpse vanishes from memory until you can see the tile again. Logically a corpse doesn't move, so memorising them would be more honest. Cheap to add (a `seenCorpses` map on `VisionField` + a memory-mode branch in `frame.js`); revisit when M7 telemetry needs the data.
 - **NEUTRAL faction is shootable by anyone.** `canFireRanged` only blocks same-faction targets — civilians can be hit by player or corp shots. Intentional today (narrative consequences); revisit when noise/Vouch lands and we have UI to express the cost. Noted in `Combat.js`.
 
 ## Test/lint expectations

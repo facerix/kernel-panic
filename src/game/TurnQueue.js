@@ -1,3 +1,5 @@
+import { EVENT } from './events.js';
+
 /**
  * Faction-based turn queue. The blueprint specifies "purely turn-based" —
  * V1 keeps it simple: a fixed faction order (player → corp), with each
@@ -6,7 +8,8 @@
  *
  * `endTurn` refreshes AP for the *incoming* faction so the just-finished
  * faction's leftover AP doesn't carry over (matches the blueprint's
- * AP-per-turn budget model).
+ * AP-per-turn budget model). When `world.events` is present, also emits
+ * `turn:ended` *after* the AP refresh so subscribers see the post-state.
  */
 export class TurnQueue {
   constructor(factionOrder) {
@@ -23,6 +26,7 @@ export class TurnQueue {
   }
 
   endTurn(world) {
+    const previous = this.currentFaction;
     this.index = (this.index + 1) % this.factionOrder.length;
     if (this.index === 0) {
       this.turnNumber += 1;
@@ -33,5 +37,10 @@ export class TurnQueue {
         e.refreshAp();
       }
     }
+    world.events?.emit(EVENT.TURN_ENDED, {
+      previous,
+      next: incoming,
+      turn: this.turnNumber,
+    });
   }
 }

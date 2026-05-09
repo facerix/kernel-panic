@@ -1,14 +1,17 @@
 /**
- * M4 debug harness — KeyboardController emits intents, the game loop applies
+ * M5 debug harness — KeyboardController emits intents, the game loop applies
  * them. Player is a Merc; vault with `v`+dir, fire ranged with `f`+dir.
- * The renderer fogs unseen tiles and dims remembered ones. The drone has no
- * AI yet (M5), so the corp turn auto-passes — but it can be killed.
+ * The renderer fogs unseen tiles and dims remembered ones. The drone is now a
+ * `CorpDrone` running a patrol → investigate → engage state machine on the
+ * shared `EventBus`; the harness subscribes player vision to `entity:moved`
+ * so a drone walking into LOS appears immediately (closes the M4 deferred fix).
  */
 import { Grid } from '/src/game/Grid.js';
-import { Entity } from '/src/game/Entity.js';
 import { World } from '/src/game/World.js';
 import { TurnQueue } from '/src/game/TurnQueue.js';
 import { Merc } from '/src/game/archetypes/Merc.js';
+import { CorpDrone } from '/src/game/ai/CorpDrone.js';
+import { EventBus, EVENT } from '/src/game/events.js';
 import { TILE, FACTION, SIGHT_RANGE } from '/src/game/constants.js';
 import { AsciiRenderer } from '/src/render/AsciiRenderer.js';
 import { CrtFilter } from '/src/render/CrtFilter.js';
@@ -31,6 +34,7 @@ let crt;
 let input;
 let vision;
 let rng;
+let bus;
 const logLines = [];
 
 function buildScenario() {
@@ -55,27 +59,48 @@ function buildScenario() {
   grid.setTile(17, 9, TILE.COVER);
   grid.setTile(18, 4, TILE.COVER);
 
-  world = new World(grid);
+  // Fresh bus per scenario — listeners from a previous run are dropped with
+  // the bus reference, so reset is clean.
+  bus = new EventBus();
+  world = new World(grid, { events: bus });
   player = new Merc({ id: 'merc', x: 3, y: 3, maxAp: 4 });
-  drone = new Entity({
+  // Patrol the right-hand room; the drone spends most of its time visible to
+  // a player who pushes east, so M5 behaviour is observable from spawn.
+  drone = new CorpDrone({
     id: 'drone-1',
     x: 19,
     y: 12,
-    faction: FACTION.CORP,
-    glyph: 'd',
     maxAp: 3,
+    patrolWaypoints: [
+      { x: 19, y: 12 },
+      { x: 14, y: 12 },
+      { x: 14, y: 3 },
+      { x: 19, y: 3 },
+    ],
   });
   world.addEntity(player);
   world.addEntity(drone);
+  drone.bindToBus(bus);
 
   queue = new TurnQueue([FACTION.PLAYER, FACTION.CORP]);
   vision = new VisionField();
-  vision.recompute(world.grid, player, undefined, { blockers: world.blockerKeys() });
+  recomputeVision();
+
+  // Refresh fog when *anything* moves — covers both the player's own steps
+  // (cheap, idempotent) and corp drones walking into LOS during their turn.
+  // This is the deferred M4 fix the plan called out under "Vision only
+  // refreshes on player move."
+  bus.on(EVENT.ENTITY_MOVED, () => recomputeVision());
+
   // Seed off the wall clock so each reset varies, but use a fresh Rng so
-  // future M7 saves can capture/restore.state cleanly.
+  // future M7 saves can capture/restore .state cleanly.
   rng = new Rng(Date.now() & 0xffffffff);
   logLines.length = 0;
   log(`> RUN INIT — turn ${queue.turnNumber}, ${queue.currentFaction.toUpperCase()} acts.`);
+}
+
+function recomputeVision() {
+  vision.recompute(world.grid, player, undefined, { blockers: world.blockerKeys() });
 }
 
 function log(line) {
@@ -88,7 +113,7 @@ function rerender(modeHint = '') {
   crt.apply();
   const aim = modeHint && modeHint !== MODE.IDLE ? `  |  MODE: ${modeHint}` : '';
   const droneStatus = drone.alive
-    ? `DRONE @(${drone.x},${drone.y}) HP ${drone.hp}/${drone.maxHp}`
+    ? `DRONE @(${drone.x},${drone.y}) HP ${drone.hp}/${drone.maxHp} [${drone.state.toUpperCase()}]`
     : 'DRONE DOWN';
   document.getElementById('status').textContent =
     `TURN ${queue.turnNumber}  |  ACTING: ${queue.currentFaction.toUpperCase()}  |  ` +
@@ -110,7 +135,7 @@ function applyIntent(intent) {
         return;
       }
       world.moveEntity(player, intent.dx, intent.dy);
-      vision.recompute(world.grid, player, undefined, { blockers: world.blockerKeys() });
+      // Vision recompute fires via the bus subscription (entity:moved).
       log(`> @ moved to (${player.x}, ${player.y}) — ${player.ap} AP left.`);
       if (player.ap === 0) {
         log('> AP EXHAUSTED — auto-ending turn.');
@@ -125,7 +150,9 @@ function applyIntent(intent) {
         return;
       }
       player.vault(world, intent.dx, intent.dy);
-      vision.recompute(world.grid, player, undefined, { blockers: world.blockerKeys() });
+      // Vault doesn't go through World.moveEntity (different mechanic), so
+      // refresh vision explicitly until the perk fires its own move event.
+      recomputeVision();
       log(`> @ vaulted to (${player.x}, ${player.y}) — ${player.ap} AP left.`);
       if (player.ap === 0) {
         log('> AP EXHAUSTED — auto-ending turn.');
@@ -202,8 +229,57 @@ function advanceTurn() {
   queue.endTurn(world);
   log(`> ${queue.currentFaction.toUpperCase()} acts (turn ${queue.turnNumber}).`);
   if (queue.currentFaction === FACTION.CORP) {
+    runCorpTurn();
     queue.endTurn(world);
-    log(`> CORP idled — back to PLAYER (turn ${queue.turnNumber}).`);
+    log(`> PLAYER acts (turn ${queue.turnNumber}).`);
+  }
+}
+
+/**
+ * Drive every live corp entity through its AI for the current turn. Synchronous
+ * — the renderer paints once at the end. The drone's per-action log is summarised
+ * into the on-screen feed so the player can read what happened.
+ */
+function runCorpTurn() {
+  for (const e of world.entities.values()) {
+    if (!e.alive || e.faction !== FACTION.CORP) continue;
+    if (typeof e.takeTurn !== 'function') continue; // plain Entity → idle
+    const actions = e.takeTurn(world, rng);
+    for (const action of actions) {
+      log(formatCorpAction(e, action));
+    }
+  }
+}
+
+function formatCorpAction(actor, action) {
+  switch (action.type) {
+    case 'fire': {
+      const r = action.result;
+      return (
+        `> ${actor.id} fires at ${action.target} — ` +
+        `${r.hit ? 'HIT' : 'miss'} (roll ${r.roll.toFixed(2)} vs ${r.threshold.toFixed(2)}` +
+        `${r.inCover ? ', cover' : ''}).` +
+        (r.killed ? ` ${action.target.toUpperCase()} DOWN.` : '')
+      );
+    }
+    case 'fire-blocked':
+      return `> ${actor.id} can't fire: ${action.reason}.`;
+    case 'move-engage':
+      return `> ${actor.id} closes to (${action.to.x}, ${action.to.y}).`;
+    case 'move-investigate':
+      return `> ${actor.id} investigates → (${action.to.x}, ${action.to.y}).`;
+    case 'move-patrol':
+      return `> ${actor.id} patrols → (${action.to.x}, ${action.to.y}).`;
+    case 'patrol-arrived':
+      return `> ${actor.id} reached waypoint (${action.waypoint.x}, ${action.waypoint.y}).`;
+    case 'patrol-skipped':
+      return `> ${actor.id} skipped waypoint (${action.waypoint.x}, ${action.waypoint.y}).`;
+    case 'investigate-cleared':
+      return `> ${actor.id} found nothing — back to patrol.`;
+    case 'investigate-abandoned':
+      return `> ${actor.id} lost the trail.`;
+    default:
+      return `> ${actor.id} ${action.type}`;
   }
 }
 

@@ -6,7 +6,13 @@ import { Grid } from '../../../src/game/Grid.js';
 import { Entity } from '../../../src/game/Entity.js';
 import { World } from '../../../src/game/World.js';
 import { TILE, FACTION } from '../../../src/game/constants.js';
-import { OOB_GLYPH, UNSEEN_GLYPH, dimColor } from '../../../src/render/palette.js';
+import {
+  OOB_GLYPH,
+  UNSEEN_GLYPH,
+  CORPSE_GLYPH_CHAR,
+  CORPSE_DIM,
+  dimColor,
+} from '../../../src/render/palette.js';
 import { VisionField } from '../../../src/game/Vision.js';
 
 const fixture = () => {
@@ -46,11 +52,31 @@ test('buildFrame renders entities on top of their tile', () => {
   assert.equal(cellAt(frame, 4, 2).char, 'd', 'drone overrides floor');
 });
 
-test('buildFrame skips dead entities', () => {
+test('buildFrame renders dead entities as a dimmed corpse glyph (faction-coloured)', () => {
   const { world, drone } = fixture();
   drone.alive = false;
   const frame = buildFrame(world, { x: 0, y: 0, width: 6, height: 4 });
-  assert.equal(cellAt(frame, 4, 2).char, '.', 'dead drone no longer drawn');
+  const cell = cellAt(frame, 4, 2);
+  assert.equal(cell.char, CORPSE_GLYPH_CHAR, 'corpse uses the % glyph, not the live "d"');
+  // FACTION.CORP fg dimmed by CORPSE_DIM. We compare to dimColor here so the
+  // assertion follows whatever palette tweaks happen later — the contract is
+  // "faction colour, dimmed by the corpse factor".
+  assert.equal(cell.fg, dimColor('#ff4d6d', CORPSE_DIM));
+});
+
+test('buildFrame: a live entity standing on a corpse tile renders the live entity', () => {
+  // Construct two drones on the same tile by killing one and walking the other
+  // onto its square — the live silhouette must win the cell.
+  const g = new Grid(6, 4);
+  const w = new World(g);
+  const corpse = new Entity({ id: 'corpse', x: 3, y: 1, faction: FACTION.CORP, glyph: 'd' });
+  const live = new Entity({ id: 'live', x: 3, y: 1, faction: FACTION.PLAYER, glyph: '@' });
+  // Bypass addEntity's occupancy guard by killing first, then placing.
+  w.entities.set(corpse.id, corpse);
+  corpse.alive = false;
+  w.entities.set(live.id, live);
+  const frame = buildFrame(w, { x: 0, y: 0, width: 6, height: 4 });
+  assert.equal(cellAt(frame, 3, 1).char, '@', 'live entity overrides corpse on the same tile');
 });
 
 test('buildFrame translates by camera offset (top-left becomes world (cx, cy))', () => {
@@ -107,6 +133,33 @@ test('buildFrame with vision dims remembered tiles and hides their entities', ()
   // Tile beneath the drone is FLOOR ('.'); memory should show floor, not 'd'.
   assert.equal(cell.char, '.', 'remembered tile renders without entity');
   assert.equal(cell.fg, dimColor('#1f4d44', 0.35), 'remembered tile is dimmed');
+});
+
+test('buildFrame with vision hides corpses in remembered (out-of-LOS) tiles', () => {
+  // Same rule as live entities: we don't memorise where things were.
+  const { world, player, drone } = fixture();
+  drone.alive = false;
+  const vision = new VisionField();
+  vision.seen.add(`${drone.x},${drone.y}`);
+  vision.recompute(world.grid, player, 1); // far from the drone tile
+  const frame = buildFrame(world, { x: 0, y: 0, width: 6, height: 4 }, { vision });
+  const cell = cellAt(frame, drone.x, drone.y);
+  assert.notEqual(cell.char, CORPSE_GLYPH_CHAR, 'corpse not rendered in memory mode');
+  assert.equal(cell.char, '.', 'memory falls through to dimmed tile glyph');
+});
+
+test('buildFrame with vision renders a corpse on a currently-visible tile', () => {
+  const g = new Grid(6, 4);
+  const w = new World(g);
+  const player = new Entity({ id: 'p', x: 1, y: 1, faction: FACTION.PLAYER, glyph: '@' });
+  const drone = new Entity({ id: 'd', x: 4, y: 1, faction: FACTION.CORP, glyph: 'd' });
+  w.addEntity(player);
+  w.addEntity(drone);
+  drone.alive = false;
+  const vision = new VisionField();
+  vision.recompute(g, player, 8);
+  const frame = buildFrame(w, { x: 0, y: 0, width: 6, height: 4 }, { vision });
+  assert.equal(cellAt(frame, drone.x, drone.y).char, CORPSE_GLYPH_CHAR);
 });
 
 test('buildFrame with vision renders entities only where currently visible', () => {

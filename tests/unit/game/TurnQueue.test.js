@@ -68,3 +68,18 @@ test('TurnQueue.turnNumber increments after a full round', () => {
   q.endTurn(w); // CORP -> PLAYER, new round
   assert.equal(q.turnNumber, 2);
 });
+
+test('TurnQueue.endTurn emits turn:ended with previous/next/turn when bus attached', async () => {
+  const { EventBus, EVENT } = await import('../../../src/game/events.js');
+  const bus = new EventBus();
+  const w = new World(new Grid(3, 3), { events: bus });
+  const q = new TurnQueue([FACTION.PLAYER, FACTION.CORP]);
+  const events = [];
+  bus.on(EVENT.TURN_ENDED, payload => events.push(payload));
+  q.endTurn(w); // PLAYER -> CORP
+  q.endTurn(w); // CORP -> PLAYER (turn 2)
+  assert.deepEqual(events, [
+    { previous: FACTION.PLAYER, next: FACTION.CORP, turn: 1 },
+    { previous: FACTION.CORP, next: FACTION.PLAYER, turn: 2 },
+  ]);
+});

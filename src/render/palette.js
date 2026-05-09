@@ -54,6 +54,24 @@ export function glyphForEntity(entity) {
 }
 
 /**
+ * Corpse glyph — classic roguelike `%`, painted in the entity's faction
+ * colour but dimmed via `dimColor`. Distinct char from the live glyph so a
+ * glance reads "fell here" rather than "still kicking, low HP". Faction hue
+ * is preserved so a downed player and a downed drone read differently.
+ *
+ * Crashes on unknown factions for the same reason `glyphForEntity` does —
+ * silent fallback here would mask a palette bug.
+ */
+export const CORPSE_GLYPH_CHAR = '%';
+export const CORPSE_DIM = 0.5;
+
+export function glyphForCorpse(entity) {
+  const fg = FACTION_FG[entity.faction];
+  if (!fg) throw new Error(`palette: unknown faction "${entity.faction}"`);
+  return { char: CORPSE_GLYPH_CHAR, fg: dimColor(fg, CORPSE_DIM) };
+}
+
+/**
  * Multiply each channel of a `#rrggbb` colour by `factor` ∈ [0, 1]. Used to
  * produce the dim "remembered" variant of any glyph for fog-of-war memory.
  * Crashes on a malformed hex — silent fallback would mask a palette bug.
