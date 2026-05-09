@@ -1,18 +1,23 @@
 /**
- * M3 debug harness — KeyboardController emits intents, the game loop applies
- * them. Player is a Merc; press `v` then a direction to vault over cover.
- * Drone has no AI yet (M5), so the corp turn auto-passes.
+ * M4 debug harness — KeyboardController emits intents, the game loop applies
+ * them. Player is a Merc; vault with `v`+dir, fire ranged with `f`+dir.
+ * The renderer fogs unseen tiles and dims remembered ones. The drone has no
+ * AI yet (M5), so the corp turn auto-passes — but it can be killed.
  */
 import { Grid } from '/src/game/Grid.js';
 import { Entity } from '/src/game/Entity.js';
 import { World } from '/src/game/World.js';
 import { TurnQueue } from '/src/game/TurnQueue.js';
 import { Merc } from '/src/game/archetypes/Merc.js';
-import { TILE, FACTION } from '/src/game/constants.js';
+import { TILE, FACTION, SIGHT_RANGE } from '/src/game/constants.js';
 import { AsciiRenderer } from '/src/render/AsciiRenderer.js';
 import { CrtFilter } from '/src/render/CrtFilter.js';
 import { KeyboardController } from '/src/input/KeyboardController.js';
 import { MODE } from '/src/input/keymap.js';
+import { VisionField } from '/src/game/Vision.js';
+import { hasLineOfSight, withinRange } from '/src/game/LineOfSight.js';
+import { canFireRanged, resolveRanged } from '/src/game/Combat.js';
+import { Rng } from '/src/rng.js';
 
 const GRID_W = 24;
 const GRID_H = 16;
@@ -24,6 +29,8 @@ let drone;
 let renderer;
 let crt;
 let input;
+let vision;
+let rng;
 const logLines = [];
 
 function buildScenario() {
@@ -62,6 +69,11 @@ function buildScenario() {
   world.addEntity(drone);
 
   queue = new TurnQueue([FACTION.PLAYER, FACTION.CORP]);
+  vision = new VisionField();
+  vision.recompute(world.grid, player, undefined, { blockers: world.blockerKeys() });
+  // Seed off the wall clock so each reset varies, but use a fresh Rng so
+  // future M7 saves can capture/restore.state cleanly.
+  rng = new Rng(Date.now() & 0xffffffff);
   logLines.length = 0;
   log(`> RUN INIT — turn ${queue.turnNumber}, ${queue.currentFaction.toUpperCase()} acts.`);
 }
@@ -72,13 +84,16 @@ function log(line) {
 }
 
 function rerender(modeHint = '') {
-  renderer.draw(world, player);
+  renderer.draw(world, player, { vision });
   crt.apply();
   const aim = modeHint && modeHint !== MODE.IDLE ? `  |  MODE: ${modeHint}` : '';
+  const droneStatus = drone.alive
+    ? `DRONE @(${drone.x},${drone.y}) HP ${drone.hp}/${drone.maxHp}`
+    : 'DRONE DOWN';
   document.getElementById('status').textContent =
     `TURN ${queue.turnNumber}  |  ACTING: ${queue.currentFaction.toUpperCase()}  |  ` +
-    `PLAYER AP ${player.ap}/${player.maxAp}  |  ` +
-    `DRONE @(${drone.x},${drone.y}) AP ${drone.ap}/${drone.maxAp}${aim}`;
+    `PLAYER AP ${player.ap}/${player.maxAp} HP ${player.hp}/${player.maxHp}  |  ` +
+    `${droneStatus}${aim}`;
   document.getElementById('log').textContent = logLines.slice(-12).join('\n');
 }
 
@@ -95,6 +110,7 @@ function applyIntent(intent) {
         return;
       }
       world.moveEntity(player, intent.dx, intent.dy);
+      vision.recompute(world.grid, player, undefined, { blockers: world.blockerKeys() });
       log(`> @ moved to (${player.x}, ${player.y}) — ${player.ap} AP left.`);
       if (player.ap === 0) {
         log('> AP EXHAUSTED — auto-ending turn.');
@@ -109,7 +125,32 @@ function applyIntent(intent) {
         return;
       }
       player.vault(world, intent.dx, intent.dy);
+      vision.recompute(world.grid, player, undefined, { blockers: world.blockerKeys() });
       log(`> @ vaulted to (${player.x}, ${player.y}) — ${player.ap} AP left.`);
+      if (player.ap === 0) {
+        log('> AP EXHAUSTED — auto-ending turn.');
+        advanceTurn();
+      }
+      return;
+    }
+    case 'fire': {
+      const target = pickFireTarget(intent.dx, intent.dy);
+      if (!target) {
+        log('> FIRE: no hostile in that direction.');
+        return;
+      }
+      const check = canFireRanged(world, player, target);
+      if (!check.ok) {
+        log(`> FIRE DENIED: ${check.reason}`);
+        return;
+      }
+      const result = resolveRanged(world, player, target, rng);
+      log(
+        `> @ fires at ${target.id} — ` +
+          `${result.hit ? 'HIT' : 'miss'} (roll ${result.roll.toFixed(2)} vs ${result.threshold.toFixed(2)}` +
+          `${result.inCover ? ', cover' : ''}).` +
+          (result.killed ? ` ${target.id.toUpperCase()} DOWN.` : '')
+      );
       if (player.ap === 0) {
         log('> AP EXHAUSTED — auto-ending turn.');
         advanceTurn();
@@ -135,6 +176,28 @@ function applyIntent(intent) {
   }
 }
 
+/**
+ * Walk Bresenham-ish from the player along (dx, dy) and return the first
+ * hostile we hit while LOS holds and we're inside the *Euclidean* range
+ * Combat enforces. The targeting reticle in M5+ will replace this with
+ * explicit picking, but for the harness it's good enough — and shares the
+ * `withinRange` helper with `canFireRanged` so the harness can never offer
+ * a target combat would later reject as out-of-range (the M4 review trap).
+ */
+function pickFireTarget(dx, dy) {
+  const blockers = world.blockerKeys();
+  for (let step = 1; step <= SIGHT_RANGE; step++) {
+    const x = player.x + dx * step;
+    const y = player.y + dy * step;
+    if (!world.grid.inBounds(x, y)) return null;
+    if (!withinRange(player.x, player.y, x, y, SIGHT_RANGE)) return null;
+    if (!hasLineOfSight(world.grid, player.x, player.y, x, y, { blockers })) return null;
+    const e = world.entityAt(x, y);
+    if (e && e.faction !== player.faction) return e;
+  }
+  return null;
+}
+
 function advanceTurn() {
   queue.endTurn(world);
   log(`> ${queue.currentFaction.toUpperCase()} acts (turn ${queue.turnNumber}).`);
@@ -156,6 +219,7 @@ function bindUI() {
     },
     onModeChange: nextMode => {
       if (nextMode === MODE.VAULT_AIM) log('> VAULT — pick a direction (Esc to cancel).');
+      if (nextMode === MODE.FIRE_AIM) log('> FIRE — pick a direction (Esc to cancel).');
       rerender(nextMode);
     },
   });

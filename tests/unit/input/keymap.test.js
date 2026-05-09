@@ -12,11 +12,7 @@ test('IDLE + arrow keys produce move intents in the right direction', () => {
   ];
   for (const [key, dx, dy] of cases) {
     const r = dispatch(key, MODE.IDLE);
-    assert.deepEqual(
-      r.intent,
-      { type: 'move', dx, dy },
-      `${key} should emit move(${dx}, ${dy})`
-    );
+    assert.deepEqual(r.intent, { type: 'move', dx, dy }, `${key} should emit move(${dx}, ${dy})`);
     assert.equal(r.nextMode, MODE.IDLE);
   }
 });
@@ -98,4 +94,34 @@ test('dispatch is case-tolerant for letter keys (V, Q, etc.)', () => {
 
 test('dispatch rejects an unknown mode (crash over silent fallback)', () => {
   assert.throws(() => dispatch('ArrowUp', 'NOPE'), /unknown mode/i);
+});
+
+test('IDLE + f enters FIRE_AIM with no intent yet', () => {
+  const r = dispatch('f', MODE.IDLE);
+  assert.equal(r.intent, null);
+  assert.equal(r.nextMode, MODE.FIRE_AIM);
+});
+
+test('FIRE_AIM + arrow emits a fire intent and returns to IDLE', () => {
+  const r = dispatch('ArrowRight', MODE.FIRE_AIM);
+  assert.deepEqual(r.intent, { type: 'fire', dx: 1, dy: 0 });
+  assert.equal(r.nextMode, MODE.IDLE);
+});
+
+test('FIRE_AIM + diagonal key emits a diagonal fire', () => {
+  const r = dispatch('e', MODE.FIRE_AIM);
+  assert.deepEqual(r.intent, { type: 'fire', dx: 1, dy: -1 });
+  assert.equal(r.nextMode, MODE.IDLE);
+});
+
+test('FIRE_AIM + Escape cancels back to IDLE', () => {
+  const r = dispatch('Escape', MODE.FIRE_AIM);
+  assert.deepEqual(r.intent, { type: 'cancel' });
+  assert.equal(r.nextMode, MODE.IDLE);
+});
+
+test('FIRE_AIM + non-directional key stays in FIRE_AIM with no intent', () => {
+  const r = dispatch(' ', MODE.FIRE_AIM);
+  assert.equal(r.intent, null);
+  assert.equal(r.nextMode, MODE.FIRE_AIM);
 });

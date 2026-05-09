@@ -6,7 +6,8 @@ import { Grid } from '../../../src/game/Grid.js';
 import { Entity } from '../../../src/game/Entity.js';
 import { World } from '../../../src/game/World.js';
 import { TILE, FACTION } from '../../../src/game/constants.js';
-import { OOB_GLYPH } from '../../../src/render/palette.js';
+import { OOB_GLYPH, UNSEEN_GLYPH, dimColor } from '../../../src/render/palette.js';
+import { VisionField } from '../../../src/game/Vision.js';
 
 const fixture = () => {
   const g = new Grid(6, 4); // FLOOR-filled
@@ -82,4 +83,43 @@ test('cameraFor centers a follow-target inside the viewport', () => {
 test('cameraFor rejects non-positive viewport dims', () => {
   assert.throws(() => cameraFor({ x: 0, y: 0 }, { width: 0, height: 3 }), RangeError);
   assert.throws(() => cameraFor({ x: 0, y: 0 }, { width: 5, height: -1 }), RangeError);
+});
+
+test('buildFrame with vision hides never-seen tiles as UNSEEN_GLYPH', () => {
+  const { world, player } = fixture();
+  const vision = new VisionField();
+  vision.recompute(world.grid, player, 1); // tight range so far cells stay unseen
+  const frame = buildFrame(world, { x: 0, y: 0, width: 6, height: 4 }, { vision });
+  // Far corner — never seen, never visible.
+  assert.equal(cellAt(frame, 5, 3).char, UNSEEN_GLYPH.char);
+  assert.equal(cellAt(frame, 5, 3).fg, UNSEEN_GLYPH.fg);
+});
+
+test('buildFrame with vision dims remembered tiles and hides their entities', () => {
+  const { world, player, drone } = fixture();
+  const vision = new VisionField();
+  // Pretend we once saw the drone's tile.
+  vision.seen.add(`${drone.x},${drone.y}`);
+  // Recompute from far away so the drone tile is in `seen` but not `visible`.
+  vision.recompute(world.grid, player, 1);
+  const frame = buildFrame(world, { x: 0, y: 0, width: 6, height: 4 }, { vision });
+  const cell = cellAt(frame, drone.x, drone.y);
+  // Tile beneath the drone is FLOOR ('.'); memory should show floor, not 'd'.
+  assert.equal(cell.char, '.', 'remembered tile renders without entity');
+  assert.equal(cell.fg, dimColor('#1f4d44', 0.35), 'remembered tile is dimmed');
+});
+
+test('buildFrame with vision renders entities only where currently visible', () => {
+  // Hand-build a fixture without the wall-blockade between player and drone
+  // so we can assert the visible-entity branch on its own.
+  const g = new Grid(6, 4);
+  const w = new World(g);
+  const player = new Entity({ id: 'p', x: 1, y: 1, faction: FACTION.PLAYER, glyph: '@' });
+  const drone = new Entity({ id: 'd', x: 4, y: 1, faction: FACTION.CORP, glyph: 'd' });
+  w.addEntity(player);
+  w.addEntity(drone);
+  const vision = new VisionField();
+  vision.recompute(g, player, 8);
+  const frame = buildFrame(w, { x: 0, y: 0, width: 6, height: 4 }, { vision });
+  assert.equal(cellAt(frame, drone.x, drone.y).char, 'd');
 });

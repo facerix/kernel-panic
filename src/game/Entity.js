@@ -1,14 +1,15 @@
-import { DEFAULT_AP } from './constants.js';
+import { DEFAULT_AP, DEFAULT_HP } from './constants.js';
 
 /**
- * A grid-resident actor: player, drone, NPC. Pure data + AP bookkeeping; no
+ * A grid-resident actor: player, drone, NPC. Pure data + AP/HP bookkeeping; no
  * AI here — drone behaviour lands in M5.
  *
- * Crashes on illegal AP spend rather than clamping silently — a bug that
- * spends 3 AP from a 1-AP pool is data corruption we want surfaced early.
+ * Crashes on illegal AP spend or negative damage rather than clamping
+ * silently — a bug that spends 3 AP from a 1-AP pool, or rolls negative
+ * damage, is data corruption we want surfaced early.
  */
 export class Entity {
-  constructor({ id, x, y, faction, glyph, maxAp = DEFAULT_AP }) {
+  constructor({ id, x, y, faction, glyph, maxAp = DEFAULT_AP, maxHp = DEFAULT_HP }) {
     if (id === undefined || id === null || id === '') {
       throw new TypeError('Entity requires a non-empty id');
     }
@@ -21,6 +22,9 @@ export class Entity {
     if (!Number.isInteger(maxAp) || maxAp < 0) {
       throw new RangeError(`Entity maxAp must be a non-negative integer, got ${maxAp}`);
     }
+    if (!Number.isInteger(maxHp) || maxHp <= 0) {
+      throw new RangeError(`Entity maxHp must be a positive integer, got ${maxHp}`);
+    }
     this.id = id;
     this.x = x;
     this.y = y;
@@ -28,6 +32,8 @@ export class Entity {
     this.glyph = glyph ?? '?';
     this.maxAp = maxAp;
     this.ap = maxAp;
+    this.maxHp = maxHp;
+    this.hp = maxHp;
     this.alive = true;
   }
 
@@ -47,5 +53,24 @@ export class Entity {
 
   refreshAp() {
     this.ap = this.maxAp;
+  }
+
+  /**
+   * Apply damage. Crashes on negative or non-integer input — silent clamping
+   * here would mask combat bugs (e.g. negative damage healing the target).
+   * Reaching 0 HP flips `alive` to false; further damage on a corpse throws.
+   */
+  damage(amount) {
+    if (!Number.isInteger(amount) || amount < 0) {
+      throw new RangeError(`damage amount must be a non-negative integer, got ${amount}`);
+    }
+    if (!this.alive) {
+      throw new Error(`Cannot damage ${this.id}: already dead`);
+    }
+    this.hp -= amount;
+    if (this.hp <= 0) {
+      this.hp = 0;
+      this.alive = false;
+    }
   }
 }

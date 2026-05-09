@@ -42,3 +42,28 @@ export const AP_COST = Object.freeze({
  * player can move-shoot-shoot OR move four tiles. Tune as combat lands.
  */
 export const DEFAULT_AP = 4;
+
+/**
+ * Default hit points. V1 baseline — three shots to drop a generic entity. The
+ * Merc and Razor will get archetype-specific values when their kits land.
+ * Tunable per-entity via the constructor.
+ */
+export const DEFAULT_HP = 3;
+
+/**
+ * Ranged combat parameters. Hit chance is a probability in [0, 1] compared
+ * against an RNG roll; cover applied when the line of fire crosses a COVER
+ * tile (LineOfSight.hasCoverBetween). Damage is flat for V1 — no critical
+ * tiers yet.
+ */
+export const BASE_HIT_CHANCE = 0.75;
+export const COVER_HIT_PENALTY = 0.3;
+export const RANGED_DAMAGE = 1;
+
+/**
+ * How far an entity can see/shoot, in tiles. Enforced as a Euclidean
+ * (circular) distance — `dx² + dy² ≤ SIGHT_RANGE²` — so an open shot at
+ * (8, 0) is in range but (8, 8) is not. Combat and Vision share the
+ * `withinRange` helper in `LineOfSight.js` so this geometry is one place.
+ */
+export const SIGHT_RANGE = 8;

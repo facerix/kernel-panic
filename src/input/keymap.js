@@ -14,6 +14,7 @@
 export const MODE = Object.freeze({
   IDLE: 'IDLE',
   VAULT_AIM: 'VAULT_AIM',
+  FIRE_AIM: 'FIRE_AIM',
 });
 
 const DIRECTION_KEYS = {
@@ -51,6 +52,9 @@ function dispatchIdle(key) {
     case 'v':
     case 'V':
       return { intent: null, nextMode: MODE.VAULT_AIM };
+    case 'f':
+    case 'F':
+      return { intent: null, nextMode: MODE.FIRE_AIM };
     default:
       return noChange(MODE.IDLE);
   }
@@ -69,12 +73,25 @@ function dispatchVaultAim(key) {
   return noChange(MODE.VAULT_AIM);
 }
 
+function dispatchFireAim(key) {
+  if (key === 'Escape') {
+    return { intent: { type: 'cancel' }, nextMode: MODE.IDLE };
+  }
+  const dir = directionFor(key);
+  if (dir) {
+    return { intent: { type: 'fire', dx: dir[0], dy: dir[1] }, nextMode: MODE.IDLE };
+  }
+  return noChange(MODE.FIRE_AIM);
+}
+
 export function dispatch(key, mode) {
   switch (mode) {
     case MODE.IDLE:
       return dispatchIdle(key);
     case MODE.VAULT_AIM:
       return dispatchVaultAim(key);
+    case MODE.FIRE_AIM:
+      return dispatchFireAim(key);
     default:
       throw new Error(`keymap: unknown mode "${mode}"`);
   }

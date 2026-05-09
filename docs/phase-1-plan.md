@@ -9,13 +9,13 @@ Living plan for Phase 1 of Kernel Panic. Source of truth for milestone scope, cu
 | M1 — Core grid & turn engine | ✅ Done |
 | M2 — Canvas ASCII renderer + CRT post-pass | ✅ Done |
 | M3 — Input controller + Merc archetype (Vault) | ✅ Done |
-| **M4 — Line of Sight + ranged combat** | **▶ Next** |
-| M5 — A* drone AI | ⏳ |
+| M4 — Line of Sight + ranged combat | ✅ Done |
+| **M5 — A* drone AI** | **▶ Next** |
 | M6 — Razor archetype + melee/stealth | ⏳ |
 | M7 — Hub, Curator, run lifecycle, death screen | ⏳ |
 | M8 — Touch / on-screen keypad (Phase 1.5) | ⏳ |
 
-Test count after M2: **74 passing**, lint clean.
+Test count after M4 sweep-up: **178 passing**, lint clean.
 
 ## Locked-in decisions
 
@@ -70,12 +70,17 @@ Goal: a playable Merc on the existing engine, with Vault working end-to-end.
 - Tests: input keymap dispatches expected intents; Vault legality (must clear cover, no walls in path, target tile passable + unoccupied, AP ≥ 3); Vault commits cleanly and AP debits.
 - Debug harness: bind Vault to `v`+direction so it's playable.
 
-### M4 — Line of Sight + ranged combat ▶ Next
+### M4 — Line of Sight + ranged combat ✅
 
-- `src/rng.js`: `mulberry32` seeded PRNG. Tests assert reproducibility from a seed.
-- `src/game/LineOfSight.js`: symmetric Bresenham (or shadowcasting if Bresenham asymmetry bites). Walls block; cover does not.
-- `src/game/Combat.js`: deterministic hit roll; cover gives defender a configurable hit-penalty when the cover tile is between attacker and defender.
-- Renderer: dim non-visible tiles; remember last-seen state ("memory") for tactical readability.
+- `src/rng.js`: `mulberry32` seeded PRNG wrapped in an `Rng` class. Exposes `state` for the M7 save and a labelled `fork(label)` for stable substreams. INVARIANT: `state` mirrors the closure's internal counter; both must move together if mulberry stepping ever changes.
+- `src/game/LineOfSight.js`: Bresenham `tilesBetween` plus `hasLineOfSight` (symmetric — traces both directions and requires both to clear) and `hasCoverBetween` for combat. Walls and **live entities** block LOS via the `{ blockers }` option; cover doesn't. Exports `withinRange` — the shared Euclidean-radius check used by Combat, Vision, and the harness.
+- `src/game/Vision.js`: per-viewer `VisionField` with `visible`/`seen` sets, recomputed each player move. Bounded by `SIGHT_RANGE` and a circular FOV. Accepts `{ blockers }` so a body on the line breaks the sightline.
+- `src/game/Combat.js`: `canFireRanged` + `resolveRanged(world, attacker, target, rng)`. Cover lowers hit threshold by `COVER_HIT_PENALTY`. Throws on illegal preconditions *before* debiting AP — no "ghost shots." Threshold is validated to stay in `[0,1]` so degenerate tuning crashes loudly. Tunable via `BASE_HIT_CHANCE` / `COVER_HIT_PENALTY` / `RANGED_DAMAGE`.
+- `src/game/World.js`: `blockerKeys()` returns coordinate keys for every live entity (LOS occlusion). `canMoveEntity` rejects dead actors and crashes on non-integer offsets.
+- `Entity` gains `maxHp` / `hp` / `damage(amount)`. Damage clamps to 0 HP and flips `alive=false`; further damage on a corpse throws.
+- Renderer: `frame.js` accepts an optional `vision`. Visible cells render normally; remembered cells render the dim tile glyph (no entity); never-seen cells render as `UNSEEN_GLYPH` — a faint mid-dot so the foreground actually paints (the prior `' '` sentinel was skipped by the renderer). `palette.js` adds `dimColor` / `dimGlyph` / `MEMORY_DIM`.
+- Input: keymap adds `FIRE_AIM` mode behind `f` + direction → `{ type: 'fire', dx, dy }`.
+- Debug harness wires fog-of-war + targeting: `f`+dir scans the line and shoots the first hostile in LOS, sharing `withinRange` and `blockerKeys` with Combat so it can never offer a target Combat would later reject.
 
 ### M5 — A* drone AI
 
@@ -111,6 +116,11 @@ Things the standard we walk by has flagged but that are out of current scope:
 - **`World.entityAt` is O(n) linear scan.** Acceptable for V1; revisit if entity count crosses ~hundreds.
 - **CRT vignette uses canvas dimensions directly.** Will look off if the canvas is non-uniformly CSS-stretched. Currently scaled uniformly so it's fine.
 - **Renderer redraws the whole canvas per turn.** No dirty-cell tracking. Reconsider only if/when we animate moves.
+- **Vault-while-firing combo not implemented.** The blueprint has Vault doubling as a fire action. Currently Vault is purely a movement perk; folding in a free shot waits until M5/M6 when targeting UI exists. (Logged in `Merc.js` as a TODO.)
+- **Ranged targeting in the harness is "first hostile along Bresenham."** Fine for a single-drone debug map; a real reticle / target-cycle UI lands with the M5 AI work. Now shares `withinRange` + `blockerKeys` with Combat so the harness can no longer offer targets Combat would reject.
+- **Vision recomputed every player move.** Cheap at V1 grid sizes (~24×16) but it's an O(R²·R) per recompute (each cell does a per-pixel LOS trace). Revisit if maps grow past ~128² or sight range past 16 — shadowcasting would be the swap.
+- **Vision only refreshes on player move.** Once the M5 event bus lands, also recompute on `entity:moved` for corp factions so a drone walking into LOS appears without waiting for the player to step. Noted in `Vision.recompute`.
+- **NEUTRAL faction is shootable by anyone.** `canFireRanged` only blocks same-faction targets — civilians can be hit by player or corp shots. Intentional today (narrative consequences); revisit when noise/Vouch lands and we have UI to express the cost. Noted in `Combat.js`.
 
 ## Test/lint expectations
 

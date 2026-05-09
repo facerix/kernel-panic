@@ -96,7 +96,7 @@ class DataStore extends EventTarget {
   }
 
   addItem(record) {
-    record.id = v4WithTimestamp();
+    record.id = window.crypto.randomUUID();
     this.#items.unshift(record);
     this.#reindex();
     this.#emitChangeEvent('add', record);

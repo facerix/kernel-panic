@@ -1,4 +1,4 @@
-import { glyphForTile, glyphForEntity, OOB_GLYPH } from './palette.js';
+import { glyphForTile, glyphForEntity, dimGlyph, OOB_GLYPH, UNSEEN_GLYPH } from './palette.js';
 
 /**
  * Pure frame builder — converts world state + a camera viewport into a flat
@@ -7,6 +7,12 @@ import { glyphForTile, glyphForEntity, OOB_GLYPH } from './palette.js';
  *
  * A camera/viewport is `{ x, y, width, height }` — top-left in world coords,
  * size in tiles. Cells outside the world map to `OOB_GLYPH`.
+ *
+ * Optional fog of war: pass `{ vision }` (a `VisionField`) to fade tiles
+ * outside line of sight. Cells the viewer has never seen render as
+ * `UNSEEN_GLYPH` (true black). Cells previously seen but currently
+ * out-of-LOS render the dim tile glyph but no entity — entity positions
+ * aren't memorised, so a drone that ducked behind a wall vanishes.
  */
 
 /**
@@ -32,9 +38,11 @@ export function cameraFor(target, viewport) {
 /**
  * @param {import('../game/World.js').World} world
  * @param {{ x: number, y: number, width: number, height: number }} camera
+ * @param {{ vision?: import('../game/Vision.js').VisionField }} [options]
  */
-export function buildFrame(world, camera) {
+export function buildFrame(world, camera, options = {}) {
   const { x: cx, y: cy, width, height } = camera;
+  const { vision } = options;
   const cells = Array.from({ length: width * height });
 
   // Index entities once so we don't pay an O(n) scan per cell.
@@ -53,6 +61,20 @@ export function buildFrame(world, camera) {
         cells[idx] = OOB_GLYPH;
         continue;
       }
+
+      if (vision) {
+        if (vision.isVisible(wx, wy)) {
+          const entity = entityIndex.get(`${wx},${wy}`);
+          cells[idx] = entity ? glyphForEntity(entity) : glyphForTile(world.grid.tileAt(wx, wy));
+        } else if (vision.hasSeen(wx, wy)) {
+          // Memory: tile only, no entities. We don't track where things were.
+          cells[idx] = dimGlyph(glyphForTile(world.grid.tileAt(wx, wy)));
+        } else {
+          cells[idx] = UNSEEN_GLYPH;
+        }
+        continue;
+      }
+
       const entity = entityIndex.get(`${wx},${wy}`);
       cells[idx] = entity ? glyphForEntity(entity) : glyphForTile(world.grid.tileAt(wx, wy));
     }

@@ -126,3 +126,46 @@ test('World.moveEntity throws on illegal move and leaves state untouched', () =>
   assert.equal(p.y, 2);
   assert.equal(p.ap, apBefore);
 });
+
+test('World.canMoveEntity rejects a dead entity (corpses cannot move)', () => {
+  const w = new World(new Grid(5, 5));
+  const p = makePlayer(2, 2);
+  w.addEntity(p);
+  p.alive = false;
+  const r = w.canMoveEntity(p, 1, 0);
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'dead');
+});
+
+test('World.canMoveEntity throws on non-integer offsets (data-corruption guard)', () => {
+  const w = new World(new Grid(5, 5));
+  const p = makePlayer(2, 2);
+  w.addEntity(p);
+  assert.throws(() => w.canMoveEntity(p, 0.5, 0), TypeError);
+  assert.throws(() => w.canMoveEntity(p, 0, Number.NaN), TypeError);
+});
+
+test('World.blockerKeys returns coordinate keys for every live entity', () => {
+  const w = new World(new Grid(5, 5));
+  const p = makePlayer(1, 1);
+  const d = new Entity({ id: 'd', x: 3, y: 2, faction: FACTION.CORP, glyph: 'd' });
+  w.addEntity(p);
+  w.addEntity(d);
+  const keys = w.blockerKeys();
+  assert.equal(keys.size, 2);
+  assert.ok(keys.has('1,1'));
+  assert.ok(keys.has('3,2'));
+});
+
+test('World.blockerKeys excludes dead entities', () => {
+  const w = new World(new Grid(5, 5));
+  const p = makePlayer(1, 1);
+  const d = new Entity({ id: 'd', x: 3, y: 2, faction: FACTION.CORP, glyph: 'd' });
+  w.addEntity(p);
+  w.addEntity(d);
+  d.alive = false;
+  const keys = w.blockerKeys();
+  assert.equal(keys.size, 1);
+  assert.ok(keys.has('1,1'));
+  assert.equal(keys.has('3,2'), false, 'corpse should not occlude LOS');
+});

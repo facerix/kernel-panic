@@ -31,11 +31,12 @@ export class AsciiRenderer {
   }
 
   /**
-   * Render a world centred on `followTarget` (any object with x, y).
+   * Render a world centred on `followTarget` (any object with x, y). Pass
+   * `options.vision` (a `VisionField`) for fog-of-war fading.
    */
-  draw(world, followTarget) {
+  draw(world, followTarget, options = {}) {
     const camera = cameraFor(followTarget, this.viewport);
-    const frame = buildFrame(world, camera);
+    const frame = buildFrame(world, camera, options);
     this.#drawFrame(frame);
   }
 

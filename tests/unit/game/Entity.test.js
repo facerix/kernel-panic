@@ -74,3 +74,52 @@ test('Entity.refreshAp restores to maxAp', () => {
   e.refreshAp();
   assert.equal(e.ap, 4);
 });
+
+test('Entity defaults to full HP and respects custom maxHp', () => {
+  const def = new Entity(baseProps());
+  assert.equal(def.hp, def.maxHp);
+  assert.ok(def.maxHp > 0, 'default maxHp positive');
+
+  const e = new Entity({ ...baseProps(), maxHp: 5 });
+  assert.equal(e.hp, 5);
+  assert.equal(e.maxHp, 5);
+});
+
+test('Entity rejects non-positive maxHp (data-corruption guard)', () => {
+  assert.throws(() => new Entity({ ...baseProps(), maxHp: 0 }), RangeError);
+  assert.throws(() => new Entity({ ...baseProps(), maxHp: -1 }), RangeError);
+  assert.throws(() => new Entity({ ...baseProps(), maxHp: 1.5 }), RangeError);
+});
+
+test('Entity.damage subtracts HP and keeps it non-negative', () => {
+  const e = new Entity({ ...baseProps(), maxHp: 3 });
+  e.damage(2);
+  assert.equal(e.hp, 1);
+  assert.equal(e.alive, true);
+});
+
+test('Entity.damage flips alive=false at 0 HP', () => {
+  const e = new Entity({ ...baseProps(), maxHp: 2 });
+  e.damage(2);
+  assert.equal(e.hp, 0);
+  assert.equal(e.alive, false);
+});
+
+test('Entity.damage clamps lethal overkill to 0 HP (no negative HP)', () => {
+  const e = new Entity({ ...baseProps(), maxHp: 2 });
+  e.damage(5);
+  assert.equal(e.hp, 0);
+  assert.equal(e.alive, false);
+});
+
+test('Entity.damage throws on negative or non-integer input', () => {
+  const e = new Entity(baseProps());
+  assert.throws(() => e.damage(-1), RangeError);
+  assert.throws(() => e.damage(1.5), RangeError);
+});
+
+test('Entity.damage on a dead entity throws', () => {
+  const e = new Entity({ ...baseProps(), maxHp: 1 });
+  e.damage(1);
+  assert.throws(() => e.damage(1), /already dead/);
+});

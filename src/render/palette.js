@@ -25,9 +25,21 @@ const FACTION_FG = {
 /**
  * Sentinel glyph for cells outside the world (camera near the map edge).
  * We render *something* rather than leaving holes so the playfield always
- * fills the canvas — easier on the eyes and on the CRT post-pass.
+ * fills the canvas — easier on the eyes and on the CRT post-pass. Stays a
+ * pure space (renderer skips it) so OOB looks identical to canvas bg.
  */
 export const OOB_GLYPH = Object.freeze({ char: ' ', fg: '#000000' });
+
+/**
+ * Sentinel for never-seen tiles inside the world (true fog of war).
+ *
+ * Uses a faint mid-dot rather than a space so the foreground color
+ * actually paints — previously the renderer's "skip space" optimization
+ * meant the documented `#000000` was dead code (M4 review). The dot reads
+ * as quiet static against the canvas bg and is visibly distinct from the
+ * dimmed "memory" tiles, which keep their tile-shaped glyph.
+ */
+export const UNSEEN_GLYPH = Object.freeze({ char: '·', fg: '#1a1a1a' });
 
 export function glyphForTile(tile) {
   const g = TILE_GLYPH[tile];
@@ -39,4 +51,32 @@ export function glyphForEntity(entity) {
   const fg = FACTION_FG[entity.faction];
   if (!fg) throw new Error(`palette: unknown faction "${entity.faction}"`);
   return { char: entity.glyph, fg };
+}
+
+/**
+ * Multiply each channel of a `#rrggbb` colour by `factor` ∈ [0, 1]. Used to
+ * produce the dim "remembered" variant of any glyph for fog-of-war memory.
+ * Crashes on a malformed hex — silent fallback would mask a palette bug.
+ */
+export function dimColor(hex, factor) {
+  if (typeof hex !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(hex)) {
+    throw new Error(`dimColor: expected #rrggbb, got "${hex}"`);
+  }
+  if (!Number.isFinite(factor) || factor < 0 || factor > 1) {
+    throw new RangeError(`dimColor: factor must be in [0, 1], got ${factor}`);
+  }
+  const r = Math.round(parseInt(hex.slice(1, 3), 16) * factor);
+  const g = Math.round(parseInt(hex.slice(3, 5), 16) * factor);
+  const b = Math.round(parseInt(hex.slice(5, 7), 16) * factor);
+  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+}
+
+/** Default dim factor for remembered (out-of-LOS, in-memory) tiles. */
+export const MEMORY_DIM = 0.35;
+
+/**
+ * Wrap a glyph into its memory variant. Convenience for the frame builder.
+ */
+export function dimGlyph(glyph, factor = MEMORY_DIM) {
+  return { char: glyph.char, fg: dimColor(glyph.fg, factor) };
 }

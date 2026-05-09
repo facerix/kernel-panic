@@ -93,11 +93,16 @@ UpdateNotification (dispatched by component)
 2. ❌ Using `createElement` (use `h()`)
 3. ❌ Bypassing DataStore for data operations
 4. ❌ Adding heavy dependencies without approval
-5. ❌ Relative import paths — always use absolute paths starting with `/`
+5. ❌ Relative import paths from outside `src/` — HTML pages, `components/`,
+   `debug/`, etc. must use absolute paths starting with `/` (they resolve
+   through live-server and break otherwise).
    ```javascript
    import { h } from '/src/domUtils.js'; // ✓
    import { h } from 'src/domUtils.js';  // ✗ — breaks as a module
    ```
+   **Inside `src/` itself**, use relative paths (`./constants.js`). This
+   keeps the game-logic tree self-contained so `node --test` can import it
+   without a server. See `docs/phase-1-plan.md` → "Architecture conventions."
 
 ## Testing
 
