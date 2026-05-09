@@ -1,7 +1,8 @@
 /**
  * Pure input dispatcher. Maps `(key, mode)` to `{ intent, nextMode }` so the
- * game loop is input-source agnostic — the same intent stream will work for
- * keyboard now and the on-screen touch pad in M8.
+ * game loop is input-source agnostic — the same intent stream powers both
+ * the keyboard controller and the M7 on-screen touch pad (which synthesizes
+ * keystrokes via `src/input/touchpad.js`).
  *
  * The dispatcher is a small mode machine. IDLE is the default; pressing an
  * "aim" key (`v` for vault, `f` for fire in M4) enters an aiming mode where

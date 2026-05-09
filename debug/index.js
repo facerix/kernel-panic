@@ -1,12 +1,14 @@
 /**
- * M6 debug harness. KeyboardController emits intents, the game loop applies
- * them. Player can be a Merc (vault) or a Razor (slide + stealth) — toggle
- * with `1` (Merc) or `2` (Razor) on reset, or via `?archetype=razor` in the
- * URL. Razor is the default for M6 since it's the new toy.
+ * M7 debug harness. Both KeyboardController and the on-screen <touch-pad>
+ * emit the same intent shape; the game loop applies them through one path.
+ * Player can be a Merc (vault) or a Razor (slide + stealth) — toggle with
+ * `1` (Merc) or `2` (Razor) on reset, or via `?archetype=razor` in the URL.
+ * Razor is the default since M6.
  *
- * New in M6: melee with `m`+dir (any archetype), slide with `t`+dir (Razor
- * only). Movement and combat now emit `noise` events that drones investigate;
- * Razor's slide is silent so a sentry doesn't latch onto where she repositioned.
+ * New in M7: <touch-pad> overlay. Auto-shown on coarse pointers; force on
+ * desktop with `?touch=force`. Touch and keyboard each own their own aim
+ * mode (per-input). On reset, both are reset to IDLE so a stale half-press
+ * can't carry into a new scenario.
  */
 import { Grid } from '/src/game/Grid.js';
 import { World } from '/src/game/World.js';
@@ -35,6 +37,7 @@ let drone;
 let renderer;
 let crt;
 let input;
+let touchPad;
 let vision;
 let rng;
 let bus;
@@ -258,6 +261,12 @@ function applyIntent(intent) {
       return;
     }
     case 'cancel': {
+      // Cancel is the universal "stop aiming" — clear *both* input controllers
+      // even if the cancel came from one of them, so a touch-CANCEL after a
+      // keyboard `f` (or vice versa) doesn't leave the other side stuck in
+      // an aim mode. Without this, the per-input mode model leaks: each
+      // controller only resets its own mode on cancel.
+      resetInputModes();
       log('> ACTION CANCELLED.');
       return;
     }
@@ -346,6 +355,25 @@ function formatCorpAction(actor, action) {
   }
 }
 
+function logModeChange(nextMode) {
+  if (nextMode === MODE.VAULT_AIM) log('> VAULT — pick a direction (Esc to cancel).');
+  if (nextMode === MODE.FIRE_AIM) log('> FIRE — pick a direction (Esc to cancel).');
+  if (nextMode === MODE.MELEE_AIM) log('> MELEE — pick a direction (Esc to cancel).');
+  if (nextMode === MODE.SLIDE_AIM) log('> SLIDE — pick a direction (Esc to cancel).');
+}
+
+function activeMode() {
+  // Show whichever input is currently aiming. Touch wins ties so the banner
+  // matches the visible highlight on the pad.
+  if (touchPad && touchPad.mode !== MODE.IDLE) return touchPad.mode;
+  return input?.mode ?? MODE.IDLE;
+}
+
+function resetInputModes() {
+  if (touchPad) touchPad.setMode(MODE.IDLE);
+  if (input) input.mode = MODE.IDLE;
+}
+
 function bindUI() {
   const canvas = document.getElementById('game-canvas');
   renderer = new AsciiRenderer(canvas);
@@ -354,34 +382,46 @@ function bindUI() {
   input = new KeyboardController({
     onIntent: intent => {
       applyIntent(intent);
-      rerender(input.mode);
+      rerender(activeMode());
     },
     onModeChange: nextMode => {
-      if (nextMode === MODE.VAULT_AIM) log('> VAULT — pick a direction (Esc to cancel).');
-      if (nextMode === MODE.FIRE_AIM) log('> FIRE — pick a direction (Esc to cancel).');
-      if (nextMode === MODE.MELEE_AIM) log('> MELEE — pick a direction (Esc to cancel).');
-      if (nextMode === MODE.SLIDE_AIM) log('> SLIDE — pick a direction (Esc to cancel).');
-      rerender(nextMode);
+      logModeChange(nextMode);
+      rerender(activeMode());
     },
   });
   input.attach();
+
+  touchPad = document.getElementById('touch-pad');
+  if (touchPad) {
+    touchPad.addEventListener('intent', evt => {
+      applyIntent(evt.detail);
+      rerender(activeMode());
+    });
+    touchPad.addEventListener('mode-change', evt => {
+      logModeChange(evt.detail.mode);
+      rerender(activeMode());
+    });
+  }
 
   // Reset / archetype toggles aren't part of the game keymap — wire directly.
   document.addEventListener('keydown', evt => {
     if (evt.ctrlKey || evt.metaKey) return;
     if (evt.key === 'r' || evt.key === 'R') {
       buildScenario();
-      rerender(input.mode);
+      resetInputModes();
+      rerender(activeMode());
       evt.preventDefault();
     } else if (evt.key === '1') {
       archetype = 'merc';
       buildScenario();
-      rerender(input.mode);
+      resetInputModes();
+      rerender(activeMode());
       evt.preventDefault();
     } else if (evt.key === '2') {
       archetype = 'razor';
       buildScenario();
-      rerender(input.mode);
+      resetInputModes();
+      rerender(activeMode());
       evt.preventDefault();
     }
   });

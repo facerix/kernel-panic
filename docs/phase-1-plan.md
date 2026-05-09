@@ -12,10 +12,10 @@ Living plan for Phase 1 of Kernel Panic. Source of truth for milestone scope, cu
 | M4 — Line of Sight + ranged combat | ✅ Done |
 | M5 — A* drone AI | ✅ Done |
 | M6 — Razor archetype + melee/stealth | ✅ Done |
-| **M7 — Hub, Curator, run lifecycle, death screen** | **▶ Next** |
-| M8 — Touch / on-screen keypad (Phase 1.5) | ⏳ |
+| M7 — Touch / on-screen keypad | ✅ Done |
+| **M8 — Hub, Curator, run lifecycle, death screen** | **▶ Next** |
 
-Test count after M6 sweep-up: **273 passing**, lint clean.
+Test count after M7: **297 passing**, lint clean.
 
 ## Locked-in decisions
 
@@ -24,7 +24,7 @@ These were settled in chat before any code landed. Re-open only with a reason.
 - **Procedural generation:** prefab-hybrid — BSP layout + authored room prefabs stamped into leaves. Cover placement is authored, variety is procedural. Seeded PRNG (`mulberry32`) so maps are reproducible in tests.
 - **Save flow:** autosave-on-turn-end to DataStore. `beforeunload` only triggers the browser's native warning (custom modals don't work there). On load, if a saved run exists, prompt via `<confirmation-modal>`: *Resume / Abandon*. Death screen clears the save.
 - **Archetype order:** Merc first (M3), Razor in M6.
-- **Input:** keyboard-only for V1; touch / on-screen pad as M8.
+- **Input:** keyboard-only for V1; touch / on-screen pad as M7.
 - **Renderer:** canvas + CRT post-pass (scanlines + vignette + per-glyph glow).
 - **AP costs:** Move 1, Ranged 2, Melee 1, Interact 1, Vault 3, Slide 2. `DEFAULT_AP = 4` per turn. All tunable in `src/game/constants.js`.
 - **Cover:** blocks movement (so Vault is a real perk), does *not* block LOS (will grant a defender hit-modifier in M4).
@@ -72,7 +72,7 @@ Goal: a playable Merc on the existing engine, with Vault working end-to-end.
 
 ### M4 — Line of Sight + ranged combat ✅
 
-- `src/rng.js`: `mulberry32` seeded PRNG wrapped in an `Rng` class. Exposes `state` for the M7 save and a labelled `fork(label)` for stable substreams. INVARIANT: `state` mirrors the closure's internal counter; both must move together if mulberry stepping ever changes.
+- `src/rng.js`: `mulberry32` seeded PRNG wrapped in an `Rng` class. Exposes `state` for the M8 save and a labelled `fork(label)` for stable substreams. INVARIANT: `state` mirrors the closure's internal counter; both must move together if mulberry stepping ever changes.
 - `src/game/LineOfSight.js`: Bresenham `tilesBetween` plus `hasLineOfSight` (symmetric — traces both directions and requires both to clear) and `hasCoverBetween` for combat. Walls and **live entities** block LOS via the `{ blockers }` option; cover doesn't. Exports `withinRange` — the shared Euclidean-radius check used by Combat, Vision, and the harness.
 - `src/game/Vision.js`: per-viewer `VisionField` with `visible`/`seen` sets, recomputed each player move. Bounded by `SIGHT_RANGE` and a circular FOV. Accepts `{ blockers }` so a body on the line breaks the sightline.
 - `src/game/Combat.js`: `canFireRanged` + `resolveRanged(world, attacker, target, rng)`. Cover lowers hit threshold by `COVER_HIT_PENALTY`. Throws on illegal preconditions *before* debiting AP — no "ghost shots." Threshold is validated to stay in `[0,1]` so degenerate tuning crashes loudly. Tunable via `BASE_HIT_CHANCE` / `COVER_HIT_PENALTY` / `RANGED_DAMAGE`.
@@ -84,7 +84,7 @@ Goal: a playable Merc on the existing engine, with Vault working end-to-end.
 
 ### M5 — A* drone AI ✅
 
-- `src/game/Pathfinding.js`: 8-neighbour A* over current passable tiles with a Chebyshev heuristic and an internal binary min-heap. Live entities block by default; the `goal` tile is allowed to be occupied (`allowOccupiedGoal: true`) so an engaging drone can plan a route to the player's tile and take the first step. No caching across calls — destruction in M7 will mutate the grid.
+- `src/game/Pathfinding.js`: 8-neighbour A* over current passable tiles with a Chebyshev heuristic and an internal binary min-heap. Live entities block by default; the `goal` tile is allowed to be occupied (`allowOccupiedGoal: true`) so an engaging drone can plan a route to the player's tile and take the first step. No caching across calls — destruction in M8 will mutate the grid.
 - `src/game/ai/CorpDrone.js`: `patrol → investigate (last known position) → engage` state machine. Acquires via LOS+range (sharing `withinRange` + `blockerKeys` with Combat so visibility and fire-resolution can never disagree). Engage prefers `resolveRanged` over a step; losing LOS drops to investigate; reaching last-known empty-handed reverts to patrol. Subscribes to `noise` events to set `lastKnownTarget`; engaging drones ignore noise so a clatter can't pull them off a live target. A safety counter inside `takeTurn` crashes loudly if the loop ever fails to spend AP — silent stuck-drone bugs were the obvious failure mode to guard against.
 - `src/game/events.js`: tiny synchronous pub/sub bus with a closed event-type set (`entity:moved`, `entity:damaged`, `noise`, `turn:ended`). Unknown types throw on `on`/`off`/`emit` — typo-protection. Listeners run in registration order; exceptions propagate; the iteration set is snapshotted so a listener can safely unsubscribe mid-dispatch.
 - Wiring: `World.moveEntity` emits `entity:moved` with `{ entity, from, to }` *after* commit; `Combat.resolveRanged` emits `entity:damaged` only on a connected hit; `TurnQueue.endTurn` emits `turn:ended` after the AP refresh. The bus is optional on `World` — tests that don't care pay nothing.
@@ -101,18 +101,20 @@ Goal: a playable Merc on the existing engine, with Vault working end-to-end.
 - Debug harness: archetype switch (`1` Merc, `2` Razor; `?archetype=razor` URL override) defaults to Razor on M6 to showcase Slide. Status line shows `[CLOAKED]` when stealth is active. Melee resolves via `m` + dir for either archetype.
 - Tests: Razor slide validation matrix (`Razor.test.js`, 18 cases), `Entity.isSpottableBy`, `Combat.canMelee`/`resolveMelee` adjacency + AP + faction + emissions, `World.moveEntity` noise emission and `silent` opt-out, `CorpDrone` stealth-respect + same-faction filter + radius filter, keymap melee/slide modes.
 
-### M7 — Hub, Curator, run lifecycle, death screen
+### M7 — Touch / on-screen keypad ✅
+
+- `src/input/touchpad.js`: pure dispatcher. Maps button ids (`N`/`NE`/…/`fire`/`melee`/`vault`/`slide`/`wait`/`end-turn`/`cancel`) to synthetic keymap keystrokes, then runs them through the existing `dispatch` machine — single source of truth with the keyboard. Throws on unknown buttons.
+- `components/TouchPad.js`: `<touch-pad>` Shadow-DOM web component. 3×3 d-pad + action button column, `pointerdown` (skips the 300ms tap delay and lets us suppress emulated mouse events that would double-fire). Aim banner ("FIRE — pick a direction") and active-button highlight mirror the current mode. Hidden by default; auto-shows under `@media (pointer: coarse)`. Desktop testing override via `?touch=force` URL param or `force-show` attribute. Emits `intent` and `mode-change` CustomEvents — the same shape `KeyboardController` produces, so the harness wires both inputs to one `applyIntent`/`logModeChange` path.
+- Debug harness: mounts `<touch-pad>`; `resetInputModes()` clears both controllers on reset/archetype switch and on every `cancel` intent (so a CANCEL/Esc from either side wipes any aim mode the other side was holding — patches the per-input drift caveat for the cancel case specifically).
+- Tests: `tests/unit/input/touchpad.test.js` — 24 cases covering button → synthetic-key resolution, all eight directions, all seven actions, action button → aim mode → direction → targeted intent for fire/melee/vault/slide, cancel exits every aim mode, sticky-aim on noise (wait/end-turn inside aim modes is a no-op), unknown button throws. `<touch-pad>` itself is verified visually via the harness, per the "DOM-aware classes — visual verification" rule.
+
+### M8 — Hub, Curator, run lifecycle, death screen
 
 - `src/game/procgen/`: BSP + prefab stamping. Authored prefabs in `src/game/procgen/prefabs/` (each annotated with size, spawn anchors, drone patrol waypoints, cover placement).
 - `src/game/hub/SafeSpace.js`: non-combat map. `Curator` NPC offers a single quest stub that seeds the run.
 - `src/game/Run.js`: state machine (HUB → BRIEFING → COMBAT → RESULT). Persists per-turn to DataStore. On load, surface resume prompt via `<confirmation-modal>`.
 - `<crash-dump>` web component (Shadow DOM, kebab-case): faux kernel-panic stack trace built from run telemetry; clears the save.
 - Tests: BSP connectivity (every floor reachable), run state machine, crash-dump renders required telemetry fields.
-
-### M8 — Touch / on-screen keypad (Phase 1.5)
-
-- `<touch-pad>` web component overlay: 8-direction directional pad, action buttons (fire / melee / interact / wait / end-turn). Visible only when `(pointer: coarse)`.
-- Same intent stream as `KeyboardController` so the game loop is input-agnostic.
 
 ## Recorded problems (deferred fixes)
 
@@ -129,8 +131,9 @@ Things the standard we walk by has flagged but that are out of current scope:
 - **Stealth doesn't break on attack.** A Razor who slides and then melees / fires keeps her cloak until refresh. Narratively that's wrong — a swing or a gunshot should drop the veil. Cheap to add (set `stealthed = false` in Combat.resolveMelee/resolveRanged when `attacker.stealthed`), but it interacts with the noise model and we want one tuning pass before locking that in.
 - **Melee always hits.** Deterministic in V1 by design; will get parry/dodge math when archetype kits expand. `MELEE_DAMAGE` is the one knob today.
 - **Slide stealth doesn't re-engage on `slide → wait → slide`.** Fine — each slide re-arms `stealthed`, so the second slide in the same turn re-cloaks. No bug, just noting the lifecycle.
-- **Corpse positions aren't memorised.** Live and dead entities follow the same "we don't track where things were" rule — duck out of LOS and the corpse vanishes from memory until you can see the tile again. Logically a corpse doesn't move, so memorising them would be more honest. Cheap to add (a `seenCorpses` map on `VisionField` + a memory-mode branch in `frame.js`); revisit when M7 telemetry needs the data.
+- **Corpse positions aren't memorised.** Live and dead entities follow the same "we don't track where things were" rule — duck out of LOS and the corpse vanishes from memory until you can see the tile again. Logically a corpse doesn't move, so memorising them would be more honest. Cheap to add (a `seenCorpses` map on `VisionField` + a memory-mode branch in `frame.js`); revisit when M8 telemetry needs the data.
 - **NEUTRAL faction is shootable by anyone.** `canFireRanged` only blocks same-faction targets — civilians can be hit by player or corp shots. Intentional today (narrative consequences); revisit when noise/Vouch lands and we have UI to express the cost. Noted in `Combat.js`.
+- **Per-input aim mode (M7).** `KeyboardController` and `<touch-pad>` each own their own `MODE` field, so on mixed-input desktop testing the modes can drift: keyboard `f` then touch direction emits `move` (touch never entered FIRE_AIM); touch `FIRE` then keyboard direction does the same. **Cancel is patched** — the harness's `cancel` case calls `resetInputModes()` so an Esc/CANCEL from either side clears both. The general drift case (aim from one side, direction from the other) is deferred. Two future paths: (a) cross-sync on every mode-change with a re-entrance guard, or (b) lift mode to a single harness-owned field both controllers consult. Doesn't bite on touch-only or keyboard-only devices, which is the realistic shipping surface.
 
 ## Test/lint expectations
 
@@ -141,4 +144,4 @@ Things the standard we walk by has flagged but that are out of current scope:
 ## Run scripts
 
 - `npm start` — live-server on :8099. Open `/debug/` for the milestone debug harness.
-- Main app shell at `/index.html` is currently the M0 scaffold; promoted to a real game shell in M7.
+- Main app shell at `/index.html` is currently the M0 scaffold; promoted to a real game shell in M8.

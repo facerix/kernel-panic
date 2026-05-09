@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <title>Kernel Panic — M6 debug</title>
+    <title>Kernel Panic — M7 debug</title>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" href="/favicon.ico" sizes="32x32" />
@@ -48,7 +48,7 @@
   </head>
   <body class="debug-shell">
     <header>
-      <h1>Kernel Panic — M6 debug</h1>
+      <h1>Kernel Panic — M7 debug</h1>
       <p>
         Razor (default) or Merc vs. a patrolling drone. Drones now react to noise — gunshots and
         footsteps drag patrolling sentries to the source. The Razor's <em>Slide</em> is silent and
@@ -62,6 +62,10 @@
         <kbd>v</kbd> + dir. Slide (Razor): <kbd>t</kbd> + dir. End turn: <kbd>space</kbd>. Wait:
         <kbd>.</kbd>. Cancel aim: <kbd>Esc</kbd>. Archetype: <kbd>1</kbd> Merc / <kbd>2</kbd> Razor.
         Reset: <kbd>r</kbd>.
+      </p>
+      <p>
+        On a touch device the on-screen keypad appears automatically. Force it on a desktop with
+        <code>?touch=force</code> in the URL.
       </p>
     </header>
     <main>
@@ -77,6 +81,8 @@
       <h2>Log</h2>
       <pre id="log" class="debug-log" aria-live="polite"></pre>
     </main>
+    <touch-pad id="touch-pad"></touch-pad>
+    <script src="/components/TouchPad.js" type="module"></script>
     <script src="/debug/index.js" type="module"></script>
   </body>
 </html>
