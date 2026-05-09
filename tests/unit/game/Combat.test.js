@@ -11,7 +11,8 @@ import {
   BASE_HIT_CHANCE,
   COVER_HIT_PENALTY,
 } from '../../../src/game/constants.js';
-import { canFireRanged, resolveRanged } from '../../../src/game/Combat.js';
+import { canFireRanged, resolveRanged, canMelee, resolveMelee } from '../../../src/game/Combat.js';
+import { MELEE_DAMAGE, NOISE_RADIUS } from '../../../src/game/constants.js';
 
 /** Tiny stub Rng — emits a queued sequence. Lets tests pin hit/miss. */
 class StubRng {
@@ -240,4 +241,155 @@ test('resolveRanged does NOT emit entity:damaged on a miss', async () => {
   bus.on(EVENT.ENTITY_DAMAGED, payload => damaged.push(payload));
   resolveRanged(world, attacker, target, new StubRng([0.99])); // guaranteed miss
   assert.deepEqual(damaged, []);
+});
+
+test('resolveRanged emits a noise event (RANGED radius) on every shot, hit or miss', async () => {
+  const { EventBus, EVENT } = await import('../../../src/game/events.js');
+  const bus = new EventBus();
+  const grid = new Grid(8, 8);
+  const world = new World(grid, { events: bus });
+  const attacker = new Entity({ id: 'a', x: 1, y: 1, faction: FACTION.PLAYER, glyph: '@' });
+  const target = new Entity({ id: 't', x: 4, y: 1, faction: FACTION.CORP, glyph: 'd' });
+  world.addEntity(attacker);
+  world.addEntity(target);
+  const noises = [];
+  bus.on(EVENT.NOISE, payload => noises.push(payload));
+  resolveRanged(world, attacker, target, new StubRng([0])); // hit
+  resolveRanged(world, attacker, target, new StubRng([0.99])); // miss
+  assert.equal(noises.length, 2, 'gunshots are loud whether they connect or not');
+  for (const n of noises) {
+    assert.equal(n.kind, 'ranged');
+    assert.equal(n.radius, NOISE_RADIUS.RANGED);
+    assert.deepEqual(n.origin, { x: 1, y: 1 });
+    assert.equal(n.source, attacker);
+  }
+});
+
+// --- Melee --------------------------------------------------------------
+
+const makeMeleeFight = ({ attackerAt = [3, 3], targetAt = [4, 3] } = {}) => {
+  const g = new Grid(8, 8);
+  const w = new World(g);
+  const attacker = new Entity({
+    id: 'a',
+    x: attackerAt[0],
+    y: attackerAt[1],
+    faction: FACTION.PLAYER,
+    glyph: '@',
+  });
+  const target = new Entity({
+    id: 't',
+    x: targetAt[0],
+    y: targetAt[1],
+    faction: FACTION.CORP,
+    glyph: 'd',
+    maxHp: 5,
+  });
+  w.addEntity(attacker);
+  w.addEntity(target);
+  return { world: w, attacker, target };
+};
+
+test('canMelee accepts orthogonal adjacency', () => {
+  const { world, attacker, target } = makeMeleeFight();
+  assert.equal(canMelee(world, attacker, target).ok, true);
+});
+
+test('canMelee accepts diagonal adjacency (Chebyshev 1)', () => {
+  const { world, attacker, target } = makeMeleeFight({ attackerAt: [3, 3], targetAt: [4, 4] });
+  assert.equal(canMelee(world, attacker, target).ok, true);
+});
+
+test('canMelee rejects when target is not adjacent', () => {
+  const { world, attacker, target } = makeMeleeFight({ attackerAt: [1, 1], targetAt: [5, 1] });
+  assert.equal(canMelee(world, attacker, target).reason, 'not-adjacent');
+});
+
+test('canMelee rejects targeting self', () => {
+  const { world, attacker } = makeMeleeFight();
+  assert.equal(canMelee(world, attacker, attacker).reason, 'self-target');
+});
+
+test('canMelee rejects same-faction targets', () => {
+  const g = new Grid(8, 8);
+  const w = new World(g);
+  const a = new Entity({ id: 'a', x: 1, y: 1, faction: FACTION.PLAYER, glyph: '@' });
+  const ally = new Entity({ id: 'b', x: 2, y: 1, faction: FACTION.PLAYER, glyph: '@' });
+  w.addEntity(a);
+  w.addEntity(ally);
+  assert.equal(canMelee(w, a, ally).reason, 'same-faction');
+});
+
+test('canMelee rejects insufficient AP', () => {
+  const { world, attacker, target } = makeMeleeFight();
+  attacker.spendAp(attacker.ap); // empty AP
+  assert.equal(canMelee(world, attacker, target).reason, 'insufficient-ap');
+});
+
+test('canMelee rejects a dead target', () => {
+  const { world, attacker, target } = makeMeleeFight();
+  target.alive = false;
+  assert.equal(canMelee(world, attacker, target).reason, 'invalid-target');
+});
+
+test('resolveMelee debits MELEE AP and applies MELEE_DAMAGE', () => {
+  const { world, attacker, target } = makeMeleeFight();
+  const apBefore = attacker.ap;
+  const hpBefore = target.hp;
+  const result = resolveMelee(world, attacker, target);
+  assert.equal(result.hit, true);
+  assert.equal(result.damage, MELEE_DAMAGE);
+  assert.equal(target.hp, hpBefore - MELEE_DAMAGE);
+  assert.equal(attacker.ap, apBefore - 1 /* AP_COST.MELEE_ATTACK */);
+});
+
+test('resolveMelee marks killed=true when damage drops the target', () => {
+  const { world, attacker, target } = makeMeleeFight();
+  target.hp = 1;
+  const result = resolveMelee(world, attacker, target);
+  assert.equal(result.killed, true);
+  assert.equal(target.alive, false);
+});
+
+test('resolveMelee throws on illegal preconditions and does NOT debit AP', () => {
+  const { world, attacker, target } = makeMeleeFight({ attackerAt: [1, 1], targetAt: [5, 1] });
+  const apBefore = attacker.ap;
+  assert.throws(() => resolveMelee(world, attacker, target), /Illegal melee/);
+  assert.equal(attacker.ap, apBefore);
+});
+
+test('resolveMelee emits entity:damaged with source="melee"', async () => {
+  const { EventBus, EVENT } = await import('../../../src/game/events.js');
+  const bus = new EventBus();
+  const grid = new Grid(8, 8);
+  const world = new World(grid, { events: bus });
+  const attacker = new Entity({ id: 'a', x: 3, y: 3, faction: FACTION.PLAYER, glyph: '@' });
+  const target = new Entity({ id: 't', x: 4, y: 3, faction: FACTION.CORP, glyph: 'd' });
+  world.addEntity(attacker);
+  world.addEntity(target);
+  const damaged = [];
+  bus.on(EVENT.ENTITY_DAMAGED, payload => damaged.push(payload));
+  resolveMelee(world, attacker, target);
+  assert.equal(damaged.length, 1);
+  assert.equal(damaged[0].source, 'melee');
+  assert.equal(damaged[0].damage, MELEE_DAMAGE);
+});
+
+test('resolveMelee emits a noise event (MELEE radius)', async () => {
+  const { EventBus, EVENT } = await import('../../../src/game/events.js');
+  const bus = new EventBus();
+  const grid = new Grid(8, 8);
+  const world = new World(grid, { events: bus });
+  const attacker = new Entity({ id: 'a', x: 3, y: 3, faction: FACTION.PLAYER, glyph: '@' });
+  const target = new Entity({ id: 't', x: 4, y: 3, faction: FACTION.CORP, glyph: 'd' });
+  world.addEntity(attacker);
+  world.addEntity(target);
+  const noises = [];
+  bus.on(EVENT.NOISE, payload => noises.push(payload));
+  resolveMelee(world, attacker, target);
+  assert.equal(noises.length, 1);
+  assert.equal(noises[0].kind, 'melee');
+  assert.equal(noises[0].radius, NOISE_RADIUS.MELEE);
+  assert.equal(noises[0].source, attacker);
+  assert.deepEqual(noises[0].origin, { x: 3, y: 3 });
 });

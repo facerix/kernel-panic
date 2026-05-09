@@ -123,3 +123,26 @@ test('Entity.damage on a dead entity throws', () => {
   e.damage(1);
   assert.throws(() => e.damage(1), /already dead/);
 });
+
+test('Entity.stealthed defaults to false', () => {
+  const e = new Entity(baseProps());
+  assert.equal(e.stealthed, false);
+});
+
+test('Entity.isSpottableBy returns true when not stealthed (any distance)', () => {
+  const e = new Entity({ ...baseProps(), x: 0, y: 0 });
+  const observer = { x: 50, y: 50 };
+  assert.equal(e.isSpottableBy(observer), true);
+});
+
+test('Entity.isSpottableBy honours Chebyshev adjacency when stealthed', () => {
+  const e = new Entity({ ...baseProps(), x: 5, y: 5 });
+  e.stealthed = true;
+  // Adjacent observers (dx,dy ∈ [-1,1]) still spot.
+  assert.equal(e.isSpottableBy({ x: 4, y: 4 }), true);
+  assert.equal(e.isSpottableBy({ x: 5, y: 6 }), true);
+  assert.equal(e.isSpottableBy({ x: 5, y: 5 }), true, 'colocated observer can spot');
+  // Two tiles out is hidden.
+  assert.equal(e.isSpottableBy({ x: 7, y: 5 }), false);
+  assert.equal(e.isSpottableBy({ x: 5, y: 7 }), false);
+});

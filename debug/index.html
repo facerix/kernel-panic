@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <title>Kernel Panic — M5 debug</title>
+    <title>Kernel Panic — M6 debug</title>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" href="/favicon.ico" sizes="32x32" />
@@ -48,18 +48,20 @@
   </head>
   <body class="debug-shell">
     <header>
-      <h1>Kernel Panic — M5 debug</h1>
+      <h1>Kernel Panic — M6 debug</h1>
       <p>
-        Merc vs. patrolling drone with A* pathfinding + LOS-driven engagement. The drone walks its
-        waypoints until it spots you, then fires or closes the distance; lose LOS and it
-        investigates your last known tile. Glyphs: <code>@</code> player · <code>d</code> drone ·
-        <code>%</code> corpse · <code>#</code> wall · <code>+</code> cover · <code>.</code> floor.
-        Dim tiles are remembered; black is unseen.
+        Razor (default) or Merc vs. a patrolling drone. Drones now react to noise — gunshots and
+        footsteps drag patrolling sentries to the source. The Razor's <em>Slide</em> is silent and
+        cloaks her until her next turn (drones need adjacency to spot her). Glyphs:
+        <code>@</code> player · <code>d</code> drone · <code>%</code> corpse · <code>#</code> wall ·
+        <code>+</code> cover · <code>.</code> floor. Dim tiles are remembered; black is unseen.
       </p>
       <p>
         Move: <kbd>←↑↓→</kbd> or <kbd>WASD</kbd>, <kbd>q</kbd> <kbd>e</kbd> <kbd>z</kbd>
-        <kbd>c</kbd> diagonal. Vault: <kbd>v</kbd> + dir. Fire: <kbd>f</kbd> + dir. End turn:
-        <kbd>space</kbd>. Wait: <kbd>.</kbd>. Cancel aim: <kbd>Esc</kbd>. Reset: <kbd>r</kbd>.
+        <kbd>c</kbd> diagonal. Fire: <kbd>f</kbd> + dir. Melee: <kbd>m</kbd> + dir. Vault (Merc):
+        <kbd>v</kbd> + dir. Slide (Razor): <kbd>t</kbd> + dir. End turn: <kbd>space</kbd>. Wait:
+        <kbd>.</kbd>. Cancel aim: <kbd>Esc</kbd>. Archetype: <kbd>1</kbd> Merc / <kbd>2</kbd> Razor.
+        Reset: <kbd>r</kbd>.
       </p>
     </header>
     <main>

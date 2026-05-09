@@ -61,9 +61,33 @@ export const COVER_HIT_PENALTY = 0.3;
 export const RANGED_DAMAGE = 1;
 
 /**
+ * Melee combat. V1 keeps it deterministic — adjacency + AP buys a guaranteed
+ * hit. Hit-chance can grow back when archetype kits (parry, dodge) land.
+ * Damage is flat; bumped above ranged because melee requires standing on the
+ * target's tile (a real positional cost).
+ */
+export const MELEE_DAMAGE = 2;
+
+/**
  * How far an entity can see/shoot, in tiles. Enforced as a Euclidean
  * (circular) distance — `dx² + dy² ≤ SIGHT_RANGE²` — so an open shot at
  * (8, 0) is in range but (8, 8) is not. Combat and Vision share the
  * `withinRange` helper in `LineOfSight.js` so this geometry is one place.
  */
 export const SIGHT_RANGE = 8;
+
+/**
+ * Noise radii (Euclidean tiles) for actions that emit `noise` events. The
+ * blueprint's stealth loop pivots on this: louder actions reach more drones,
+ * Slide is intentionally silent, ranged fire is the loudest signature in
+ * V1. Tunable so a future suppressor / silenced loadout is one constant.
+ *
+ * Sentries within radius (and not in ENGAGE) latch onto the origin as
+ * `lastKnownTarget`; same-faction noise is filtered at the listener so
+ * drones don't investigate each other's footsteps.
+ */
+export const NOISE_RADIUS = Object.freeze({
+  MOVE: 3,
+  MELEE: 5,
+  RANGED: SIGHT_RANGE, // a gunshot is heard as far as it could have travelled
+});

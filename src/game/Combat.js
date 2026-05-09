@@ -26,6 +26,8 @@ import {
   BASE_HIT_CHANCE,
   COVER_HIT_PENALTY,
   RANGED_DAMAGE,
+  MELEE_DAMAGE,
+  NOISE_RADIUS,
   SIGHT_RANGE,
 } from './constants.js';
 import { hasLineOfSight, hasCoverBetween, withinRange } from './LineOfSight.js';
@@ -103,8 +105,8 @@ export function resolveRanged(world, attacker, target, rng, options = {}) {
     damage = options.damage ?? RANGED_DAMAGE;
     target.damage(damage);
     killed = !target.alive;
-    // Emit only on a connected hit. Misses still tick the noise model in M6
-    // (a shot is loud regardless), but that's a separate `noise` event.
+    // Emit only on a connected hit. Misses still tick the noise model below
+    // (a shot is loud regardless) — that's a separate `noise` event.
     world.events?.emit(EVENT.ENTITY_DAMAGED, {
       attacker,
       target,
@@ -113,6 +115,76 @@ export function resolveRanged(world, attacker, target, rng, options = {}) {
       source: 'ranged',
     });
   }
+  // Noise fires on every shot, hit or miss — a missed bullet still cracks
+  // through the room. Origin is the *attacker*'s tile (where the muzzle
+  // flash is); a sentry on the far side investigates back along the line.
+  world.events?.emit(EVENT.NOISE, {
+    origin: { x: attacker.x, y: attacker.y },
+    radius: NOISE_RADIUS.RANGED,
+    source: attacker,
+    kind: 'ranged',
+  });
 
   return { hit, roll, threshold, inCover, damage, killed };
+}
+
+/**
+ * Pure pre-flight check for a melee strike. Mirrors `canFireRanged`'s
+ * `{ ok, reason }` shape. Adjacency is Chebyshev (the same 8-neighbourhood
+ * movement uses) so a diagonal lunge is legal — no orthogonal-only carve-out.
+ */
+export function canMelee(world, attacker, target) {
+  if (!attacker || !attacker.alive) return { ok: false, reason: 'attacker-dead' };
+  if (!target || !target.alive) return { ok: false, reason: 'invalid-target' };
+  if (target === attacker) return { ok: false, reason: 'self-target' };
+  if (target.faction === attacker.faction) return { ok: false, reason: 'same-faction' };
+  if (!attacker.canAfford(AP_COST.MELEE_ATTACK)) {
+    return { ok: false, reason: 'insufficient-ap' };
+  }
+  const dx = Math.abs(target.x - attacker.x);
+  const dy = Math.abs(target.y - attacker.y);
+  if (Math.max(dx, dy) > 1) {
+    return { ok: false, reason: 'not-adjacent' };
+  }
+  // Note we do NOT require LOS here. By the time the attacker is Chebyshev-1
+  // adjacent there's no intervening tile to occlude — the check would always
+  // be vacuously true. Walls between are impossible (movement couldn't have
+  // placed the attacker on the other side without a path).
+  return { ok: true };
+}
+
+/**
+ * Commit a melee strike. Deterministic in V1 — adjacency + AP buys the hit.
+ * Throws on illegal pre-conditions (so a buggy caller can't silently steal
+ * AP with no swing) and emits both `entity:damaged` and a `noise` event so
+ * the world reacts the same way it does for ranged.
+ *
+ * @returns {{ hit: boolean, damage: number, killed: boolean }}
+ */
+export function resolveMelee(world, attacker, target, options = {}) {
+  const check = canMelee(world, attacker, target);
+  if (!check.ok) {
+    throw new Error(`Illegal melee from ${attacker.id} → ${target.id}: ${check.reason}`);
+  }
+  attacker.spendAp(AP_COST.MELEE_ATTACK);
+  const damage = options.damage ?? MELEE_DAMAGE;
+  target.damage(damage);
+  const killed = !target.alive;
+  world.events?.emit(EVENT.ENTITY_DAMAGED, {
+    attacker,
+    target,
+    damage,
+    killed,
+    source: 'melee',
+  });
+  // Melee is loud but not as loud as a gunshot — heard mid-room, not building-
+  // wide. Origin is the attacker's tile (point of impact in V1; diff between
+  // attacker and target tile is 1 so it's barely meaningful either way).
+  world.events?.emit(EVENT.NOISE, {
+    origin: { x: attacker.x, y: attacker.y },
+    radius: NOISE_RADIUS.MELEE,
+    source: attacker,
+    kind: 'melee',
+  });
+  return { hit: true, damage, killed };
 }

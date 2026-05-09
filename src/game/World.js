@@ -1,4 +1,4 @@
-import { AP_COST } from './constants.js';
+import { AP_COST, NOISE_RADIUS } from './constants.js';
 import { EVENT } from './events.js';
 
 /**
@@ -106,7 +106,13 @@ export class World {
     return set;
   }
 
-  moveEntity(entity, dx, dy) {
+  /**
+   * Commit a move. Pass `{ silent: true }` to suppress the `noise` emission —
+   * the Razor's Slide is the canonical caller (a stealth move is, by design,
+   * inaudible). Listeners on `entity:moved` always fire either way; vision
+   * recompute and AI hooks can't be opted out of by mistake.
+   */
+  moveEntity(entity, dx, dy, options = {}) {
     const check = this.canMoveEntity(entity, dx, dy);
     if (!check.ok) {
       throw new Error(`Illegal move for ${entity.id}: ${check.reason}`);
@@ -122,5 +128,13 @@ export class World {
       from,
       to: { x: entity.x, y: entity.y },
     });
+    if (!options.silent) {
+      this.events?.emit(EVENT.NOISE, {
+        origin: { x: entity.x, y: entity.y },
+        radius: NOISE_RADIUS.MOVE,
+        source: entity,
+        kind: 'move',
+      });
+    }
   }
 }

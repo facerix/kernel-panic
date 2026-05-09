@@ -230,3 +230,63 @@ test('CorpDrone constructor rejects malformed waypoints', () => {
 test('BASE_HIT_CHANCE is in (0, 1] so a 0-roll always hits', () => {
   assert.ok(BASE_HIT_CHANCE > 0 && BASE_HIT_CHANCE <= 1);
 });
+
+// --- M6: stealth + noise filters ---------------------------------------
+
+test('drone does NOT acquire a stealthed target outside Chebyshev 1', () => {
+  const w = openWorld();
+  const player = new Entity({ id: 'p', x: 3, y: 2, faction: FACTION.PLAYER, glyph: '@' });
+  player.stealthed = true;
+  const drone = new CorpDrone({ id: 'd', x: 6, y: 2, maxAp: AP_COST.RANGED_ATTACK });
+  w.addEntity(player);
+  w.addEntity(drone);
+  // Same setup as the "drone fires" test — but stealthed: drone shouldn't see
+  // her at distance 3.
+  const log = drone.takeTurn(w, new StubRng([0]));
+  assert.equal(player.hp, player.maxHp, 'no shot through stealth');
+  assert.notEqual(drone.state, DRONE_STATE.ENGAGE);
+  void log;
+});
+
+test('drone DOES acquire a stealthed target standing adjacent (Chebyshev 1)', () => {
+  const w = openWorld();
+  const player = new Entity({ id: 'p', x: 5, y: 2, faction: FACTION.PLAYER, glyph: '@' });
+  player.stealthed = true;
+  const drone = new CorpDrone({ id: 'd', x: 6, y: 2, maxAp: AP_COST.RANGED_ATTACK });
+  w.addEntity(player);
+  w.addEntity(drone);
+  drone.takeTurn(w, new StubRng([0]));
+  assert.equal(drone.state, DRONE_STATE.ENGAGE);
+  assert.equal(player.hp, player.maxHp - 1, 'adjacent-stealth still gets shot');
+});
+
+test('drone ignores noise from same-faction sources (no friendly footstep panic)', () => {
+  const bus = new EventBus();
+  const drone = new CorpDrone({ id: 'd', x: 2, y: 2 });
+  drone.bindToBus(bus);
+  // Another drone — same faction.
+  const teammate = new CorpDrone({ id: 'd2', x: 5, y: 5 });
+  bus.emit(EVENT.NOISE, { origin: { x: 5, y: 5 }, radius: 8, source: teammate });
+  assert.equal(drone.state, DRONE_STATE.PATROL);
+  assert.equal(drone.lastKnownTarget, null);
+});
+
+test('drone ignores noise outside its hearing radius', () => {
+  const bus = new EventBus();
+  const drone = new CorpDrone({ id: 'd', x: 0, y: 0 });
+  drone.bindToBus(bus);
+  // Origin 100 tiles away, radius 3 — well outside hearing.
+  bus.emit(EVENT.NOISE, { origin: { x: 100, y: 0 }, radius: 3 });
+  assert.equal(drone.state, DRONE_STATE.PATROL);
+  assert.equal(drone.lastKnownTarget, null);
+});
+
+test('drone investigates noise from a hostile inside its hearing radius', () => {
+  const bus = new EventBus();
+  const drone = new CorpDrone({ id: 'd', x: 0, y: 0 });
+  const player = new Entity({ id: 'p', x: 2, y: 0, faction: FACTION.PLAYER, glyph: '@' });
+  drone.bindToBus(bus);
+  bus.emit(EVENT.NOISE, { origin: { x: 2, y: 0 }, radius: 3, source: player });
+  assert.equal(drone.state, DRONE_STATE.INVESTIGATE);
+  assert.deepEqual(drone.lastKnownTarget, { x: 2, y: 0 });
+});

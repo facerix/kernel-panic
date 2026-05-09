@@ -79,12 +79,22 @@ export class CorpDrone extends Entity {
     this.#unsubs = [];
   }
 
-  #onNoise({ origin } = {}) {
+  #onNoise({ origin, radius, source } = {}) {
     if (!this.alive) return;
     if (!origin || !Number.isInteger(origin.x) || !Number.isInteger(origin.y)) return;
     // Engaging drones are already firing — don't let a clatter pull them off
     // a live target. Patrolling and investigating drones latch onto the noise.
     if (this.state === DRONE_STATE.ENGAGE) return;
+    // Same-faction filter: don't investigate your own teammates' footsteps
+    // or your own gunshots. M6 wires `World.moveEntity` to emit movement noise
+    // unconditionally, so without this every drone step would ping every
+    // other drone. (`source` may be absent on synthetic emits — be permissive.)
+    if (source && source.faction === this.faction) return;
+    // Range filter: hearing isn't omniscient. Noise carries `radius` and we
+    // only react if we're inside it. Default to SIGHT_RANGE for legacy emits
+    // that don't carry a radius, so older callers keep working.
+    const r = Number.isFinite(radius) ? radius : SIGHT_RANGE;
+    if (!withinRange(this.x, this.y, origin.x, origin.y, r)) return;
     this.lastKnownTarget = { x: origin.x, y: origin.y };
     this.state = DRONE_STATE.INVESTIGATE;
   }
@@ -101,6 +111,11 @@ export class CorpDrone extends Entity {
       if (!e.alive || e.faction === this.faction) continue;
       if (!withinRange(this.x, this.y, e.x, e.y, SIGHT_RANGE)) continue;
       if (!hasLineOfSight(world.grid, this.x, this.y, e.x, e.y, { blockers })) continue;
+      // Stealth gate (M6 Razor Slide). The Razor's perk sets `stealthed=true`
+      // for the duration of the corp turn following her slide; while it's set
+      // she requires Chebyshev adjacency to be acquired. Generic on Entity so
+      // future cyberware can flip the same flag.
+      if (typeof e.isSpottableBy === 'function' && !e.isSpottableBy(this)) continue;
       const dx = e.x - this.x;
       const dy = e.y - this.y;
       const d2 = dx * dx + dy * dy;

@@ -1,5 +1,6 @@
 import { Entity } from '../Entity.js';
 import { TILE, FACTION, AP_COST } from '../constants.js';
+import { EVENT } from '../events.js';
 
 /**
  * Merc — ranged-combat archetype. Phase-1 perk: **Vault**.
@@ -59,9 +60,20 @@ export class Merc extends Entity {
     if (!check.ok) {
       throw new Error(`Illegal vault for ${this.id}: ${check.reason}`);
     }
+    const from = { x: this.x, y: this.y };
     this.spendAp(AP_COST.VAULT);
     this.x += 2 * dx;
     this.y += 2 * dy;
+    // Closes the M5 deferred fix: emit ENTITY_MOVED so vision recompute and
+    // AI hooks pick the vault up like any other reposition. No NOISE event —
+    // a vault is loud (clambering over cover) but that's *also* a missing
+    // call we'll add when the vault-while-firing combo lands; today the
+    // omission is conservative (no false alarms for sentries).
+    world.events?.emit(EVENT.ENTITY_MOVED, {
+      entity: this,
+      from,
+      to: { x: this.x, y: this.y },
+    });
     // M4 TODO: emit a fire action here so vault-while-firing resolves a shot.
   }
 }

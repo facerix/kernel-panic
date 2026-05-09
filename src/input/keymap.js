@@ -15,6 +15,8 @@ export const MODE = Object.freeze({
   IDLE: 'IDLE',
   VAULT_AIM: 'VAULT_AIM',
   FIRE_AIM: 'FIRE_AIM',
+  MELEE_AIM: 'MELEE_AIM',
+  SLIDE_AIM: 'SLIDE_AIM',
 });
 
 const DIRECTION_KEYS = {
@@ -55,6 +57,14 @@ function dispatchIdle(key) {
     case 'f':
     case 'F':
       return { intent: null, nextMode: MODE.FIRE_AIM };
+    case 'm':
+    case 'M':
+      return { intent: null, nextMode: MODE.MELEE_AIM };
+    case 't':
+    case 'T':
+      // Razor's Slide perk. `t` chosen because `s` is WASD-down and would
+      // collide with movement; `t` is unused and reads as "tactical slide".
+      return { intent: null, nextMode: MODE.SLIDE_AIM };
     default:
       return noChange(MODE.IDLE);
   }
@@ -84,6 +94,28 @@ function dispatchFireAim(key) {
   return noChange(MODE.FIRE_AIM);
 }
 
+function dispatchMeleeAim(key) {
+  if (key === 'Escape') {
+    return { intent: { type: 'cancel' }, nextMode: MODE.IDLE };
+  }
+  const dir = directionFor(key);
+  if (dir) {
+    return { intent: { type: 'melee', dx: dir[0], dy: dir[1] }, nextMode: MODE.IDLE };
+  }
+  return noChange(MODE.MELEE_AIM);
+}
+
+function dispatchSlideAim(key) {
+  if (key === 'Escape') {
+    return { intent: { type: 'cancel' }, nextMode: MODE.IDLE };
+  }
+  const dir = directionFor(key);
+  if (dir) {
+    return { intent: { type: 'slide', dx: dir[0], dy: dir[1] }, nextMode: MODE.IDLE };
+  }
+  return noChange(MODE.SLIDE_AIM);
+}
+
 export function dispatch(key, mode) {
   switch (mode) {
     case MODE.IDLE:
@@ -92,6 +124,10 @@ export function dispatch(key, mode) {
       return dispatchVaultAim(key);
     case MODE.FIRE_AIM:
       return dispatchFireAim(key);
+    case MODE.MELEE_AIM:
+      return dispatchMeleeAim(key);
+    case MODE.SLIDE_AIM:
+      return dispatchSlideAim(key);
     default:
       throw new Error(`keymap: unknown mode "${mode}"`);
   }

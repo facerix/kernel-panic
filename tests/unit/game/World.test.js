@@ -181,6 +181,38 @@ test('World without an event bus does not emit (and does not crash)', () => {
   assert.doesNotThrow(() => w.moveEntity(p, 1, 0));
 });
 
+test('World.moveEntity emits a noise event with MOVE radius', async () => {
+  const { EventBus, EVENT } = await import('../../../src/game/events.js');
+  const { NOISE_RADIUS } = await import('../../../src/game/constants.js');
+  const bus = new EventBus();
+  const w = new World(new Grid(5, 5), { events: bus });
+  const p = makePlayer(2, 2);
+  w.addEntity(p);
+  const noises = [];
+  bus.on(EVENT.NOISE, payload => noises.push(payload));
+  w.moveEntity(p, 1, 0);
+  assert.equal(noises.length, 1);
+  assert.equal(noises[0].kind, 'move');
+  assert.equal(noises[0].radius, NOISE_RADIUS.MOVE);
+  assert.equal(noises[0].source, p);
+  assert.deepEqual(noises[0].origin, { x: 3, y: 2 }, 'noise origin is the post-move tile');
+});
+
+test('World.moveEntity { silent: true } suppresses noise but still emits entity:moved', async () => {
+  const { EventBus, EVENT } = await import('../../../src/game/events.js');
+  const bus = new EventBus();
+  const w = new World(new Grid(5, 5), { events: bus });
+  const p = makePlayer(2, 2);
+  w.addEntity(p);
+  const moves = [];
+  const noises = [];
+  bus.on(EVENT.ENTITY_MOVED, payload => moves.push(payload));
+  bus.on(EVENT.NOISE, payload => noises.push(payload));
+  w.moveEntity(p, 1, 0, { silent: true });
+  assert.equal(moves.length, 1, 'silent does not gag entity:moved (vision still updates)');
+  assert.deepEqual(noises, [], 'silent suppresses the noise emit');
+});
+
 test('World.blockerKeys excludes dead entities', () => {
   const w = new World(new Grid(5, 5));
   const p = makePlayer(1, 1);

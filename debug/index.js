@@ -1,15 +1,18 @@
 /**
- * M5 debug harness — KeyboardController emits intents, the game loop applies
- * them. Player is a Merc; vault with `v`+dir, fire ranged with `f`+dir.
- * The renderer fogs unseen tiles and dims remembered ones. The drone is now a
- * `CorpDrone` running a patrol → investigate → engage state machine on the
- * shared `EventBus`; the harness subscribes player vision to `entity:moved`
- * so a drone walking into LOS appears immediately (closes the M4 deferred fix).
+ * M6 debug harness. KeyboardController emits intents, the game loop applies
+ * them. Player can be a Merc (vault) or a Razor (slide + stealth) — toggle
+ * with `1` (Merc) or `2` (Razor) on reset, or via `?archetype=razor` in the
+ * URL. Razor is the default for M6 since it's the new toy.
+ *
+ * New in M6: melee with `m`+dir (any archetype), slide with `t`+dir (Razor
+ * only). Movement and combat now emit `noise` events that drones investigate;
+ * Razor's slide is silent so a sentry doesn't latch onto where she repositioned.
  */
 import { Grid } from '/src/game/Grid.js';
 import { World } from '/src/game/World.js';
 import { TurnQueue } from '/src/game/TurnQueue.js';
 import { Merc } from '/src/game/archetypes/Merc.js';
+import { Razor } from '/src/game/archetypes/Razor.js';
 import { CorpDrone } from '/src/game/ai/CorpDrone.js';
 import { EventBus, EVENT } from '/src/game/events.js';
 import { TILE, FACTION, SIGHT_RANGE } from '/src/game/constants.js';
@@ -19,7 +22,7 @@ import { KeyboardController } from '/src/input/KeyboardController.js';
 import { MODE } from '/src/input/keymap.js';
 import { VisionField } from '/src/game/Vision.js';
 import { hasLineOfSight, withinRange } from '/src/game/LineOfSight.js';
-import { canFireRanged, resolveRanged } from '/src/game/Combat.js';
+import { canFireRanged, resolveRanged, canMelee, resolveMelee } from '/src/game/Combat.js';
 import { Rng } from '/src/rng.js';
 
 const GRID_W = 24;
@@ -35,6 +38,12 @@ let input;
 let vision;
 let rng;
 let bus;
+let archetype = (() => {
+  // URL override at first load. Reset keys toggle this in `bindUI`.
+  const params = new URLSearchParams(globalThis.location?.search || '');
+  const a = params.get('archetype');
+  return a === 'merc' ? 'merc' : 'razor';
+})();
 const logLines = [];
 
 function buildScenario() {
@@ -63,7 +72,10 @@ function buildScenario() {
   // the bus reference, so reset is clean.
   bus = new EventBus();
   world = new World(grid, { events: bus });
-  player = new Merc({ id: 'merc', x: 3, y: 3, maxAp: 4 });
+  player =
+    archetype === 'razor'
+      ? new Razor({ id: 'razor', x: 3, y: 3, maxAp: 4 })
+      : new Merc({ id: 'merc', x: 3, y: 3, maxAp: 4 });
   // Patrol the right-hand room; the drone spends most of its time visible to
   // a player who pushes east, so M5 behaviour is observable from spawn.
   drone = new CorpDrone({
@@ -96,7 +108,10 @@ function buildScenario() {
   // future M7 saves can capture/restore .state cleanly.
   rng = new Rng(Date.now() & 0xffffffff);
   logLines.length = 0;
-  log(`> RUN INIT — turn ${queue.turnNumber}, ${queue.currentFaction.toUpperCase()} acts.`);
+  log(
+    `> RUN INIT — ${archetype.toUpperCase()} archetype, turn ${queue.turnNumber}, ` +
+      `${queue.currentFaction.toUpperCase()} acts.`
+  );
 }
 
 function recomputeVision() {
@@ -115,9 +130,10 @@ function rerender(modeHint = '') {
   const droneStatus = drone.alive
     ? `DRONE @(${drone.x},${drone.y}) HP ${drone.hp}/${drone.maxHp} [${drone.state.toUpperCase()}]`
     : 'DRONE DOWN';
+  const stealthTag = player.stealthed ? ' [CLOAKED]' : '';
   document.getElementById('status').textContent =
     `TURN ${queue.turnNumber}  |  ACTING: ${queue.currentFaction.toUpperCase()}  |  ` +
-    `PLAYER AP ${player.ap}/${player.maxAp} HP ${player.hp}/${player.maxHp}  |  ` +
+    `${archetype.toUpperCase()} AP ${player.ap}/${player.maxAp} HP ${player.hp}/${player.maxHp}${stealthTag}  |  ` +
     `${droneStatus}${aim}`;
   document.getElementById('log').textContent = logLines.slice(-12).join('\n');
 }
@@ -144,16 +160,63 @@ function applyIntent(intent) {
       return;
     }
     case 'vault': {
+      if (typeof player.canVault !== 'function') {
+        log('> VAULT: only the Merc can vault.');
+        return;
+      }
       const check = player.canVault(world, intent.dx, intent.dy);
       if (!check.ok) {
         log(`> VAULT DENIED: ${check.reason}`);
         return;
       }
       player.vault(world, intent.dx, intent.dy);
-      // Vault doesn't go through World.moveEntity (different mechanic), so
-      // refresh vision explicitly until the perk fires its own move event.
-      recomputeVision();
+      // Vault now emits ENTITY_MOVED, so vision refresh fires off the bus
+      // subscription — no inline recomputeVision() needed (closes the M5
+      // deferred fix).
       log(`> @ vaulted to (${player.x}, ${player.y}) — ${player.ap} AP left.`);
+      if (player.ap === 0) {
+        log('> AP EXHAUSTED — auto-ending turn.');
+        advanceTurn();
+      }
+      return;
+    }
+    case 'slide': {
+      if (typeof player.canSlide !== 'function') {
+        log('> SLIDE: only the Razor can slide.');
+        return;
+      }
+      const check = player.canSlide(world, intent.dx, intent.dy);
+      if (!check.ok) {
+        log(`> SLIDE DENIED: ${check.reason}`);
+        return;
+      }
+      player.slide(world, intent.dx, intent.dy);
+      log(
+        `> @ slid to (${player.x}, ${player.y}) — CLOAKED until next turn (` +
+          `${player.ap} AP left).`
+      );
+      if (player.ap === 0) {
+        log('> AP EXHAUSTED — auto-ending turn.');
+        advanceTurn();
+      }
+      return;
+    }
+    case 'melee': {
+      const target = world.entityAt(player.x + intent.dx, player.y + intent.dy);
+      if (!target) {
+        log('> MELEE: no target on that tile.');
+        return;
+      }
+      const check = canMelee(world, player, target);
+      if (!check.ok) {
+        log(`> MELEE DENIED: ${check.reason}`);
+        return;
+      }
+      const result = resolveMelee(world, player, target);
+      log(
+        `> @ slashes ${target.id} for ${result.damage}` +
+          (result.killed ? ` — ${target.id.toUpperCase()} DOWN.` : '.')
+      );
       if (player.ap === 0) {
         log('> AP EXHAUSTED — auto-ending turn.');
         advanceTurn();
@@ -296,14 +359,27 @@ function bindUI() {
     onModeChange: nextMode => {
       if (nextMode === MODE.VAULT_AIM) log('> VAULT — pick a direction (Esc to cancel).');
       if (nextMode === MODE.FIRE_AIM) log('> FIRE — pick a direction (Esc to cancel).');
+      if (nextMode === MODE.MELEE_AIM) log('> MELEE — pick a direction (Esc to cancel).');
+      if (nextMode === MODE.SLIDE_AIM) log('> SLIDE — pick a direction (Esc to cancel).');
       rerender(nextMode);
     },
   });
   input.attach();
 
-  // Reset key isn't part of the game keymap — wire it directly.
+  // Reset / archetype toggles aren't part of the game keymap — wire directly.
   document.addEventListener('keydown', evt => {
-    if ((evt.key === 'r' || evt.key === 'R') && !evt.ctrlKey && !evt.metaKey) {
+    if (evt.ctrlKey || evt.metaKey) return;
+    if (evt.key === 'r' || evt.key === 'R') {
+      buildScenario();
+      rerender(input.mode);
+      evt.preventDefault();
+    } else if (evt.key === '1') {
+      archetype = 'merc';
+      buildScenario();
+      rerender(input.mode);
+      evt.preventDefault();
+    } else if (evt.key === '2') {
+      archetype = 'razor';
       buildScenario();
       rerender(input.mode);
       evt.preventDefault();
