@@ -46,7 +46,7 @@ export class Grid {
   isPassable(x, y) {
     if (!this.inBounds(x, y)) return false;
     const t = this.tiles[y * this.width + x];
-    return t === TILE.FLOOR;
+    return t === TILE.FLOOR || t === TILE.EXIT;
   }
 
   /**

@@ -1,0 +1,39 @@
+/**
+ * "Server room" prefab — 5×5 with rack-aligned cover columns. Two cover
+ * lines parallel to the y-axis force a Razor-friendly stalk between racks
+ * or a Merc-friendly vault over them. The drone anchor sits between the
+ * racks so spotting it costs you positioning either way.
+ */
+
+export const ASCII = `
+.....
+.+.+.
+.....
+.+.+.
+.....
+`;
+
+export const METADATA = Object.freeze({
+  id: 'server-room',
+  w: 5,
+  h: 5,
+  anchors: {
+    drones: [
+      {
+        x: 2,
+        y: 2,
+        waypoints: [
+          { x: 2, y: 0 },
+          { x: 2, y: 4 },
+        ],
+      },
+    ],
+    cover: [
+      { x: 1, y: 1 },
+      { x: 3, y: 1 },
+      { x: 1, y: 3 },
+      { x: 3, y: 3 },
+    ],
+    exit: [{ x: 0, y: 2 }],
+  },
+});

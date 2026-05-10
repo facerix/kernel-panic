@@ -24,19 +24,27 @@ export class AsciiRenderer {
     // Soft glow for that CRT-phosphor look — matches the colour of each glyph.
     this.glow = options.glow ?? 6;
 
+    this.#syncViewport();
+  }
+
+  #syncViewport() {
     this.viewport = {
-      width: Math.floor(canvas.width / this.cellSize),
-      height: Math.floor(canvas.height / this.cellSize),
+      width: Math.floor(this.canvas.width / this.cellSize),
+      height: Math.floor(this.canvas.height / this.cellSize),
     };
   }
 
   /**
-   * Render a world centred on `followTarget` (any object with x, y). Pass
-   * `options.vision` (a `VisionField`) for fog-of-war fading.
+   * Render a world centred on `followTarget` (any object with x, y), unless
+   * `options.camera` is set — then that rectangle (world tile coords) is drawn
+   * in full, which sizes the visible tile count (use for whole-map debug views).
+   * Pass `options.vision` (a `VisionField`) for fog-of-war fading.
    */
   draw(world, followTarget, options = {}) {
-    const camera = cameraFor(followTarget, this.viewport);
-    const frame = buildFrame(world, camera, options);
+    this.#syncViewport();
+    const { camera: cameraOverride, ...frameOpts } = options;
+    const camera = cameraOverride ?? cameraFor(followTarget, this.viewport);
+    const frame = buildFrame(world, camera, frameOpts);
     this.#drawFrame(frame);
   }
 

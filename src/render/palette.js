@@ -13,7 +13,8 @@ import { TILE, FACTION } from '../game/constants.js';
 const TILE_GLYPH = {
   [TILE.FLOOR]: { char: '.', fg: '#1f4d44' },
   [TILE.WALL]: { char: '#', fg: '#5fbcd4' },
-  [TILE.COVER]: { char: '+', fg: '#d49a3a' },
+  [TILE.COVER]: { char: '=', fg: '#d49a3a' },
+  [TILE.EXIT]: { char: '¤', fg: '#eed5fa' },
 };
 
 const FACTION_FG = {

@@ -43,9 +43,10 @@ export class Merc extends Entity {
     if (!world.grid.inBounds(landX, landY)) {
       return { ok: false, reason: 'out-of-bounds' };
     }
-    // Landing must be plain floor — no chaining vaults across two cover tiles
-    // and no landing on top of a wall.
-    if (world.grid.tileAt(landX, landY) !== TILE.FLOOR) {
+    // Landing must be walkable terrain (floor or exit), not cover/wall — no
+    // chaining vaults across two cover tiles.
+    const landTile = world.grid.tileAt(landX, landY);
+    if (landTile !== TILE.FLOOR && landTile !== TILE.EXIT) {
       return { ok: false, reason: 'blocked' };
     }
     if (world.entityAt(landX, landY)) {

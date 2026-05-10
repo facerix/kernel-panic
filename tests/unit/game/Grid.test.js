@@ -58,14 +58,16 @@ test('Grid.setTile throws RangeError when out of bounds', () => {
   assert.throws(() => g.setTile(2, 0, TILE.WALL), RangeError);
 });
 
-test('Grid.isPassable: FLOOR yes, WALL no, COVER no (cover blocks movement, Vault hops it)', () => {
-  const g = new Grid(3, 1);
+test('Grid.isPassable: FLOOR and EXIT yes, WALL no, COVER no (cover blocks movement, Vault hops it)', () => {
+  const g = new Grid(4, 1);
   g.setTile(0, 0, TILE.FLOOR);
-  g.setTile(1, 0, TILE.WALL);
-  g.setTile(2, 0, TILE.COVER);
+  g.setTile(1, 0, TILE.EXIT);
+  g.setTile(2, 0, TILE.WALL);
+  g.setTile(3, 0, TILE.COVER);
   assert.equal(g.isPassable(0, 0), true);
-  assert.equal(g.isPassable(1, 0), false);
+  assert.equal(g.isPassable(1, 0), true);
   assert.equal(g.isPassable(2, 0), false);
+  assert.equal(g.isPassable(3, 0), false);
 });
 
 test('Grid.isPassable returns false for out-of-bounds (no throw)', () => {
@@ -74,13 +76,15 @@ test('Grid.isPassable returns false for out-of-bounds (no throw)', () => {
   assert.equal(g.isPassable(2, 0), false);
 });
 
-test('Grid.blocksLineOfSight: WALL yes, COVER no, FLOOR no, OOB yes', () => {
-  const g = new Grid(3, 1);
+test('Grid.blocksLineOfSight: WALL yes, COVER no, FLOOR no, EXIT no, OOB yes', () => {
+  const g = new Grid(4, 1);
   g.setTile(0, 0, TILE.FLOOR);
-  g.setTile(1, 0, TILE.WALL);
-  g.setTile(2, 0, TILE.COVER);
+  g.setTile(1, 0, TILE.EXIT);
+  g.setTile(2, 0, TILE.WALL);
+  g.setTile(3, 0, TILE.COVER);
   assert.equal(g.blocksLineOfSight(0, 0), false);
-  assert.equal(g.blocksLineOfSight(1, 0), true);
-  assert.equal(g.blocksLineOfSight(2, 0), false);
+  assert.equal(g.blocksLineOfSight(1, 0), false);
+  assert.equal(g.blocksLineOfSight(2, 0), true);
+  assert.equal(g.blocksLineOfSight(3, 0), false);
   assert.equal(g.blocksLineOfSight(-1, 0), true, 'OOB should block LOS');
 });

@@ -17,14 +17,13 @@ import { Merc } from '/src/game/archetypes/Merc.js';
 import { Razor } from '/src/game/archetypes/Razor.js';
 import { CorpDrone } from '/src/game/ai/CorpDrone.js';
 import { EventBus, EVENT } from '/src/game/events.js';
-import { TILE, FACTION, SIGHT_RANGE } from '/src/game/constants.js';
+import { TILE, FACTION } from '/src/game/constants.js';
 import { AsciiRenderer } from '/src/render/AsciiRenderer.js';
 import { CrtFilter } from '/src/render/CrtFilter.js';
 import { KeyboardController } from '/src/input/KeyboardController.js';
 import { MODE } from '/src/input/keymap.js';
+import { applyIntent as applyPlayerIntent } from '/src/input/applyIntent.js';
 import { VisionField } from '/src/game/Vision.js';
-import { hasLineOfSight, withinRange } from '/src/game/LineOfSight.js';
-import { canFireRanged, resolveRanged, canMelee, resolveMelee } from '/src/game/Combat.js';
 import { Rng } from '/src/rng.js';
 
 const GRID_W = 24;
@@ -141,160 +140,22 @@ function rerender(modeHint = '') {
   document.getElementById('log').textContent = logLines.slice(-12).join('\n');
 }
 
-function applyIntent(intent) {
-  if (queue.currentFaction !== FACTION.PLAYER && intent.type !== 'cancel') {
-    log('> NOT YOUR TURN — press space.');
-    return;
-  }
-  switch (intent.type) {
-    case 'move': {
-      const check = world.canMoveEntity(player, intent.dx, intent.dy);
-      if (!check.ok) {
-        log(`> MOVE DENIED: ${check.reason}`);
-        return;
-      }
-      world.moveEntity(player, intent.dx, intent.dy);
-      // Vision recompute fires via the bus subscription (entity:moved).
-      log(`> @ moved to (${player.x}, ${player.y}) — ${player.ap} AP left.`);
-      if (player.ap === 0) {
-        log('> AP EXHAUSTED — auto-ending turn.');
-        advanceTurn();
-      }
-      return;
-    }
-    case 'vault': {
-      if (typeof player.canVault !== 'function') {
-        log('> VAULT: only the Merc can vault.');
-        return;
-      }
-      const check = player.canVault(world, intent.dx, intent.dy);
-      if (!check.ok) {
-        log(`> VAULT DENIED: ${check.reason}`);
-        return;
-      }
-      player.vault(world, intent.dx, intent.dy);
-      // Vault now emits ENTITY_MOVED, so vision refresh fires off the bus
-      // subscription — no inline recomputeVision() needed (closes the M5
-      // deferred fix).
-      log(`> @ vaulted to (${player.x}, ${player.y}) — ${player.ap} AP left.`);
-      if (player.ap === 0) {
-        log('> AP EXHAUSTED — auto-ending turn.');
-        advanceTurn();
-      }
-      return;
-    }
-    case 'slide': {
-      if (typeof player.canSlide !== 'function') {
-        log('> SLIDE: only the Razor can slide.');
-        return;
-      }
-      const check = player.canSlide(world, intent.dx, intent.dy);
-      if (!check.ok) {
-        log(`> SLIDE DENIED: ${check.reason}`);
-        return;
-      }
-      player.slide(world, intent.dx, intent.dy);
-      log(
-        `> @ slid to (${player.x}, ${player.y}) — CLOAKED until next turn (` +
-          `${player.ap} AP left).`
-      );
-      if (player.ap === 0) {
-        log('> AP EXHAUSTED — auto-ending turn.');
-        advanceTurn();
-      }
-      return;
-    }
-    case 'melee': {
-      const target = world.entityAt(player.x + intent.dx, player.y + intent.dy);
-      if (!target) {
-        log('> MELEE: no target on that tile.');
-        return;
-      }
-      const check = canMelee(world, player, target);
-      if (!check.ok) {
-        log(`> MELEE DENIED: ${check.reason}`);
-        return;
-      }
-      const result = resolveMelee(world, player, target);
-      log(
-        `> @ slashes ${target.id} for ${result.damage}` +
-          (result.killed ? ` — ${target.id.toUpperCase()} DOWN.` : '.')
-      );
-      if (player.ap === 0) {
-        log('> AP EXHAUSTED — auto-ending turn.');
-        advanceTurn();
-      }
-      return;
-    }
-    case 'fire': {
-      const target = pickFireTarget(intent.dx, intent.dy);
-      if (!target) {
-        log('> FIRE: no hostile in that direction.');
-        return;
-      }
-      const check = canFireRanged(world, player, target);
-      if (!check.ok) {
-        log(`> FIRE DENIED: ${check.reason}`);
-        return;
-      }
-      const result = resolveRanged(world, player, target, rng);
-      log(
-        `> @ fires at ${target.id} — ` +
-          `${result.hit ? 'HIT' : 'miss'} (roll ${result.roll.toFixed(2)} vs ${result.threshold.toFixed(2)}` +
-          `${result.inCover ? ', cover' : ''}).` +
-          (result.killed ? ` ${target.id.toUpperCase()} DOWN.` : '')
-      );
-      if (player.ap === 0) {
-        log('> AP EXHAUSTED — auto-ending turn.');
-        advanceTurn();
-      }
-      return;
-    }
-    case 'wait': {
-      log(`> @ holds position (drops ${player.ap} AP).`);
-      player.ap = 0;
-      advanceTurn();
-      return;
-    }
-    case 'end-turn': {
-      advanceTurn();
-      return;
-    }
-    case 'cancel': {
-      // Cancel is the universal "stop aiming" — clear *both* input controllers
-      // even if the cancel came from one of them, so a touch-CANCEL after a
-      // keyboard `f` (or vice versa) doesn't leave the other side stuck in
-      // an aim mode. Without this, the per-input mode model leaks: each
-      // controller only resets its own mode on cancel.
-      resetInputModes();
-      log('> ACTION CANCELLED.');
-      return;
-    }
-    default:
-      log(`> UNHANDLED INTENT: ${intent.type}`);
-  }
-}
-
 /**
- * Walk Bresenham-ish from the player along (dx, dy) and return the first
- * hostile we hit while LOS holds and we're inside the *Euclidean* range
- * Combat enforces. The targeting reticle in M5+ will replace this with
- * explicit picking, but for the harness it's good enough — and shares the
- * `withinRange` helper with `canFireRanged` so the harness can never offer
- * a target combat would later reject as out-of-range (the M4 review trap).
+ * Game-loop glue lives in `/src/input/applyIntent.js` so the M8 game shell
+ * (and any future input source) shares a single intent-application path
+ * with this harness. The closure here wraps that shared helper with the
+ * harness's logger / advanceTurn / resetInputModes hooks.
  */
-function pickFireTarget(dx, dy) {
-  const blockers = world.blockerKeys();
-  for (let step = 1; step <= SIGHT_RANGE; step++) {
-    const x = player.x + dx * step;
-    const y = player.y + dy * step;
-    if (!world.grid.inBounds(x, y)) return null;
-    if (!withinRange(player.x, player.y, x, y, SIGHT_RANGE)) return null;
-    if (!hasLineOfSight(world.grid, player.x, player.y, x, y, { blockers })) return null;
-    const e = world.entityAt(x, y);
-    if (e && e.faction !== player.faction) return e;
-  }
-  return null;
+function applyIntent(intent) {
+  applyPlayerIntent(intent, {
+    world,
+    player,
+    queue,
+    rng,
+    log,
+    advanceTurn,
+    resetInputModes,
+  });
 }
 
 function advanceTurn() {

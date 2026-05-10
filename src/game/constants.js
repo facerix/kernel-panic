@@ -11,11 +11,14 @@
  * - WALL: blocks movement and line of sight.
  * - COVER: blocks movement (Vault perk hops it), does NOT block LOS — instead
  *   grants a defender hit-modifier (applied in M4 combat).
+ * - EXIT: passable, transparent; same walk rules as FLOOR but painted so the
+ *   objective tile is visible. `Run` still tracks `exitTile` for transitions.
  */
 export const TILE = Object.freeze({
   FLOOR: 0,
   WALL: 1,
   COVER: 2,
+  EXIT: 3,
 });
 
 export const FACTION = Object.freeze({

@@ -13,9 +13,11 @@ Living plan for Phase 1 of Kernel Panic. Source of truth for milestone scope, cu
 | M5 — A* drone AI | ✅ Done |
 | M6 — Razor archetype + melee/stealth | ✅ Done |
 | M7 — Touch / on-screen keypad | ✅ Done |
-| **M8 — Hub, Curator, run lifecycle, death screen** | **▶ Next** |
+| **M8 — Hub, Curator, run lifecycle, death screen** | **▶ In progress (pure layers landed)** |
 
 Test count after M7: **297 passing**, lint clean.
+
+Test count after M8 phase 1 (pure layers): **373 passing**, lint clean. UI shell + `<crash-dump>` / `<run-briefing>` components are deferred to a follow-up session per the milestone plan; see `docs/phase-1-milestone-8-plan.md` → "Phased delivery."
 
 ## Locked-in decisions
 
@@ -110,11 +112,25 @@ Goal: a playable Merc on the existing engine, with Vault working end-to-end.
 
 ### M8 — Hub, Curator, run lifecycle, death screen
 
-- `src/game/procgen/`: BSP + prefab stamping. Authored prefabs in `src/game/procgen/prefabs/` (each annotated with size, spawn anchors, drone patrol waypoints, cover placement).
-- `src/game/hub/SafeSpace.js`: non-combat map. `Curator` NPC offers a single quest stub that seeds the run.
-- `src/game/Run.js`: state machine (HUB → BRIEFING → COMBAT → RESULT). Persists per-turn to DataStore. On load, surface resume prompt via `<confirmation-modal>`.
-- `<crash-dump>` web component (Shadow DOM, kebab-case): faux kernel-panic stack trace built from run telemetry; clears the save.
-- Tests: BSP connectivity (every floor reachable), run state machine, crash-dump renders required telemetry fields.
+Phased delivery — see `docs/phase-1-milestone-8-plan.md` for the full milestone plan.
+
+**Phase 1 (landed):** pure game-logic layers + their unit tests.
+- `src/game/procgen/bsp.js` — BSP recursive split, deterministic on `Rng`.
+- `src/game/procgen/prefabs/` — three authored prefabs (`office`, `server-room`, `hallway`) parsed at load.
+- `src/game/procgen/mapBuild.js` — BSP → prefab stamp → corridor carve → spawn/exit/drone placement. Forks the caller rng with `'mapgen'` so combat rolls aren't perturbed by future procgen tweaks.
+- `src/game/hub/SafeSpace.js` — authored 12×8 hub with door tile.
+- `src/game/hub/Curator.js` — NEUTRAL Curator NPC; `generateContract(rng)` rolls a `{seed, objective, threatCount, label}` (single objective `reach-exit` for now).
+- `src/game/Run.js` — `Run` state machine (`HUB → BRIEFING → COMBAT → RESULT`). Owns rng/world/queue/player. Throws on every illegal transition. Surfaces autosave + result via `onPersist` / `onResult` callbacks (no DOM, no DataStore — the future shell wires those).
+- `src/game/persistence.js` — `snapshot(run)` (delegates to `Run#snapshot`) and `restore(record)` round-trip; corrupt records throw with useful messages. Grid bytes serialised as a plain JS array (cross-runtime portable, see deferred-fix list).
+- `src/input/applyIntent.js` — extracted from the M7 debug harness so the new game shell and the harness share one intent-application path.
+- 76 new tests under `tests/unit/game/{procgen,hub}/`, `tests/unit/game/{Run,persistence}.test.js`, and `tests/unit/input/applyIntent.test.js`. Total: **373 passing** after M8 phase 1.
+
+**Phase 2 (deferred, follow-up session):** UI shell + components.
+- Promote `/index.html` from M0 scaffold into the real game shell (DOM panels above canvas; canvas paints during HUB/COMBAT only).
+- `<run-briefing>` Web Component — CONTRACT box + JACK IN button.
+- `<crash-dump>` Web Component — faux kernel-panic stack trace from telemetry; emits `new-run`.
+- `index.js` — instantiates `Run`, wires `<confirmation-modal>` resume prompt to `persistence.restore()`, drives `AsciiRenderer` + `CrtFilter` per `Run.state`.
+- DataStore wiring: `Run.onPersist` → `DataStore.updateItem(record)`; on death/exit → `DataStore.deleteItem(id)`.
 
 ## Recorded problems (deferred fixes)
 
@@ -134,6 +150,10 @@ Things the standard we walk by has flagged but that are out of current scope:
 - **Corpse positions aren't memorised.** Live and dead entities follow the same "we don't track where things were" rule — duck out of LOS and the corpse vanishes from memory until you can see the tile again. Logically a corpse doesn't move, so memorising them would be more honest. Cheap to add (a `seenCorpses` map on `VisionField` + a memory-mode branch in `frame.js`); revisit when M8 telemetry needs the data.
 - **NEUTRAL faction is shootable by anyone.** `canFireRanged` only blocks same-faction targets — civilians can be hit by player or corp shots. Intentional today (narrative consequences); revisit when noise/Vouch lands and we have UI to express the cost. Noted in `Combat.js`.
 - **Per-input aim mode (M7).** `KeyboardController` and `<touch-pad>` each own their own `MODE` field, so on mixed-input desktop testing the modes can drift: keyboard `f` then touch direction emits `move` (touch never entered FIRE_AIM); touch `FIRE` then keyboard direction does the same. **Cancel is patched** — the harness's `cancel` case calls `resetInputModes()` so an Esc/CANCEL from either side clears both. The general drift case (aim from one side, direction from the other) is deferred. Two future paths: (a) cross-sync on every mode-change with a re-entrance guard, or (b) lift mode to a single harness-owned field both controllers consult. Doesn't bite on touch-only or keyboard-only devices, which is the realistic shipping surface.
+- **M8 grid serialisation is plain `number[]`.** Snapshot grids carry a JS array of u8 bytes — ~3× larger on disk than base64, but trivially portable across `node --test` and the browser without a `btoa`/`Buffer` shim. A 24×16 grid is 384 bytes either way; revisit if maps grow past 64×64 or save records start brushing localStorage's ~5 MB ceiling. The encoding choice is local to `src/game/persistence.js` and `Run.snapshot()`.
+- **Drone fallback anchors have no patrol path.** `buildMap` falls back to picking arbitrary FLOOR tiles for drone spawns when the stamped prefabs don't declare enough drone anchors (e.g. a map dominated by `hallway` prefabs). Fallback drones get a single-tile "stand still" waypoint, so they patrol in place. This is correct for M8 but deflates the gameplay variety on those seeds — the long-term fix is either a richer prefab set with anchors on every prefab, or a procgen-side patrol synthesiser.
+- **M8 corridor carving overwrites WALL only — but cover that lies on the L-corridor stays cover.** That's deliberate (a cover-blocked corridor is a tactical pinch) but it can produce odd "chokepoints" where a corridor enters a prefab through a cover tile. Cosmetically fine; revisit if connectivity tests start producing rooms with awkward L-shaped cover walls. Logged under the procgen-tuning bucket.
+- **Run.id collision risk.** `Run.makeRunId(seed)` concatenates `seed` and `Date.now()` for a non-cryptographic id; two runs started on the same millisecond with the same seed would collide. Vanishingly unlikely in practice, but if a future automated playthrough harness ever spins many runs quickly, switch to `crypto.randomUUID()` (already used by DataStore.addItem). Logged in `Run.js`.
 
 ## Test/lint expectations
 
