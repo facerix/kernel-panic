@@ -42,7 +42,7 @@ test('buildFrame maps tiles to expected glyphs', () => {
   const frame = buildFrame(world, { x: 0, y: 0, width: 6, height: 4 });
   assert.equal(cellAt(frame, 0, 0).char, '.', 'floor');
   assert.equal(cellAt(frame, 2, 1).char, '#', 'wall');
-  assert.equal(cellAt(frame, 3, 2).char, '+', 'cover');
+  assert.equal(cellAt(frame, 3, 2).char, '=', 'cover');
 });
 
 test('buildFrame renders entities on top of their tile', () => {
