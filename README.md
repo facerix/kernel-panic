@@ -22,8 +22,6 @@ Turn-based cyberpunk roguelike as a Progressive Web App — tactical grid combat
 | `npm run lint` | oxlint                          |
 | `npm run format` | Prettier                     |
 
-First-time setup after clone: see [USING_THIS_TEMPLATE.md](USING_THIS_TEMPLATE.md) (identity, caches, icons).
-
 ## Agent / assistant context
 
 - [AGENTS.md](AGENTS.md) — coding patterns and domain summary  
