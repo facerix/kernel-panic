@@ -18,6 +18,11 @@
  *   Skips the synthetic 300ms tap delay on legacy mobile browsers and lets
  *   us suppress the emulated mouse events that would otherwise double-fire
  *   the same button.
+ *
+ * Delivery: `pointerdown` is registered on the **host** with `{ capture: true }`
+ * (not on `shadowRoot`) so mobile WebKit delivers the event reliably. With a
+ * host listener, `event.target` can be retargeted, so we resolve `[data-button]`
+ * via `composedPath()` and `shadowRoot.contains(...)`.
  */
 
 import { h } from '/src/domUtils.js';
@@ -26,6 +31,9 @@ import { dispatchTouchAction } from '/src/input/touchpad.js';
 
 const FORCE_SHOW_PARAM = 'touch';
 const FORCE_SHOW_VALUE = 'force';
+
+/** Same object for `addEventListener` / `removeEventListener` parity. */
+const POINTER_DOWN_OPTS = { capture: true };
 
 const DIRECTION_LABELS = Object.freeze({
   N: '↑',
@@ -233,14 +241,14 @@ class TouchPad extends HTMLElement {
     shadow.appendChild(h('div', { className: 'shell' }, [this.#banner, dpad, h('div'), actions]));
 
     this.#boundOnPointerDown = this.#onPointerDown.bind(this);
-    shadow.addEventListener('pointerdown', this.#boundOnPointerDown);
+    this.addEventListener('pointerdown', this.#boundOnPointerDown, POINTER_DOWN_OPTS);
     this.#ready = true;
     this.#renderMode();
   }
 
   disconnectedCallback() {
     if (this.#boundOnPointerDown) {
-      this.shadowRoot?.removeEventListener('pointerdown', this.#boundOnPointerDown);
+      this.removeEventListener('pointerdown', this.#boundOnPointerDown, POINTER_DOWN_OPTS);
       this.#boundOnPointerDown = null;
     }
   }
@@ -318,8 +326,18 @@ class TouchPad extends HTMLElement {
     return h('div', { className: 'actions', role: 'group', ariaLabel: 'Actions' }, buttons);
   }
 
+  #findDataButton(evt) {
+    const root = this.shadowRoot;
+    if (!root) return null;
+    for (const node of evt.composedPath()) {
+      if (node === root) break;
+      if (node instanceof Element && root.contains(node) && node.dataset?.button) return node;
+    }
+    return null;
+  }
+
   #onPointerDown(evt) {
-    const btn = evt.target?.closest?.('[data-button]');
+    const btn = this.#findDataButton(evt);
     if (!btn) return;
     const buttonId = btn.dataset.button;
     if (!buttonId) return;
