@@ -181,7 +181,10 @@ test('vault resolves a free shot at the first hostile in the vault direction', (
   // Vault east should land AND fire at the drone.
   applyIntent({ type: 'vault', dx: 1, dy: 0 }, ctx);
   assert.equal(player.x, 4, 'player landed at vault destination');
-  assert.ok(log.some(l => l.includes('fires at')), 'log mentions the shot');
+  assert.ok(
+    log.some(l => l.includes('fires at')),
+    'log mentions the shot'
+  );
   // The shot was attempted — HP may or may not have changed depending on RNG,
   // but the intent handler must not have thrown.
 });
@@ -198,7 +201,10 @@ test('vault succeeds without a shot when no hostile is in the vault direction', 
   const { ctx, log, player } = buildCtx({ archetype: 'merc', placeDrone: false });
   applyIntent({ type: 'vault', dx: 1, dy: 0 }, ctx);
   assert.equal(player.x, 4, 'vault still lands');
-  assert.ok(log.some(l => l.includes('vaulted to')), 'log mentions the vault');
+  assert.ok(
+    log.some(l => l.includes('vaulted to')),
+    'log mentions the vault'
+  );
   assert.ok(!log.some(l => l.includes('fires at')), 'no shot logged');
 });
 

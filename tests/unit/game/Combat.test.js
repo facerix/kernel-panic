@@ -420,7 +420,7 @@ test('resolveRanged with freeShot still validates LOS / range / faction', () => 
   const { world, attacker, target } = makeFight({ grid: g });
   assert.throws(
     () => resolveRanged(world, attacker, target, new StubRng([0]), { freeShot: true }),
-    /Illegal ranged/,
+    /Illegal ranged/
   );
 });
 
