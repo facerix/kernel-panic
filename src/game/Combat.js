@@ -44,7 +44,7 @@ export function canFireRanged(world, attacker, target, options = {}) {
   // are shootable in V1 by design (narrative consequences, not a rules wall).
   // Revisit when noise/Vouch lands.
   if (target.faction === attacker.faction) return { ok: false, reason: 'same-faction' };
-  if (!attacker.canAfford(AP_COST.RANGED_ATTACK)) {
+  if (!options.freeShot && !attacker.canAfford(AP_COST.RANGED_ATTACK)) {
     return { ok: false, reason: 'insufficient-ap' };
   }
 
@@ -94,7 +94,14 @@ export function resolveRanged(world, attacker, target, rng, options = {}) {
     );
   }
 
-  attacker.spendAp(AP_COST.RANGED_ATTACK);
+  if (!options.freeShot) {
+    attacker.spendAp(AP_COST.RANGED_ATTACK);
+  }
+
+  // Attacking breaks stealth — a gunshot drops the cloak regardless of
+  // hit/miss. Only relevant for Razor's Slide perk; harmless for others
+  // (stealthed is undefined, guard skips).
+  if (attacker.stealthed) attacker.stealthed = false;
 
   const roll = rng.next();
   const hit = roll < threshold;
@@ -167,6 +174,11 @@ export function resolveMelee(world, attacker, target, options = {}) {
     throw new Error(`Illegal melee from ${attacker.id} → ${target.id}: ${check.reason}`);
   }
   attacker.spendAp(AP_COST.MELEE_ATTACK);
+
+  // Attacking breaks stealth — a melee swing drops the cloak. Same guard
+  // as resolveRanged: only fires when the attacker is actually stealthed.
+  if (attacker.stealthed) attacker.stealthed = false;
+
   const damage = options.damage ?? MELEE_DAMAGE;
   target.damage(damage);
   const killed = !target.alive;

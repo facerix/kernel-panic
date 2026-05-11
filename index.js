@@ -481,7 +481,10 @@ function renderShell() {
 function paint(modeHint = activeMode()) {
   if (!run || !run.world || !run.player) return;
   if (canvas.hidden) return; // Briefing / Result panels own the viewport.
-  renderer.draw(run.world, run.player, { vision });
+  // Hub is a safe space — no fog of war. Vision is only meaningful during
+  // combat where LOS and drone stealth detection matter.
+  const activeVision = run.state === RUN_STATE.COMBAT ? vision : undefined;
+  renderer.draw(run.world, run.player, { vision: activeVision });
   crt.apply();
   setStatus(statusLine(modeHint));
 }

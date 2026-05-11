@@ -375,6 +375,55 @@ test('resolveMelee emits entity:damaged with source="melee"', async () => {
   assert.equal(damaged[0].damage, MELEE_DAMAGE);
 });
 
+// --- Stealth-break on attack -----------------------------------------------
+
+test('resolveRanged clears attacker.stealthed on a committed shot (hit or miss)', () => {
+  const { world, attacker, target } = makeFight();
+  attacker.stealthed = true;
+  resolveRanged(world, attacker, target, new StubRng([0.99])); // miss
+  assert.equal(attacker.stealthed, false, 'gunshot drops the cloak even on a miss');
+});
+
+test('resolveMelee clears attacker.stealthed on a committed strike', () => {
+  const { world, attacker, target } = makeMeleeFight();
+  attacker.stealthed = true;
+  resolveMelee(world, attacker, target);
+  assert.equal(attacker.stealthed, false, 'melee swing drops the cloak');
+});
+
+test('stealth-break is harmless when attacker is not stealthed', () => {
+  const { world, attacker, target } = makeFight();
+  // attacker.stealthed is false (Entity default) — must not crash.
+  resolveRanged(world, attacker, target, new StubRng([0]));
+  assert.equal(attacker.stealthed, false, 'non-stealthed attacker unchanged');
+});
+
+// --- freeShot option (vault-while-firing) ----------------------------------
+
+test('canFireRanged accepts a freeShot even with 0 AP', () => {
+  const { world, attacker, target } = makeFight();
+  attacker.spendAp(attacker.ap); // drain all AP
+  assert.equal(canFireRanged(world, attacker, target, { freeShot: true }).ok, true);
+});
+
+test('resolveRanged with freeShot does not debit AP', () => {
+  const { world, attacker, target } = makeFight();
+  attacker.spendAp(attacker.ap); // 0 AP
+  const result = resolveRanged(world, attacker, target, new StubRng([0]), { freeShot: true });
+  assert.equal(result.hit, true);
+  assert.equal(attacker.ap, 0, 'no AP debited on a free shot');
+});
+
+test('resolveRanged with freeShot still validates LOS / range / faction', () => {
+  const g = new Grid(8, 8);
+  g.setTile(3, 1, TILE.WALL); // blocks LOS
+  const { world, attacker, target } = makeFight({ grid: g });
+  assert.throws(
+    () => resolveRanged(world, attacker, target, new StubRng([0]), { freeShot: true }),
+    /Illegal ranged/,
+  );
+});
+
 test('resolveMelee emits a noise event (MELEE radius)', async () => {
   const { EventBus, EVENT } = await import('../../../src/game/events.js');
   const bus = new EventBus();

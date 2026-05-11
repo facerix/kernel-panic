@@ -143,7 +143,7 @@ function doMove(intent, ctx) {
 }
 
 function doVault(intent, ctx) {
-  const { world, player, log, advanceTurn } = ctx;
+  const { world, player, rng, log, advanceTurn } = ctx;
   if (typeof player.canVault !== 'function') {
     log('> VAULT: only the Merc can vault.');
     return;
@@ -154,6 +154,31 @@ function doVault(intent, ctx) {
     return;
   }
   player.vault(world, intent.dx, intent.dy);
+
+  // Vault-while-firing: attempt a free shot in the vault direction from the
+  // landing position. The 3 AP vault cost covers both the hop and the shot
+  // (blueprint: "Hop over cover while firing"). If no hostile is in the
+  // vault direction, the vault still succeeds as a pure movement perk.
+  const target = pickFireTarget(ctx, intent.dx, intent.dy);
+  if (target) {
+    const fireCheck = canFireRanged(world, player, target, { freeShot: true });
+    if (fireCheck.ok) {
+      const result = resolveRanged(world, player, target, rng, { freeShot: true });
+      log(
+        `> @ vaulted to (${player.x}, ${player.y}) and fires at ${target.id} — ` +
+          `${result.hit ? 'HIT' : 'miss'} (roll ${result.roll.toFixed(2)} vs ${result.threshold.toFixed(2)}` +
+          `${result.inCover ? ', cover' : ''}).` +
+          (result.killed ? ` ${target.id.toUpperCase()} DOWN.` : '') +
+          ` — ${player.ap} AP left.`
+      );
+      if (player.ap === 0) {
+        log('> AP EXHAUSTED — auto-ending turn.');
+        advanceTurn();
+      }
+      return;
+    }
+  }
+
   log(`> @ vaulted to (${player.x}, ${player.y}) — ${player.ap} AP left.`);
   if (player.ap === 0) {
     log('> AP EXHAUSTED — auto-ending turn.');

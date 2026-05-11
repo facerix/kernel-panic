@@ -10,8 +10,11 @@ import { EVENT } from '../events.js';
  * the landing tile must be passable, in-bounds, and unoccupied. Diagonal
  * vaults are allowed under the same Chebyshev rule the rest of movement uses.
  *
- * In M4 a vault will *also* count as a fire action — we'll fold ranged
- * resolution in there. For M3 it's purely a movement perk.
+ * Vault doubles as a fire action — "hop over cover while firing" per the
+ * blueprint. The shot is resolved by `applyIntent.doVault` (free shot from
+ * the landing position in the vault direction, normal hit/cover math, no
+ * extra AP cost). If no hostile is in the vault vector, the hop still
+ * succeeds as a pure movement perk.
  */
 export class Merc extends Entity {
   constructor(props) {
@@ -65,16 +68,14 @@ export class Merc extends Entity {
     this.spendAp(AP_COST.VAULT);
     this.x += 2 * dx;
     this.y += 2 * dy;
-    // Closes the M5 deferred fix: emit ENTITY_MOVED so vision recompute and
-    // AI hooks pick the vault up like any other reposition. No NOISE event —
-    // a vault is loud (clambering over cover) but that's *also* a missing
-    // call we'll add when the vault-while-firing combo lands; today the
-    // omission is conservative (no false alarms for sentries).
+    // Emit ENTITY_MOVED so vision recompute and AI hooks pick the vault up
+    // like any other reposition. The shot (if any) is resolved by the intent
+    // handler *after* this method returns — Merc.vault stays a pure movement
+    // perk; Combat.resolveRanged emits its own NOISE event for the gunshot.
     world.events?.emit(EVENT.ENTITY_MOVED, {
       entity: this,
       from,
       to: { x: this.x, y: this.y },
     });
-    // M4 TODO: emit a fire action here so vault-while-firing resolves a shot.
   }
 }

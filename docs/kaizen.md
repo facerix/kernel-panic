@@ -14,8 +14,6 @@ When an item lands, gets reclassified, or develops new context, edit it in place
 
 ## ▶ Phase 2 candidates
 
-- **Vault-while-firing combo not implemented.** The blueprint has Vault doubling as a fire action. Currently Vault is purely a movement perk. Targeting UI is now in (M4–M6) so the prerequisite is met; folding in a free shot is a real Phase 2 design decision (AP cost, hit modifier, what cover does to it). Logged in `Merc.js` as a TODO.
-- **Stealth doesn't break on attack.** A Razor who slides and then melees / fires keeps her cloak until refresh. Narratively that's wrong — a swing or a gunshot should drop the veil. Cheap to add (set `stealthed = false` in `Combat.resolveMelee` / `resolveRanged` when `attacker.stealthed`), but it interacts with the noise model and we want one tuning pass before locking it in.
 - **Melee always hits.** Deterministic in V1 by design; will get parry/dodge math when archetype kits expand. `MELEE_DAMAGE` is the one knob today.
 - **Corpse positions aren't memorised.** Live and dead entities follow the same "we don't track where things were" rule — duck out of LOS and the corpse vanishes from memory until you can see the tile again. Logically a corpse doesn't move, so memorising them would be more honest. Cheap to add (a `seenCorpses` map on `VisionField` + a memory-mode branch in `frame.js`); revisit when telemetry or quest mechanics need the data.
 - **NEUTRAL faction is shootable by anyone.** `canFireRanged` only blocks same-faction targets — civilians can be hit by player or corp shots. Intentional today (narrative consequences); revisit when noise/Vouch lands and we have UI to express the cost. Noted in `Combat.js`.
@@ -36,4 +34,6 @@ When an item lands, gets reclassified, or develops new context, edit it in place
 
 ## ✓ Closed
 
-- ~~**Vault doesn't go through `World.moveEntity`.**~~ Closed in M6 — `Merc.vault` now emits `entity:moved` directly so vision/AI listeners see the post-vault state without the harness calling `recomputeVision()` inline. (The vault-while-firing combo is a separate item — see ▶ Phase 2 candidates above.)
+- ~~**Vault doesn't go through `World.moveEntity`.**~~ Closed in M6 — `Merc.vault` now emits `entity:moved` directly so vision/AI listeners see the post-vault state without the harness calling `recomputeVision()` inline.
+- ~~**Vault-while-firing combo not implemented.**~~ Closed in v0.1.0 — `applyIntent.doVault` resolves a free shot (normal hit/cover math, no extra AP) in the vault direction from the landing position after `Merc.vault` commits the hop. `Combat.resolveRanged` accepts `{ freeShot: true }` to skip the AP gate.
+- ~~**Stealth doesn't break on attack.**~~ Closed in v0.1.0 — `resolveRanged` and `resolveMelee` both clear `attacker.stealthed` on a committed attack (hit or miss). Guard is `if (attacker.stealthed)` so it's a no-op for non-stealthed entities.

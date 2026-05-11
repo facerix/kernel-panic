@@ -173,6 +173,35 @@ test('interact intent crashes when ctx.onInteract is missing (no silent no-op)',
   assert.throws(() => applyIntent({ type: 'interact' }, ctx), /onInteract/);
 });
 
+// --- Vault-while-firing ---------------------------------------------------
+
+test('vault resolves a free shot at the first hostile in the vault direction', () => {
+  const { ctx, log, player } = buildCtx({ archetype: 'merc' });
+  // Player at (2,2), cover at (3,2), land at (4,2), drone at (7,2).
+  // Vault east should land AND fire at the drone.
+  applyIntent({ type: 'vault', dx: 1, dy: 0 }, ctx);
+  assert.equal(player.x, 4, 'player landed at vault destination');
+  assert.ok(log.some(l => l.includes('fires at')), 'log mentions the shot');
+  // The shot was attempted — HP may or may not have changed depending on RNG,
+  // but the intent handler must not have thrown.
+});
+
+test('vault-while-fire does not debit extra AP beyond the vault cost', () => {
+  const { ctx, player } = buildCtx({ archetype: 'merc' });
+  const apBefore = player.ap; // 4
+  applyIntent({ type: 'vault', dx: 1, dy: 0 }, ctx);
+  // Vault costs 3 AP; no additional AP for the shot.
+  assert.equal(player.ap, apBefore - 3, 'only vault AP spent, shot is free');
+});
+
+test('vault succeeds without a shot when no hostile is in the vault direction', () => {
+  const { ctx, log, player } = buildCtx({ archetype: 'merc', placeDrone: false });
+  applyIntent({ type: 'vault', dx: 1, dy: 0 }, ctx);
+  assert.equal(player.x, 4, 'vault still lands');
+  assert.ok(log.some(l => l.includes('vaulted to')), 'log mentions the vault');
+  assert.ok(!log.some(l => l.includes('fires at')), 'no shot logged');
+});
+
 test('AP exhaustion triggers auto-end-turn during a move', () => {
   const { ctx, player, calls } = buildCtx();
   player.ap = 1; // one move's worth — should bottom out and auto-end.
