@@ -28,10 +28,20 @@
 
 import { Grid } from '../Grid.js';
 import { TILE } from '../constants.js';
-import { splitRegion, leaves, internalNodes } from './bsp.js';
+import { BSP_TUNABLES, splitRegion, leaves, internalNodes } from './bsp.js';
 import { fittingPrefabs } from './prefabs/index.js';
 
 const DEFAULT_THREAT_COUNT = 2;
+
+/**
+ * The outermost 1-tile rim of the grid is always reserved for WALL. The BSP
+ * gets confined to the inner rectangle so prefabs can't be stamped flush
+ * against rows 0 or H-1 / columns 0 or W-1 — which read like a room that's
+ * "cut off mid-corridor". The whole-grid `Grid` starts WALL-filled so the
+ * rim is implicit; this constant just controls where the playable region
+ * begins. Bump to 2 if a future palette tweak makes the rim look too thin.
+ */
+const EDGE_INSET = 1;
 
 /**
  * @param {{ rng: import('../../rng.js').Rng, width: number, height: number,
@@ -58,7 +68,24 @@ export function buildMap({ rng, width, height, threatCount = DEFAULT_THREAT_COUN
   const mapRng = rng.fork('mapgen');
   const grid = new Grid(width, height, TILE.WALL);
 
-  const root = splitRegion(mapRng, { x: 0, y: 0, width, height });
+  const playableWidth = width - EDGE_INSET * 2;
+  const playableHeight = height - EDGE_INSET * 2;
+  if (playableWidth < BSP_TUNABLES.MIN_LEAF || playableHeight < BSP_TUNABLES.MIN_LEAF) {
+    // Caller asked for a map smaller than `MIN_LEAF + 2 × EDGE_INSET` on
+    // either axis. The BSP would crash anyway with a less helpful message;
+    // surface the inset relationship so the failure points at the user-facing
+    // dimensions instead of an internal `splitRegion` constraint.
+    throw new RangeError(
+      `buildMap: ${width}x${height} map is too small after ${EDGE_INSET}-tile rim inset ` +
+        `(playable ${playableWidth}x${playableHeight}, need ≥ ${BSP_TUNABLES.MIN_LEAF})`
+    );
+  }
+  const root = splitRegion(mapRng, {
+    x: EDGE_INSET,
+    y: EDGE_INSET,
+    width: playableWidth,
+    height: playableHeight,
+  });
 
   // Stamp prefabs in DFS-leaf order (same order `leaves()` returns).
   const stamped = [];

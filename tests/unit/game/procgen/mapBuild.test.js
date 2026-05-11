@@ -120,3 +120,43 @@ test('non-integer dimensions throw', () => {
 test('rng-less call throws TypeError', () => {
   assert.throws(() => buildMap({ rng: null, width: W, height: H, threatCount: 1 }), TypeError);
 });
+
+test('outer rim is always WALL (no rooms stamped flush against the edges)', () => {
+  // Try several seeds — the rim is what the player sees when they read the
+  // map as a coherent space, so this has to hold for every layout we produce.
+  for (const seed of [1, 42, 0xabcd1234, 0xdeadbeef, 0x55555555, 0xc0ffee, 0xfeedface]) {
+    const map = buildMap({ rng: new Rng(seed), width: W, height: H, threatCount: 2 });
+    for (let x = 0; x < W; x++) {
+      assert.equal(
+        map.grid.tileAt(x, 0),
+        TILE.WALL,
+        `seed ${seed.toString(16)}: top rim (${x},0) is not WALL`
+      );
+      assert.equal(
+        map.grid.tileAt(x, H - 1),
+        TILE.WALL,
+        `seed ${seed.toString(16)}: bottom rim (${x},${H - 1}) is not WALL`
+      );
+    }
+    for (let y = 0; y < H; y++) {
+      assert.equal(
+        map.grid.tileAt(0, y),
+        TILE.WALL,
+        `seed ${seed.toString(16)}: left rim (0,${y}) is not WALL`
+      );
+      assert.equal(
+        map.grid.tileAt(W - 1, y),
+        TILE.WALL,
+        `seed ${seed.toString(16)}: right rim (${W - 1},${y}) is not WALL`
+      );
+    }
+  }
+});
+
+test('map dimensions smaller than the inset+MIN_LEAF envelope throw a helpful error', () => {
+  // 7×7 → playable 5×5 after a 1-tile rim inset, below MIN_LEAF=6.
+  assert.throws(
+    () => buildMap({ rng: new Rng(1), width: 7, height: 7, threatCount: 0 }),
+    /rim inset/i
+  );
+});

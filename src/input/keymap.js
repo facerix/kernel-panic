@@ -66,6 +66,12 @@ function dispatchIdle(key) {
       // Razor's Slide perk. `t` chosen because `s` is WASD-down and would
       // collide with movement; `t` is unused and reads as "tactical slide".
       return { intent: null, nextMode: MODE.SLIDE_AIM };
+    case 'i':
+    case 'I':
+      // Interact — context-sensitive verb resolved by the shell (Hub Curator
+      // → briefing, future terminals/items in combat). Keymap stays dumb;
+      // the shell decides what `interact` means in the current Run.state.
+      return { intent: { type: 'interact' }, nextMode: MODE.IDLE };
     default:
       return noChange(MODE.IDLE);
   }

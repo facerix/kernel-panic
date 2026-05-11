@@ -3,6 +3,53 @@
 // used by both production and development service workers
 
 /**
+ * ES modules imported (directly or transitively) from `/index.js` and `/about.js`.
+ * Precached so the game shell works offline after install.
+ */
+const APP_MODULE_RESOURCES = [
+  '/components/ConfirmationModal.js',
+  '/components/CrashDump.js',
+  '/components/RunBriefing.js',
+  '/components/TouchPad.js',
+  '/components/UpdateNotification.js',
+  '/src/DataStore.js',
+  '/src/ServiceWorkerManager.js',
+  '/src/domUtils.js',
+  '/src/game/Combat.js',
+  '/src/game/Entity.js',
+  '/src/game/Grid.js',
+  '/src/game/LineOfSight.js',
+  '/src/game/Pathfinding.js',
+  '/src/game/Run.js',
+  '/src/game/TurnQueue.js',
+  '/src/game/Vision.js',
+  '/src/game/World.js',
+  '/src/game/ai/CorpDrone.js',
+  '/src/game/archetypes/Merc.js',
+  '/src/game/archetypes/Razor.js',
+  '/src/game/constants.js',
+  '/src/game/events.js',
+  '/src/game/hub/Curator.js',
+  '/src/game/hub/SafeSpace.js',
+  '/src/game/persistence.js',
+  '/src/game/procgen/bsp.js',
+  '/src/game/procgen/mapBuild.js',
+  '/src/game/procgen/prefabs/hallway.js',
+  '/src/game/procgen/prefabs/index.js',
+  '/src/game/procgen/prefabs/office.js',
+  '/src/game/procgen/prefabs/server-room.js',
+  '/src/input/KeyboardController.js',
+  '/src/input/applyIntent.js',
+  '/src/input/keymap.js',
+  '/src/input/touchpad.js',
+  '/src/render/AsciiRenderer.js',
+  '/src/render/CrtFilter.js',
+  '/src/render/frame.js',
+  '/src/render/palette.js',
+  '/src/rng.js',
+];
+
+/**
  * Configuration helper
  * Creates cache configuration from a version string and provides shared resource lists
  */
@@ -26,6 +73,7 @@ const CacheConfig = {
       '/about.js',
       '/main.css',
       '/manifest.json',
+      ...APP_MODULE_RESOURCES,
     ];
   },
   

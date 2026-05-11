@@ -46,7 +46,7 @@ function buildCtx({ archetype = 'merc', placeDrone = true } = {}) {
   const rng = new Rng(1);
 
   const log = [];
-  const calls = { advanceTurn: 0, resetInputModes: 0 };
+  const calls = { advanceTurn: 0, resetInputModes: 0, interact: 0 };
   const ctx = {
     world,
     player,
@@ -59,6 +59,9 @@ function buildCtx({ archetype = 'merc', placeDrone = true } = {}) {
     },
     resetInputModes: () => {
       calls.resetInputModes++;
+    },
+    onInteract: () => {
+      calls.interact++;
     },
   };
   return { ctx, log, calls, drone, world, player, queue };
@@ -156,6 +159,18 @@ test('pickFireTarget finds the hostile drone in LOS', () => {
   // Player at (2,2), drone at (7,2). Both on y=2, no walls between.
   const target = pickFireTarget(ctx, 1, 0);
   assert.equal(target, drone);
+});
+
+test('interact intent fires the shell-supplied onInteract callback once', () => {
+  const { ctx, calls } = buildCtx();
+  applyIntent({ type: 'interact' }, ctx);
+  assert.equal(calls.interact, 1);
+});
+
+test('interact intent crashes when ctx.onInteract is missing (no silent no-op)', () => {
+  const { ctx } = buildCtx();
+  delete ctx.onInteract;
+  assert.throws(() => applyIntent({ type: 'interact' }, ctx), /onInteract/);
 });
 
 test('AP exhaustion triggers auto-end-turn during a move', () => {

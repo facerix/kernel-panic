@@ -16,6 +16,8 @@ User choices on this milestone:
 - **App shell:** promote `/index.html` now.
 - **Briefing/Result UI:** DOM panels above the canvas; canvas paints during HUB/COMBAT only.
 - **Procgen scope:** lean — 3 prefabs, single mission map per run.
+- **Character select:** dismissable Shadow-DOM modal that mounts on every `enterHub()`. Player can re-open it from the Hub by interacting with a fixed Terminal entity. Choice persists until next Hub entry; archetype lives implicitly on the player entity (glyph/perks), so no new snapshot field is needed.
+- **Help overlay:** `?` toggles a `<key-help>` Shadow-DOM panel. Available in HUB and COMBAT only (suppressed while BRIEFING / RESULT / character-select / resume-confirm modals are mounted). `?` or `Esc` closes it.
 
 ## Approach
 
@@ -34,12 +36,19 @@ src/game/
       server-room.js
       hallway.js
   hub/
-    SafeSpace.js               — buildHub() → { grid, playerSpawn, curatorSpawn, exitTile }
+    SafeSpace.js               — buildHub() → { grid, playerSpawn, curatorSpawn, terminalSpawn, exitTile }
     Curator.js                 — Entity subclass; faction NEUTRAL; generateContract(rng) → { seed, objective, threatCount }
+    Terminal.js                — Entity subclass; faction NEUTRAL, immobile, glyph 'T'; interact re-opens character select
+  archetypes.js                — ARCHETYPES registry: { id, name, glyph, blurb, perks, baseStats }; one entry each for Merc and Razor
+
+src/input/
+  keyHelp.js                   — describeKeymap() → [{ key, intent, label, scope: 'hub'|'combat'|'both' }] for <key-help> to render
 
 components/
   CrashDump.js                 — <crash-dump> Shadow-DOM panel; faux kernel-panic stack
   RunBriefing.js               — <run-briefing> Shadow-DOM panel; CONTRACT box + JACK IN button
+  CharacterSelect.js           — <character-select> Shadow-DOM modal; lists archetypes with blurb + perks; emits `pick` CustomEvent
+  KeyHelp.js                   — <key-help> Shadow-DOM panel; renders describeKeymap() filtered by current Run.state
 
 index.js                       — NEW: game shell entry; mounts Run, wires DataStore + bus + UI
 index.html                     — UPDATE: mount components, replace caption with game body
@@ -64,20 +73,36 @@ index.html                     — UPDATE: mount components, replace caption wit
 - Each prefab is `{ id, w, h, tiles: Uint8Array, anchors: { drones: [{x,y,waypoints}], cover: […] } }`. Hand-authored as ASCII strings parsed at module load (one parser in `prefabs/index.js`).
 
 **`src/game/hub/SafeSpace.js`** (pure)
-- `buildHub()` — small fixed room (12×8). Walls, a door tile that's the exit, Curator at (3,3), player spawn at (6,5). No procgen — hub is authored.
-- Returns `{ grid, playerSpawn, curatorSpawn, exitTile }`.
+- `buildHub()` — small fixed room (12×8). Walls, a door tile that's the exit, Curator at (3,3), Terminal at (9,3), player spawn at (6,5). No procgen — hub is authored.
+- Returns `{ grid, playerSpawn, curatorSpawn, terminalSpawn, exitTile }`.
 
 **`src/game/hub/Curator.js`**
 - `class Curator extends Entity` — faction `NEUTRAL`, glyph `'C'`, immobile.
 - `generateContract(rng)` → `{ seed: rng.intRange(0, 0x7fffffff), objective: 'reach-exit', threatCount: 2, label: 'Sublevel 3 cache' }`. Stub for now — single objective type.
 - Player triggers via `interact` intent (the `i` key, already in keymap) when adjacent. Hub harness wires `interact` → `Run.beginBriefing(curator.generateContract(rng))`.
 
+**`src/game/hub/Terminal.js`**
+- `class Terminal extends Entity` — faction `NEUTRAL`, glyph `'T'`, immobile.
+- No `generate*` method; the Hub shell wires `interact` on this entity → re-mounts `<character-select>`. Fictionally the "loadout terminal."
+
+**`src/game/archetypes.js`**
+- Exports `ARCHETYPES = { merc: {...}, razor: {...} }`. Each entry: `{ id, name, glyph, blurb, perks: ['vault'|'slide'], baseStats: { hp, ap, … } }`.
+- `buildPlayer(archetypeId, { x, y })` → `Entity` configured with the archetype's glyph, stats, and perk bindings. Merc → `vault` (key `v`, already implemented); Razor → `slide` (key `t`, already implemented). The Hub and `Run.enterCombat()` both use this — archetype identity is implicit in the resulting `Entity`, so no separate snapshot field is needed.
+- Throws on unknown `archetypeId` (silent-fallback rule).
+
+**Archetype preference (cross-run)**
+- DataStore record: `{ id: 'prefs', type: 'preferences', lastArchetypeId: 'merc'|'razor' }`. Distinct from the `type:'run'` record so it survives death/exit (which clear the run save).
+- On `enterHub()`: read prefs; if missing (first ever load), `setArchetype('merc')`; otherwise `setArchetype(prefs.lastArchetypeId)`. Then mount `<character-select>` with the current archetype highlighted as default.
+- On `<character-select>` `pick` event: `Run.setArchetype(id)` **and** `DataStore.updateItem({ id:'prefs', type:'preferences', lastArchetypeId: id })`.
+- `restore()` does not need to touch prefs — the restored player entity already encodes its archetype via glyph/perks.
+
 **`src/game/Run.js`**
-- `class Run` — owns `state ∈ { HUB, BRIEFING, COMBAT, RESULT }`, current `Rng`, current `World`, current `TurnQueue`, current player Entity, current contract.
+- `class Run` — owns `state ∈ { HUB, BRIEFING, COMBAT, RESULT }`, current `Rng`, current `World`, current `TurnQueue`, current player Entity, current contract, current `archetypeId` (latched from character select; defaults to `null` until first pick).
 - Transitions are explicit methods that throw on illegal source state:
-  - `enterHub()` — only from `null`/`RESULT`/save-load.
-  - `enterBriefing(contract)` — only from `HUB`.
-  - `enterCombat()` — only from `BRIEFING`. Builds map via `mapBuild`, places player + drones, swaps the active world.
+  - `enterHub()` — only from `null`/`RESULT`/save-load. Emits `hub:entered` so the shell mounts `<character-select>` once per visit.
+  - `setArchetype(id)` — legal from `HUB` only. Rebuilds the Hub player entity via `archetypes.buildPlayer(id, hub.playerSpawn)`.
+  - `enterBriefing(contract)` — only from `HUB`. Throws if `archetypeId === null` (character select must have resolved at least once).
+  - `enterCombat()` — only from `BRIEFING`. Builds map via `mapBuild`, calls `archetypes.buildPlayer(archetypeId, spawn)` for the combat player, places drones, swaps the active world.
   - `enterResult({ outcome, telemetry })` — only from `COMBAT`. Outcome ∈ `{ DEATH, EXIT }`.
 - Subscribes to `turn:ended` → calls `persistence.snapshot()` and `DataStore.updateItem(snapshot)`.
 - Subscribes to `entity:damaged` → if player dies, `enterResult({ outcome: DEATH, telemetry })`.
@@ -138,6 +163,42 @@ kills:  3
 
 Emits `new-run` on the button. The shell handler clears the save and calls `Run.enterHub()`.
 
+**`<character-select>`** — Shadow-DOM modal built with `h()`. Properties: `setArchetypes(list)`. Emits `pick` CustomEvent with `{ archetypeId }` and `dismiss` on Esc / outside-click. Dismissable: the player can close it without picking (the previously-chosen archetype, or the default if none, stays in effect). Re-opened from the Hub by `interact` adjacent to the Terminal entity.
+
+```
+┌─────── SELECT OPERATOR ───────┐
+│ > MERC                        │
+│     glyph: M  |  hp 10  ap 4  │
+│     perk: VAULT — leap cover  │
+│                               │
+│   RAZOR                       │
+│     glyph: R  |  hp 8   ap 5  │
+│     perk: SLIDE — stealth dash│
+│                               │
+│   [ ENTER to confirm  Esc ]   │
+└───────────────────────────────┘
+```
+
+**`<key-help>`** — Shadow-DOM panel built with `h()`. Reads `describeKeymap()` from `/src/input/keyHelp.js` and renders rows grouped by scope, filtered to the current `Run.state` (HUB or COMBAT). `?` or `Esc` closes; the same key opens it. The shell suppresses `?` while any other modal (`<run-briefing>`, `<crash-dump>`, `<character-select>`, `<confirmation-modal>`) is mounted, so help never overlays a blocking dialog.
+
+```
+┌──────────── KEYS ────────────┐
+│  MOVE                        │
+│   W A S D / arrows  step     │
+│  ACTION                      │
+│   f                  fire    │
+│   space              melee   │
+│   i                  interact│
+│   v                  vault   │
+│   t                  slide   │
+│  SYSTEM                      │
+│   ?                  this    │
+│   Esc                cancel  │
+└──────────────────────────────┘
+```
+
+`?` is handled by a top-level keydown listener in `index.js`, **not** routed through `applyIntent` — it's a UI concern, not a game intent, so the keymap stays focused on simulation keys. The same listener owns the open/close/scope-filter logic.
+
 ### Save / resume flow
 
 - On boot: `DataStore.init()` → if a `type: 'run'` record exists, mount `<confirmation-modal>` with `Resume your last run?`. **Confirm** → `persistence.restore()` → `Run.enterCombat(restoredWorld)`. **Cancel** → `DataStore.deleteItem(id)` → `Run.enterHub()`.
@@ -158,10 +219,13 @@ New under `tests/unit/`:
 - `game/procgen/mapBuild.test.js` — same seed → identical grid bytes (determinism); player spawn ≠ exit tile; every floor cell reachable from spawn via `Pathfinding.findPath`; drone count matches threat budget.
 - `game/procgen/prefabs.test.js` — every prefab parses; declared anchors are inside its bounds; tile bytes only contain known TILE values.
 - `game/hub/Curator.test.js` — `generateContract` is deterministic on the same Rng state; threat count > 0; objective in the known set.
-- `game/Run.test.js` — every legal transition succeeds; every illegal transition throws (e.g. `HUB → COMBAT` direct, `COMBAT → HUB`, double `enterHub`); `turn:ended` triggers a snapshot write; player-killed `entity:damaged` triggers `enterResult(DEATH)`.
+- `game/Run.test.js` — every legal transition succeeds; every illegal transition throws (e.g. `HUB → COMBAT` direct, `COMBAT → HUB`, double `enterHub`); `enterBriefing` throws if `archetypeId` is still null; `setArchetype('merc')` rebuilds the Hub player entity with the merc glyph/stats; `enterHub()` with no prefs record defaults archetype to `merc`; `enterHub()` with `prefs.lastArchetypeId === 'razor'` defaults to razor; `setArchetype(id)` writes back to the prefs record; `enterResult(DEATH)` clears the run record but leaves prefs intact; `turn:ended` triggers a snapshot write; player-killed `entity:damaged` triggers `enterResult(DEATH)`.
 - `game/persistence.test.js` — `snapshot → restore → snapshot` is byte-for-byte stable; corrupt records (missing rng, OOB entity, bad grid length) throw with a useful message; restored Rng produces the same next 5 numbers as the live one before save.
+- `game/archetypes.test.js` — `buildPlayer('merc', {x,y})` and `buildPlayer('razor', {x,y})` produce entities with the expected glyph, hp/ap, and perk tags; unknown id throws.
+- `game/hub/SafeSpace.test.js` — `buildHub()` places Curator, Terminal, and player spawn on walkable tiles; Curator and Terminal are not on the same tile; exit tile is reachable from spawn.
+- `input/keyHelp.test.js` — `describeKeymap()` returns one row per bound key in `keymap.js` (no orphan rows, no missing keys); every row has a non-empty `label` and a valid `scope`.
 
-`<crash-dump>` and `<run-briefing>` follow the project rule for DOM-aware classes: visually verified via the shell, not unit-tested. (Same as `<touch-pad>` in M7.)
+`<crash-dump>`, `<run-briefing>`, `<character-select>`, and `<key-help>` follow the project rule for DOM-aware classes: visually verified via the shell, not unit-tested. (Same as `<touch-pad>` in M7.)
 
 ### Critical reuses (already exist — do not reinvent)
 
@@ -180,17 +244,23 @@ New under `tests/unit/`:
 - HP carry-over Hub→Combat→Hub: M8 starts a combat run with full HP and discards the player on death. Persistent character HP between runs is a Phase-2 concern.
 - `Run` only knows `objective: 'reach-exit'` for now — Curator quest stub is intentionally narrow.
 - Stealth-on-attack (recorded problem #131 in phase-1-plan.md) remains deferred; not part of M8.
+- Character select is binary (Merc / Razor) and per-run; no progression, no unlock gating, no archetype-specific Curator dialogue. Phase-2 concerns.
+- `<key-help>` reads `describeKeymap()` at render time; if a future milestone adds new bindings, the help panel updates automatically, but the `scope` field on each row is hand-tagged — easy to drift. Worth a lint-ish test that every keymap entry has a corresponding `keyHelp` row (covered above in `keyHelp.test.js`).
 
 ## Verification
 
 End-to-end (manual, on `/index.html` via `npm start`):
 
-1. **Fresh load** → Hub renders on canvas; player at (6,5), Curator at (3,3); WASD moves; pressing `i` adjacent to Curator opens `<run-briefing>` with seed/objective/threat count.
-2. **JACK IN** → canvas swaps to a procedurally-generated map; spawn placement valid; drones present; combat works (M3–M7 features all still functional).
-3. **Turn end** → DataStore localStorage shows a `type:'run'` record; `rng.state` advances each turn.
-4. **Refresh mid-combat** → `<confirmation-modal>` mounts. Confirm → exact same world restored (entity HP, AP, drone state, RNG continuation, turn number). Cancel → save cleared, lands in Hub.
-5. **Death** (let drones down player) → `<crash-dump>` shows seed/turn/kills/cause; save cleared; `New Run` button returns to Hub.
-6. **Exit-tile reach** → same flow, JACK OUT framing.
+1. **Fresh load (first ever)** → Hub renders on canvas; `<character-select>` mounts with Merc highlighted as default; Curator at (3,3), Terminal at (9,3), player spawn at (6,5). Pressing Enter (or clicking Merc) closes it; player glyph is `M`. Esc dismisses with Merc still in effect. DataStore now has a `type:'preferences'` record with `lastArchetypeId:'merc'`.
+2. **Re-open character select** → walk adjacent to Terminal, press `i` → `<character-select>` re-mounts with Merc highlighted; pick Razor → glyph swaps to `R`; prefs record updated to `razor`.
+3. **Subsequent fresh load** → reload page; `<character-select>` mounts with Razor highlighted (last pick); Esc keeps Razor.
+4. **Briefing** → `i` adjacent to Curator opens `<run-briefing>` with seed/objective/threat count. (Confirm `enterBriefing` did not throw — at least one archetype was picked.)
+5. **JACK IN** → canvas swaps to a procedurally-generated map; spawn placement valid; drones present; combat works (M3–M7 features all still functional); player glyph matches the chosen archetype; perk key (`v` for Merc, `t` for Razor) fires the archetype perk.
+6. **Help overlay** → pressing `?` in Hub or Combat mounts `<key-help>` with the correct scope's keys; `?` or Esc dismisses it. Pressing `?` while `<run-briefing>` / `<crash-dump>` / `<character-select>` / `<confirmation-modal>` is mounted is a no-op.
+7. **Turn end** → DataStore localStorage shows a `type:'run'` record; `rng.state` advances each turn.
+8. **Refresh mid-combat** → `<confirmation-modal>` mounts. Confirm → exact same world restored (entity HP, AP, drone state, RNG continuation, turn number, player glyph, working perk key). Cancel → save cleared, lands in Hub with `<character-select>` mounted again (highlighted to the prefs archetype, not the dropped run's archetype — though they should match).
+9. **Death** (let drones down player) → `<crash-dump>` shows seed/turn/kills/cause/archetype; run save cleared; prefs record preserved; `New Run` button returns to Hub with prefs archetype still highlighted.
+10. **Exit-tile reach** → same flow, JACK OUT framing.
 
 Automated:
 

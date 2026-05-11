@@ -155,6 +155,9 @@ function applyIntent(intent) {
     log,
     advanceTurn,
     resetInputModes,
+    // The harness has no Curator / interactables. Without this, pressing `i`
+    // would crash through `applyIntent`'s "interact requires onInteract" guard.
+    onInteract: () => log('> Nothing to interact with here.'),
   });
 }
 

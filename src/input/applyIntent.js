@@ -43,6 +43,7 @@ const KNOWN_INTENT_TYPES = new Set([
   'slide',
   'melee',
   'fire',
+  'interact',
   'wait',
   'end-turn',
   'cancel',
@@ -77,6 +78,8 @@ export function applyIntent(intent, ctx) {
       return doMelee(intent, ctx);
     case 'fire':
       return doFire(intent, ctx);
+    case 'interact':
+      return doInteract(ctx);
     case 'wait':
       log(`> @ holds position (drops ${player.ap} AP).`);
       player.ap = 0;
@@ -200,6 +203,19 @@ function doMelee(intent, ctx) {
     log('> AP EXHAUSTED — auto-ending turn.');
     advanceTurn();
   }
+}
+
+function doInteract(ctx) {
+  // Interact is the universal "use the thing in front of me" verb. The shape
+  // of "the thing" depends on Run.state (Hub: Curator → briefing; future
+  // combat terminals → unlock doors / hack), so applyIntent doesn't know the
+  // semantics — it just routes the intent to a shell-supplied handler. Crash
+  // rather than silent no-op if the shell forgot to provide one; otherwise an
+  // unbound `i` key would feel like a dead button instead of a wiring bug.
+  if (typeof ctx.onInteract !== 'function') {
+    throw new Error('applyIntent: interact intent received but ctx.onInteract is missing');
+  }
+  ctx.onInteract();
 }
 
 function doFire(intent, ctx) {

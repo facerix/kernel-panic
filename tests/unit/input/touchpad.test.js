@@ -13,11 +13,12 @@ test('TOUCHPAD_DIRECTIONS lists all 8 compass directions', () => {
   assert.deepEqual([...TOUCHPAD_DIRECTIONS].sort(), ['E', 'N', 'NE', 'NW', 'S', 'SE', 'SW', 'W']);
 });
 
-test('TOUCHPAD_ACTIONS includes the seven gameplay actions', () => {
+test('TOUCHPAD_ACTIONS includes the eight gameplay actions', () => {
   assert.deepEqual([...TOUCHPAD_ACTIONS].sort(), [
     'cancel',
     'end-turn',
     'fire',
+    'interact',
     'melee',
     'slide',
     'vault',
@@ -44,6 +45,7 @@ test('syntheticKeyFor resolves actions to keymap keys', () => {
   assert.equal(syntheticKeyFor('wait'), '.');
   assert.equal(syntheticKeyFor('end-turn'), ' ');
   assert.equal(syntheticKeyFor('cancel'), 'Escape');
+  assert.equal(syntheticKeyFor('interact'), 'i');
 });
 
 test('syntheticKeyFor throws on an unknown button (crash > silent fallback)', () => {

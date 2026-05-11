@@ -35,19 +35,24 @@
       <h1>Kernel Panic</h1>
     </header>
     <main class="game-shell u-fill-width u-flex u-flex-column">
-      <canvas
-        id="game-canvas"
-        width="640"
-        height="400"
-        aria-label="Kernel Panic game view"
-      ></canvas>
-      <p class="game-shell__caption u-center">
-        Phase 1 scaffold — Meatspace MVP per <code>docs/kernel-panic-v1-blueprint.md</code>.
-      </p>
+      <div class="game-stage">
+        <canvas
+          id="game-canvas"
+          width="640"
+          height="400"
+          tabindex="0"
+          aria-label="Kernel Panic game view"
+        ></canvas>
+        <run-briefing id="briefing"></run-briefing>
+        <crash-dump id="crash"></crash-dump>
+      </div>
+      <p class="game-shell__status" id="game-status" aria-live="polite">Booting Meatspace…</p>
     </main>
 
     <footer id="main-foot">A&nbsp;<a href="/about.html">Facerix</a>&nbsp;creation</footer>
 
+    <confirmation-modal id="resume-modal"></confirmation-modal>
+    <touch-pad id="touch-pad"></touch-pad>
     <update-notification></update-notification>
   </body>
   <script src="/index.js" type="module"></script>

@@ -181,3 +181,17 @@ test('SLIDE_AIM + Escape cancels back to IDLE', () => {
   assert.deepEqual(r.intent, { type: 'cancel' });
   assert.equal(r.nextMode, MODE.IDLE);
 });
+
+// --- M8: context-sensitive interact verb ------------------------------
+
+test('IDLE + i emits interact intent and stays IDLE', () => {
+  const r = dispatch('i', MODE.IDLE);
+  assert.deepEqual(r.intent, { type: 'interact' });
+  assert.equal(r.nextMode, MODE.IDLE);
+});
+
+test('IDLE + I (caps) emits interact intent (case-tolerant)', () => {
+  const r = dispatch('I', MODE.IDLE);
+  assert.deepEqual(r.intent, { type: 'interact' });
+  assert.equal(r.nextMode, MODE.IDLE);
+});

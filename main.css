@@ -153,6 +153,40 @@ main {
   opacity: 0.85;
 }
 
+.game-shell__status {
+  margin: 0;
+  max-width: 42rem;
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
+  color: #6ae8c8;
+  text-align: center;
+  min-height: 1.1em;
+}
+
+.game-stage {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  max-width: min(960px, 100%);
+}
+
+.game-stage > #game-canvas {
+  width: 100%;
+}
+
+.game-stage > run-briefing,
+.game-stage > crash-dump {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+}
+
+.game-stage > #game-canvas[hidden] {
+  display: none;
+}
+
 #game-canvas {
   display: block;
   width: 100%;

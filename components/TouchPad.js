@@ -50,6 +50,7 @@ const ACTION_BUTTONS = Object.freeze([
   { id: 'melee', label: 'MELEE', shortcut: 'm' },
   { id: 'vault', label: 'VAULT', shortcut: 'v' },
   { id: 'slide', label: 'SLIDE', shortcut: 't' },
+  { id: 'interact', label: 'INTERACT', shortcut: 'i' },
   { id: 'end-turn', label: 'END', shortcut: '␣' },
   { id: 'cancel', label: 'CANCEL', shortcut: 'esc' },
 ]);

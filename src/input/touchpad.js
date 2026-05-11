@@ -7,7 +7,7 @@
  *
  * Button identifiers:
  *   - Directions (8): N, NE, E, SE, S, SW, W, NW
- *   - Actions: fire, melee, vault, slide, wait, end-turn, cancel
+ *   - Actions: fire, melee, vault, slide, interact, wait, end-turn, cancel
  *
  * Unknown buttons throw — silently dropping a button press would mask UI
  * wiring bugs.
@@ -31,6 +31,7 @@ const ACTION_KEYS = Object.freeze({
   melee: 'm',
   vault: 'v',
   slide: 't',
+  interact: 'i',
   wait: '.',
   'end-turn': ' ',
   cancel: 'Escape',
