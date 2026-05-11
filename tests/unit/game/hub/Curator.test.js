@@ -67,4 +67,19 @@ test('buildHub returns a stable layout (idempotent)', () => {
   assert.deepEqual(a.playerSpawn, b.playerSpawn);
   assert.deepEqual(a.curatorSpawn, b.curatorSpawn);
   assert.deepEqual(a.exitTile, b.exitTile);
+  assert.deepEqual(a.terminalSpawn, b.terminalSpawn);
+});
+
+test('buildHub returns a terminalSpawn distinct from other interactables', () => {
+  const hub = buildHub();
+  assert.ok(hub.terminalSpawn, 'expected terminalSpawn in buildHub() result');
+  assert.equal(typeof hub.terminalSpawn.x, 'number');
+  assert.equal(typeof hub.terminalSpawn.y, 'number');
+  // Terminal must occupy a walkable tile so the player can stand adjacent.
+  assert.equal(hub.grid.isPassable(hub.terminalSpawn.x, hub.terminalSpawn.y), true);
+  // …and must not collide with the player spawn, Curator, or door.
+  const same = (a, b) => a.x === b.x && a.y === b.y;
+  assert.ok(!same(hub.terminalSpawn, hub.playerSpawn), 'terminal overlaps player spawn');
+  assert.ok(!same(hub.terminalSpawn, hub.curatorSpawn), 'terminal overlaps curator');
+  assert.ok(!same(hub.terminalSpawn, hub.exitTile), 'terminal overlaps exit tile');
 });

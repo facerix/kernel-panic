@@ -40,8 +40,10 @@ import { FACTION } from './constants.js';
 import { Entity } from './Entity.js';
 import { Merc } from './archetypes/Merc.js';
 import { Razor } from './archetypes/Razor.js';
+import { buildPlayer, isArchetypeId } from './archetypes/index.js';
 import { CorpDrone } from './ai/CorpDrone.js';
 import { Curator, isObjective } from './hub/Curator.js';
+import { Terminal } from './hub/Terminal.js';
 import { buildHub } from './hub/SafeSpace.js';
 import { buildMap } from './procgen/mapBuild.js';
 
@@ -58,17 +60,16 @@ export const OUTCOME = Object.freeze({
 });
 
 const KNOWN_OUTCOMES = new Set(Object.values(OUTCOME));
-const KNOWN_ARCHETYPES = new Set(['merc', 'razor']);
 
 const COMBAT_MAP_WIDTH = 24;
 const COMBAT_MAP_HEIGHT = 16;
 
 export class Run {
-  constructor({ id, archetype = 'razor', seed, onPersist, onResult } = {}) {
+  constructor({ id, archetype = 'razor', seed, onPersist, onResult, onPrefsChange } = {}) {
     if (!Number.isFinite(seed)) {
       throw new TypeError(`Run requires a finite numeric seed, got ${seed}`);
     }
-    if (!KNOWN_ARCHETYPES.has(archetype)) {
+    if (!isArchetypeId(archetype)) {
       throw new Error(`Run: unknown archetype "${archetype}"`);
     }
     if (onPersist !== undefined && typeof onPersist !== 'function') {
@@ -76,6 +77,9 @@ export class Run {
     }
     if (onResult !== undefined && typeof onResult !== 'function') {
       throw new TypeError('Run: onResult must be a function');
+    }
+    if (onPrefsChange !== undefined && typeof onPrefsChange !== 'function') {
+      throw new TypeError('Run: onPrefsChange must be a function');
     }
 
     this.id = id ?? makeRunId(seed);
@@ -88,14 +92,47 @@ export class Run {
     this.bus = null;
     this.player = null;
     this.curator = null;
+    this.terminal = null;
     this.contract = null;
     this.exitTile = null;
     this.telemetry = freshTelemetry(archetype, this.seed);
     this.onPersist = onPersist ?? null;
     this.onResult = onResult ?? null;
+    this.onPrefsChange = onPrefsChange ?? null;
 
     /** @type {Array<() => void>} active bus subscriptions */
     this._busUnsubs = [];
+  }
+
+  /**
+   * Set the active archetype. Legal from `null` (pre-Hub) and `HUB`. During
+   * BRIEFING / COMBAT / RESULT the player entity is mid-flight and swapping
+   * its class would corrupt the in-flight contract or world — those throw.
+   *
+   * Fires `onPrefsChange(id)` so the shell can persist the last pick
+   * (DataStore preferences record, separate from the run snapshot).
+   */
+  setArchetype(id) {
+    if (!isArchetypeId(id)) {
+      throw new Error(`Run.setArchetype: unknown archetype "${id}"`);
+    }
+    if (this.state !== null && this.state !== RUN_STATE.HUB) {
+      throw new Error(`Run.setArchetype: illegal from ${this.state}`);
+    }
+    if (this.state === RUN_STATE.HUB && this.world && this.player) {
+      // Rebuild the player in place — keep the spawn tile, swap the class.
+      // World.removeEntity takes an id; capture the OLD id before updating
+      // this.archetype (player ids are keyed off archetype).
+      const spawn = { x: this.player.x, y: this.player.y };
+      this.world.removeEntity(this.player.id);
+      this.archetype = id;
+      this.player = this.#makePlayer(spawn);
+      this.world.addEntity(this.player);
+    } else {
+      this.archetype = id;
+    }
+    this.telemetry.archetype = id;
+    this.onPrefsChange?.(id);
   }
 
   /** Permitted from `null` (fresh) or RESULT (post-debrief). */
@@ -116,8 +153,14 @@ export class Run {
       x: hub.curatorSpawn.x,
       y: hub.curatorSpawn.y,
     });
+    this.terminal = new Terminal({
+      id: 'terminal',
+      x: hub.terminalSpawn.x,
+      y: hub.terminalSpawn.y,
+    });
     this.world.addEntity(this.player);
     this.world.addEntity(this.curator);
+    this.world.addEntity(this.terminal);
     this.queue = new TurnQueue([FACTION.PLAYER, FACTION.CORP]);
     this.exitTile = { ...hub.exitTile };
     this.state = RUN_STATE.HUB;
@@ -241,9 +284,14 @@ export class Run {
   // ------------------------------------------------------------------
 
   #makePlayer(spawn) {
-    const id = this.archetype;
-    const props = { id, x: spawn.x, y: spawn.y, maxAp: 4 };
-    return this.archetype === 'merc' ? new Merc(props) : new Razor(props);
+    // Delegate to the archetypes registry so the class/glyph/perk binding
+    // lives in one place (Run, <character-select>, <key-help> all go through
+    // the same factory).
+    return buildPlayer(this.archetype, {
+      x: spawn.x,
+      y: spawn.y,
+      maxAp: 4,
+    });
   }
 
   #unwireCombatListeners() {
@@ -296,6 +344,7 @@ export class Run {
     this.queue = null;
     this.player = null;
     this.curator = null;
+    this.terminal = null;
     this.exitTile = null;
     this.bus = null;
   }
@@ -338,6 +387,7 @@ function archetypeOf(entity) {
   if (entity instanceof Razor) return 'razor';
   if (entity instanceof CorpDrone) return 'drone';
   if (entity instanceof Curator) return 'curator';
+  if (entity instanceof Terminal) return 'terminal';
   if (entity instanceof Entity) return 'entity';
   throw new Error(`archetypeOf: cannot classify entity ${entity?.id}`);
 }
@@ -378,7 +428,7 @@ function validateContract(contract) {
 
 function makeRunId(seed) {
   // Browser-friendly id without crypto: seed + millisecond. Persistence
-  // stores it verbatim; if the shell wires this through DataStore.addItem,
+  // stores it verbatim; if the shell wires this through DataStore.addRun,
   // DataStore will assign its own UUID — the shell is responsible for
   // mirroring that back into Run.id.
   return `run-${(seed >>> 0).toString(16)}-${Date.now().toString(36)}`;

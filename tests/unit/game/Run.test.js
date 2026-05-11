@@ -177,4 +177,92 @@ test('Run constructor rejects unknown archetype + non-finite seed', () => {
 test('Run constructor rejects non-function callbacks', () => {
   assert.throws(() => new Run({ archetype: 'merc', seed: 1, onPersist: 'no' }), /function/);
   assert.throws(() => new Run({ archetype: 'merc', seed: 1, onResult: 42 }), /function/);
+  assert.throws(() => new Run({ archetype: 'merc', seed: 1, onPrefsChange: 7 }), /function/);
+});
+
+// --- M8b: character select / archetype switching ---------------------------
+
+test('setArchetype before enterHub updates the archetype field', () => {
+  const run = new Run({ archetype: 'merc', seed: 1 });
+  run.setArchetype('razor');
+  assert.equal(run.archetype, 'razor');
+});
+
+test('setArchetype fires onPrefsChange with the new archetype id', () => {
+  const picks = [];
+  const run = new Run({
+    archetype: 'merc',
+    seed: 1,
+    onPrefsChange: id => picks.push(id),
+  });
+  run.setArchetype('razor');
+  run.setArchetype('merc');
+  // Reaffirming the same archetype still fires — first ever load defaults
+  // to 'merc' but no prefs record exists; the callback is what writes one.
+  run.setArchetype('merc');
+  assert.deepEqual(picks, ['razor', 'merc', 'merc']);
+});
+
+test('setArchetype during HUB rebuilds the player entity on the same spawn tile', () => {
+  const run = new Run({ archetype: 'merc', seed: 1 });
+  run.enterHub();
+  const oldPlayer = run.player;
+  assert.equal(oldPlayer.constructor.name, 'Merc');
+  const spawn = { x: oldPlayer.x, y: oldPlayer.y };
+
+  run.setArchetype('razor');
+  assert.equal(run.archetype, 'razor');
+  assert.equal(run.player.constructor.name, 'Razor');
+  // Same tile, fresh entity instance.
+  assert.equal(run.player.x, spawn.x);
+  assert.equal(run.player.y, spawn.y);
+  assert.notEqual(run.player, oldPlayer, 'player should be a new instance');
+
+  // Exactly one PLAYER-faction entity in the world (no leak of the old one).
+  const players = [...run.world.entities.values()].filter(e => e.faction === FACTION.PLAYER);
+  assert.equal(players.length, 1);
+  assert.equal(players[0], run.player);
+});
+
+test('setArchetype updates telemetry.archetype so death-screen shows the new pick', () => {
+  const run = new Run({ archetype: 'merc', seed: 1 });
+  assert.equal(run.telemetry.archetype, 'merc');
+  run.setArchetype('razor');
+  assert.equal(run.telemetry.archetype, 'razor');
+});
+
+test('setArchetype rejects unknown ids (crash > silent fallback)', () => {
+  const run = new Run({ archetype: 'merc', seed: 1 });
+  assert.throws(() => run.setArchetype('wizard'), /archetype/i);
+  assert.throws(() => run.setArchetype(null), /archetype/i);
+});
+
+test('setArchetype is illegal during BRIEFING/COMBAT/RESULT', () => {
+  const run = new Run({ archetype: 'merc', seed: 1 });
+  run.enterHub();
+  run.enterBriefing(fakeContract());
+  assert.throws(() => run.setArchetype('razor'), /illegal/i);
+  run.enterCombat();
+  assert.throws(() => run.setArchetype('razor'), /illegal/i);
+  run.enterResult({ outcome: OUTCOME.DEATH });
+  assert.throws(() => run.setArchetype('razor'), /illegal/i);
+});
+
+test('enterHub places a Terminal entity in the world', () => {
+  const run = new Run({ archetype: 'merc', seed: 1 });
+  run.enterHub();
+  const terminals = [...run.world.entities.values()].filter(e => e.glyph === '‡');
+  assert.equal(terminals.length, 1, 'expected exactly one Terminal in the hub world');
+});
+
+test('archetype persists across enterHub (last pick wins when returning from RESULT)', () => {
+  const run = new Run({ archetype: 'merc', seed: 1 });
+  run.enterHub();
+  run.setArchetype('razor');
+  run.enterBriefing(fakeContract());
+  run.enterCombat();
+  run.enterResult({ outcome: OUTCOME.DEATH });
+  run.enterHub();
+  assert.equal(run.archetype, 'razor');
+  assert.equal(run.player.constructor.name, 'Razor');
 });

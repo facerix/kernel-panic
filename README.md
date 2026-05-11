@@ -10,7 +10,7 @@ Turn-based cyberpunk roguelike as a Progressive Web App — tactical grid combat
 - **No frameworks** — vanilla JavaScript with ES modules
 - **Game view** — HTML `<canvas>` (grid / terminal UI)
 - **Web Components** — `/components/` with Shadow DOM
-- **Data** — `DataStore` singleton (`localStorage`, key `kernelPanicData`)
+- **Data** — `DataStore` singleton (`localStorage`, key `kp:data`)
 - **DOM** — `h()` from `src/domUtils.js`
 - **Service workers** — `sw.js` / `sw-dev.js` + shared `sw-core.js`
 

@@ -1,11 +1,10 @@
 // singleton class to manage the user's data
 
-const STORAGE_KEY = 'kernelPanicData';
-
+const STORAGE_KEY = 'kp:data';
 let instance;
 class DataStore extends EventTarget {
-  #items = [];
-  #itemsById = new Map();
+  #prefs = {};
+  #runs = [];
 
   constructor() {
     if (instance) {
@@ -16,106 +15,96 @@ class DataStore extends EventTarget {
     instance = this;
   }
 
-  #loadRecordsFromJson(json) {
+  #loadDataFromJson(json) {
     try {
-      const records = JSON.parse(json);
-      if (!Array.isArray(records)) {
-        console.warn('[DataStore] Expected array JSON, falling back to empty list.');
-        return [];
-      }
-      records.forEach((item, index) => {
-        if (!item.id) {
-          records[index].id = window.crypto.randomUUID();
-        }
-      });
-      return records;
+      const data = JSON.parse(json);
+      return { prefs: data.prefs ?? {}, runs: data.runs ?? [] };
     } catch (error) {
-      console.warn('[DataStore] Failed to parse stored JSON, resetting items.', error);
+      console.warn('[DataStore] Failed to parse stored JSON, resetting stored data.', error);
       try {
-        window.localStorage.setItem(STORAGE_KEY, '[]');
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ prefs: {}, runs: [] }));
       } catch (storageError) {
-        console.warn('[DataStore] Failed to reset stored items.', storageError);
+        console.warn('[DataStore] Failed to reset stored data.', storageError);
       }
-      return [];
+      return { prefs: {}, runs: [] };
     }
   }
 
   async init() {
-    let savedItemsJson = window.localStorage.getItem(STORAGE_KEY);
-    if (!savedItemsJson) {
-      savedItemsJson = '[]';
-      window.localStorage.setItem(STORAGE_KEY, savedItemsJson);
+    let savedDataJson = window.localStorage.getItem(STORAGE_KEY);
+    if (!savedDataJson) {
+      savedDataJson = JSON.stringify({ prefs: {}, runs: [] });
+      window.localStorage.setItem(STORAGE_KEY, savedDataJson);
     }
-    this.#items = this.#loadRecordsFromJson(savedItemsJson);
-    this.#reindex();
-
-    setTimeout(() => {
-      this.#emitChangeEvent('init', ['*']);
-    }, 0);
+    const { prefs, runs } = this.#loadDataFromJson(savedDataJson);
+    this.#prefs = prefs;
+    this.#runs = runs;
+    this.#emitChangeEvent('init', ['*']);
   }
 
   import(jsonData) {
-    const newItems = this.#loadRecordsFromJson(jsonData);
-    Array.prototype.unshift.apply(this.#items, newItems);
-    this.#reindex();
-
-    setTimeout(() => {
-      this.#emitChangeEvent('init', ['*']);
-    }, 0);
+    const { prefs, runs } = this.#loadDataFromJson(jsonData);
+    this.#prefs = prefs;
+    this.#runs = runs;
+    this.#emitChangeEvent('import', ['*']);
   }
 
-  #saveItems() {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(this.#items));
+  #saveData() {
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ prefs: this.#prefs, runs: this.#runs })
+    );
   }
 
-  #emitChangeEvent(changeType, affectedRecords) {
+  #emitChangeEvent(changeType, key, data) {
     const changeEvent = new CustomEvent('change', {
       detail: {
-        items: this.#items,
+        key,
+        data,
         changeType,
-        affectedRecords,
       },
     });
     this.dispatchEvent(changeEvent);
   }
 
-  #reindex() {
-    this.#itemsById = new Map();
-    this.#items.forEach(item => {
-      this.#itemsById.set(item.id, item);
-    });
-    this.#saveItems();
+  get prefs() {
+    return this.#prefs;
   }
 
-  get items() {
-    return this.#items;
+  setPref(key, value) {
+    this.#prefs = { ...this.#prefs, [key]: value };
+    this.#emitChangeEvent('update', 'prefs', this.#prefs);
+    this.#saveData();
   }
 
-  getItemById(id) {
-    return this.#itemsById.get(id);
+  get currentRun() {
+    return this.#runs?.[0] ?? null;
   }
 
-  addItem(record) {
-    record.id = window.crypto.randomUUID();
-    this.#items.unshift(record);
-    this.#reindex();
-    this.#emitChangeEvent('add', record);
+  getRunById(id) {
+    return this.#runs.find(run => run.id === id);
   }
 
-  updateItem(record) {
-    const index = this.#items.findIndex(rec => rec.id === record.id);
+  addRun(run) {
+    this.#runs.unshift(run);
+    this.#emitChangeEvent('add', 'runs', run);
+    this.#saveData();
+  }
+
+  updateRun(run) {
+    const index = this.#runs.findIndex(r => r.id === run.id);
     if (index > -1) {
-      this.#items[index] = record;
-      this.#reindex();
-      this.#emitChangeEvent('update', record);
+      this.#runs[index] = { ...this.#runs[index], ...run };
+      this.#emitChangeEvent('update', 'runs', this.#runs[index]);
+      this.#saveData();
     }
   }
 
-  deleteItem(id) {
-    if (this.#itemsById.has(id)) {
-      this.#items = this.#items.filter(r => r.id !== id);
-      this.#reindex();
-      this.#emitChangeEvent('delete', [id]);
+  deleteRun(id) {
+    if (this.#runs.find(r => r.id === id)) {
+      this.#runs = this.#runs.filter(r => r.id !== id);
+      this.#emitChangeEvent('delete', 'runs', id);
+      this.#saveData();
     }
   }
 }

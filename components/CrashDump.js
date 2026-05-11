@@ -17,7 +17,7 @@
  *
  * Usage:
  *   const dump = document.querySelector('crash-dump');
- *   dump.addEventListener('new-run', () => { dataStore.deleteItem(id); run.enterHub(); });
+ *   dump.addEventListener('new-run', () => { dataStore.deleteRun(id); run.enterHub(); });
  *   dump.setTelemetry({ outcome, archetype, turn, kills, cause, seed, hpAtDeath });
  *   dump.show();
  *

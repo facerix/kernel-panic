@@ -13,11 +13,15 @@ Living plan for Phase 1 of Kernel Panic. Source of truth for milestone scope, cu
 | M5 — A* drone AI | ✅ Done |
 | M6 — Razor archetype + melee/stealth | ✅ Done |
 | M7 — Touch / on-screen keypad | ✅ Done |
-| **M8 — Hub, Curator, run lifecycle, death screen** | **▶ In progress (pure layers landed)** |
+| M8 — Hub, Curator, run lifecycle, death screen | ✅ Done |
 
-Test count after M7: **297 passing**, lint clean.
+**Phase 1 complete** when *all three* of:
 
-Test count after M8 phase 1 (pure layers): **373 passing**, lint clean. UI shell + `<crash-dump>` / `<run-briefing>` components are deferred to a follow-up session per the milestone plan; see `docs/phase-1-milestone-8-plan.md` → "Phased delivery."
+1. Every milestone box ticked ✅ (above).
+2. `/index.html` plays a full Hub → Briefing → Combat → Death/Exit loop offline on iOS Safari + Chrome desktop (PWA install, no network).
+3. `v0.1.0` tagged in git.
+
+Test count after M8: **409 passing**, lint clean, prettier clean. Remaining "Recorded problems" are intentional deferrals.
 
 ## Locked-in decisions
 
@@ -110,50 +114,37 @@ Goal: a playable Merc on the existing engine, with Vault working end-to-end.
 - Debug harness: mounts `<touch-pad>`; `resetInputModes()` clears both controllers on reset/archetype switch and on every `cancel` intent (so a CANCEL/Esc from either side wipes any aim mode the other side was holding — patches the per-input drift caveat for the cancel case specifically).
 - Tests: `tests/unit/input/touchpad.test.js` — 24 cases covering button → synthetic-key resolution, all eight directions, all seven actions, action button → aim mode → direction → targeted intent for fire/melee/vault/slide, cancel exits every aim mode, sticky-aim on noise (wait/end-turn inside aim modes is a no-op), unknown button throws. `<touch-pad>` itself is verified visually via the harness, per the "DOM-aware classes — visual verification" rule.
 
-### M8 — Hub, Curator, run lifecycle, death screen
+### M8 — Hub, Curator, run lifecycle, death screen ✅
 
-Phased delivery — see `docs/phase-1-milestone-8-plan.md` for the full milestone plan.
+Full milestone plan: `docs/phase-1-milestone-8-plan.md`. Landed in two phases (same milestone, two sessions).
 
-**Phase 1 (landed):** pure game-logic layers + their unit tests.
+**Phase 1 — pure game-logic layers + tests.**
 - `src/game/procgen/bsp.js` — BSP recursive split, deterministic on `Rng`.
 - `src/game/procgen/prefabs/` — three authored prefabs (`office`, `server-room`, `hallway`) parsed at load.
 - `src/game/procgen/mapBuild.js` — BSP → prefab stamp → corridor carve → spawn/exit/drone placement. Forks the caller rng with `'mapgen'` so combat rolls aren't perturbed by future procgen tweaks.
 - `src/game/hub/SafeSpace.js` — authored 12×8 hub with door tile.
 - `src/game/hub/Curator.js` — NEUTRAL Curator NPC; `generateContract(rng)` rolls a `{seed, objective, threatCount, label}` (single objective `reach-exit` for now).
-- `src/game/Run.js` — `Run` state machine (`HUB → BRIEFING → COMBAT → RESULT`). Owns rng/world/queue/player. Throws on every illegal transition. Surfaces autosave + result via `onPersist` / `onResult` callbacks (no DOM, no DataStore — the future shell wires those).
+- `src/game/Run.js` — `Run` state machine (`HUB → BRIEFING → COMBAT → RESULT`). Owns rng/world/queue/player. Throws on every illegal transition. Surfaces autosave + result via `onPersist` / `onResult` callbacks (no DOM, no DataStore — the shell wires those).
 - `src/game/persistence.js` — `snapshot(run)` (delegates to `Run#snapshot`) and `restore(record)` round-trip; corrupt records throw with useful messages. Grid bytes serialised as a plain JS array (cross-runtime portable, see deferred-fix list).
 - `src/input/applyIntent.js` — extracted from the M7 debug harness so the new game shell and the harness share one intent-application path.
-- 76 new tests under `tests/unit/game/{procgen,hub}/`, `tests/unit/game/{Run,persistence}.test.js`, and `tests/unit/input/applyIntent.test.js`. Total: **373 passing** after M8 phase 1.
+- 76 new tests under `tests/unit/game/{procgen,hub}/`, `tests/unit/game/{Run,persistence}.test.js`, and `tests/unit/input/applyIntent.test.js`.
 
-**Phase 2 (deferred, follow-up session):** UI shell + components.
-- Promote `/index.html` from M0 scaffold into the real game shell (DOM panels above canvas; canvas paints during HUB/COMBAT only).
+**Phase 2 — UI shell, components, and character/help affordances added in chat.**
+- `/index.html` promoted from M0 scaffold into the real game shell. DOM panels mount above the canvas; canvas paints during HUB/COMBAT only.
 - `<run-briefing>` Web Component — CONTRACT box + JACK IN button.
 - `<crash-dump>` Web Component — faux kernel-panic stack trace from telemetry; emits `new-run`.
-- `index.js` — instantiates `Run`, wires `<confirmation-modal>` resume prompt to `persistence.restore()`, drives `AsciiRenderer` + `CrtFilter` per `Run.state`.
-- DataStore wiring: `Run.onPersist` → `DataStore.updateItem(record)`; on death/exit → `DataStore.deleteItem(id)`.
+- `<character-select>` Web Component — modal letting the player pick Merc or Razor; ↑/↓/W/S nav, Enter confirm, Esc/backdrop dismiss. Mounted on first-ever load and on every post-death return-to-Hub; re-openable from a fixed Terminal entity (`‡` glyph) in the Hub. Subsequent refreshes with a sticky prefs archetype skip the modal — the player can still open it explicitly via the Terminal.
+- `<key-help>` Web Component — `?` toggles a scope-filtered keybindings overlay (HUB vs COMBAT rows). Shell suppresses `?` while any other modal owns focus, and swallows all keys while `<key-help>` itself is open so held WASD doesn't pump moves into the game underneath.
+- `src/game/archetypes/index.js` — `ARCHETYPES` metadata registry (name, blurb, perk key/label) + `buildPlayer(id, spawn)` factory. `Run`, `<character-select>`, and `<key-help>` all read from this single source of truth.
+- `src/input/keyHelp.js` — hand-authored `HELP_ROWS` table + `describeKeymap(scope)`. A drift-guard unit test fails CI if `keymap.js` grows a binding without a corresponding help row.
+- `src/game/hub/Terminal.js` — NEUTRAL, immobile `‡` kiosk entity placed at `(9,2)` in the Hub. Interact (`i`) when adjacent re-opens `<character-select>`.
+- `Run.setArchetype(id)` — legal from `null` / `HUB` only. Rebuilds the Hub player entity in place (preserving the spawn tile), updates telemetry, fires `onPrefsChange`. Snapshots store the archetype implicitly via the player entity class (no extra field).
+- `index.js` — wires Run/persistence/DataStore: `onPersist` → `dataStore.addRun/updateRun`; death/exit → `deleteRun`; `onPrefsChange` → `setPref('archetype', id)`. Starting archetype resolves in priority order: URL override (`?archetype=…`) → `dataStore.prefs.archetype` → `'merc'` default. Global `?` keydown listener at window-capture phase owns the `<key-help>` lifecycle (above the keymap so Esc inside help doesn't double-fire as a cancel intent).
+- 36 more tests under `tests/unit/game/{archetypes,hub/Terminal}.test.js`, `tests/unit/input/keyHelp.test.js`, plus extensions to `hub/Curator.test.js`, `Run.test.js`, and `persistence.test.js`. **Total: 409 passing** after M8.
 
 ## Recorded problems (deferred fixes)
 
-Things the standard we walk by has flagged but that are out of current scope:
-
-- **Diagonal movement cost** equals orthogonal — drone AI didn't expose obvious cheese in M5 (path lengths feel right), but √2 rounding will probably go in alongside Razor's Slide if positional play gets tighter.
-- **`World.entityAt` is O(n) linear scan.** Acceptable for V1; revisit if entity count crosses ~hundreds. M5 hits it from both `findPath` (per neighbour) and `acquireTarget`; still fine at one drone, watch when M6+ adds more.
-- **CRT vignette uses canvas dimensions directly.** Will look off if the canvas is non-uniformly CSS-stretched. Currently scaled uniformly so it's fine.
-- **Renderer redraws the whole canvas per turn.** No dirty-cell tracking. Reconsider only if/when we animate moves.
-- **Vault-while-firing combo not implemented.** The blueprint has Vault doubling as a fire action. Currently Vault is purely a movement perk; folding in a free shot waits until M5/M6 when targeting UI exists. (Logged in `Merc.js` as a TODO.)
-- **Ranged targeting in the harness is "first hostile along Bresenham."** Fine for a single-drone debug map; a real reticle / target-cycle UI lands with the M5 AI work. Now shares `withinRange` + `blockerKeys` with Combat so the harness can no longer offer targets Combat would reject.
-- **Vision recomputed every entity move.** Cheap at V1 grid sizes (~24×16) but it's an O(R²·R) per recompute (each cell does a per-pixel LOS trace), and M5 now triggers it on *any* `entity:moved` so a multi-drone scene compounds the cost. Revisit if maps grow past ~128² or sight range past 16 — shadowcasting would be the swap.
-- ~~**Vault doesn't go through `World.moveEntity`.**~~ Closed in M6 — `Merc.vault` now emits `entity:moved` directly so vision/AI listeners see the post-vault state without the harness calling `recomputeVision()` inline. The vault-while-firing combo is still pending.
-- **Stealth doesn't break on attack.** A Razor who slides and then melees / fires keeps her cloak until refresh. Narratively that's wrong — a swing or a gunshot should drop the veil. Cheap to add (set `stealthed = false` in Combat.resolveMelee/resolveRanged when `attacker.stealthed`), but it interacts with the noise model and we want one tuning pass before locking that in.
-- **Melee always hits.** Deterministic in V1 by design; will get parry/dodge math when archetype kits expand. `MELEE_DAMAGE` is the one knob today.
-- **Slide stealth doesn't re-engage on `slide → wait → slide`.** Fine — each slide re-arms `stealthed`, so the second slide in the same turn re-cloaks. No bug, just noting the lifecycle.
-- **Corpse positions aren't memorised.** Live and dead entities follow the same "we don't track where things were" rule — duck out of LOS and the corpse vanishes from memory until you can see the tile again. Logically a corpse doesn't move, so memorising them would be more honest. Cheap to add (a `seenCorpses` map on `VisionField` + a memory-mode branch in `frame.js`); revisit when M8 telemetry needs the data.
-- **NEUTRAL faction is shootable by anyone.** `canFireRanged` only blocks same-faction targets — civilians can be hit by player or corp shots. Intentional today (narrative consequences); revisit when noise/Vouch lands and we have UI to express the cost. Noted in `Combat.js`.
-- **Per-input aim mode (M7).** `KeyboardController` and `<touch-pad>` each own their own `MODE` field, so on mixed-input desktop testing the modes can drift: keyboard `f` then touch direction emits `move` (touch never entered FIRE_AIM); touch `FIRE` then keyboard direction does the same. **Cancel is patched** — the harness's `cancel` case calls `resetInputModes()` so an Esc/CANCEL from either side clears both. The general drift case (aim from one side, direction from the other) is deferred. Two future paths: (a) cross-sync on every mode-change with a re-entrance guard, or (b) lift mode to a single harness-owned field both controllers consult. Doesn't bite on touch-only or keyboard-only devices, which is the realistic shipping surface.
-- **M8 grid serialisation is plain `number[]`.** Snapshot grids carry a JS array of u8 bytes — ~3× larger on disk than base64, but trivially portable across `node --test` and the browser without a `btoa`/`Buffer` shim. A 24×16 grid is 384 bytes either way; revisit if maps grow past 64×64 or save records start brushing localStorage's ~5 MB ceiling. The encoding choice is local to `src/game/persistence.js` and `Run.snapshot()`.
-- **Drone fallback anchors have no patrol path.** `buildMap` falls back to picking arbitrary FLOOR tiles for drone spawns when the stamped prefabs don't declare enough drone anchors (e.g. a map dominated by `hallway` prefabs). Fallback drones get a single-tile "stand still" waypoint, so they patrol in place. This is correct for M8 but deflates the gameplay variety on those seeds — the long-term fix is either a richer prefab set with anchors on every prefab, or a procgen-side patrol synthesiser.
-- **M8 corridor carving overwrites WALL only — but cover that lies on the L-corridor stays cover.** That's deliberate (a cover-blocked corridor is a tactical pinch) but it can produce odd "chokepoints" where a corridor enters a prefab through a cover tile. Cosmetically fine; revisit if connectivity tests start producing rooms with awkward L-shaped cover walls. Logged under the procgen-tuning bucket.
-- **Run.id collision risk.** `Run.makeRunId(seed)` concatenates `seed` and `Date.now()` for a non-cryptographic id; two runs started on the same millisecond with the same seed would collide. Vanishingly unlikely in practice, but if a future automated playthrough harness ever spins many runs quickly, switch to `crypto.randomUUID()` (already used by DataStore.addItem). Logged in `Run.js`.
+Moved to [`docs/kaizen.md`](./kaizen.md) as Phase 1 closes — that file is the living register, organised into ▶ Phase 2 candidates / ◇ Monitored / ✓ Closed buckets. Phase 1 deliverables are unblocked by any open item; each ▶ entry is a design decision waiting for the Phase 2 plan.
 
 ## Test/lint expectations
 
@@ -163,5 +154,4 @@ Things the standard we walk by has flagged but that are out of current scope:
 
 ## Run scripts
 
-- `npm start` — live-server on :8099. Open `/debug/` for the milestone debug harness.
-- Main app shell at `/index.html` is currently the M0 scaffold; promoted to a real game shell in M8.
+- `npm start` — live-server on :8099. `/index.html` is the M8 game shell (Hub → Briefing → Combat → Death/Exit, with character-select + key-help). `/debug/` is the engineer-facing harness — single hand-built scenario, log feed, archetype hot-swap.

@@ -91,9 +91,9 @@ index.html                     — UPDATE: mount components, replace caption wit
 - Throws on unknown `archetypeId` (silent-fallback rule).
 
 **Archetype preference (cross-run)**
-- DataStore record: `{ id: 'prefs', type: 'preferences', lastArchetypeId: 'merc'|'razor' }`. Distinct from the `type:'run'` record so it survives death/exit (which clear the run save).
-- On `enterHub()`: read prefs; if missing (first ever load), `setArchetype('merc')`; otherwise `setArchetype(prefs.lastArchetypeId)`. Then mount `<character-select>` with the current archetype highlighted as default.
-- On `<character-select>` `pick` event: `Run.setArchetype(id)` **and** `DataStore.updateItem({ id:'prefs', type:'preferences', lastArchetypeId: id })`.
+- DataStore `prefs`: `{ archetype: 'merc'|'razor' }`. Separate from the run records so it survives death/exit (which delete run records).
+- On `enterHub()`: read `DataStore.prefs.archetype`; if missing (first ever load), default to `'merc'`, mount `<character-select>` with the merc highlighted as default; otherwise use the stored value.
+- On `<character-select>` `pick` event: `Run.setArchetype(id)` **and** update persist via `DataStore.setPref('archetype', newValue)`.
 - `restore()` does not need to touch prefs — the restored player entity already encodes its archetype via glyph/perks.
 
 **`src/game/Run.js`**
@@ -104,7 +104,7 @@ index.html                     — UPDATE: mount components, replace caption wit
   - `enterBriefing(contract)` — only from `HUB`. Throws if `archetypeId === null` (character select must have resolved at least once).
   - `enterCombat()` — only from `BRIEFING`. Builds map via `mapBuild`, calls `archetypes.buildPlayer(archetypeId, spawn)` for the combat player, places drones, swaps the active world.
   - `enterResult({ outcome, telemetry })` — only from `COMBAT`. Outcome ∈ `{ DEATH, EXIT }`.
-- Subscribes to `turn:ended` → calls `persistence.snapshot()` and `DataStore.updateItem(snapshot)`.
+- Subscribes to `turn:ended` → calls `persistence.snapshot()` and `DataStore.updateRun(snapshot)`.
 - Subscribes to `entity:damaged` → if player dies, `enterResult({ outcome: DEATH, telemetry })`.
 - Tracks telemetry: turn count, kills, archetype, last damage source, seed, hp at death.
 
@@ -168,16 +168,20 @@ Emits `new-run` on the button. The shell handler clears the save and calls `Run.
 ```
 ┌─────── SELECT OPERATOR ───────┐
 │ > MERC                        │
-│     glyph: M  |  hp 10  ap 4  │
-│     perk: VAULT — leap cover  │
+│     ranged specialist         │
+│     perk: VAULT (v) — hop     │
+│           cover & fire        │
 │                               │
 │   RAZOR                       │
-│     glyph: R  |  hp 8   ap 5  │
-│     perk: SLIDE — stealth dash│
+│     stealth / melee           │
+│     perk: SLIDE (t) — 2-tile  │
+│           silent dash         │
 │                               │
 │   [ ENTER to confirm  Esc ]   │
 └───────────────────────────────┘
 ```
+
+The in-world player glyph stays `'@'` for both archetypes (matches the existing `Merc`/`Razor` constructors). Archetype identity surfaces in three places only: the character-select panel, the snapshot record (`archetype: 'merc'|'razor'`), and the key-help panel (perk-key row label changes).
 
 **`<key-help>`** — Shadow-DOM panel built with `h()`. Reads `describeKeymap()` from `/src/input/keyHelp.js` and renders rows grouped by scope, filtered to the current `Run.state` (HUB or COMBAT). `?` or `Esc` closes; the same key opens it. The shell suppresses `?` while any other modal (`<run-briefing>`, `<crash-dump>`, `<character-select>`, `<confirmation-modal>`) is mounted, so help never overlays a blocking dialog.
 
@@ -201,9 +205,9 @@ Emits `new-run` on the button. The shell handler clears the save and calls `Run.
 
 ### Save / resume flow
 
-- On boot: `DataStore.init()` → if a `type: 'run'` record exists, mount `<confirmation-modal>` with `Resume your last run?`. **Confirm** → `persistence.restore()` → `Run.enterCombat(restoredWorld)`. **Cancel** → `DataStore.deleteItem(id)` → `Run.enterHub()`.
-- Each `turn:ended` event → `DataStore.updateItem(snapshot(run))`. ID is stable across turns (assigned on first `addItem`).
-- On `Run.enterResult({ DEATH })` → `DataStore.deleteItem(id)`, then mount `<crash-dump>`.
+- On boot: `await DataStore.init()` → get the most recent run via `DataStore.currentRun`. If a run exists, mount `<confirmation-modal>` with `Resume your last run?`. **Confirm** → `persistence.restore()` → `Run.enterCombat(restoredWorld)`. **Cancel** → `DataStore.deleteRun(id)` → `Run.enterHub()`.
+- Each `turn:ended` event → `DataStore.updateRun(snapshot(run))`. ID is stable across turns (assigned on first `addRun`).
+- On `Run.enterResult({ DEATH })` → `DataStore.deleteRun(id)`, then mount `<crash-dump>`.
 - On `Run.enterResult({ EXIT })` → also clear save (run is over). Show a brief result panel or skip straight to crash-dump-style debrief — for M8, reuse `<crash-dump>` styled as "JACK OUT" with the same kill/seed/turn fields. (Keeps component count down.)
 
 ### Integration touch points (no behavior changes, wiring only)
@@ -230,7 +234,7 @@ New under `tests/unit/`:
 ### Critical reuses (already exist — do not reinvent)
 
 - `<confirmation-modal>` — `/components/ConfirmationModal.js`, `showModal(message, context)`, `confirm`/`cancel` events.
-- `DataStore` — `/src/DataStore.js`. `updateItem({id, type:'run', …})`, `getItemById`, `addEventListener('change')`. Single record for the active run.
+- `DataStore` — `/src/DataStore.js`. `currentRun` getter, `addRun(run)`, `updateRun(run)`, `deleteRun(id)`, `prefs` getter, `setPref(key, value)`, addEventListener('change')` for reactivity.
 - `Rng.fork(label)` — `/src/rng.js`. Use `'mapgen'` for procgen substream; the main stream stays for combat.
 - `EventBus` (events.js) — closed type set; `turn:ended` already emitted by `TurnQueue.endTurn`.
 - `h()` — `/src/domUtils.js`. All new DOM goes through it (no `createElement`).
@@ -251,15 +255,15 @@ New under `tests/unit/`:
 
 End-to-end (manual, on `/index.html` via `npm start`):
 
-1. **Fresh load (first ever)** → Hub renders on canvas; `<character-select>` mounts with Merc highlighted as default; Curator at (3,3), Terminal at (9,3), player spawn at (6,5). Pressing Enter (or clicking Merc) closes it; player glyph is `M`. Esc dismisses with Merc still in effect. DataStore now has a `type:'preferences'` record with `lastArchetypeId:'merc'`.
-2. **Re-open character select** → walk adjacent to Terminal, press `i` → `<character-select>` re-mounts with Merc highlighted; pick Razor → glyph swaps to `R`; prefs record updated to `razor`.
-3. **Subsequent fresh load** → reload page; `<character-select>` mounts with Razor highlighted (last pick); Esc keeps Razor.
+1. **Fresh load (first ever)** → Hub renders on canvas; `<character-select>` mounts with Merc highlighted as default; Curator at (3,3), Terminal at (9,3), player spawn at (6,5). Pressing Enter (or clicking Merc) closes it; player glyph is `@`. Esc dismisses with Merc still in effect. DataStore `prefs` now has `archetype: 'merc'`.
+2. **Re-open character select** → walk adjacent to Terminal, press `i` → `<character-select>` re-mounts with Merc highlighted; pick Razor → the Hub player entity is rebuilt as a `Razor` instance (in-world glyph still `'@'`); prefs record updated to `razor`.
+3. **Subsequent fresh load** → reload page; `<character-select>` does not mount, as Razor (last pick) is still active.
 4. **Briefing** → `i` adjacent to Curator opens `<run-briefing>` with seed/objective/threat count. (Confirm `enterBriefing` did not throw — at least one archetype was picked.)
-5. **JACK IN** → canvas swaps to a procedurally-generated map; spawn placement valid; drones present; combat works (M3–M7 features all still functional); player glyph matches the chosen archetype; perk key (`v` for Merc, `t` for Razor) fires the archetype perk.
+5. **JACK IN** → canvas swaps to a procedurally-generated map; spawn placement valid; drones present; combat works (M3–M7 features all still functional); the player entity class matches the chosen archetype; the perk key (`v` for Merc, `t` for Razor) fires the archetype perk, and the *other* perk key is inert.
 6. **Help overlay** → pressing `?` in Hub or Combat mounts `<key-help>` with the correct scope's keys; `?` or Esc dismisses it. Pressing `?` while `<run-briefing>` / `<crash-dump>` / `<character-select>` / `<confirmation-modal>` is mounted is a no-op.
-7. **Turn end** → DataStore localStorage shows a `type:'run'` record; `rng.state` advances each turn.
-8. **Refresh mid-combat** → `<confirmation-modal>` mounts. Confirm → exact same world restored (entity HP, AP, drone state, RNG continuation, turn number, player glyph, working perk key). Cancel → save cleared, lands in Hub with `<character-select>` mounted again (highlighted to the prefs archetype, not the dropped run's archetype — though they should match).
-9. **Death** (let drones down player) → `<crash-dump>` shows seed/turn/kills/cause/archetype; run save cleared; prefs record preserved; `New Run` button returns to Hub with prefs archetype still highlighted.
+7. **Turn end** → DataStore `runs` array shows a run record with current state; `rng.state` advances each turn.
+8. **Refresh mid-combat** → `<confirmation-modal>` mounts. Confirm → exact same world restored (entity HP, AP, drone state, RNG continuation, turn number, player archetype class, working perk key). Cancel → run record deleted, lands in Hub with same archetype as in the dropped run.
+9. **Death** (let drones down player) → `<crash-dump>` shows seed/turn/kills/cause/archetype name; run record deleted; `prefs` preserved; `New Run` button returns to Hub with last-selected prefs archetype still active.
 10. **Exit-tile reach** → same flow, JACK OUT framing.
 
 Automated:

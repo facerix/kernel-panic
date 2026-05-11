@@ -14,13 +14,24 @@ Authoritative design notes: [docs/kernel-panic-v1-blueprint.md](docs/kernel-pani
 ```javascript
 import DataStore from '/src/DataStore.js';
 
+// Listen for changes
 DataStore.addEventListener('change', evt => {
-  const { changeType, items } = evt.detail;
-  // changeType: "init" | "add" | "update" | "delete"
+  const { changeType, key, data } = evt.detail;
+  // changeType: "init" | "import" | "add" | "update" | "delete"
+  // key: "prefs" | "runs"
 });
 
-const items = DataStore.items;
-DataStore.updateItem(item);
+// Access prefs
+const currentArchetype = DataStore.prefs.archetype;
+
+// Work with runs
+const run = DataStore.getRunById(runId);
+DataStore.addRun(runObject);
+DataStore.updateRun(runObject);
+DataStore.deleteRun(runId);
+
+// Initialize on startup
+await DataStore.init();
 ```
 
 ### DOM Creation
@@ -54,8 +65,10 @@ el.dataset.id = '456';
 
 ```
 DataStore ('change' event)
-  └── detail: { changeType, items, affectedRecords }
-      └── changeType: 'init' | 'add' | 'update' | 'delete'
+  └── detail: { changeType, key, data }
+      ├── changeType: 'init' | 'import' | 'add' | 'update' | 'delete'
+      ├── key: 'prefs' | 'runs' | '*' (for init/import)
+      └── data: the affected item or ID being deleted
 
 Window (dispatched by ServiceWorkerManager)
   ├── 'sw-update-available'  → detail: { registration, pendingWorker }
@@ -83,7 +96,9 @@ UpdateNotification (dispatched by component)
 
 ## Common Tasks
 
-**Adding an item:** Create object → `DataStore.addItem()` → listen for "change" to re-render.
+**Storing a run:** Create run object → `DataStore.addRun(run)` → listen for "change" event with `key: 'runs'`.
+
+**Updating preferences:** `DataStore.setPref("archetype", newType)`.
 
 **Service Worker:** Automatically detects dev mode via `isDevelopmentMode()` in `domUtils.js`.
 

@@ -144,13 +144,13 @@ test('restore throws on record.type !== "run"', () => {
   assert.throws(() => restore(rec), /type/);
 });
 
-test('snapshot in HUB state captures Curator + player', () => {
+test('snapshot in HUB state captures Curator + Terminal + player', () => {
   const run = new Run({ archetype: 'merc', seed: 1 });
   run.enterHub();
   const rec = snapshot(run);
   assert.equal(rec.state, RUN_STATE.HUB);
   const archetypes = rec.entities.map(e => e.archetype).sort();
-  assert.deepEqual(archetypes, ['curator', 'merc']);
+  assert.deepEqual(archetypes, ['curator', 'merc', 'terminal']);
 });
 
 test('snapshot before any state set throws', () => {

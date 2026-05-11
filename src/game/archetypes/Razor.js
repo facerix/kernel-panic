@@ -24,6 +24,10 @@ import { EVENT } from '../events.js';
  * so stealth holds through the corp turn that immediately follows a Slide and
  * clears at the start of the player's next turn — exactly "for the rest of
  * this turn" as the milestone plan describes it.
+ *
+ * Design note — `slide → wait → slide` re-cloaking: a second slide in the
+ * same turn re-arms `stealthed = true` (the first slide's flag was about to
+ * clear at refreshAp anyway). Not a bug, just a lifecycle to be aware of.
  */
 export class Razor extends Entity {
   constructor(props = {}) {
