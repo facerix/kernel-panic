@@ -70,9 +70,42 @@ header {
 
   h1 {
     flex: 1;
-    margin-right: 50px;
+    margin-right: 0;
     text-align: center;
   }
+}
+
+.header-back-btn,
+footer {
+  font-family: Silkscreen, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* Hub / combat key-help entry — matches ? shortcut (see index.js). */
+.header-key-help-btn {
+  flex-shrink: 0;
+  box-sizing: border-box;
+  min-width: 2.25rem;
+  height: 2.25rem;
+  margin: 0;
+  padding: 0 0.35rem;
+  font-family: Silkscreen, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--accent-color);
+  background: rgba(0, 217, 165, 0.08);
+  border: 1px solid var(--accent-color);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.header-key-help-btn:hover {
+  background: rgba(0, 217, 165, 0.16);
+}
+
+.header-key-help-btn:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
 }
 
 header#main-head {

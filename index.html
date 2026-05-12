@@ -30,9 +30,19 @@
   </head>
 
   <body class="u-fill-height">
-    <header>
+    <header id="main-head">
       <img src="/icon.svg" width="40" height="40" alt="Kernel Panic logo" />
       <h1>Kernel Panic</h1>
+      <button
+        type="button"
+        id="key-help-toggle"
+        class="header-key-help-btn"
+        aria-keyshortcuts="Shift+/"
+        title="Keys (?)"
+        aria-label="Show keyboard shortcuts"
+      >
+        ?
+      </button>
     </header>
     <main class="game-shell u-fill-width u-flex u-flex-column">
       <div class="game-stage">

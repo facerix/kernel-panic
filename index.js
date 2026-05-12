@@ -159,6 +159,17 @@ async function boot() {
     keyHelpEl.addEventListener('dismiss', () => keyHelpEl.hide());
   }
 
+  const keyHelpToggleEl = document.getElementById('key-help-toggle');
+  if (keyHelpToggleEl && keyHelpEl) {
+    keyHelpToggleEl.addEventListener('click', () => {
+      if (keyHelpEl.isOpen) {
+        keyHelpEl.hide();
+        return;
+      }
+      tryShowKeyHelpOverlay();
+    });
+  }
+
   if (touchPadEl) {
     touchPadEl.addEventListener('intent', evt => {
       handleIntent(evt.detail);
@@ -710,6 +721,22 @@ function chebyshevDistance(a, b) {
 // ---------------------------------------------------------------------------
 
 /**
+ * Opens <key-help> when Hub/Combat and no blocking modal — same rules as the
+ * `?` shortcut and the header toolbar button.
+ *
+ * @returns {'ok'|'blocking'|'no-scope'|'none'}
+ */
+function tryShowKeyHelpOverlay() {
+  if (!keyHelpEl) return 'none';
+  if (isAnyBlockingModalOpen()) return 'blocking';
+  const scope = helpScopeForRunState();
+  if (!scope) return 'no-scope';
+  keyHelpEl.setScope(scope);
+  keyHelpEl.show();
+  return 'ok';
+}
+
+/**
  * `?` toggles the help overlay. Esc, when the help overlay is open, dismisses
  * it (and we swallow the event so the keymap doesn't also turn it into a
  * `cancel` intent for whatever aim mode was active).
@@ -740,17 +767,16 @@ function handleGlobalKey(evt) {
   }
 
   if (evt.key !== '?') return;
-  if (isAnyBlockingModalOpen()) {
-    // Briefing / Crash / Resume / Character-select own focus — silently drop
-    // `?` rather than stacking yet another overlay over them.
+  const opened = tryShowKeyHelpOverlay();
+  if (opened === 'ok') {
     evt.preventDefault();
     return;
   }
-  const scope = helpScopeForRunState();
-  if (!scope) return;
-  evt.preventDefault();
-  keyHelpEl.setScope(scope);
-  keyHelpEl.show();
+  if (opened === 'blocking') {
+    // Briefing / Crash / Resume / Character-select own focus — silently drop
+    // `?` rather than stacking yet another overlay over them.
+    evt.preventDefault();
+  }
 }
 
 function helpScopeForRunState() {
