@@ -1,0 +1,55 @@
+import { Entity } from './Entity.js';
+
+/**
+ * Crew — the base class for every player-controlled archetype.
+ *
+ * Sits between `Entity` (generic grid-resident actor) and the archetype
+ * classes (`Merc`, `Razor`, `Tech`). Adds the fields that distinguish a named
+ * crew member from a generic entity:
+ *
+ *   - `callsign` — the in-fiction name a player remembers ("Glitch", "Cipher").
+ *     Picked from each archetype's curated `CALLSIGNS` list by
+ *     `buildCrewMember(archetypeId, spawn, rng)` in M1; deduplicated against
+ *     campaign history by `Campaign.buildCrew` in M2. Defaults to `null` here
+ *     so existing `buildPlayer` callers (debug harness, tests) still work
+ *     until the M2 refactor threads `Rng` through the campaign layer.
+ *   - `flatlined` — campaign-permanent death flag. `Entity.alive` is job-
+ *     scoped (resets when a crew member is redeployed on a new job);
+ *     `flatlined` is the persistent twin that says "this crew member is gone
+ *     for good." Phase-2 design lock: a flatlined crew member is never
+ *     deployed again, and `Campaign` ends when every member is flatlined.
+ *     `M2` is when `Campaign.onJobEnd` flips this; for now it's a default-
+ *     `false` stub the tests can assert on.
+ *   - `inventory` / `gear` — stub fields reserved for M3 (`inventory.salvage`
+ *     plus `consumables`) and M4 (Finn's shop applies gear bonuses). Both
+ *     default to `null` so we don't leak shape decisions into Phase 2 code
+ *     before M3/M4 lock them in; the no-silent-fallback rule means a caller
+ *     that touches `crew.inventory.salvage` today will crash legibly with a
+ *     null-deref, which is the failure mode we want before the schema lands.
+ *
+ * Why a base class, not a mixin? `Entity`'s class shape already carries
+ * factional and combat invariants; the archetype subclasses extend that with
+ * perk-specific verbs (`Merc.vault`, `Razor.slide`, future `Tech.deployTurret`).
+ * Slotting `Crew` between the two keeps that single-inheritance chain clean
+ * (`Entity → Crew → [Merc | Razor | Tech]`) and gives the perk methods
+ * unambiguous access to crew-only state like `inventory` without leaking it
+ * onto `Entity`. Drones, civilians, turrets, and Hub NPCs stay on `Entity`
+ * and never see crew fields.
+ */
+export class Crew extends Entity {
+  constructor({ callsign = null, flatlined = false, inventory = null, gear = null, ...rest } = {}) {
+    super(rest);
+    if (callsign !== null && (typeof callsign !== 'string' || callsign.length === 0)) {
+      throw new TypeError(`Crew callsign must be a non-empty string or null, got ${callsign}`);
+    }
+    if (typeof flatlined !== 'boolean') {
+      throw new TypeError(`Crew flatlined must be a boolean, got ${typeof flatlined}`);
+    }
+    this.callsign = callsign;
+    this.flatlined = flatlined;
+    /** Stub for M3 — `{ salvage, consumables }` once the schema lands. */
+    this.inventory = inventory;
+    /** Stub for M4 — `{ maxHpBonus, hitBonus, … }` once Finn's shop lands. */
+    this.gear = gear;
+  }
+}

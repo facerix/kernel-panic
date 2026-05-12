@@ -1,6 +1,29 @@
-import { Entity } from '../Entity.js';
+import { Crew } from '../Crew.js';
 import { TILE, FACTION, AP_COST } from '../constants.js';
 import { EVENT } from '../events.js';
+
+/**
+ * Curated callsign pool for the Merc archetype. `buildCrewMember` in
+ * `archetypes/index.js` picks one of these using a campaign-scoped `Rng`;
+ * `Campaign.buildCrew` (M2) filters out names already used by any living or
+ * flatlined crew member in the campaign's history. The list is sized 10–15
+ * per the Phase-2 plan — enough variety that two campaigns rarely share the
+ * same trio, few enough that every entry can be hand-tuned for tone.
+ */
+export const CALLSIGNS = Object.freeze([
+  'Tracer',
+  'Bishop',
+  'Reaver',
+  'Echo',
+  'Wraith',
+  'Cinder',
+  'Riot',
+  'Vex',
+  'Knox',
+  'Carver',
+  'Hawk',
+  'Drift',
+]);
 
 /**
  * Merc — ranged-combat archetype. Phase-1 perk: **Vault**.
@@ -16,7 +39,7 @@ import { EVENT } from '../events.js';
  * extra AP cost). If no hostile is in the vault vector, the hop still
  * succeeds as a pure movement perk.
  */
-export class Merc extends Entity {
+export class Merc extends Crew {
   constructor(props) {
     super({ faction: FACTION.PLAYER, glyph: '@', ...props });
   }

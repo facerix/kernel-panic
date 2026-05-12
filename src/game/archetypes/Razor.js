@@ -1,6 +1,26 @@
-import { Entity } from '../Entity.js';
+import { Crew } from '../Crew.js';
 import { FACTION, AP_COST } from '../constants.js';
 import { EVENT } from '../events.js';
+
+/**
+ * Curated callsign pool for the Razor archetype. See `Merc.js` CALLSIGNS for
+ * the design rationale. Razor names skew quieter / sharper to match the
+ * stealth-melee tone.
+ */
+export const CALLSIGNS = Object.freeze([
+  'Cipher',
+  'Wren',
+  'Mantis',
+  'Saint',
+  'Pale',
+  'Sable',
+  'Sliver',
+  'Hush',
+  'Mercury',
+  'Lark',
+  'Smoke',
+  'Veil',
+]);
 
 /**
  * Razor — melee/stealth archetype. Phase-1 perk: **Slide**.
@@ -29,7 +49,7 @@ import { EVENT } from '../events.js';
  * same turn re-arms `stealthed = true` (the first slide's flag was about to
  * clear at refreshAp anyway). Not a bug, just a lifecycle to be aware of.
  */
-export class Razor extends Entity {
+export class Razor extends Crew {
   constructor(props = {}) {
     super({ faction: FACTION.PLAYER, glyph: '@', ...props });
   }

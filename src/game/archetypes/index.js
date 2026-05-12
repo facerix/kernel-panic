@@ -19,8 +19,8 @@
  * and the rest of the game picks it up automatically.
  */
 
-import { Merc } from './Merc.js';
-import { Razor } from './Razor.js';
+import { Merc, CALLSIGNS as MERC_CALLSIGNS } from './Merc.js';
+import { Razor, CALLSIGNS as RAZOR_CALLSIGNS } from './Razor.js';
 
 /**
  * Display order is also the default-focus order in <character-select>.
@@ -52,8 +52,87 @@ const BUILDERS = Object.freeze({
   razor: Razor,
 });
 
+/**
+ * Per-archetype callsign pool, mirrored from each archetype module. Kept as a
+ * single map so `buildCrewMember` doesn't need a per-archetype branch — and
+ * so `Campaign.buildCrew` (M2) can iterate archetypes and dedupe across the
+ * union in one pass.
+ */
+export const CALLSIGNS_BY_ARCHETYPE = Object.freeze({
+  merc: MERC_CALLSIGNS,
+  razor: RAZOR_CALLSIGNS,
+});
+
 export function isArchetypeId(value) {
   return typeof value === 'string' && Object.prototype.hasOwnProperty.call(BUILDERS, value);
+}
+
+/**
+ * Pick a callsign for `archetypeId` using `rng`, excluding any names in
+ * `excludeCallsigns` (a Set). Throws if the pool is empty after filtering —
+ * we'd rather crash than silently hand back a duplicate or a placeholder.
+ * Pure helper so M2's `Campaign.buildCrew` can call it directly when seeding
+ * the starter trio.
+ */
+export function pickCallsign(archetypeId, rng, excludeCallsigns = new Set()) {
+  if (!isArchetypeId(archetypeId)) {
+    throw new Error(`pickCallsign: unknown archetype "${archetypeId}"`);
+  }
+  if (!rng || typeof rng.pick !== 'function') {
+    throw new TypeError('pickCallsign requires an Rng with a pick() method');
+  }
+  if (!(excludeCallsigns instanceof Set)) {
+    throw new TypeError('pickCallsign: excludeCallsigns must be a Set');
+  }
+  const pool = CALLSIGNS_BY_ARCHETYPE[archetypeId];
+  const available = pool.filter(name => !excludeCallsigns.has(name));
+  if (available.length === 0) {
+    throw new Error(
+      `pickCallsign: no callsigns available for "${archetypeId}" ` +
+        `(pool size ${pool.length}, excluded ${excludeCallsigns.size})`
+    );
+  }
+  return rng.pick(available);
+}
+
+/**
+ * Build a named crew member. The Phase-2 replacement for `buildPlayer`:
+ * threads a campaign-scoped `Rng` so the callsign is reproducible from the
+ * campaign seed, and accepts an `excludeCallsigns` Set so callers
+ * (`Campaign.buildCrew`, future recruitment in M6) can dedupe against
+ * campaign history.
+ *
+ * `buildPlayer` stays as a thin back-compat wrapper around this function for
+ * the debug harness and existing `Run.js` call sites; M2 will swap those over
+ * and delete `buildPlayer`.
+ */
+export function buildCrewMember(archetypeId, spawn, rng, options = {}) {
+  if (!isArchetypeId(archetypeId)) {
+    throw new Error(`buildCrewMember: unknown archetype "${archetypeId}"`);
+  }
+  if (!spawn || typeof spawn !== 'object') {
+    throw new TypeError('buildCrewMember: spawn must be an object with finite {x, y}');
+  }
+  if (!Number.isFinite(spawn.x) || !Number.isFinite(spawn.y)) {
+    throw new TypeError(
+      `buildCrewMember: spawn must have finite x,y; got (${spawn.x}, ${spawn.y})`
+    );
+  }
+  if (!rng || typeof rng.pick !== 'function') {
+    throw new TypeError('buildCrewMember requires an Rng with a pick() method');
+  }
+  const exclude = options.excludeCallsigns ?? new Set();
+  const callsign = pickCallsign(archetypeId, rng, exclude);
+  const Ctor = BUILDERS[archetypeId];
+  const props = {
+    id: options.id ?? archetypeId,
+    x: spawn.x,
+    y: spawn.y,
+    callsign,
+  };
+  if (spawn.maxAp !== undefined) props.maxAp = spawn.maxAp;
+  if (spawn.maxHp !== undefined) props.maxHp = spawn.maxHp;
+  return new Ctor(props);
 }
 
 /**
@@ -63,6 +142,10 @@ export function isArchetypeId(value) {
  * Entity options pass through unchanged. Throws on unknown archetype or a
  * malformed spawn — the rest of the engine would corrupt silently with a
  * partial player object.
+ *
+ * **Deprecated in M1, removed in M2.** Kept while `Run.js` still calls
+ * `#makePlayer` without a campaign Rng. Constructs the entity without a
+ * callsign so existing tests and the debug harness keep working unchanged.
  */
 export function buildPlayer(id, spawn) {
   if (!isArchetypeId(id)) {
