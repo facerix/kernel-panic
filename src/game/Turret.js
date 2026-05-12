@@ -9,10 +9,11 @@ import { resolveRanged, canFireRanged } from './Combat.js';
  * Peer of `Entity.js`, not an archetype. The Tech archetype places it at
  * `AP_COST.DEPLOY`; once placed it's faction-PLAYER, has HP, and can be
  * destroyed by drone fire like any other entity. It does *not* take a queue
- * turn — turrets are passive infrastructure, not actors. Instead, the shell
- * calls `autoFire(world, rng)` at the end of the player's turn, before the
- * corp turn begins. This keeps the TurnQueue model honest (two factions only)
- * and means a turret's behaviour is one call, not an AI tick.
+ * turn — turrets are passive infrastructure, not actors. Instead, the
+ * player-aftermath phase in `combatTurnPipeline.js` calls `autoFire(world,
+ * rng)` after the player yields and before the corp turn begins. This keeps
+ * the TurnQueue model honest (two factions only) and means turret behaviour
+ * is one aftermath step, not an AI tick.
  *
  * `autoFire` selects the nearest live hostile (Chebyshev distance) within
  * `TURRET_RANGE` that has line of sight. If a target exists it routes through
@@ -121,9 +122,9 @@ export class Turret extends Entity {
 
 /**
  * Drive every live turret in `world` through one autofire pass. Returns an
- * array of `{ turret, action }` so the shell can render a log line per shot.
- * Pure helper so the debug harness and M2's Campaign shell share one entry
- * point — the same shape `corpTurnDriver` uses, scaled down.
+ * array of `{ turret, action }` so callers can render a log line per shot.
+ * Kept for compatibility with tests and aggregate callers; the main turn
+ * pipeline uses `runPlayerAftermathSteps` to pace one turret action at a time.
  *
  * Call site contract (per the plan): at the *end of the player turn, before
  * the corp turn begins*. Putting it any later would let drones move into LOS
