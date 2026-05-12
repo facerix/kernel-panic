@@ -610,7 +610,7 @@ function statusLine(modeHint) {
     `AP ${player.ap}/${player.maxAp} HP ${player.hp}/${player.maxHp}${stealthTag}` +
     `  |  TURN ${run.queue.turnNumber} (${run.queue.currentFaction.toUpperCase()})${aim}`;
   const hint = proximityHint();
-  const action = lastActionLine ? `  ·  ${lastActionLine}` : '';
+  const action = lastActionLine ? `  <br/>  ${lastActionLine}` : '';
   return stats + (hint ? `  |  ${hint}` : '') + action;
 }
 
@@ -668,8 +668,8 @@ function stateLabel() {
   }
 }
 
-function setStatus(text) {
-  if (statusEl) statusEl.textContent = text;
+function setStatus(richText) {
+  if (statusEl) statusEl.innerHTML = richText;
 }
 
 function activeMode() {
