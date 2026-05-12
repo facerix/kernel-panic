@@ -71,6 +71,7 @@ Pure renderer/DOM work. No game-logic changes. Visual effects verified via the d
 - **Muzzle flash:** On a committed `resolveRanged` or `resolveMelee`, override the shooter's canvas cell color for ~80ms via a `requestAnimationFrame` sequence in `AsciiRenderer`. One frame is enough; the following full redraw restores normal rendering.
 - **Input lockout:** Game shell sets an `animating` flag; `KeyboardController` and `<touch-pad>` early-return while it is set. Flag clears after the longest active animation (~300ms). Animations triggered in the same turn (e.g. player fires, hits, damage animation plays) are queued or overlapped, not stacked in duration.
 - **Event wiring:** Subscriptions live in `index.js` (the shell), not inside game-logic modules, keeping the pure/DOM split intact.
+- **CORP turn status** We now display status messages while CORP entities are acting
 
 ### M1 — Tech archetype + Deploy Turret ⬜
 

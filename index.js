@@ -24,6 +24,7 @@ import { Run, RUN_STATE } from '/src/game/Run.js';
 import { restore } from '/src/game/persistence.js';
 import { runCorpTurn as driveCorpTurn } from '/src/game/corpTurnDriver.js';
 import { FACTION } from '/src/game/constants.js';
+import { corpTurnStatusBody, countVisibleCorpEntities } from '/src/game/corpTurnStatusCopy.js';
 import { EVENT } from '/src/game/events.js';
 import { VisionField } from '/src/game/Vision.js';
 import { AsciiRenderer } from '/src/render/AsciiRenderer.js';
@@ -610,7 +611,16 @@ function statusLine(modeHint) {
     `AP ${player.ap}/${player.maxAp} HP ${player.hp}/${player.maxHp}${stealthTag}` +
     `  |  TURN ${run.queue.turnNumber} (${run.queue.currentFaction.toUpperCase()})${aim}`;
   const hint = proximityHint();
-  const action = lastActionLine ? `  <br/>  ${lastActionLine}` : '';
+  let action = '';
+  if (run.state === RUN_STATE.COMBAT && run.queue.currentFaction === FACTION.CORP) {
+    const visibleCorp = countVisibleCorpEntities(run.world.entities.values(), (x, y) =>
+      vision.isVisible(x, y)
+    );
+    const body = corpTurnStatusBody(visibleCorp);
+    action = `  <br/>  <span class="game-shell__corp-turn"><span class="game-shell__corp-turn__tag">CORP</span> — ${body}</span>`;
+  } else if (lastActionLine) {
+    action = `  <br/>  ${lastActionLine}`;
+  }
   return stats + (hint ? `  |  ${hint}` : '') + action;
 }
 

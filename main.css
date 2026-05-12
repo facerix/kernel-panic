@@ -163,6 +163,22 @@ main {
   min-height: 1.1em;
 }
 
+/* Second line during animated CORP turns — distinct from player action flash. */
+.game-shell__corp-turn {
+  display: inline-block;
+  margin-top: 0.2em;
+  color: #e8b078;
+  font-style: italic;
+  letter-spacing: 0.03em;
+}
+
+.game-shell__corp-turn__tag {
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: #ff7a66;
+}
+
 .game-stage {
   position: relative;
   display: flex;
