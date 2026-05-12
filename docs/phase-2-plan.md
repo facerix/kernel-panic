@@ -6,7 +6,7 @@ Living plan for Phase 2 of Kernel Panic. Source of truth for milestone scope, cu
 
 | Milestone | Status |
 |---|---|
-| M0 — Combat feedback animations | ⬜ Pending |
+| M0 — Combat feedback animations | ✅ Done |
 | M1 — Tech archetype + Deploy Turret | ⬜ Pending |
 | M2 — Campaign layer + named crew roster | ⬜ Pending |
 | M3 — Salvage + inventory + improvised turrets | ⬜ Pending |
@@ -62,7 +62,7 @@ All Phase 1 conventions apply (pure/DOM split, relative imports inside `src/`, a
 
 ## Milestones — detail
 
-### M0 — Combat feedback animations ⬜
+### M0 — Combat feedback animations ✅
 
 Pure renderer/DOM work. No game-logic changes. Visual effects verified via the debug harness.
 

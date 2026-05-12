@@ -22,11 +22,19 @@ import dataStore from '/src/DataStore.js';
 
 import { Run, RUN_STATE } from '/src/game/Run.js';
 import { restore } from '/src/game/persistence.js';
+import { runCorpTurn as driveCorpTurn } from '/src/game/corpTurnDriver.js';
 import { FACTION } from '/src/game/constants.js';
 import { EVENT } from '/src/game/events.js';
 import { VisionField } from '/src/game/Vision.js';
 import { AsciiRenderer } from '/src/render/AsciiRenderer.js';
 import { CrtFilter } from '/src/render/CrtFilter.js';
+import {
+  ANIMATION_DURATIONS,
+  createAnimationLock,
+  runMuzzleFlash,
+  triggerDamageFlash,
+  triggerShake,
+} from '/src/render/animations.js';
 import { KeyboardController } from '/src/input/KeyboardController.js';
 import { MODE } from '/src/input/keymap.js';
 import { applyIntent } from '/src/input/applyIntent.js';
@@ -53,9 +61,20 @@ let vision = new VisionField();
 let visionMoveUnsub = null;
 
 let canvas, statusEl, renderer, crt;
+let stageEl;
 let briefingEl, crashEl, resumeModalEl, touchPadEl;
 let characterSelectEl, keyHelpEl;
 let keyboard;
+
+/**
+ * Animation-lock for M0 combat feedback. Listeners on the run bus
+ * (`attachAnimationListeners`) push durations as effects fire; both
+ * input controllers consult `isLocked()` so a key held mid-shake doesn't
+ * sneak through. See `src/render/animations.js`.
+ */
+const animLock = createAnimationLock();
+/** Unsubscribers for the run-bus animation listeners. Re-bound on every state transition. */
+let animationUnsubs = [];
 
 const DEFAULT_ARCHETYPE = 'merc';
 
@@ -94,6 +113,7 @@ const allComponentsReady = Promise.all([
 
 async function boot() {
   canvas = document.getElementById('game-canvas');
+  stageEl = canvas?.parentElement ?? null;
   statusEl = document.getElementById('game-status');
   briefingEl = document.getElementById('briefing');
   crashEl = document.getElementById('crash');
@@ -115,6 +135,7 @@ async function boot() {
       // rule the M7 harness established still holds in the shell.
       paint(nextMode);
     },
+    isBlocked: () => animLock.isLocked(),
   });
   keyboard.attach();
 
@@ -145,6 +166,7 @@ async function boot() {
     touchPadEl.addEventListener('mode-change', evt => {
       paint(evt.detail.mode);
     });
+    touchPadEl.setBlocked(() => animLock.isLocked());
   }
 
   // Update-notification wiring kept from the original scaffold.
@@ -195,6 +217,7 @@ function startFreshRun() {
   run = makeRun({ seed: seedFromClock() });
   run.enterHub();
   attachVisionListener();
+  attachAnimationListeners();
   recomputeVision();
   renderShell();
   if (!dataStore.prefs.archetype) {
@@ -313,6 +336,7 @@ function resumeFromRecord(record) {
     runRecordId = record.id;
     archetype = restoredRun.archetype;
     attachVisionListener();
+    attachAnimationListeners();
     recomputeVision();
     flash(
       `RESUMED — ${restoredRun.archetype.toUpperCase()} | turn ${restoredRun.queue.turnNumber}`
@@ -357,26 +381,65 @@ function handleIntent(intent) {
   });
 }
 
+/**
+ * Pacing between drone actions when the corp turn is animated step-by-step.
+ * Tuned just above MUZZLE_FLASH duration so the firing flash decays cleanly
+ * before the same drone takes its next action (move, second shot, etc.) —
+ * the M0 user-reported bug where a "fire then move" turn left the flash
+ * stranded on the tile the drone had just vacated.
+ */
+const CORP_ACTION_DELAY_MS = 130;
+
 function advanceTurn() {
   if (!run) return;
   run.queue.endTurn(run.world);
   if (run.queue.currentFaction === FACTION.CORP) {
+    // Corp turn is now async: each drone yields one action at a time and
+    // the shell paints between yields. `advanceTurn` returns immediately;
+    // `finishCorpTurn` closes out the CORP→PLAYER handoff once the pump
+    // drains. Input is gated by `animLock` for the duration.
     runCorpTurn();
-    // Same shape the harness uses: end the CORP turn synchronously so control
-    // returns to the player on the same input event.
-    run.queue.endTurn(run.world);
+    return;
   }
   // Stealth & vision may both have changed during the corp turn.
   recomputeVision();
 }
 
+/**
+ * Kick off the animated corp turn. Delegates to `corpTurnDriver.runCorpTurn`,
+ * which iterates each corp entity's `takeTurnSteps` generator one yield at
+ * a time, paints between each, and fires `onFinish` once every generator
+ * drains (or immediately when the world has zero corp entities — hub, or a
+ * combat map the player has cleared). The driver lives in `/src/game/` so
+ * its state machine is testable under `node --test`.
+ */
 function runCorpTurn() {
   if (!run) return;
-  for (const e of run.world.entities.values()) {
-    if (!e.alive || e.faction !== FACTION.CORP) continue;
-    if (typeof e.takeTurn !== 'function') continue; // Curator / inert entities.
-    e.takeTurn(run.world, run.rng);
-  }
+  driveCorpTurn({
+    run,
+    corpFaction: FACTION.CORP,
+    paint,
+    animLock,
+    actionDelayMs: CORP_ACTION_DELAY_MS,
+    lockMarginMs: ANIMATION_DURATIONS.MUZZLE_FLASH,
+    onFinish: finishCorpTurn,
+  });
+}
+
+/**
+ * Close out the corp turn — advance the queue back to PLAYER, refresh
+ * vision (stealth/LOS may have shifted during a corp move), and repaint.
+ *
+ * The RESULT gate is defense in depth: the driver also bails on terminal
+ * states, so this should never see RESULT in practice. Keeping the check
+ * means a future driver-side bug can't accidentally end-turn a finished
+ * run and corrupt the queue state.
+ */
+function finishCorpTurn() {
+  if (!run || run.state === RUN_STATE.RESULT) return;
+  run.queue.endTurn(run.world);
+  recomputeVision();
+  paint();
 }
 
 function handleInteract() {
@@ -411,6 +474,7 @@ function onJackIn() {
   // enterCombat rebuilds bus + world; re-attach the vision listener so live
   // entity moves keep refreshing fog-of-war.
   attachVisionListener();
+  attachAnimationListeners();
   recomputeVision();
   flash('JACKED IN. Reach the exit tile (¤) before the drones drop you.');
   renderShell();
@@ -423,6 +487,7 @@ function onNewRunRequested() {
   run.enterHub();
   // enterHub also rebuilds the world; re-attach vision.
   attachVisionListener();
+  attachAnimationListeners();
   recomputeVision();
   flash('NEW RUN — Curator is in the Hub.');
   renderShell();
@@ -440,6 +505,51 @@ function attachVisionListener() {
   }
   if (!run?.bus) return;
   visionMoveUnsub = run.bus.on(EVENT.ENTITY_MOVED, () => recomputeVision());
+}
+
+/**
+ * Subscribe the M0 combat-feedback animations to the active run's bus.
+ *
+ *   - `entity:damaged` where the player is the target → shake + reddening
+ *     (~300ms lock).
+ *   - `noise` of `kind: 'ranged'` or `'melee'` → muzzle flash on the
+ *     shooter's tile (~80ms lock). Fires for *any* attacker so the player
+ *     also sees drones return fire.
+ *
+ * Re-attached on every Run state transition because Run.#tearDownWorld
+ * recreates `bus` from scratch — same posture as `attachVisionListener`.
+ */
+function attachAnimationListeners() {
+  for (const off of animationUnsubs) off();
+  animationUnsubs = [];
+  if (!run?.bus) return;
+  animationUnsubs.push(
+    run.bus.on(EVENT.ENTITY_DAMAGED, ({ target, source }) => {
+      // Player-side feedback: screen shake + red vignette when *we* get hit.
+      if (run?.player && target === run.player && stageEl) {
+        triggerShake(stageEl);
+        triggerDamageFlash(stageEl);
+        animLock.push(ANIMATION_DURATIONS.DAMAGE_FLASH);
+      }
+      // Melee impact: the strike reads as landing on the *target*, not
+      // hovering above the attacker. Ranged stays on the NOISE path so
+      // misses still get a muzzle flash on the shooter's tile.
+      if (source === 'melee' && target && renderer) {
+        const fired = runMuzzleFlash(renderer, paint, target.x, target.y);
+        if (fired) animLock.push(ANIMATION_DURATIONS.MUZZLE_FLASH);
+      }
+    }),
+    run.bus.on(EVENT.NOISE, payload => {
+      // Muzzle flash on the shooter's tile. Melee is handled via
+      // ENTITY_DAMAGED above (so we know the *target* position); NOISE
+      // for melee would only know the attacker.
+      if (!payload || payload.kind !== 'ranged') return;
+      const origin = payload.origin;
+      if (!origin || !renderer) return;
+      const fired = runMuzzleFlash(renderer, paint, origin.x, origin.y);
+      if (fired) animLock.push(ANIMATION_DURATIONS.MUZZLE_FLASH);
+    })
+  );
 }
 
 function recomputeVision() {

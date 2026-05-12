@@ -290,3 +290,160 @@ test('drone investigates noise from a hostile inside its hearing radius', () => 
   assert.equal(drone.state, DRONE_STATE.INVESTIGATE);
   assert.deepEqual(drone.lastKnownTarget, { x: 2, y: 0 });
 });
+
+// ---------------------------------------------------------------------------
+// takeTurnSteps — generator form. Exists so the game shell can paint between
+// each committed action; the M0 user-reported bug was a "fire then move" turn
+// leaving the muzzle flash stranded on the tile the drone had just vacated.
+// ---------------------------------------------------------------------------
+
+test('takeTurnSteps yields one entry per committed action (fire then move)', () => {
+  const w = openWorld();
+  const player = new Entity({ id: 'p', x: 3, y: 2, faction: FACTION.PLAYER, glyph: '@' });
+  // 3 AP: enough to fire (cost 2) AND then take one step (cost 1).
+  const drone = new CorpDrone({ id: 'd', x: 6, y: 2, maxAp: 3 });
+  w.addEntity(player);
+  w.addEntity(drone);
+  const rng = new StubRng([0]); // guaranteed hit
+  const steps = [...drone.takeTurnSteps(w, rng)];
+  assert.equal(steps.length, 2, 'one fire + one move');
+  assert.equal(steps[0].type, 'fire');
+  assert.equal(steps[1].type, 'move-engage');
+  // Drone has used all 3 AP and moved closer.
+  assert.equal(drone.ap, 0);
+  assert.ok(drone.x < 6, 'drone closed distance after firing');
+});
+
+test('takeTurnSteps pauses mid-turn — caller can inspect state between yields', () => {
+  // This is the core property the corp-turn animator relies on: when the
+  // shell consumes one yield, the world is *already mutated* by that action,
+  // and the *next* action hasn't happened yet. Without this, the per-step
+  // paint between yields would either be a frame ahead of the action or a
+  // frame behind it.
+  const w = openWorld();
+  const player = new Entity({ id: 'p', x: 3, y: 2, faction: FACTION.PLAYER, glyph: '@' });
+  const drone = new CorpDrone({ id: 'd', x: 6, y: 2, maxAp: 3 });
+  w.addEntity(player);
+  w.addEntity(drone);
+  const gen = drone.takeTurnSteps(w, new StubRng([0]));
+
+  const first = gen.next();
+  assert.equal(first.value.type, 'fire');
+  // After the fire yield: player is damaged, drone hasn't moved yet.
+  assert.equal(player.hp, player.maxHp - 1);
+  assert.equal(drone.x, 6, 'drone has not stepped yet at the fire-yield boundary');
+
+  const second = gen.next();
+  assert.equal(second.value.type, 'move-engage');
+  assert.ok(drone.x < 6, 'drone has now stepped');
+
+  assert.equal(gen.next().done, true);
+});
+
+test('takeTurnSteps on a dead drone is a no-op generator', () => {
+  const w = openWorld();
+  const drone = new CorpDrone({ id: 'd', x: 1, y: 1, maxAp: 3 });
+  w.addEntity(drone);
+  drone.damage(drone.maxHp); // flatline
+  const steps = [...drone.takeTurnSteps(w, new Rng(1))];
+  assert.deepEqual(steps, []);
+});
+
+test('takeTurnSteps does NOT crash the safety cap on unreachable patrol waypoints', () => {
+  // Layout: drone walled in on all 8 neighbours so pathfinding to any
+  // outside waypoint returns null. Without the patrol-spin guard, the
+  // generator would cycle patrolIndex through the ring forever (no AP
+  // spent on `patrol-skipped`) and trip the 32-iteration safety cap with
+  // `CorpDrone <id> exceeded turn iteration cap`.
+  const grid = new Grid(8, 6);
+  for (const [dx, dy] of [
+    [-1, -1],
+    [0, -1],
+    [1, -1],
+    [-1, 0],
+    [1, 0],
+    [-1, 1],
+    [0, 1],
+    [1, 1],
+  ]) {
+    grid.setTile(1 + dx, 1 + dy, TILE.WALL);
+  }
+  const w = new World(grid);
+  const drone = new CorpDrone({
+    id: 'd',
+    x: 1,
+    y: 1,
+    maxAp: 3,
+    patrolWaypoints: [
+      { x: 5, y: 1 },
+      { x: 6, y: 2 },
+      { x: 5, y: 4 },
+    ],
+  });
+  w.addEntity(drone);
+
+  // Just calling `takeTurn` (which drains the generator) must not throw.
+  // We also assert it produced *some* log entries (the skips themselves) so
+  // a future regression that silently aborts the generator pre-yield fails too.
+  let log;
+  assert.doesNotThrow(() => {
+    log = drone.takeTurn(w, new Rng(1));
+  });
+  assert.ok(
+    log.some(e => e.type === 'patrol-skipped'),
+    'drone should have logged at least one skip before exiting'
+  );
+  // And we expect the exit path: spin guard, not the safety cap. With 3
+  // waypoints, the loop should yield at most `waypoints.length` skips
+  // before breaking.
+  const skips = log.filter(e => e.type === 'patrol-skipped').length;
+  assert.ok(skips <= 4, `spin guard should cap skips at ~waypoints.length, got ${skips}`);
+});
+
+test('takeTurnSteps does NOT crash on co-located patrol waypoints', () => {
+  // Pathological but legal author input: every waypoint sits on the drone's
+  // tile. Without the spin guard, the drone advances `patrolIndex` infinitely
+  // (yielding `patrol-arrived` without burning AP) and hits the safety cap.
+  const w = openWorld();
+  const drone = new CorpDrone({
+    id: 'd',
+    x: 3,
+    y: 3,
+    maxAp: 3,
+    patrolWaypoints: [
+      { x: 3, y: 3 },
+      { x: 3, y: 3 },
+      { x: 3, y: 3 },
+    ],
+  });
+  w.addEntity(drone);
+  let log;
+  assert.doesNotThrow(() => {
+    log = drone.takeTurn(w, new Rng(1));
+  });
+  const arrivals = log.filter(e => e.type === 'patrol-arrived').length;
+  assert.ok(arrivals <= 4, `spin guard should cap arrivals at ~waypoints.length, got ${arrivals}`);
+});
+
+test('takeTurn drains takeTurnSteps into the legacy log shape', () => {
+  // Behaviour contract: the synchronous wrapper produces the same array of
+  // log entries the generator would, in order — tests + the debug harness
+  // both depend on this.
+  const w = openWorld();
+  const player = new Entity({ id: 'p', x: 3, y: 2, faction: FACTION.PLAYER, glyph: '@' });
+  const drone = new CorpDrone({ id: 'd', x: 6, y: 2, maxAp: 3 });
+  w.addEntity(player);
+  w.addEntity(drone);
+
+  // Snapshot the generator's output on a fresh world, then re-run via takeTurn
+  // on an identical setup and confirm the two are deep-equal.
+  const gw = openWorld();
+  const gplayer = new Entity({ id: 'p', x: 3, y: 2, faction: FACTION.PLAYER, glyph: '@' });
+  const gdrone = new CorpDrone({ id: 'd', x: 6, y: 2, maxAp: 3 });
+  gw.addEntity(gplayer);
+  gw.addEntity(gdrone);
+  const generated = [...gdrone.takeTurnSteps(gw, new StubRng([0]))];
+
+  const fromWrapper = drone.takeTurn(w, new StubRng([0]));
+  assert.deepEqual(fromWrapper, generated);
+});

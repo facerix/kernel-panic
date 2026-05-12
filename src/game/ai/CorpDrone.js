@@ -18,9 +18,15 @@
  * for now the drone subscribes to `noise` events and uses the origin as the
  * investigate target — the wiring is ready, the emitters land later.
  *
- * `takeTurn(world, rng)` drains the drone's AP. The loop has explicit exit
- * conditions for every "we can't make progress" branch (no path, no AP, dead)
- * so a stuck drone returns rather than spinning.
+ * `takeTurn(world, rng)` drains the drone's AP synchronously and returns a
+ * log of every committed action. Internally it iterates `takeTurnSteps`, a
+ * generator that yields one log entry per committed action — exposed
+ * separately so the game shell can interleave a paint + delay between each
+ * yield (drones that fire then move would otherwise leave the muzzle flash
+ * stranded at a tile the drone has already vacated).
+ *
+ * The loop has explicit exit conditions for every "we can't make progress"
+ * branch (no path, no AP, dead) so a stuck drone returns rather than spinning.
  */
 
 import { Entity } from '../Entity.js';
@@ -131,40 +137,72 @@ export class CorpDrone extends Entity {
    * Spend AP until exhausted, dead, or stuck. Returns a log of actions taken
    * this turn — useful for the harness display and for tests that want to
    * assert behaviour without poking at internal state.
+   *
+   * Thin wrapper around `takeTurnSteps` so callers that don't need per-action
+   * interleaving (tests, the debug harness, anything synchronous) get the
+   * familiar batched-log shape unchanged.
    */
   takeTurn(world, rng) {
     /** @type {Array<object>} */
     const log = [];
-    if (!this.alive) return log;
+    for (const step of this.takeTurnSteps(world, rng)) {
+      log.push(step);
+    }
+    return log;
+  }
+
+  /**
+   * Generator form of the AI loop — yields one log entry per committed
+   * action so the shell can `paint()` between yields. Each yield represents
+   * a discrete world mutation (a shot fired, a step taken, a waypoint
+   * advanced); state transitions that don't mutate the world (e.g. ENGAGE
+   * → INVESTIGATE on losing LOS) are folded into the next yielded action.
+   */
+  *takeTurnSteps(world, rng) {
+    if (!this.alive) return;
 
     // Bound the loop independently of AP — a logic bug that fails to spend
     // AP shouldn't lock the harness. With DEFAULT_AP=4 and per-action cost ≥1,
     // 32 iterations is comfortably above any legitimate turn.
     let safety = 32;
+    /**
+     * Consecutive patrol iterations that advanced `patrolIndex` without
+     * actually stepping (`patrol-arrived` on a co-located waypoint, or
+     * `patrol-skipped` on an unreachable one). Reset by any productive
+     * action — fire, move, or a state transition out of patrol. If it
+     * exceeds the waypoint count we've cycled the whole ring without
+     * burning AP, so further iterations would just repeat the cycle.
+     * This is what hits the iteration cap when several waypoints are
+     * unreachable from the drone's current position.
+     */
+    let patrolSpin = 0;
     while (this.alive && this.ap > 0 && safety-- > 0) {
       const target = this.acquireTarget(world);
 
       if (target) {
+        // Out of patrol — any successful engage action breaks the spin.
+        patrolSpin = 0;
         this.state = DRONE_STATE.ENGAGE;
         this.lastKnownTarget = { x: target.x, y: target.y };
         const fireCheck = canFireRanged(world, this, target);
         if (fireCheck.ok) {
           const result = resolveRanged(world, this, target, rng);
-          log.push({ type: 'fire', target: target.id, result });
+          yield { type: 'fire', target: target.id, result };
           continue;
         }
         if (fireCheck.reason !== 'insufficient-ap') {
           // Some other reason (out-of-range from a different `range` option,
           // same-faction edge case) — should be rare at this layer. Stop
           // rather than thrash; surfacing the state in the log helps debug.
-          log.push({ type: 'fire-blocked', reason: fireCheck.reason });
+          yield { type: 'fire-blocked', reason: fireCheck.reason };
           break;
         }
         // We have AP but not enough to fire — try to step toward to set up
         // for next turn.
         if (this.ap < AP_COST.MOVE) break;
-        const stepped = this.#stepToward(world, target.x, target.y, log, 'engage');
-        if (!stepped) break;
+        const step = this.#stepToward(world, target.x, target.y, 'engage');
+        if (!step) break;
+        yield step;
         continue;
       }
 
@@ -175,28 +213,29 @@ export class CorpDrone extends Entity {
       }
 
       if (this.state === DRONE_STATE.INVESTIGATE && this.lastKnownTarget) {
+        patrolSpin = 0;
         if (this.x === this.lastKnownTarget.x && this.y === this.lastKnownTarget.y) {
           // Reached the last known position empty-handed; resume patrol.
           this.lastKnownTarget = null;
           this.state = DRONE_STATE.PATROL;
-          log.push({ type: 'investigate-cleared' });
+          yield { type: 'investigate-cleared' };
           continue;
         }
         if (this.ap < AP_COST.MOVE) break;
-        const stepped = this.#stepToward(
+        const step = this.#stepToward(
           world,
           this.lastKnownTarget.x,
           this.lastKnownTarget.y,
-          log,
           'investigate'
         );
-        if (!stepped) {
+        if (!step) {
           // Unreachable — give up the lead and patrol.
           this.lastKnownTarget = null;
           this.state = DRONE_STATE.PATROL;
-          log.push({ type: 'investigate-abandoned' });
+          yield { type: 'investigate-abandoned' };
           continue;
         }
+        yield step;
         continue;
       }
 
@@ -204,19 +243,32 @@ export class CorpDrone extends Entity {
       if (this.patrolWaypoints.length === 0) break;
       const wp = this.patrolWaypoints[this.patrolIndex];
       if (this.x === wp.x && this.y === wp.y) {
+        // Co-located with the current waypoint — tick to the next one. This
+        // costs no AP, so we count it as a "spin" and exit once we've gone
+        // full ring without a productive step (prevents an N-way ring of
+        // co-located waypoints from spinning until safety crashes).
         this.patrolIndex = (this.patrolIndex + 1) % this.patrolWaypoints.length;
-        log.push({ type: 'patrol-arrived', waypoint: wp });
+        patrolSpin += 1;
+        if (patrolSpin > this.patrolWaypoints.length) break;
+        yield { type: 'patrol-arrived', waypoint: wp };
         continue;
       }
       if (this.ap < AP_COST.MOVE) break;
-      const stepped = this.#stepToward(world, wp.x, wp.y, log, 'patrol');
-      if (!stepped) {
-        // Skip this waypoint — likely temporarily blocked. Picks back up
-        // next turn at the next one.
+      const step = this.#stepToward(world, wp.x, wp.y, 'patrol');
+      if (!step) {
+        // Skip this waypoint — likely temporarily blocked. Same spin
+        // guard as patrol-arrived: if every waypoint in the ring is
+        // unreachable from where we stand, stop trying this turn.
         this.patrolIndex = (this.patrolIndex + 1) % this.patrolWaypoints.length;
-        log.push({ type: 'patrol-skipped', waypoint: wp });
+        patrolSpin += 1;
+        if (patrolSpin > this.patrolWaypoints.length) break;
+        yield { type: 'patrol-skipped', waypoint: wp };
         continue;
       }
+      // Real step taken — reset the spin counter so the next turn can
+      // cycle waypoints again.
+      patrolSpin = 0;
+      yield step;
     }
 
     if (safety <= 0) {
@@ -224,19 +276,17 @@ export class CorpDrone extends Entity {
       // crash rather than ship a quietly-stuck drone.
       throw new Error(`CorpDrone ${this.id} exceeded turn iteration cap`);
     }
-    return log;
   }
 
-  #stepToward(world, gx, gy, log, kind) {
+  #stepToward(world, gx, gy, kind) {
     const path = findPath(world, { x: this.x, y: this.y }, { x: gx, y: gy });
-    if (!path || path.length === 0) return false;
+    if (!path || path.length === 0) return null;
     const next = path[0];
     const dx = next.x - this.x;
     const dy = next.y - this.y;
     const check = world.canMoveEntity(this, dx, dy);
-    if (!check.ok) return false;
+    if (!check.ok) return null;
     world.moveEntity(this, dx, dy);
-    log.push({ type: `move-${kind}`, to: { x: this.x, y: this.y } });
-    return true;
+    return { type: `move-${kind}`, to: { x: this.x, y: this.y } };
   }
 }

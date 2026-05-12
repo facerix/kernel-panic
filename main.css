@@ -187,6 +187,78 @@ main {
   display: none;
 }
 
+/* ---------------------------------------------------------------------------
+ * M0 combat feedback animations.
+ *
+ * Shake translates the whole stage (canvas + any overlay); the damage
+ * vignette is a pseudo-element radial gradient that fades in then out. Both
+ * are restarted by the JS side via remove-then-re-add of the class so two
+ * hits in a row replay rather than coalesce. Durations are mirrored in
+ * `src/render/animations.js#ANIMATION_DURATIONS`.
+ * ------------------------------------------------------------------------ */
+
+.game-stage.kp-shake {
+  animation: kp-shake 150ms ease-out;
+}
+
+@keyframes kp-shake {
+  0% {
+    transform: translate(0, 0);
+  }
+  20% {
+    transform: translate(-3px, 1px);
+  }
+  40% {
+    transform: translate(3px, -1px);
+  }
+  60% {
+    transform: translate(-2px, 2px);
+  }
+  80% {
+    transform: translate(2px, -2px);
+  }
+  100% {
+    transform: translate(0, 0);
+  }
+}
+
+.game-stage::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    circle at center,
+    rgba(255, 30, 30, 0) 35%,
+    rgba(255, 30, 30, 0.55) 100%
+  );
+  opacity: 0;
+  pointer-events: none;
+  z-index: 6;
+}
+
+.game-stage.kp-damage-flash::after {
+  animation: kp-damage-flash 300ms ease-out;
+}
+
+@keyframes kp-damage-flash {
+  0% {
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game-stage.kp-shake,
+  .game-stage.kp-damage-flash::after {
+    animation: none;
+  }
+}
+
 #game-canvas {
   display: block;
   width: 100%;

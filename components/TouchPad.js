@@ -221,6 +221,13 @@ class TouchPad extends HTMLElement {
   #banner = null;
   #boundOnPointerDown = null;
   #ready = false;
+  /**
+   * Optional input lockout. The M0 combat-feedback animations set this to
+   * the shell's animation-lock checker; `pointerdown` early-returns while
+   * it returns true so a held thumb can't queue actions mid-shake. Defaults
+   * to a no-op so unit tests and non-animating callers don't have to wire it.
+   */
+  #isBlocked = () => false;
 
   static get observedAttributes() {
     return ['force-show'];
@@ -270,6 +277,22 @@ class TouchPad extends HTMLElement {
 
   get mode() {
     return this.#mode;
+  }
+
+  /**
+   * Install (or replace) the input-lockout predicate. Pass `null` to clear.
+   * See `#isBlocked` for the motivation. Validated so a typo'd assignment
+   * crashes loudly instead of silently bypassing the lock.
+   */
+  setBlocked(predicate) {
+    if (predicate === null || predicate === undefined) {
+      this.#isBlocked = () => false;
+      return;
+    }
+    if (typeof predicate !== 'function') {
+      throw new TypeError('<touch-pad>.setBlocked: expected a function or null');
+    }
+    this.#isBlocked = predicate;
   }
 
   #shouldForceShow() {
@@ -344,6 +367,10 @@ class TouchPad extends HTMLElement {
     // Block emulated mouse events that follow a touch — otherwise we'd
     // double-fire the same button.
     evt.preventDefault();
+    // Input lockout — checked after preventDefault so a tap during a
+    // damage shake still suppresses the emulated mouse fallback, but no
+    // intent gets dispatched. Matches the KeyboardController contract.
+    if (this.#isBlocked()) return;
 
     const previousMode = this.#mode;
     const { intent, nextMode } = dispatchTouchAction(buttonId, this.#mode);
