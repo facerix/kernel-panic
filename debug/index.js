@@ -11,9 +11,9 @@
  * can't carry into a new scenario.
  *
  * New in M1 (Phase 2): Tech archetype + auto-firing turrets. At end of every
- * player turn, before the corp turn begins, every placed `Turret` runs an
- * autofire pass via `runTurretAutoFire(world, rng)`. The harness logs each
- * shot to the on-screen feed.
+ * player turn, before the corp turn begins, `runPlayerAftermath` in
+ * `combatTurnPipeline.js` runs the player aftermath (turret autofire today;
+ * allied NPCs / hazards later). The harness logs each line to the feed.
  */
 import { Grid } from '/src/game/Grid.js';
 import { World } from '/src/game/World.js';
@@ -21,7 +21,10 @@ import { TurnQueue } from '/src/game/TurnQueue.js';
 import { Merc } from '/src/game/archetypes/Merc.js';
 import { Razor } from '/src/game/archetypes/Razor.js';
 import { Tech } from '/src/game/archetypes/Tech.js';
-import { runTurretAutoFire } from '/src/game/Turret.js';
+import {
+  advanceFromPlayerTurn,
+  formatPlayerAftermathStepLogLines,
+} from '/src/game/combatTurnPipeline.js';
 import { CorpDrone } from '/src/game/ai/CorpDrone.js';
 import { EventBus, EVENT } from '/src/game/events.js';
 import { TILE, FACTION } from '/src/game/constants.js';
@@ -179,34 +182,26 @@ function applyIntent(intent) {
 }
 
 function advanceTurn() {
-  queue.endTurn(world);
-  log(`> ${queue.currentFaction.toUpperCase()} acts (turn ${queue.turnNumber}).`);
-  if (queue.currentFaction === FACTION.CORP) {
-    // Turret autofire runs at the seam between player and corp turn — every
-    // placed turret picks a target and shoots before drones step. See
-    // `runTurretAutoFire` for the contract.
-    runTurretsAutoFire();
-    runCorpTurn();
-    queue.endTurn(world);
-    log(`> PLAYER acts (turn ${queue.turnNumber}).`);
-  }
-}
-
-function runTurretsAutoFire() {
-  const results = runTurretAutoFire(world, rng);
-  for (const { turret, action } of results) {
-    if (action.type === 'fire') {
-      const r = action.result;
-      log(
-        `> ${turret.id} auto-fires at ${action.target.id} — ` +
-          `${r.hit ? 'HIT' : 'miss'} (roll ${r.roll.toFixed(2)} vs ${r.threshold.toFixed(2)}` +
-          `${r.inCover ? ', cover' : ''}).` +
-          (r.killed ? ` ${action.target.id.toUpperCase()} DOWN.` : '')
-      );
-    } else if (action.reason === 'no-target') {
-      log(`> ${turret.id} scans — no target in range.`);
-    }
-  }
+  advanceFromPlayerTurn({
+    queue,
+    world,
+    rng,
+    onCorpTurnReady: () => {
+      log(`> ${queue.currentFaction.toUpperCase()} acts (turn ${queue.turnNumber}).`);
+    },
+    onPlayerAftermathStep: step => {
+      for (const line of formatPlayerAftermathStepLogLines(step)) {
+        log(`> ${line}`);
+      }
+    },
+    driveCorpTurn: ({ onFinish }) => {
+      runCorpTurn();
+      onFinish();
+    },
+    onPlayerTurnReady: () => {
+      log(`> PLAYER acts (turn ${queue.turnNumber}).`);
+    },
+  });
 }
 
 /**

@@ -323,6 +323,8 @@ export class Run {
     }
     if (attacker === this.player && killed) {
       this.telemetry.kills = (this.telemetry.kills ?? 0) + 1;
+    } else if (killed && attacker instanceof Turret && attacker.ownerId === this.player.id) {
+      this.telemetry.kills = (this.telemetry.kills ?? 0) + 1;
     }
   }
 

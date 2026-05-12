@@ -24,6 +24,11 @@ import { Run, RUN_STATE } from '/src/game/Run.js';
 import { restore } from '/src/game/persistence.js';
 import { runCorpTurn as driveCorpTurn } from '/src/game/corpTurnDriver.js';
 import { FACTION } from '/src/game/constants.js';
+import {
+  advanceFromPlayerTurn,
+  drivePlayerAftermath,
+  formatPlayerAftermathStepLogLines,
+} from '/src/game/combatTurnPipeline.js';
 import { corpTurnStatusBody, countVisibleCorpEntities } from '/src/game/corpTurnStatusCopy.js';
 import { EVENT } from '/src/game/events.js';
 import { VisionField } from '/src/game/Vision.js';
@@ -401,20 +406,41 @@ function handleIntent(intent) {
  * stranded on the tile the drone had just vacated.
  */
 const CORP_ACTION_DELAY_MS = 130;
+const PLAYER_AFTERMATH_ACTION_DELAY_MS = 130;
 
 function advanceTurn() {
   if (!run) return;
-  run.queue.endTurn(run.world);
-  if (run.queue.currentFaction === FACTION.CORP) {
-    // Corp turn is now async: each drone yields one action at a time and
-    // the shell paints between yields. `advanceTurn` returns immediately;
-    // `finishCorpTurn` closes out the CORP→PLAYER handoff once the pump
-    // drains. Input is gated by `animLock` for the duration.
-    runCorpTurn();
-    return;
-  }
-  // Stealth & vision may both have changed during the corp turn.
-  recomputeVision();
+  advanceFromPlayerTurn({
+    queue: run.queue,
+    world: run.world,
+    rng: run.rng,
+    isTerminal: () => run?.state === RUN_STATE.RESULT,
+    drivePlayerAftermath: ({ onStep, onFinish }) => {
+      drivePlayerAftermath({
+        world: run.world,
+        rng: run.rng,
+        onStep,
+        onFinish,
+        animLock,
+        stepDelayMs: PLAYER_AFTERMATH_ACTION_DELAY_MS,
+        lockMarginMs: ANIMATION_DURATIONS.MUZZLE_FLASH,
+      });
+    },
+    onPlayerAftermathStep: step => {
+      for (const line of formatPlayerAftermathStepLogLines(step)) {
+        flash(line);
+      }
+      paint();
+    },
+    driveCorpTurn: ({ onFinish }) => {
+      runCorpTurn(onFinish);
+    },
+    onPlayerTurnReady: () => {
+      // Stealth & vision may both have changed during the corp turn.
+      recomputeVision();
+      paint();
+    },
+  });
 }
 
 /**
@@ -425,7 +451,7 @@ function advanceTurn() {
  * combat map the player has cleared). The driver lives in `/src/game/` so
  * its state machine is testable under `node --test`.
  */
-function runCorpTurn() {
+function runCorpTurn(onFinish) {
   if (!run) return;
   driveCorpTurn({
     run,
@@ -434,25 +460,14 @@ function runCorpTurn() {
     animLock,
     actionDelayMs: CORP_ACTION_DELAY_MS,
     lockMarginMs: ANIMATION_DURATIONS.MUZZLE_FLASH,
-    onFinish: finishCorpTurn,
+    onFinish,
   });
 }
 
-/**
- * Close out the corp turn — advance the queue back to PLAYER, refresh
- * vision (stealth/LOS may have shifted during a corp move), and repaint.
- *
- * The RESULT gate is defense in depth: the driver also bails on terminal
- * states, so this should never see RESULT in practice. Keeping the check
- * means a future driver-side bug can't accidentally end-turn a finished
- * run and corrupt the queue state.
+/*
+ * `advanceFromPlayerTurn` owns the final CORP→PLAYER queue transition; the
+ * shell callback above only refreshes presentation state after that happens.
  */
-function finishCorpTurn() {
-  if (!run || run.state === RUN_STATE.RESULT) return;
-  run.queue.endTurn(run.world);
-  recomputeVision();
-  paint();
-}
 
 function handleInteract() {
   if (!run) return;

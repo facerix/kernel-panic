@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { Run, RUN_STATE, OUTCOME } from '../../../src/game/Run.js';
 import { OBJECTIVES } from '../../../src/game/hub/Curator.js';
 import { FACTION } from '../../../src/game/constants.js';
+import { Turret } from '../../../src/game/Turret.js';
 
 const fakeContract = (overrides = {}) => ({
   seed: 12345,
@@ -146,6 +147,25 @@ test('player kill of a corp entity increments telemetry.kills', () => {
   });
   assert.equal(run.telemetry.kills, 1);
   assert.equal(run.state, RUN_STATE.COMBAT, 'a corp kill must not end the run');
+});
+
+test('Tech turret kill increments telemetry.kills when ownerId matches player', () => {
+  const run = new Run({ archetype: 'tech', seed: 1 });
+  run.enterHub();
+  run.enterBriefing(fakeContract());
+  run.enterCombat();
+  const drone = [...run.world.entities.values()].find(e => e.faction === FACTION.CORP);
+  assert.ok(drone);
+  const turret = new Turret({ id: `${run.player.id}-turret`, x: 1, y: 1, ownerId: run.player.id });
+  run.bus.emit('entity:damaged', {
+    attacker: turret,
+    target: drone,
+    damage: 1,
+    killed: true,
+    source: 'ranged',
+  });
+  assert.equal(run.telemetry.kills, 1);
+  assert.equal(run.state, RUN_STATE.COMBAT);
 });
 
 test('reaching the exit tile transitions to RESULT(EXIT)', () => {

@@ -57,6 +57,7 @@ All Phase 1 conventions apply (pure/DOM split, relative imports inside `src/`, a
 - **Three DataStore scopes.** Job scope existed implicitly in Phase 1. Campaign scope (`crew`, `salvage`, `vouch`) and meta scope (`upgrades`) are new; both are serialised as separate DataStore records and survive across jobs and campaign wipes respectively.
 - **`Crew` sits between `Entity` and archetypes.** All player-controlled entities extend `Crew`. Crew-specific fields (`callsign`, `flatlined`, `inventory`, `gear`) must not leak into `Entity`; pure-logic tests for non-crew entities must not need them.
 - **Turret is a placed grid entity, not an archetype.** Lives in `src/game/Turret.js` (peer of `Entity.js`). Faction = PLAYER. Has HP; can be destroyed. `autoFire(world, rng)` is called by the shell at end of player turn, before the corp turn begins.
+- **Combat turn pipeline.** Player → player aftermath → corp → player handoff lives in `src/game/combatTurnPipeline.js`, not in page-specific shells. Shells inject rendering, logging, animation locks, and timers; the module remains pure JS and unit-testable. Player aftermath is step-driven (`runPlayerAftermathSteps` / `drivePlayerAftermath`) so turret autofire, future allied NPC actions, hazards, and neutral movement can each render discretely before corp AI begins.
 - **New entity types live in `src/game/entities/`.** `CorpCivilian.js` and `NeutralCivilian.js` are non-archetype, non-hub entities placed by `mapBuild.js`. This is a new directory; hub-specific entities stay in `src/game/hub/`.
 - **Salvage is a plain number in Phase 2.** `Crew.inventory.salvage` is an integer count. No item types, no typed components yet. The encoding is local to `Crew.js` and `persistence.js` and can evolve in Phase 3 without touching the rest of the system.
 - **Animation system.** CSS effects (shake, reddening) are driven by class names on the `#game` container element. The canvas muzzle flash runs as a short `requestAnimationFrame` sequence inside `AsciiRenderer`. No dirty-cell tracking is introduced in M0; if it lands later, the animation frame sequencing should be revisited alongside it.
@@ -74,7 +75,7 @@ Pure renderer/DOM work. No game-logic changes. Visual effects verified via the d
 - **Event wiring:** Subscriptions live in `index.js` (the shell), not inside game-logic modules, keeping the pure/DOM split intact.
 - **CORP turn status** We now display status messages while CORP entities are acting
 
-### M1 — Tech archetype + Deploy Turret ⬜
+### M1 — Tech archetype + Deploy Turret ✅
 
 Introduces `Crew`, migrates existing archetypes, and delivers the third playable class.
 
@@ -87,6 +88,16 @@ Introduces `Crew`, migrates existing archetypes, and delivers the third playable
 - Input: `d` + direction → `DEPLOY_AIM` mode → `{ type: 'deploy', dx, dy }` intent. Added to `keymap.js`, `touchpad.js`, and `<key-help>` rows (COMBAT scope).
 - Debug harness: Tech selectable via `3` key (/ `?archetype=tech` URL param). Turret autofire logged to the feed. Status line shows `[TURRET READY]` / `[TURRET DEPLOYED]`.
 - Tests: `Crew.test.js` — callsign set, flatlined default; `Tech.test.js` — deploy legality matrix (adjacent, passable, unoccupied, turretReady, AP ≥ cost), deploy commit + AP debit, second deploy blocked until M3; `Turret.test.js` — autofire target selection, LOS check, out-of-range pass, damage + event emission; `keymap` deploy mode dispatches expected intent.
+
+**Delivered expansion (discovered during M1): turn-order consolidation.** Turrets made the old page-local turn handoff awkward, so M1 also introduced `src/game/combatTurnPipeline.js` as the single owner of turn phase order. The current order is:
+
+1. Player yields via `applyIntent` / AP exhaustion / explicit end-turn.
+2. `advanceFromPlayerTurn` advances the queue to Corp.
+3. `drivePlayerAftermath` resolves player-side automatic steps one at a time. Today this is turret autofire; future allied NPCs, map hazards, and neutral reactions should join here as ordered `PlayerAftermathStep` entries.
+4. Corp turn driver runs after aftermath `onFinish`.
+5. Pipeline advances the queue back to Player and lets the shell refresh presentation state.
+
+The main shell uses paced aftermath so each step can paint and hold the animation lock before the next step. The debug harness uses the same pipeline with synchronous aftermath for compact logging. This deliberately preserves the pure/DOM split: game modules own ordering and mutations; shells own canvas, status text, timers, and animation effects.
 
 ### M2 — Campaign layer + named crew roster ⬜
 
