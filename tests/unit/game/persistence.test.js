@@ -32,6 +32,44 @@ test('snapshot → restore → snapshot is byte-for-byte stable', () => {
   assert.deepEqual(recB, recA, 'round-trip should reproduce the source record');
 });
 
+test('snapshot/restore round-trips a Tech with a placed turret (M1)', () => {
+  const run = new Run({ archetype: 'tech', seed: 0xc0ffee });
+  run.enterHub();
+  run.enterBriefing(fakeContract());
+  run.enterCombat();
+  // Deploy the pre-built turret on an adjacent passable tile. The combat
+  // mapgen guarantees a passable spawn, so we scan the 8-neighbourhood for
+  // the first free floor tile and deploy there.
+  const tech = run.player;
+  let placed = null;
+  for (let dy = -1; dy <= 1 && !placed; dy++) {
+    for (let dx = -1; dx <= 1 && !placed; dx++) {
+      if (dx === 0 && dy === 0) continue;
+      if (tech.canDeploy(run.world, dx, dy).ok) {
+        placed = tech.deployTurret(run.world, dx, dy);
+      }
+    }
+  }
+  assert.ok(placed, 'should have found at least one legal deploy tile around the Tech');
+  assert.equal(tech.turretReady, false);
+
+  // Damage the turret a bit to make the round-trip non-trivial.
+  placed.hp = 2;
+
+  const rec = snapshot(run);
+  const { run: restoredRun, world: restoredWorld } = restore(rec);
+  // Tech's turretReady should survive — both `false` here.
+  assert.equal(restoredRun.player.turretReady, false);
+  const restoredTurret = [...restoredWorld.entities.values()].find(e => e.id === placed.id);
+  assert.ok(restoredTurret, 'restored world should contain the deployed turret');
+  assert.equal(restoredTurret.faction, FACTION.PLAYER);
+  assert.equal(restoredTurret.hp, 2);
+  assert.equal(restoredTurret.ownerId, tech.id);
+  // Method (Entity.prototype.damage) survives the round-trip — regression
+  // pin for the `this.damage = number` shadowing bug.
+  assert.equal(typeof restoredTurret.damage, 'function');
+});
+
 test('restored Rng produces the same next 5 numbers as the live one', () => {
   const run = freshCombatRun(7);
   // Take a few rolls so rng.state advances past the seed.

@@ -26,8 +26,8 @@ import { Merc, CALLSIGNS as MERC_CALLSIGNS } from '../../../src/game/archetypes/
 import { Razor, CALLSIGNS as RAZOR_CALLSIGNS } from '../../../src/game/archetypes/Razor.js';
 import { Rng } from '../../../src/rng.js';
 
-test('ARCHETYPES exposes merc and razor with required metadata', () => {
-  for (const id of ['merc', 'razor']) {
+test('ARCHETYPES exposes merc, razor, and tech with required metadata', () => {
+  for (const id of ['merc', 'razor', 'tech']) {
     const a = ARCHETYPES[id];
     assert.ok(a, `missing archetype "${id}"`);
     assert.equal(a.id, id);
@@ -43,19 +43,25 @@ test('ARCHETYPES exposes merc and razor with required metadata', () => {
   }
 });
 
-test('Merc perk is vault on key v; Razor perk is slide on key t', () => {
-  // These keys are already implemented in keymap.js — the registry just has
-  // to mirror them. If they ever drift, key-help renders nonsense.
-  assert.equal(ARCHETYPES.merc.perkKey, 'v');
+test('every archetype shares the unified `x` perk key (M1 design lock)', () => {
+  // The keymap collapses Vault / Slide / Deploy into a single SPECIAL_AIM
+  // mode keyed on `x`. The registry's perkKey must mirror that — drift here
+  // would make <key-help> teach a key the dispatcher no longer accepts.
+  for (const id of ARCHETYPE_IDS) {
+    assert.equal(ARCHETYPES[id].perkKey, 'x', `${id} perkKey expected to be 'x'`);
+  }
+});
+
+test('Merc perk is vault; Razor perk is slide; Tech perk is deploy', () => {
   assert.deepEqual(ARCHETYPES.merc.perks, ['vault']);
-  assert.equal(ARCHETYPES.razor.perkKey, 't');
   assert.deepEqual(ARCHETYPES.razor.perks, ['slide']);
+  assert.deepEqual(ARCHETYPES.tech.perks, ['deploy']);
 });
 
 test('ARCHETYPE_IDS lists every registered id, in display order', () => {
   // Display order matters for the character-select modal (default focus is
-  // the first entry on first load). Merc first, then Razor.
-  assert.deepEqual(ARCHETYPE_IDS, ['merc', 'razor']);
+  // the first entry on first load). Merc → Razor → Tech, simplest kit first.
+  assert.deepEqual(ARCHETYPE_IDS, ['merc', 'razor', 'tech']);
 });
 
 test('buildPlayer("merc", spawn) returns a Merc with the spawn coords', () => {

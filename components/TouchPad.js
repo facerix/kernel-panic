@@ -56,8 +56,10 @@ const DPAD_SLOTS = Object.freeze(['NW', 'N', 'NE', 'W', null, 'E', 'SW', 'S', 'S
 const ACTION_BUTTONS = Object.freeze([
   { id: 'fire', label: 'FIRE', shortcut: 'f' },
   { id: 'melee', label: 'MELEE', shortcut: 'm' },
-  { id: 'vault', label: 'VAULT', shortcut: 'v' },
-  { id: 'slide', label: 'SLIDE', shortcut: 't' },
+  // One button for the archetype perk — same `special` intent for Vault,
+  // Slide, and Deploy. The status banner / on-screen log spells out which
+  // verb actually resolves, so the player still sees their kit's flavour.
+  { id: 'special', label: 'SPECIAL', shortcut: 'x' },
   { id: 'interact', label: 'INTERACT', shortcut: 'i' },
   { id: 'end-turn', label: 'END', shortcut: '␣' },
   { id: 'cancel', label: 'CANCEL', shortcut: 'esc' },
@@ -67,15 +69,13 @@ const AIM_MODE_LABEL = Object.freeze({
   [MODE.IDLE]: '',
   [MODE.FIRE_AIM]: 'FIRE — pick a direction',
   [MODE.MELEE_AIM]: 'MELEE — pick a direction',
-  [MODE.VAULT_AIM]: 'VAULT — pick a direction',
-  [MODE.SLIDE_AIM]: 'SLIDE — pick a direction',
+  [MODE.SPECIAL_AIM]: 'SPECIAL — pick a direction',
 });
 
 const AIM_MODE_ACTION = Object.freeze({
   [MODE.FIRE_AIM]: 'fire',
   [MODE.MELEE_AIM]: 'melee',
-  [MODE.VAULT_AIM]: 'vault',
-  [MODE.SLIDE_AIM]: 'slide',
+  [MODE.SPECIAL_AIM]: 'special',
 });
 
 const CSS = `

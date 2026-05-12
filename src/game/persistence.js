@@ -37,6 +37,8 @@ import { FACTION } from './constants.js';
 import { Entity } from './Entity.js';
 import { Merc } from './archetypes/Merc.js';
 import { Razor } from './archetypes/Razor.js';
+import { Tech } from './archetypes/Tech.js';
+import { Turret } from './Turret.js';
 import { CorpDrone, DRONE_STATE } from './ai/CorpDrone.js';
 import { Curator } from './hub/Curator.js';
 import { Run, RUN_STATE } from './Run.js';
@@ -46,6 +48,8 @@ const ARCHETYPE_KEY = Symbol.for('kernel-panic.archetype');
 const ARCHETYPE_FACTORY = Object.freeze({
   merc: props => new Merc(props),
   razor: props => new Razor(props),
+  tech: props => new Tech(props),
+  turret: props => new Turret(props),
   drone: props => new CorpDrone(props),
   curator: props => new Curator(props),
   // Generic fallback so a future `Entity` subclass (NPCs, items) doesn't break
@@ -178,6 +182,16 @@ function restoreEntity(rec, grid) {
   if (rec.archetype === 'drone') {
     entityProps.patrolWaypoints = rec.drone?.patrolWaypoints ?? [];
   }
+  if (rec.archetype === 'turret' && rec.turret) {
+    // Turret's range/attackDamage are tunables that survive a round-trip;
+    // passing them through the constructor keeps a custom-tuned improvised
+    // turret (M3) behaving identically after restore.
+    if (Number.isInteger(rec.turret.range)) entityProps.range = rec.turret.range;
+    if (Number.isInteger(rec.turret.attackDamage)) {
+      entityProps.attackDamage = rec.turret.attackDamage;
+    }
+    if (rec.turret.ownerId !== undefined) entityProps.ownerId = rec.turret.ownerId;
+  }
   const entity = factory(entityProps);
   // Re-apply the live HP / AP / alive / stealth state. We can't pass current
   // HP through the constructor (Entity always starts at full health), so we
@@ -202,6 +216,13 @@ function restoreEntity(rec, grid) {
   }
   entity.stealthed = !!rec.stealthed;
   if (rec.glyph) entity.glyph = rec.glyph;
+
+  if (rec.archetype === 'tech' && rec.tech) {
+    // Re-apply the pre-built turret flag so a mid-job save remembers whether
+    // the player already deployed. Defaults to `true` (Tech ctor) when the
+    // record omits it.
+    entity.turretReady = !!rec.tech.turretReady;
+  }
 
   if (rec.archetype === 'drone' && rec.drone) {
     if (rec.drone.state && !KNOWN_DRONE_STATES.has(rec.drone.state)) {
@@ -259,4 +280,4 @@ function validateRecord(record) {
   }
 }
 
-const KNOWN_ARCHETYPES_SET = new Set(['merc', 'razor']);
+const KNOWN_ARCHETYPES_SET = new Set(['merc', 'razor', 'tech']);

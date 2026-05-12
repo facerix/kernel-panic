@@ -7,7 +7,7 @@ Living plan for Phase 2 of Kernel Panic. Source of truth for milestone scope, cu
 | Milestone | Status |
 |---|---|
 | M0 — Combat feedback animations | ✅ Done |
-| M1 — Tech archetype + Deploy Turret | ⬜ Pending |
+| M1 — Tech archetype + Deploy Turret | ✅ Done |
 | M2 — Campaign layer + named crew roster | ⬜ Pending |
 | M3 — Salvage + inventory + improvised turrets | ⬜ Pending |
 | M4 — Finn's shop | ⬜ Pending |
@@ -47,6 +47,7 @@ Test count at Phase 2 start: **409 passing** (end of Phase 1 / M8).
 - **Vouch:** Campaign-level meter (0–100, starting at 50). Raised by clean contract completion; lowered by civilian/neutral kills. Gates neutral NPC behavior and crew recruitment unlocks.
 - **Recruitment:** New crew members unlock when Vouch reaches a threshold (suggest 65) or as a specific contract reward. Archetype and callsign generated on recruit; callsign deduplication applies.
 - **Animations (M0):** Turn-blocking — input disabled for ~300ms during the longest active animation. Three effects: screen shake (CSS `@keyframes` translate on game container, ~150ms), damage reddening (CRT filter temporary red vignette, ~300ms), muzzle flash (1-frame canvas color override at shooter's tile, ~80ms). All wired to the existing event bus. No game-logic changes.
+- **Unified special-action key (M1):** Vault, Slide, and Deploy collapse into a single `x` → `MODE.SPECIAL_AIM` → `{ type: 'special', dx, dy }` intent at the keymap layer; `applyIntent.doSpecial` dispatches to the archetype's perk by capability sniffing (`canDeploy` → Tech, `canVault` → Merc, `canSlide` → Razor). One key, one touch-pad button, one help row — no WASD collision (the original plan's `d` key clashed with WASD-right), and adding a future archetype only requires implementing its perk method.
 
 ## Architecture conventions
 

@@ -38,7 +38,20 @@ export const AP_COST = Object.freeze({
   // Archetype perks (proposed; tunable):
   VAULT: 3, // Merc — hop a cover tile while firing
   SLIDE: 2, // Razor — 2-tile reposition with stealth bonus
+  DEPLOY: 2, // Tech — place a turret on an adjacent tile
 });
+
+/**
+ * Tech turret parameters. The turret is a placed grid entity (peer of
+ * `Entity`, not an archetype) deployed by Tech at `AP_COST.DEPLOY`. Tunables:
+ *   - `TURRET_MAX_HP` — destruction takes the same shots as a drone (3).
+ *   - `TURRET_RANGE` — half the player's SIGHT_RANGE, so it cleans up adjacent
+ *     drones but doesn't dominate the engagement.
+ *   - `TURRET_DAMAGE` — flat 1; same per-hit damage as the player's gun.
+ */
+export const TURRET_MAX_HP = 3;
+export const TURRET_RANGE = 4;
+export const TURRET_DAMAGE = 1;
 
 /**
  * Default AP per turn for an entity. Not in the blueprint — picked so that a

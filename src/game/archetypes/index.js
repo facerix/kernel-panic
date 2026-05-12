@@ -21,20 +21,29 @@
 
 import { Merc, CALLSIGNS as MERC_CALLSIGNS } from './Merc.js';
 import { Razor, CALLSIGNS as RAZOR_CALLSIGNS } from './Razor.js';
+import { Tech, CALLSIGNS as TECH_CALLSIGNS } from './Tech.js';
 
 /**
  * Display order is also the default-focus order in <character-select>.
- * Merc first so new players hit the simpler ranged archetype on first load.
+ * Merc first so new players hit the simpler ranged archetype on first load;
+ * Tech last since its gadget loop is the most involved kit to learn.
  */
-export const ARCHETYPE_IDS = Object.freeze(['merc', 'razor']);
+export const ARCHETYPE_IDS = Object.freeze(['merc', 'razor', 'tech']);
 
+/**
+ * All three archetypes share a single perk key (`x`) — the keymap collapses
+ * vault/slide/deploy into one `MODE.SPECIAL_AIM` aim mode that dispatches by
+ * archetype at the intent layer (`applyIntent.doSpecial`). The per-archetype
+ * `perkLabel` is what surfaces in `<character-select>` and `<key-help>`, so
+ * the visible verb stays archetype-specific even though the keystroke doesn't.
+ */
 export const ARCHETYPES = Object.freeze({
   merc: Object.freeze({
     id: 'merc',
     name: 'MERC',
     blurb: 'Ranged specialist. Trades position for line-of-fire control.',
     perks: Object.freeze(['vault']),
-    perkKey: 'v',
+    perkKey: 'x',
     perkLabel: 'VAULT — hop cover & fire',
   }),
   razor: Object.freeze({
@@ -42,14 +51,23 @@ export const ARCHETYPES = Object.freeze({
     name: 'RAZOR',
     blurb: 'Stealth / melee. Cuts angles drones can’t cover.',
     perks: Object.freeze(['slide']),
-    perkKey: 't',
+    perkKey: 'x',
     perkLabel: 'SLIDE — 2-tile silent dash',
+  }),
+  tech: Object.freeze({
+    id: 'tech',
+    name: 'TECH',
+    blurb: 'Engineer. Drops auto-firing turrets to lock down sightlines.',
+    perks: Object.freeze(['deploy']),
+    perkKey: 'x',
+    perkLabel: 'DEPLOY — place a turret',
   }),
 });
 
 const BUILDERS = Object.freeze({
   merc: Merc,
   razor: Razor,
+  tech: Tech,
 });
 
 /**
@@ -61,6 +79,7 @@ const BUILDERS = Object.freeze({
 export const CALLSIGNS_BY_ARCHETYPE = Object.freeze({
   merc: MERC_CALLSIGNS,
   razor: RAZOR_CALLSIGNS,
+  tech: TECH_CALLSIGNS,
 });
 
 export function isArchetypeId(value) {

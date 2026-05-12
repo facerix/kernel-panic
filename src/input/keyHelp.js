@@ -51,14 +51,11 @@ export const HELP_ROWS = Object.freeze([
     group: 'action',
   },
   {
-    keys: Object.freeze(['v']),
-    label: 'Vault (Merc) — hop cover & fire',
-    scope: 'combat',
-    group: 'action',
-  },
-  {
-    keys: Object.freeze(['t']),
-    label: 'Slide (Razor) — silent dash',
+    // Unified archetype perk: Merc → Vault, Razor → Slide, Tech → Deploy.
+    // Single key, single touch button, single help row — the live verb is
+    // determined by the player's class at intent-apply time.
+    keys: Object.freeze(['x']),
+    label: 'Special action (archetype perk)',
     scope: 'combat',
     group: 'action',
   },

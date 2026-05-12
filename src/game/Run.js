@@ -40,6 +40,8 @@ import { FACTION } from './constants.js';
 import { Entity } from './Entity.js';
 import { Merc } from './archetypes/Merc.js';
 import { Razor } from './archetypes/Razor.js';
+import { Tech } from './archetypes/Tech.js';
+import { Turret } from './Turret.js';
 import { buildPlayer, isArchetypeId } from './archetypes/index.js';
 import { CorpDrone } from './ai/CorpDrone.js';
 import { Curator, isObjective } from './hub/Curator.js';
@@ -379,12 +381,28 @@ function snapshotEntity(entity) {
       patrolIndex: entity.patrolIndex,
     };
   }
+  if (entity instanceof Tech) {
+    // M1 design lock: the Tech's pre-built turret is a flag, not a count. M3
+    // will rework this into an inventory-based item once the salvage loop
+    // lands; for now snapshotting the bool is enough to round-trip a run
+    // where the player did or did not deploy mid-job.
+    base.tech = { turretReady: !!entity.turretReady };
+  }
+  if (entity instanceof Turret) {
+    base.turret = {
+      range: entity.range,
+      attackDamage: entity.attackDamage,
+      ownerId: entity.ownerId,
+    };
+  }
   return base;
 }
 
 function archetypeOf(entity) {
   if (entity instanceof Merc) return 'merc';
   if (entity instanceof Razor) return 'razor';
+  if (entity instanceof Tech) return 'tech';
+  if (entity instanceof Turret) return 'turret';
   if (entity instanceof CorpDrone) return 'drone';
   if (entity instanceof Curator) return 'curator';
   if (entity instanceof Terminal) return 'terminal';

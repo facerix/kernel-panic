@@ -1,20 +1,27 @@
 /**
  * M7 debug harness. Both KeyboardController and the on-screen <touch-pad>
  * emit the same intent shape; the game loop applies them through one path.
- * Player can be a Merc (vault) or a Razor (slide + stealth) — toggle with
- * `1` (Merc) or `2` (Razor) on reset, or via `?archetype=razor` in the URL.
- * Razor is the default since M6.
+ * Player can be a Merc (vault), a Razor (slide + stealth), or a Tech
+ * (deploy turret) — toggle with `1` / `2` / `3` on reset, or via
+ * `?archetype=tech` in the URL. Razor is the default since M6.
  *
  * New in M7: <touch-pad> overlay. Auto-shown on coarse pointers; force on
  * desktop with `?touch=force`. Touch and keyboard each own their own aim
  * mode (per-input). On reset, both are reset to IDLE so a stale half-press
  * can't carry into a new scenario.
+ *
+ * New in M1 (Phase 2): Tech archetype + auto-firing turrets. At end of every
+ * player turn, before the corp turn begins, every placed `Turret` runs an
+ * autofire pass via `runTurretAutoFire(world, rng)`. The harness logs each
+ * shot to the on-screen feed.
  */
 import { Grid } from '/src/game/Grid.js';
 import { World } from '/src/game/World.js';
 import { TurnQueue } from '/src/game/TurnQueue.js';
 import { Merc } from '/src/game/archetypes/Merc.js';
 import { Razor } from '/src/game/archetypes/Razor.js';
+import { Tech } from '/src/game/archetypes/Tech.js';
+import { runTurretAutoFire } from '/src/game/Turret.js';
 import { CorpDrone } from '/src/game/ai/CorpDrone.js';
 import { EventBus, EVENT } from '/src/game/events.js';
 import { TILE, FACTION } from '/src/game/constants.js';
@@ -44,7 +51,9 @@ let archetype = (() => {
   // URL override at first load. Reset keys toggle this in `bindUI`.
   const params = new URLSearchParams(globalThis.location?.search || '');
   const a = params.get('archetype');
-  return a === 'merc' ? 'merc' : 'razor';
+  if (a === 'merc') return 'merc';
+  if (a === 'tech') return 'tech';
+  return 'razor';
 })();
 const logLines = [];
 
@@ -77,7 +86,9 @@ function buildScenario() {
   player =
     archetype === 'razor'
       ? new Razor({ id: 'razor', x: 3, y: 3, maxAp: 4 })
-      : new Merc({ id: 'merc', x: 3, y: 3, maxAp: 4 });
+      : archetype === 'tech'
+        ? new Tech({ id: 'tech', x: 3, y: 3, maxAp: 4 })
+        : new Merc({ id: 'merc', x: 3, y: 3, maxAp: 4 });
   // Patrol the right-hand room; the drone spends most of its time visible to
   // a player who pushes east, so M5 behaviour is observable from spawn.
   drone = new CorpDrone({
@@ -133,9 +144,15 @@ function rerender(modeHint = '') {
     ? `DRONE @(${drone.x},${drone.y}) HP ${drone.hp}/${drone.maxHp} [${drone.state.toUpperCase()}]`
     : 'DRONE DOWN';
   const stealthTag = player.stealthed ? ' [CLOAKED]' : '';
+  // Tech-specific status: the pre-built turret token, and whether a placed
+  // turret is alive on the grid.
+  let turretTag = '';
+  if (archetype === 'tech') {
+    turretTag = player.turretReady ? ' [TURRET READY]' : ' [TURRET DEPLOYED]';
+  }
   document.getElementById('status').textContent =
     `TURN ${queue.turnNumber}  |  ACTING: ${queue.currentFaction.toUpperCase()}  |  ` +
-    `${archetype.toUpperCase()} AP ${player.ap}/${player.maxAp} HP ${player.hp}/${player.maxHp}${stealthTag}  |  ` +
+    `${archetype.toUpperCase()} AP ${player.ap}/${player.maxAp} HP ${player.hp}/${player.maxHp}${stealthTag}${turretTag}  |  ` +
     `${droneStatus}${aim}`;
   document.getElementById('log').textContent = logLines.slice(-12).join('\n');
 }
@@ -165,9 +182,30 @@ function advanceTurn() {
   queue.endTurn(world);
   log(`> ${queue.currentFaction.toUpperCase()} acts (turn ${queue.turnNumber}).`);
   if (queue.currentFaction === FACTION.CORP) {
+    // Turret autofire runs at the seam between player and corp turn — every
+    // placed turret picks a target and shoots before drones step. See
+    // `runTurretAutoFire` for the contract.
+    runTurretsAutoFire();
     runCorpTurn();
     queue.endTurn(world);
     log(`> PLAYER acts (turn ${queue.turnNumber}).`);
+  }
+}
+
+function runTurretsAutoFire() {
+  const results = runTurretAutoFire(world, rng);
+  for (const { turret, action } of results) {
+    if (action.type === 'fire') {
+      const r = action.result;
+      log(
+        `> ${turret.id} auto-fires at ${action.target.id} — ` +
+          `${r.hit ? 'HIT' : 'miss'} (roll ${r.roll.toFixed(2)} vs ${r.threshold.toFixed(2)}` +
+          `${r.inCover ? ', cover' : ''}).` +
+          (r.killed ? ` ${action.target.id.toUpperCase()} DOWN.` : '')
+      );
+    } else if (action.reason === 'no-target') {
+      log(`> ${turret.id} scans — no target in range.`);
+    }
   }
 }
 
@@ -220,10 +258,21 @@ function formatCorpAction(actor, action) {
 }
 
 function logModeChange(nextMode) {
-  if (nextMode === MODE.VAULT_AIM) log('> VAULT — pick a direction (Esc to cancel).');
   if (nextMode === MODE.FIRE_AIM) log('> FIRE — pick a direction (Esc to cancel).');
   if (nextMode === MODE.MELEE_AIM) log('> MELEE — pick a direction (Esc to cancel).');
-  if (nextMode === MODE.SLIDE_AIM) log('> SLIDE — pick a direction (Esc to cancel).');
+  if (nextMode === MODE.SPECIAL_AIM) {
+    // Surface the archetype-specific verb so the banner still reads naturally
+    // even though the keystroke and mode are now shared.
+    const verb =
+      archetype === 'merc'
+        ? 'VAULT'
+        : archetype === 'razor'
+          ? 'SLIDE'
+          : archetype === 'tech'
+            ? 'DEPLOY'
+            : 'SPECIAL';
+    log(`> ${verb} — pick a direction (Esc to cancel).`);
+  }
 }
 
 function activeMode() {
@@ -283,6 +332,12 @@ function bindUI() {
       evt.preventDefault();
     } else if (evt.key === '2') {
       archetype = 'razor';
+      buildScenario();
+      resetInputModes();
+      rerender(activeMode());
+      evt.preventDefault();
+    } else if (evt.key === '3') {
+      archetype = 'tech';
       buildScenario();
       resetInputModes();
       rerender(activeMode());

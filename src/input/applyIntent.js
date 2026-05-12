@@ -5,8 +5,17 @@
  * change to combat or movement plumbing only has one consumer to update.
  *
  * The intent shape is the closed enum the keymap dispatch produces:
- *   { type: 'move' | 'vault' | 'slide' | 'melee' | 'fire' | 'wait'
+ *   { type: 'move' | 'special' | 'melee' | 'fire' | 'interact' | 'wait'
  *         | 'end-turn' | 'cancel', dx?, dy? }
+ *
+ * The archetype-specific perks (Merc's Vault, Razor's Slide, Tech's Deploy
+ * Turret) collapse into a single `special` intent at the keymap layer. The
+ * `doSpecial` dispatcher below routes it to the right verb based on which
+ * methods the active player class exposes — `canVault` → vault, `canSlide` →
+ * slide, `canDeploy` → deploy. This keeps the input surface symmetric across
+ * archetypes (one key, one touch button) and stays out of the player's way:
+ * the keymap doesn't need to know which class is in play, and the intent
+ * dispatcher doesn't need an explicit archetype switch.
  *
  * The function is pure-ish: it mutates `ctx.world` / `ctx.player` /
  * `ctx.queue` and emits log lines via `ctx.log`, but doesn't touch the DOM.
@@ -39,8 +48,7 @@ import { hasLineOfSight, withinRange } from '../game/LineOfSight.js';
 
 const KNOWN_INTENT_TYPES = new Set([
   'move',
-  'vault',
-  'slide',
+  'special',
   'melee',
   'fire',
   'interact',
@@ -70,10 +78,8 @@ export function applyIntent(intent, ctx) {
   switch (intent.type) {
     case 'move':
       return doMove(intent, ctx);
-    case 'vault':
-      return doVault(intent, ctx);
-    case 'slide':
-      return doSlide(intent, ctx);
+    case 'special':
+      return doSpecial(intent, ctx);
     case 'melee':
       return doMelee(intent, ctx);
     case 'fire':
@@ -142,12 +148,60 @@ function doMove(intent, ctx) {
   }
 }
 
-function doVault(intent, ctx) {
-  const { world, player, rng, log, advanceTurn } = ctx;
-  if (typeof player.canVault !== 'function') {
-    log('> VAULT: only the Merc can vault.');
+/**
+ * Archetype dispatcher for the unified `special` intent. Picks the perk verb
+ * by capability check on the live player:
+ *   - `canDeploy` → Tech's Deploy Turret
+ *   - `canVault`  → Merc's Vault
+ *   - `canSlide`  → Razor's Slide
+ *
+ * Capability sniffing (vs. a class `instanceof` check) keeps this module free
+ * of the archetype-class imports — applyIntent stays a thin glue layer. A
+ * player class that exposed both `canVault` and `canDeploy` would crash the
+ * test suite, which is the failure mode we want if a future archetype
+ * stacks perks ambiguously.
+ *
+ * If the player class has no perk method, we log a legibility message rather
+ * than silently dropping the press; same shape as the old "only the Merc can
+ * vault" guard.
+ */
+function doSpecial(intent, ctx) {
+  const { player, log } = ctx;
+  // The dispatch order is fixed (deploy before vault before slide) so an
+  // archetype mix-up surfaces here rather than silently picking the wrong
+  // perk. Only Tech exposes canDeploy in M1; only Merc exposes canVault;
+  // only Razor exposes canSlide.
+  if (typeof player.canDeploy === 'function') {
+    return doDeploy(intent, ctx);
+  }
+  if (typeof player.canVault === 'function') {
+    return doVault(intent, ctx);
+  }
+  if (typeof player.canSlide === 'function') {
+    return doSlide(intent, ctx);
+  }
+  log('> SPECIAL: this archetype has no perk action.');
+}
+
+function doDeploy(intent, ctx) {
+  const { world, player, log, advanceTurn } = ctx;
+  const check = player.canDeploy(world, intent.dx, intent.dy);
+  if (!check.ok) {
+    log(`> DEPLOY DENIED: ${check.reason}`);
     return;
   }
+  const turret = player.deployTurret(world, intent.dx, intent.dy);
+  log(`> @ deploys turret ${turret.id} at (${turret.x}, ${turret.y}) — ` + `${player.ap} AP left.`);
+  if (player.ap === 0) {
+    log('> AP EXHAUSTED — auto-ending turn.');
+    advanceTurn();
+  }
+}
+
+function doVault(intent, ctx) {
+  const { world, player, rng, log, advanceTurn } = ctx;
+  // `doSpecial` already gated this on `canVault`, so the method must exist;
+  // we go straight into the legality check.
   const check = player.canVault(world, intent.dx, intent.dy);
   if (!check.ok) {
     log(`> VAULT DENIED: ${check.reason}`);
@@ -188,10 +242,8 @@ function doVault(intent, ctx) {
 
 function doSlide(intent, ctx) {
   const { world, player, log, advanceTurn } = ctx;
-  if (typeof player.canSlide !== 'function') {
-    log('> SLIDE: only the Razor can slide.');
-    return;
-  }
+  // `doSpecial` already gated this on `canSlide`, so the method must exist;
+  // we go straight into the legality check.
   const check = player.canSlide(world, intent.dx, intent.dy);
   if (!check.ok) {
     log(`> SLIDE DENIED: ${check.reason}`);
