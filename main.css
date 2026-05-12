@@ -191,25 +191,35 @@ main {
   max-width: 42rem;
   font-size: 0.85rem;
   letter-spacing: 0.04em;
-  color: #6ae8c8;
   text-align: center;
   min-height: 1.1em;
-}
 
-/* Second line during animated CORP turns — distinct from player action flash. */
-.game-shell__corp-turn {
-  display: inline-block;
-  margin-top: 0.2em;
-  color: #e8b078;
-  font-style: italic;
-  letter-spacing: 0.03em;
-}
+  display: flex;
+  flex-direction: column;
+  gap: 0.2em;
 
-.game-shell__corp-turn__tag {
-  font-style: normal;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  color: #ff7a66;
+  .game-shell__stats {
+    color: #6ae8c8;
+  }
+
+  .game-shell__activity {
+    font-style: italic;
+    letter-spacing: 0.03em;
+
+    .faction-tag {
+      font-style: normal;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+    }
+
+    &.corp {
+      color: #e8b078;
+
+      .faction-tag {
+        color: #ff7a66;
+      }
+    }
+  }
 }
 
 .game-stage {

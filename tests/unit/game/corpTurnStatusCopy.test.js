@@ -19,8 +19,17 @@ test('countVisibleCorpEntities counts only alive corp on visible tiles', () => {
   assert.equal(countVisibleCorpEntities(entities, isTileVisible), 1);
 });
 
-test('corpTurnStatusBody: unseen hostiles', () => {
-  assert.match(corpTurnStatusBody(0), /movement nearby/i);
+test('corpTurnStatusBody: random message on unseen corp activity', () => {
+  assert.doesNotMatch(corpTurnStatusBody(0), /security drone/i);
+  assert.doesNotMatch(corpTurnStatusBody(0), /Multiple hostiles/i);
+});
+
+test('corpTurnStatusBody: random message is stable for full turn', () => {
+  const turn1Message1 = corpTurnStatusBody(0, 1);
+  const turn1Message2 = corpTurnStatusBody(0, 1);
+  const turn1Message3 = corpTurnStatusBody(0, 1);
+  assert.equal(turn1Message1, turn1Message2);
+  assert.equal(turn1Message1, turn1Message3);
 });
 
 test('corpTurnStatusBody: one visible', () => {

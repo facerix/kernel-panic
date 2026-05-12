@@ -617,22 +617,23 @@ function statusLine(modeHint) {
   const player = run.player;
   if (!player) return stateLabel();
   const stealthTag = player.stealthed ? ' [CLOAKED]' : '';
-  const stats =
+  const statsInner =
     `${stateLabel()}  |  ${run.archetype.toUpperCase()} ` +
     `AP ${player.ap}/${player.maxAp} HP ${player.hp}/${player.maxHp}${stealthTag}` +
     `  |  TURN ${run.queue.turnNumber} (${run.queue.currentFaction.toUpperCase()})${aim}`;
   const hint = proximityHint();
+  const stats = `<span class="game-shell__stats">${statsInner}${hint ? `  |  ${hint}` : ''}</span>`;
   let action = '';
   if (run.state === RUN_STATE.COMBAT && run.queue.currentFaction === FACTION.CORP) {
     const visibleCorp = countVisibleCorpEntities(run.world.entities.values(), (x, y) =>
       vision.isVisible(x, y)
     );
-    const body = corpTurnStatusBody(visibleCorp);
-    action = `  <br/>  <span class="game-shell__corp-turn"><span class="game-shell__corp-turn__tag">CORP</span> — ${body}</span>`;
+    const body = corpTurnStatusBody(visibleCorp, run.queue.turnNumber);
+    action = `<span class="game-shell__activity corp"><span class="faction-tag">CORP</span> — ${body}</span>`;
   } else if (lastActionLine) {
-    action = `  <br/>  ${lastActionLine}`;
+    action = `<span class="game-shell__activity">${lastActionLine}</span>`;
   }
-  return stats + (hint ? `  |  ${hint}` : '') + action;
+  return stats + action;
 }
 
 /**

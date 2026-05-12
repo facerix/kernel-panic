@@ -86,6 +86,7 @@ const CacheConfig = {
       '/icons/icon-192x192.png',
       '/icons/icon512_maskable.png',
       '/icons/icon512_rounded.png',
+      '/images/back.png',
       '/fonts/silkscreen/slkscr-webfont.woff',
       '/fonts/silkscreen/slkscrb-webfont.woff',
     ];
