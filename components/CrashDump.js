@@ -13,7 +13,7 @@
  *   seed:   0x1A4F22B9
  *   turn:   24
  *   kills:  3
- *   [ NEW RUN ]
+ *   [ RETURN TO HUB ]
  *
  * Usage:
  *   const dump = document.querySelector('crash-dump');
@@ -224,7 +224,7 @@ class CrashDump extends HTMLElement {
     const newRunBtn = h('button', {
       type: 'button',
       className: 'new-run',
-      textContent: '[ NEW RUN ]',
+      textContent: '[ RETURN TO HUB ]',
     });
     newRunBtn.addEventListener('click', () => this.#emit('new-run'));
 
