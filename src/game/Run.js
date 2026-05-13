@@ -17,7 +17,9 @@
  *
  * Side effects are surfaced through callbacks so the shell decides how to
  * persist or display them:
- *   - `onPersist(record)` fires on every `turn:ended` while in COMBAT. The
+ *   - `onPersist(record)` fires on every `turn:ended` while in COMBAT, and
+ *     once when entering `RESULT` (death or exit) after the state flip, so
+ *     storage never lags a terminal mission behind the last COMBAT autosave.
  *     Campaign/shell wires this to DataStore.
  *   - `onResult({outcome, telemetry})` fires when entering RESULT. The shell
  *     wires this to <crash-dump>.
@@ -169,6 +171,9 @@ export class Run {
     this.telemetry.turn = this.queue?.turnNumber ?? this.telemetry.turn;
     this.#unwireCombatListeners();
     this.state = RUN_STATE.RESULT;
+    if (this.onPersist) {
+      this.onPersist(this.snapshot());
+    }
     this.onResult?.({ outcome, telemetry: { ...this.telemetry } });
   }
 

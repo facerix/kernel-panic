@@ -20,7 +20,7 @@
 import { serviceWorkerManager } from '/src/ServiceWorkerManager.js';
 import dataStore from '/src/DataStore.js';
 
-import { Campaign, CAMPAIGN_STATE } from '/src/game/Campaign.js';
+import { Campaign, CAMPAIGN_STATE, willEndCampaignOnThisDeath } from '/src/game/Campaign.js';
 import { RUN_STATE } from '/src/game/Run.js';
 import { restoreCampaign, snapshotCampaign } from '/src/game/persistence.js';
 import { runCorpTurn as driveCorpTurn } from '/src/game/corpTurnDriver.js';
@@ -244,9 +244,52 @@ function handlePersist() {
   dataStore.setCampaign(snapshotCampaign(campaign));
 }
 
+function crewMemberArchetypeId(member) {
+  const n = member?.constructor?.name;
+  if (n === 'Merc') return 'merc';
+  if (n === 'Razor') return 'razor';
+  if (n === 'Tech') return 'tech';
+  return 'op';
+}
+
+function telemetryForEndedCampaign(c) {
+  return {
+    outcome: 'campaign-over',
+    seed: c.seed,
+    salvage: c.salvage,
+    crewRoster: c.crew.map(member => ({
+      callsign: member.callsign ?? member.id,
+      archetype: crewMemberArchetypeId(member),
+      flatlined: !!member.flatlined,
+    })),
+  };
+}
+
+/**
+ * Drives `<crash-dump>` and `pendingJobResult` whenever the active job is in
+ * RESULT — both from a live `Run.onResult` callback and from a cold resume
+ * (otherwise `renderShell` opens the overlay with no `setTelemetry` call).
+ */
+function pushPendingJobResultOverlay(telemetry) {
+  if (!crashEl) return;
+  const tel = { ...telemetry };
+  const outcome = tel.outcome;
+  if (outcome !== 'death' && outcome !== 'exit') {
+    throw new Error(`[shell] invalid job outcome for debrief overlay: "${outcome}"`);
+  }
+  pendingJobResult = { outcome, telemetry: tel };
+  const campaignTerminal = outcome === 'death' && campaign && willEndCampaignOnThisDeath(campaign);
+  crashEl.setTelemetry({
+    ...tel,
+    campaignTerminal,
+  });
+}
+
 function handleResult({ outcome, telemetry }) {
-  pendingJobResult = { outcome, telemetry };
-  crashEl.setTelemetry({ outcome, ...telemetry });
+  pushPendingJobResultOverlay({
+    ...telemetry,
+    outcome: telemetry?.outcome ?? outcome,
+  });
   renderShell();
 }
 
@@ -267,7 +310,16 @@ function resumeCampaign(record) {
     if (campaign.activeRun?.state === RUN_STATE.BRIEFING && campaign.activeRun.contract) {
       briefingEl.setContract(campaign.activeRun.contract);
     }
-    flash(`RESUMED — crew ${campaign.crew.filter(member => !member.flatlined).length} active.`);
+    if (campaign.state === CAMPAIGN_STATE.ENDED) {
+      pendingJobResult = null;
+      crashEl.setTelemetry(telemetryForEndedCampaign(campaign));
+      flash('CAMPAIGN ENDED — no surviving crew in this save.');
+    } else if (campaign.activeRun?.state === RUN_STATE.RESULT) {
+      pushPendingJobResultOverlay({ ...campaign.activeRun.telemetry });
+      flash('RESUMED — mission debrief.');
+    } else {
+      flash(`RESUMED — crew ${campaign.crew.filter(member => !member.flatlined).length} active.`);
+    }
     renderShell();
   } catch (err) {
     console.error('[shell] failed to restore saved campaign', err);
@@ -287,7 +339,11 @@ function handleIntent(intent) {
   // BRIEFING / RESULT swallow gameplay intents — JACK IN / NEW RUN drive
   // those transitions through the DOM buttons. Cancel is still valid (it
   // clears any stuck aim mode, per the M7 cross-input cancel rule).
-  if (run.state === RUN_STATE.BRIEFING || run.state === RUN_STATE.RESULT) {
+  if (
+    run.state === RUN_STATE.BRIEFING ||
+    run.state === RUN_STATE.RESULT ||
+    run.state === CAMPAIGN_STATE.ENDED
+  ) {
     if (intent?.type === 'cancel') {
       resetInputModes();
     }
@@ -416,7 +472,6 @@ function onJackIn() {
 
 function onNewRunRequested() {
   if (!campaign) return;
-  crashEl.hide();
   if (pendingJobResult) {
     const { outcome } = pendingJobResult;
     pendingJobResult = null;
@@ -431,6 +486,7 @@ function onNewRunRequested() {
     startFreshCampaign();
     return;
   }
+  crashEl.hide();
   attachVisionListener();
   attachAnimationListeners();
   recomputeVision();

@@ -1,7 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { Campaign, CAMPAIGN_STATE, buildCrew } from '../../../src/game/Campaign.js';
+import {
+  Campaign,
+  CAMPAIGN_STATE,
+  buildCrew,
+  willEndCampaignOnThisDeath,
+} from '../../../src/game/Campaign.js';
 import { OUTCOME, RUN_STATE } from '../../../src/game/Run.js';
 import { Rng } from '../../../src/rng.js';
 import { OBJECTIVES } from '../../../src/game/hub/Curator.js';
@@ -70,6 +75,15 @@ test('onJobEnd returns survivors to HUB and accumulates extracted salvage', () =
   assert.equal(campaign.salvage, 4);
   assert.equal(member.flatlined, false);
   assert.ok(campaign.world, 'hub world should be rebuilt');
+});
+
+test('willEndCampaignOnThisDeath is true only for the last surviving crew slot', () => {
+  const campaign = new Campaign({ seed: 42 });
+  assert.equal(willEndCampaignOnThisDeath(campaign), false);
+  campaign.flatlineMember(campaign.crew[0].id);
+  campaign.flatlineMember(campaign.crew[1].id);
+  assert.equal(willEndCampaignOnThisDeath(campaign), true);
+  assert.throws(() => willEndCampaignOnThisDeath(null), /Campaign-like/);
 });
 
 test('onJobEnd flatlines deaths and ends the campaign when everyone is gone', () => {

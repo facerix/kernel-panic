@@ -94,6 +94,27 @@ test('turn:ended in COMBAT triggers onPersist with a snapshot record', () => {
   assert.equal(rec.currentFaction, FACTION.CORP);
 });
 
+test('enterResult persists RESULT snapshot before onResult (no stale COMBAT save)', () => {
+  const order = [];
+  const persists = [];
+  const run = new Run({
+    crewMember: makeCrew('razor'),
+    seed: 1,
+    onPersist: rec => {
+      order.push('persist');
+      persists.push(rec);
+    },
+    onResult: () => order.push('result'),
+  });
+  run.enterBriefing(fakeContract());
+  run.enterCombat();
+  run.enterResult({ outcome: OUTCOME.EXIT });
+  assert.deepEqual(order, ['persist', 'result']);
+  assert.equal(persists.length, 1);
+  assert.equal(persists[0].state, RUN_STATE.RESULT);
+  assert.equal(run.state, RUN_STATE.RESULT);
+});
+
 test('player-killed entity:damaged transitions to RESULT(DEATH)', () => {
   const results = [];
   const run = new Run({

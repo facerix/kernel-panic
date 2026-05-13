@@ -18,6 +18,21 @@ export const CAMPAIGN_STATE = Object.freeze({
 
 const STARTER_ARCHETYPES = Object.freeze(['merc', 'razor', 'tech']);
 
+/**
+ * True when exactly one crew member is not yet `flatlined` — the operator
+ * currently on a job. A `DEATH` outcome on `Campaign.onJobEnd` would flatline
+ * them and set `Campaign.state` to `ENDED`. The shell uses this to swap the
+ * debrief overlay before `onJobEnd` runs.
+ *
+ * @param {{ crew: { flatlined: boolean }[] }} campaign
+ */
+export function willEndCampaignOnThisDeath(campaign) {
+  if (!campaign || typeof campaign !== 'object' || !Array.isArray(campaign.crew)) {
+    throw new TypeError('willEndCampaignOnThisDeath requires a Campaign-like object with crew[]');
+  }
+  return campaign.crew.filter(member => !member.flatlined).length === 1;
+}
+
 export function buildCrew(rng) {
   if (!rng || typeof rng.pick !== 'function') {
     throw new TypeError('buildCrew requires an Rng');
@@ -163,7 +178,6 @@ export class Campaign {
     this.deployedMemberId = null;
 
     if (this.crew.every(member => member.flatlined)) {
-      // TODO: add a defeat screen, showing the campaign's final score, crew fatalities, and a button to start a new campaign.
       this.state = CAMPAIGN_STATE.ENDED;
       this.#tearDownHubWorld();
       this.#persist();
