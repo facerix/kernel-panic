@@ -7,7 +7,7 @@
  *
  * Button identifiers:
  *   - Directions (8): N, NE, E, SE, S, SW, W, NW
- *   - Actions: fire, melee, special, interact, wait, end-turn, cancel
+ *   - Actions: fire, melee, special, interact, end-turn, cancel
  *
  * The `special` action covers each archetype's perk verb (Merc Vault, Razor
  * Slide, Tech Deploy) — same unified-perk-key design as the keyboard layer.
@@ -34,8 +34,7 @@ const ACTION_KEYS = Object.freeze({
   melee: 'm',
   special: 'x',
   interact: 'i',
-  wait: '.',
-  'end-turn': ' ',
+  'end-turn': '.',
   cancel: 'Escape',
 });
 

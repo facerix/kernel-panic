@@ -120,17 +120,15 @@ test('special intent routes to Slide on a Razor (moves 2 tiles, engages stealth)
   assert.equal(player.stealthed, true);
 });
 
-test('end-turn invokes advanceTurn callback exactly once', () => {
-  const { ctx, calls } = buildCtx();
+test('end-turn drains AP to 0, logs wait, and invokes advanceTurn once', () => {
+  const { ctx, player, calls, log } = buildCtx();
   applyIntent({ type: 'end-turn' }, ctx);
-  assert.equal(calls.advanceTurn, 1);
-});
-
-test('wait drains AP to 0 and ends the turn', () => {
-  const { ctx, player, calls } = buildCtx();
-  applyIntent({ type: 'wait' }, ctx);
   assert.equal(player.ap, 0);
   assert.equal(calls.advanceTurn, 1);
+  assert.ok(
+    log.some(l => l.includes('waits')),
+    'combat log should mention waiting'
+  );
 });
 
 test('cancel calls resetInputModes and does not mutate state', () => {

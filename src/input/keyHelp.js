@@ -67,12 +67,6 @@ export const HELP_ROWS = Object.freeze([
   },
   // --- system -----------------------------------------------------------
   {
-    keys: Object.freeze([' ']),
-    label: 'End turn (space)',
-    scope: 'combat',
-    group: 'system',
-  },
-  {
     keys: Object.freeze(['.']),
     label: 'Wait',
     scope: 'combat',

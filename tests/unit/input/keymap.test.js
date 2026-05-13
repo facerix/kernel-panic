@@ -31,15 +31,15 @@ test('IDLE + diagonal keys (q/e/z/c) produce move intents', () => {
   }
 });
 
-test('IDLE + space emits end-turn', () => {
+test('IDLE + space is a no-op (no end-turn binding)', () => {
   const r = dispatch(' ', MODE.IDLE);
-  assert.deepEqual(r.intent, { type: 'end-turn' });
+  assert.equal(r.intent, null);
   assert.equal(r.nextMode, MODE.IDLE);
 });
 
-test('IDLE + . emits wait', () => {
+test('IDLE + . emits end-turn', () => {
   const r = dispatch('.', MODE.IDLE);
-  assert.deepEqual(r.intent, { type: 'wait' });
+  assert.deepEqual(r.intent, { type: 'end-turn' });
   assert.equal(r.nextMode, MODE.IDLE);
 });
 

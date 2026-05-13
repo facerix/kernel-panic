@@ -58,10 +58,8 @@ function dispatchIdle(key) {
     return { intent: { type: 'move', dx: dir[0], dy: dir[1] }, nextMode: MODE.IDLE };
   }
   switch (key) {
-    case ' ':
-      return { intent: { type: 'end-turn' }, nextMode: MODE.IDLE };
     case '.':
-      return { intent: { type: 'wait' }, nextMode: MODE.IDLE };
+      return { intent: { type: 'end-turn' }, nextMode: MODE.IDLE };
     case 'Escape':
       return { intent: { type: 'cancel' }, nextMode: MODE.IDLE };
     case 'f':

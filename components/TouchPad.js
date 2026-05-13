@@ -47,8 +47,8 @@ const DIRECTION_LABELS = Object.freeze({
 });
 
 // Order matters: this is the visual layout of the 3×3 d-pad. Centre slot is
-// reserved for the "wait/hold position" action so it's reachable with the
-// same thumb that drives movement.
+// reserved for the thumb that drives movement (centre is unused — Wait is
+// the action column).
 const DPAD_SLOTS = Object.freeze(['NW', 'N', 'NE', 'W', null, 'E', 'SW', 'S', 'SE']);
 
 // Action buttons live in a separate column. Order tuned for thumb reach on
@@ -61,7 +61,7 @@ const ACTION_BUTTONS = Object.freeze([
   // verb actually resolves, so the player still sees their kit's flavour.
   { id: 'special', label: 'SPECIAL', shortcut: 'x' },
   { id: 'interact', label: 'INTERACT', shortcut: 'i' },
-  { id: 'end-turn', label: 'END', shortcut: '␣' },
+  { id: 'end-turn', label: 'WAIT', shortcut: '.' },
   { id: 'cancel', label: 'CANCEL', shortcut: 'esc' },
 ]);
 

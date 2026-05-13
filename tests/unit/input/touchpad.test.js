@@ -13,7 +13,7 @@ test('TOUCHPAD_DIRECTIONS lists all 8 compass directions', () => {
   assert.deepEqual([...TOUCHPAD_DIRECTIONS].sort(), ['E', 'N', 'NE', 'NW', 'S', 'SE', 'SW', 'W']);
 });
 
-test('TOUCHPAD_ACTIONS includes the seven gameplay actions (perks unified as `special`)', () => {
+test('TOUCHPAD_ACTIONS includes the six gameplay actions (perks unified as `special`)', () => {
   // Vault and slide collapsed into one `special` button alongside the new
   // Tech deploy verb — same unified-perk-key model as the keyboard layer.
   assert.deepEqual([...TOUCHPAD_ACTIONS].sort(), [
@@ -23,7 +23,6 @@ test('TOUCHPAD_ACTIONS includes the seven gameplay actions (perks unified as `sp
     'interact',
     'melee',
     'special',
-    'wait',
   ]);
 });
 
@@ -42,8 +41,7 @@ test('syntheticKeyFor resolves actions to keymap keys', () => {
   assert.equal(syntheticKeyFor('fire'), 'f');
   assert.equal(syntheticKeyFor('melee'), 'm');
   assert.equal(syntheticKeyFor('special'), 'x');
-  assert.equal(syntheticKeyFor('wait'), '.');
-  assert.equal(syntheticKeyFor('end-turn'), ' ');
+  assert.equal(syntheticKeyFor('end-turn'), '.');
   assert.equal(syntheticKeyFor('cancel'), 'Escape');
   assert.equal(syntheticKeyFor('interact'), 'i');
 });
@@ -72,12 +70,6 @@ test('IDLE + direction button emits a move intent in that direction', () => {
     assert.deepEqual(r.intent, { type: 'move', dx, dy }, `${btn} should move (${dx}, ${dy})`);
     assert.equal(r.nextMode, MODE.IDLE);
   }
-});
-
-test('IDLE + wait button emits wait intent', () => {
-  const r = dispatchTouchAction('wait', MODE.IDLE);
-  assert.deepEqual(r.intent, { type: 'wait' });
-  assert.equal(r.nextMode, MODE.IDLE);
 });
 
 test('IDLE + end-turn button emits end-turn intent', () => {
@@ -161,11 +153,11 @@ test('MELEE_AIM + cancel button drops back to IDLE with cancel intent', () => {
 
 // --- Aim mode is sticky on noise (matches keyboard behaviour) -----------
 
-test('FIRE_AIM + wait button does NOT fire; stays in FIRE_AIM', () => {
+test('FIRE_AIM + end-turn button does NOT fire; stays in FIRE_AIM', () => {
   // The keymap treats non-directional keys as no-ops inside aim modes so
-  // the user can't accidentally fire the wait/end-turn shortcut. Touch
-  // inherits that by going through the same dispatcher.
-  const r = dispatchTouchAction('wait', MODE.FIRE_AIM);
+  // the user can't accidentally fire the wait shortcut. Touch inherits that
+  // by going through the same dispatcher.
+  const r = dispatchTouchAction('end-turn', MODE.FIRE_AIM);
   assert.equal(r.intent, null);
   assert.equal(r.nextMode, MODE.FIRE_AIM);
 });

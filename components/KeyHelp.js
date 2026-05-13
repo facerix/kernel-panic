@@ -287,7 +287,7 @@ class KeyHelp extends HTMLElement {
 
     const combatExtra = h('p', {
       textContent:
-        'Opposing drones and defenses act after you end your turn or wait in place. Walls and corners break line of sight for ranged shots; melee is usually cheaper AP than firing. Your archetype special (Vault, Slide, or Deploy) is a strong reposition — pick it, aim a direction when prompted, then confirm.',
+        'Opposing drones and defenses act after you wait (.) and pass the round. Walls and corners break line of sight for ranged shots; melee is usually cheaper AP than firing. Your archetype special (Vault, Slide, or Deploy) is a strong reposition — pick it, aim a direction when prompted, then confirm.',
     });
 
     const controlHint = coarse

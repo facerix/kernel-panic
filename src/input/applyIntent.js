@@ -5,8 +5,8 @@
  * change to combat or movement plumbing only has one consumer to update.
  *
  * The intent shape is the closed enum the keymap dispatch produces:
- *   { type: 'move' | 'special' | 'melee' | 'fire' | 'interact' | 'wait'
- *         | 'end-turn' | 'cancel', dx?, dy? }
+ *   { type: 'move' | 'special' | 'melee' | 'fire' | 'interact' | 'end-turn'
+ *         | 'cancel', dx?, dy? }
  *
  * The archetype-specific perks (Merc's Vault, Razor's Slide, Tech's Deploy
  * Turret) collapse into a single `special` intent at the keymap layer. The
@@ -52,7 +52,6 @@ const KNOWN_INTENT_TYPES = new Set([
   'melee',
   'fire',
   'interact',
-  'wait',
   'end-turn',
   'cancel',
 ]);
@@ -71,7 +70,7 @@ export function applyIntent(intent, ctx) {
   const { player, queue, log, advanceTurn, resetInputModes } = ctx;
 
   if (queue.currentFaction !== FACTION.PLAYER && intent.type !== 'cancel') {
-    log('> NOT YOUR TURN — press space.');
+    log('> NOT YOUR TURN — press . to wait.');
     return;
   }
 
@@ -86,14 +85,13 @@ export function applyIntent(intent, ctx) {
       return doFire(intent, ctx);
     case 'interact':
       return doInteract(ctx);
-    case 'wait':
-      log(`> @ holds position (drops ${player.ap} AP).`);
+    case 'end-turn': {
+      const apBefore = player.ap;
+      log(`> @ waits (drops ${apBefore} AP).`);
       player.ap = 0;
       advanceTurn();
       return;
-    case 'end-turn':
-      advanceTurn();
-      return;
+    }
     case 'cancel':
       // Cancel is the universal "stop aiming" — clear *both* input
       // controllers (keyboard + touch) so an Esc/CANCEL from either side
