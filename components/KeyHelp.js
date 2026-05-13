@@ -1,18 +1,5 @@
 /**
- * <key-help> — overlay listing the active keybindings.
- *
- *   ┌──────────── KEYS ────────────┐
- *   │  MOVE                        │
- *   │   W A S D / arrows  step     │
- *   │  ACTION                      │
- *   │   f    fire                  │
- *   │   v    vault                 │
- *   │   t    slide                 │
- *   │   i    interact              │
- *   │  SYSTEM                      │
- *   │   ?    this help             │
- *   │   Esc  cancel                │
- *   └──────────────────────────────┘
+ * <key-help> — help overlay: how to play, then scope-filtered shortcuts.
  *
  * Reads `describeKeymap(scope)` from `/src/input/keyHelp.js` so the rendered
  * list is the same source of truth a unit test ties to the keymap itself —
@@ -46,6 +33,14 @@ const GROUPS = Object.freeze([
   { id: 'system', title: 'SYSTEM' },
 ]);
 
+/** True when the primary pointer is coarse (touch / most on-screen pads). */
+function isCoarsePointer() {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return false;
+  }
+  return window.matchMedia('(pointer: coarse)').matches;
+}
+
 const CSS = `
 :host {
   --help-bg: rgba(7, 18, 16, 0.96);
@@ -77,17 +72,66 @@ const CSS = `
   padding: 1rem 1.4rem 1.25rem;
   box-shadow: var(--help-shadow);
   min-width: min(380px, 92vw);
-  max-width: min(520px, 96vw);
+  max-width: min(560px, 96vw);
 }
 
 .title {
-  margin: 0 0 0.5rem;
+  margin: 0 0 0.65rem;
   text-align: center;
   font-size: 0.95rem;
   letter-spacing: 0.18em;
   color: var(--help-accent);
   border-bottom: 1px dashed var(--help-border);
   padding-bottom: 0.4rem;
+}
+
+.intro {
+  margin: 0 0 0.85rem;
+  padding: 0 0 0.75rem;
+  border-bottom: 1px dashed rgba(0, 217, 165, 0.25);
+}
+
+.intro-heading {
+  margin: 0 0 0.45rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.16em;
+  color: var(--help-dim);
+  font-weight: 600;
+}
+
+.intro p {
+  margin: 0 0 0.45rem;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--help-text);
+}
+
+.intro p:last-child {
+  margin-bottom: 0;
+}
+
+.controls-note {
+  font-size: 0.78rem !important;
+  color: var(--help-dim) !important;
+  letter-spacing: 0.04em;
+}
+
+.section-label {
+  margin: 0.35rem 0 0.2rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.16em;
+  color: var(--help-dim);
+  font-weight: 600;
+}
+
+@media (pointer: coarse) {
+  .section-label {
+    font-size: 0.72rem;
+    opacity: 0.95;
+  }
+  dl.rows {
+    font-size: 0.82rem;
+  }
 }
 
 section.group {
@@ -152,7 +196,7 @@ class KeyHelp extends HTMLElement {
 
     this.#body = h('div');
     const panel = h('section', { className: 'panel' }, [
-      h('h2', { className: 'title', textContent: '── KEYS ──' }),
+      h('h2', { className: 'title', textContent: '── HELP ──' }),
       this.#body,
       h('p', { className: 'hint', textContent: '[ ? or Esc to close ]' }),
     ]);
@@ -205,6 +249,8 @@ class KeyHelp extends HTMLElement {
   #render() {
     if (!this.#body) return;
     while (this.#body.firstChild) this.#body.removeChild(this.#body.firstChild);
+    this.#body.appendChild(this.#buildIntro());
+    this.#body.appendChild(h('h3', { className: 'section-label', textContent: 'SHORTCUTS' }));
     // `describeKeymap` throws on a bad scope — propagate, don't paper over.
     const rows = describeKeymap(this.#scope);
     for (const group of GROUPS) {
@@ -219,6 +265,50 @@ class KeyHelp extends HTMLElement {
         h('section', { className: 'group' }, [h('h3', { textContent: group.title }), dl])
       );
     }
+  }
+
+  /**
+   * Short gameplay primer + pointer-specific control hint. Copy is hand-tuned
+   * to match Hub vs Combat scope from `helpScopeForRunState()` in index.js.
+   */
+  #buildIntro() {
+    const scope = this.#scope;
+    const coarse = isCoarsePointer();
+
+    const shared = h('p', {
+      textContent:
+        'Kernel Panic is turn-based on a grid: you spend action points (AP) to move one tile at a time and to use actions.',
+    });
+
+    const hubExtra = h('p', {
+      textContent:
+        'In the hub, walk up to the Curator or the crew terminal (‡ glyph) and use Interact to hear rumors, pick contracts, or open the crew roster.',
+    });
+
+    const combatExtra = h('p', {
+      textContent:
+        'Opposing drones and defenses act after you end your turn or wait in place. Walls and corners break line of sight for ranged shots; melee is usually cheaper AP than firing. Your archetype special (Vault, Slide, or Deploy) is a strong reposition — pick it, aim a direction when prompted, then confirm.',
+    });
+
+    const controlHint = coarse
+      ? h('p', {
+          className: 'controls-note',
+          textContent:
+            'On touch devices the on-screen pad along the bottom sends the same intents as the shortcut list below — use it first, and treat the keys as a reference.',
+        })
+      : h('p', {
+          className: 'controls-note',
+          textContent: 'Use the shortcut table below as a live reference while you play.',
+        });
+
+    const children = [
+      h('h3', { className: 'intro-heading', textContent: 'HOW TO PLAY' }),
+      shared,
+      scope === 'hub' ? hubExtra : combatExtra,
+      controlHint,
+    ];
+
+    return h('div', { className: 'intro' }, children);
   }
 
   #emit(eventName, detail) {
