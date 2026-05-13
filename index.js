@@ -6,7 +6,8 @@
  *   - drives `Campaign` (HUB) plus one active `Run` job episode,
  *   - paints the canvas during HUB / COMBAT, swaps DOM overlays during
  *     BRIEFING / RESULT (per the M8 plan: "DOM panels above the canvas;
- *     canvas paints during HUB/COMBAT only"),
+ *     canvas paints during HUB/COMBAT only"), plus <system-start> on a new
+ *     campaign,
  *   - wires KeyboardController and <touch-pad> through the shared
  *     `applyIntent` helper that the M7 debug harness also uses,
  *   - persists snapshots on every `turn:ended` and clears the save on
@@ -51,6 +52,7 @@ import '/components/UpdateNotification.js';
 import '/components/TouchPad.js';
 import '/components/RunBriefing.js';
 import '/components/CrashDump.js';
+import '/components/SystemStart.js';
 import '/components/CrewRoster.js';
 import '/components/KeyHelp.js';
 
@@ -65,7 +67,7 @@ let visionMoveUnsub = null;
 
 let canvas, statusEl, renderer, crt;
 let stageEl;
-let briefingEl, crashEl, resumeModalEl, touchPadEl;
+let briefingEl, crashEl, systemStartEl, resumeModalEl, touchPadEl;
 let crewRosterEl, keyHelpEl;
 let keyboard;
 
@@ -99,6 +101,7 @@ const allComponentsReady = Promise.all([
   customElements.whenDefined('touch-pad'),
   customElements.whenDefined('crew-roster'),
   customElements.whenDefined('key-help'),
+  customElements.whenDefined('system-start'),
 ]);
 
 // ---------------------------------------------------------------------------
@@ -111,6 +114,7 @@ async function boot() {
   statusEl = document.getElementById('game-status');
   briefingEl = document.getElementById('briefing');
   crashEl = document.getElementById('crash');
+  systemStartEl = document.getElementById('system-start');
   resumeModalEl = document.getElementById('resume-modal');
   touchPadEl = document.getElementById('touch-pad');
   crewRosterEl = document.getElementById('crew-roster');
@@ -141,6 +145,7 @@ async function boot() {
 
   briefingEl.addEventListener('jack-in', onJackIn);
   crashEl.addEventListener('new-run', onNewRunRequested);
+  systemStartEl?.addEventListener('hub-enter', onSystemStartHubEnter);
 
   if (crewRosterEl) {
     crewRosterEl.addEventListener('deploy', onCrewDeployPicked);
@@ -199,7 +204,6 @@ async function boot() {
 // ---------------------------------------------------------------------------
 
 function startFreshCampaign() {
-  flash('NEW RUN — Curator is in the Hub.');
   campaign = new Campaign({
     seed: seedFromClock(),
     onPersist: handlePersist,
@@ -212,6 +216,17 @@ function startFreshCampaign() {
   attachAnimationListeners();
   recomputeVision();
   renderShell();
+  if (systemStartEl) {
+    systemStartEl.setSession({ seed: campaign.seed });
+    systemStartEl.show();
+  } else {
+    flash('NEW RUN — Curator is in the Hub.');
+  }
+}
+
+function onSystemStartHubEnter() {
+  systemStartEl?.hide();
+  flash('HUB — Curator has contracts when you are adjacent [i].');
 }
 
 function presentCrewRoster(mode) {
@@ -789,7 +804,7 @@ function handleGlobalKey(evt) {
     return;
   }
   if (opened === 'blocking') {
-    // Briefing / Crash / Resume / Character-select own focus — silently drop
+    // Briefing / Crash / System start / Resume / Character-select own focus — silently drop
     // `?` rather than stacking yet another overlay over them.
     evt.preventDefault();
   }
@@ -806,6 +821,7 @@ function helpScopeForRunState() {
 function isAnyBlockingModalOpen() {
   if (briefingEl?.isOpen) return true;
   if (crashEl?.isOpen) return true;
+  if (systemStartEl?.isOpen) return true;
   if (crewRosterEl?.isOpen) return true;
   // <confirmation-modal> uses a native <dialog> internally; treat any open
   // attribute as "blocking".

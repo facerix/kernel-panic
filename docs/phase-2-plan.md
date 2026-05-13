@@ -111,6 +111,7 @@ The biggest architectural seam in Phase 2. `Run.js` is refactored; Hub logic mov
 - `flatlineMember(id)` — sets `crew[id].flatlined = true`. Irreversible within the campaign.
 - `Run.js` refactored: `HUB` state removed. Run now covers `BRIEFING → COMBAT → RESULT` only. Hub panel rendering moves to Campaign's `HUB` handler in `index.js`.
 - `index.js` (shell): mounts `Campaign` instead of `Run` directly. Campaign's `onPersist` callback writes to DataStore at campaign scope. Meta scope written separately on every Hub upgrade purchase.
+- **Campaign start UX:** On the start of a new campaign, a new `<system-start>` overlay shows a basic terminal-styled welcome message in the Curator's voice.
 - **Campaign wipe UX (shell):** When the last non-flatlined operator dies on a job, `<crash-dump>` shows campaign-terminal copy (`willEndCampaignOnThisDeath` → `campaignTerminal` on death telemetry — **CAMPAIGN TERMINATED**, last-fight trace, `[ NEW CAMPAIGN ]`). Resuming a save in `ENDED` uses `outcome: 'campaign-over'` (roster + salvage line). Same overlay component as per-job debrief (M8).
 - DataStore: new `campaign` record `{ id, crew: CrewSnapshot[], salvage, vouch, meta }`. `persistence.js` gains `snapshotCampaign(campaign)` / `restoreCampaign(record)`. Corrupt campaign records throw with useful messages (same rule as job snapshots).
 - Hub UI: `<crew-roster>` web component — shows all three crew members (callsign, archetype badge, HP indicator, `FLATLINED` flag). Crew member selection for next deployment. Mounts in place of the removed Hub-inside-Run panel.

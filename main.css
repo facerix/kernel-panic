@@ -250,7 +250,8 @@ main {
 }
 
 .game-stage > run-briefing,
-.game-stage > crash-dump {
+.game-stage > crash-dump,
+.game-stage > system-start {
   position: absolute;
   inset: 0;
   z-index: 5;
