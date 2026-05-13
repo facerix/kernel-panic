@@ -192,17 +192,31 @@ main {
   font-size: 0.85rem;
   letter-spacing: 0.04em;
   text-align: center;
-  min-height: 1.1em;
 
   display: flex;
   flex-direction: column;
   gap: 0.2em;
 
+  /* Three reserved rows: stats / proximity hint / action. Each row holds
+   * its own line so toggling hint or action text never reflows the canvas
+   * above. Stats also never wraps — at narrow viewports it ellipsizes
+   * rather than spilling onto a second visual line. */
   .game-shell__stats {
     color: #6ae8c8;
+    height: 1.1rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .game-shell__hint {
+    height: 1.1rem;
+    color: #6ae8c8;
+    opacity: 0.85;
   }
 
   .game-shell__activity {
+    height: 1.1rem;
     font-style: italic;
     letter-spacing: 0.03em;
 

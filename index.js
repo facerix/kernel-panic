@@ -572,8 +572,12 @@ function statusLine(modeHint) {
     `${stateLabel()}  |  ${identity} ` +
     `AP ${player.ap}/${player.maxAp} HP ${player.hp}/${player.maxHp}${stealthTag}` +
     `  |  TURN ${run.queue.turnNumber} (${run.queue.currentFaction.toUpperCase()})${aim}`;
-  const hint = proximityHint();
-  const stats = `<span class="game-shell__stats">${statsInner}${hint ? `  |  ${hint}` : ''}</span>`;
+  const stats = `<span class="game-shell__stats">${statsInner}</span>`;
+  // Proximity hint and action line each render in their own reserved-height
+  // row so the status block's geometry is constant — appearing/disappearing
+  // hints change text, not the height of the bar. See `.game-shell__hint`
+  // and `.game-shell__activity` in main.css.
+  const hint = `<span class="game-shell__hint">${proximityHint()}</span>`;
   let action = '';
   if (run.state === RUN_STATE.COMBAT && run.queue.currentFaction === FACTION.CORP) {
     const visibleCorp = countVisibleCorpEntities(run.world.entities.values(), (x, y) =>
@@ -581,10 +585,10 @@ function statusLine(modeHint) {
     );
     const body = corpTurnStatusBody(visibleCorp, run.queue.turnNumber);
     action = `<span class="game-shell__activity corp"><span class="faction-tag">CORP</span> — ${body}</span>`;
-  } else if (lastActionLine) {
-    action = `<span class="game-shell__activity">${lastActionLine}</span>`;
+  } else {
+    action = `<span class="game-shell__activity">${lastActionLine ?? ''}</span>`;
   }
-  return stats + action;
+  return stats + hint + action;
 }
 
 /**
