@@ -2,8 +2,8 @@
  * M8 game shell. Promotes `/index.html` from the M0 scaffold to a real game:
  *
  *   - boots DataStore + service worker,
- *   - prompts to Resume / Abandon a saved run via <confirmation-modal>,
- *   - drives a single `Run` state machine (HUB → BRIEFING → COMBAT → RESULT),
+ *   - restores a saved campaign when present,
+ *   - drives `Campaign` (HUB) plus one active `Run` job episode,
  *   - paints the canvas during HUB / COMBAT, swaps DOM overlays during
  *     BRIEFING / RESULT (per the M8 plan: "DOM panels above the canvas;
  *     canvas paints during HUB/COMBAT only"),
@@ -20,8 +20,9 @@
 import { serviceWorkerManager } from '/src/ServiceWorkerManager.js';
 import dataStore from '/src/DataStore.js';
 
-import { Run, RUN_STATE } from '/src/game/Run.js';
-import { restore } from '/src/game/persistence.js';
+import { Campaign, CAMPAIGN_STATE } from '/src/game/Campaign.js';
+import { RUN_STATE } from '/src/game/Run.js';
+import { restoreCampaign, snapshotCampaign } from '/src/game/persistence.js';
 import { runCorpTurn as driveCorpTurn } from '/src/game/corpTurnDriver.js';
 import { FACTION } from '/src/game/constants.js';
 import {
@@ -45,31 +46,27 @@ import { KeyboardController } from '/src/input/KeyboardController.js';
 import { MODE } from '/src/input/keymap.js';
 import { applyIntent } from '/src/input/applyIntent.js';
 
-import { ARCHETYPE_IDS, ARCHETYPES, isArchetypeId } from '/src/game/archetypes/index.js';
-
 import '/components/ConfirmationModal.js';
 import '/components/UpdateNotification.js';
 import '/components/TouchPad.js';
 import '/components/RunBriefing.js';
 import '/components/CrashDump.js';
-import '/components/CharacterSelect.js';
+import '/components/CrewRoster.js';
 import '/components/KeyHelp.js';
 
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
 
-/** @type {Run|null} */
-let run = null;
-/** DataStore-assigned UUID for the active run record. Null when no save exists. */
-let runRecordId = null;
+/** @type {Campaign|null} */
+let campaign = null;
 let vision = new VisionField();
 let visionMoveUnsub = null;
 
 let canvas, statusEl, renderer, crt;
 let stageEl;
 let briefingEl, crashEl, resumeModalEl, touchPadEl;
-let characterSelectEl, keyHelpEl;
+let crewRosterEl, keyHelpEl;
 let keyboard;
 
 /**
@@ -82,7 +79,8 @@ const animLock = createAnimationLock();
 /** Unsubscribers for the run-bus animation listeners. Re-bound on every state transition. */
 let animationUnsubs = [];
 
-const DEFAULT_ARCHETYPE = 'merc';
+let pendingContract = null;
+let pendingJobResult = null;
 
 /**
  * Most recent intent-result log line ("@ moved to (3,4) — 2 AP left.").
@@ -92,16 +90,6 @@ const DEFAULT_ARCHETYPE = 'merc';
  * subsequent statusLine() rewrite.
  */
 let lastActionLine = '';
-/**
- * Starting archetype. Filled in `boot()` after DataStore.init runs:
- *   1. URL override (`?archetype=razor`) wins for testing — same toggle the
- *      M7 harness honoured.
- *   2. Then the persisted preference (`DataStore.prefs.archetype`).
- *   3. Finally `DEFAULT_ARCHETYPE` on a fresh first load.
- * Run.setArchetype mutates this back via onPrefsChange so subsequent
- * `enterHub` calls and snapshot/restore stay in sync.
- */
-let archetype = DEFAULT_ARCHETYPE;
 
 const seedFromClock = () => Date.now() & 0xffffffff;
 
@@ -109,7 +97,7 @@ const allComponentsReady = Promise.all([
   customElements.whenDefined('update-notification'),
   customElements.whenDefined('confirmation-modal'),
   customElements.whenDefined('touch-pad'),
-  customElements.whenDefined('character-select'),
+  customElements.whenDefined('crew-roster'),
   customElements.whenDefined('key-help'),
 ]);
 
@@ -125,7 +113,7 @@ async function boot() {
   crashEl = document.getElementById('crash');
   resumeModalEl = document.getElementById('resume-modal');
   touchPadEl = document.getElementById('touch-pad');
-  characterSelectEl = document.getElementById('character-select');
+  crewRosterEl = document.getElementById('crew-roster');
   keyHelpEl = document.getElementById('key-help');
 
   renderer = new AsciiRenderer(canvas);
@@ -141,7 +129,7 @@ async function boot() {
       // rule the M7 harness established still holds in the shell.
       paint(nextMode);
     },
-    isBlocked: () => animLock.isLocked(),
+    isBlocked: () => animLock.isLocked() || isAnyBlockingModalOpen(),
   });
   keyboard.attach();
 
@@ -154,10 +142,9 @@ async function boot() {
   briefingEl.addEventListener('jack-in', onJackIn);
   crashEl.addEventListener('new-run', onNewRunRequested);
 
-  if (characterSelectEl) {
-    characterSelectEl.setArchetypes(ARCHETYPE_IDS.map(id => ARCHETYPES[id]));
-    characterSelectEl.addEventListener('pick', onArchetypePicked);
-    characterSelectEl.addEventListener('dismiss', onArchetypeDismissed);
+  if (crewRosterEl) {
+    crewRosterEl.addEventListener('deploy', onCrewDeployPicked);
+    crewRosterEl.addEventListener('dismiss', () => crewRosterEl.hide());
   }
 
   if (keyHelpEl) {
@@ -183,7 +170,7 @@ async function boot() {
     touchPadEl.addEventListener('mode-change', evt => {
       paint(evt.detail.mode);
     });
-    touchPadEl.setBlocked(() => animLock.isLocked());
+    touchPadEl.setBlocked(() => animLock.isLocked() || isAnyBlockingModalOpen());
   }
 
   // Update-notification wiring kept from the original scaffold.
@@ -193,14 +180,13 @@ async function boot() {
   });
 
   await dataStore.init();
-
-  archetype = pickStartingArchetype();
-
-  const savedRun = dataStore.currentRun;
-  if (savedRun) {
-    promptResume(savedRun);
+  if (dataStore.currentRun) {
+    dataStore.deleteRun(dataStore.currentRun.id);
+  }
+  if (dataStore.currentCampaign) {
+    resumeCampaign(dataStore.currentCampaign);
   } else {
-    startFreshRun();
+    startFreshCampaign();
   }
 
   // SW registration is the same posture as the M0 scaffold — kicked off last
@@ -208,164 +194,86 @@ async function boot() {
   serviceWorkerManager.register().catch(err => console.warn('[shell] sw register failed', err));
 }
 
-/**
- * Resolve the starting archetype across the three sources, in priority order.
- * Falls back to DEFAULT_ARCHETYPE only on a fresh-ever load with no prefs
- * record yet — the first `pick` will write one via `dataStore.setPref()`.
- */
-function pickStartingArchetype() {
-  const params = new URLSearchParams(globalThis.location?.search || '');
-  const urlPick = params.get('archetype');
-  if (isArchetypeId(urlPick)) {
-    return urlPick;
-  }
-  if (isArchetypeId(dataStore.prefs.archetype)) {
-    return dataStore.prefs.archetype;
-  }
-  return DEFAULT_ARCHETYPE;
-}
-
 // ---------------------------------------------------------------------------
 // Run lifecycle
 // ---------------------------------------------------------------------------
 
-function startFreshRun() {
+function startFreshCampaign() {
   flash('NEW RUN — Curator is in the Hub.');
-  run = makeRun({ seed: seedFromClock() });
-  run.enterHub();
+  campaign = new Campaign({
+    seed: seedFromClock(),
+    onPersist: handlePersist,
+    onResult: handleResult,
+  });
+  handlePersist();
+  pendingContract = null;
+  pendingJobResult = null;
   attachVisionListener();
   attachAnimationListeners();
   recomputeVision();
   renderShell();
-  if (!dataStore.prefs.archetype) {
-    presentCharacterSelect();
+}
+
+function presentCrewRoster(mode) {
+  if (!crewRosterEl || !campaign) return;
+  crewRosterEl.setCrew(campaign.crew, { mode, salvage: campaign.salvage });
+  crewRosterEl.show();
+}
+
+function onCrewDeployPicked(evt) {
+  if (!campaign || !pendingContract) return;
+  const memberId = evt?.detail?.memberId;
+  const member = campaign.getCrewMember(memberId);
+  if (!member || member.flatlined) return;
+  crewRosterEl.hide();
+  campaign.deployCrewMember(member.id, pendingContract);
+  const activeRun = campaign.activeRun;
+  briefingEl.setContract(pendingContract);
+  flash(`CURATOR: ${member.callsign} takes ${pendingContract.label}.`);
+  pendingContract = null;
+  attachVisionListener();
+  attachAnimationListeners();
+  renderShell();
+  if (activeRun?.state !== RUN_STATE.BRIEFING) {
+    throw new Error(`[shell] expected deployed run to enter BRIEFING, got ${activeRun?.state}`);
   }
 }
 
-/**
- * Mount <character-select> with the current archetype highlighted. Called on
- * every Hub entry and on Terminal interact. Dismissable: closing without
- * picking leaves the existing archetype in effect.
- */
-function presentCharacterSelect() {
-  if (!characterSelectEl) return;
-  if (!run || run.state !== RUN_STATE.HUB) return;
-  characterSelectEl.setCurrent(run.archetype);
-  characterSelectEl.show();
-}
-
-function onArchetypePicked(evt) {
-  const id = evt?.detail?.archetypeId;
-  if (!isArchetypeId(id)) return;
-  if (!run) return;
-  // Setting the same archetype is intentional — first-load default is 'merc'
-  // and no prefs record exists yet; the setArchetype call writes one through
-  // onPrefsChange. Idempotent at the entity layer.
-  if (run.state === RUN_STATE.HUB) {
-    run.setArchetype(id);
-    flash(`OPERATOR: ${id.toUpperCase()}.`);
-  }
-  characterSelectEl.hide();
-  paint();
-}
-
-function onArchetypeDismissed() {
-  characterSelectEl.hide();
-}
-
-function makeRun(opts) {
-  return new Run({
-    archetype,
-    seed: opts.seed,
-    onPersist: handlePersist,
-    onResult: handleResult,
-    onPrefsChange: id => {
-      // Run already updated its own `archetype` field; mirror the shell's
-      // module-level copy so the *next* `makeRun()` picks the same value,
-      // and persist for future page loads.
-      archetype = id;
-      dataStore.setPref('archetype', id);
-    },
-  });
-}
-
-function handlePersist(snapshot) {
-  // First snapshot of a run: add (DataStore assigns its own UUID and mutates
-  // `snapshot.id` in place — we mirror that back into Run.id so the next
-  // snapshot keeps the same record). Subsequent snapshots: in-place update.
-  if (!runRecordId) {
-    dataStore.addRun(snapshot);
-    runRecordId = snapshot.id;
-    if (run) run.id = runRecordId;
-  } else {
-    snapshot.id = runRecordId;
-    dataStore.updateRun(snapshot);
-  }
+function handlePersist() {
+  if (!campaign) return;
+  dataStore.setCampaign(snapshotCampaign(campaign));
 }
 
 function handleResult({ outcome, telemetry }) {
-  // Death + Exit both end the run; clear the save either way per the M8 plan
-  // ("Death screen clears the save"; EXIT also clears since the run is over).
-  if (runRecordId) {
-    dataStore.deleteRun(runRecordId);
-    runRecordId = null;
-  }
+  pendingJobResult = { outcome, telemetry };
   crashEl.setTelemetry({ outcome, ...telemetry });
   renderShell();
 }
 
-// ---------------------------------------------------------------------------
-// Resume flow
-// ---------------------------------------------------------------------------
-
-function promptResume(record) {
-  flash(`Saved run found — turn ${record.turnNumber}, ${record.archetype.toUpperCase()}.`);
-
-  const onConfirm = () => {
-    cleanup();
-    resumeFromRecord(record);
-  };
-  const onCancel = () => {
-    cleanup();
-    dataStore.deleteRun(record.id);
-    runRecordId = null;
-    startFreshRun();
-  };
-  function cleanup() {
-    resumeModalEl.removeEventListener('confirm', onConfirm);
-    resumeModalEl.removeEventListener('cancel', onCancel);
-  }
-
-  resumeModalEl.addEventListener('confirm', onConfirm);
-  resumeModalEl.addEventListener('cancel', onCancel);
-  resumeModalEl.showModal(
-    `Resume your last run? (turn ${record.turnNumber}, ${record.archetype.toUpperCase()})`
-  );
+function currentScene() {
+  if (!campaign) return null;
+  return campaign.activeRun ?? campaign;
 }
 
-function resumeFromRecord(record) {
+function resumeCampaign(record) {
   try {
-    const { run: restoredRun } = restore(record, {
-      onPersist: handlePersist,
+    campaign = restoreCampaign(record, {
+      onPersist: () => handlePersist(),
       onResult: handleResult,
     });
-    run = restoredRun;
-    runRecordId = record.id;
-    archetype = restoredRun.archetype;
     attachVisionListener();
     attachAnimationListeners();
     recomputeVision();
-    flash(
-      `RESUMED — ${restoredRun.archetype.toUpperCase()} | turn ${restoredRun.queue.turnNumber}`
-    );
+    if (campaign.activeRun?.state === RUN_STATE.BRIEFING && campaign.activeRun.contract) {
+      briefingEl.setContract(campaign.activeRun.contract);
+    }
+    flash(`RESUMED — crew ${campaign.crew.filter(member => !member.flatlined).length} active.`);
     renderShell();
   } catch (err) {
-    // Corrupt record — log and start fresh rather than booting into a half-state.
-    console.error('[shell] failed to restore saved run', err);
-    dataStore.deleteRun(record.id);
-    runRecordId = null;
-    flash('SAVE CORRUPT — starting a new run.');
-    startFreshRun();
+    console.error('[shell] failed to restore saved campaign', err);
+    dataStore.deleteCampaign();
+    flash('CAMPAIGN SAVE CORRUPT — starting fresh.');
+    startFreshCampaign();
   }
 }
 
@@ -374,6 +282,7 @@ function resumeFromRecord(record) {
 // ---------------------------------------------------------------------------
 
 function handleIntent(intent) {
+  const run = currentScene();
   if (!run) return;
   // BRIEFING / RESULT swallow gameplay intents — JACK IN / NEW RUN drive
   // those transitions through the DOM buttons. Cancel is still valid (it
@@ -409,6 +318,7 @@ const CORP_ACTION_DELAY_MS = 130;
 const PLAYER_AFTERMATH_ACTION_DELAY_MS = 130;
 
 function advanceTurn() {
+  const run = currentScene();
   if (!run) return;
   advanceFromPlayerTurn({
     queue: run.queue,
@@ -452,6 +362,7 @@ function advanceTurn() {
  * its state machine is testable under `node --test`.
  */
 function runCorpTurn(onFinish) {
+  const run = currentScene();
   if (!run) return;
   driveCorpTurn({
     run,
@@ -470,34 +381,30 @@ function runCorpTurn(onFinish) {
  */
 
 function handleInteract() {
-  if (!run) return;
-  if (run.state !== RUN_STATE.HUB) {
+  if (!campaign) return;
+  if (campaign.state !== CAMPAIGN_STATE.HUB) {
     flash('Nothing to interact with here.');
     return;
   }
-  // Terminal first — adjacency to the loadout kiosk re-opens character
-  // select. Curator second — receive a contract. Both checked before the
-  // "step adjacent" fallback so a player standing between the two gets the
-  // Terminal interaction (closer in the typical layout).
-  if (run.terminal && isChebyshevAdjacent(run.player, run.terminal)) {
-    flash('TERMINAL — pick an operator.');
-    presentCharacterSelect();
+  if (campaign.terminal && isChebyshevAdjacent(campaign.player, campaign.terminal)) {
+    flash('TERMINAL — crew roster.');
+    presentCrewRoster('view');
     return;
   }
-  if (!run.curator || !isChebyshevAdjacent(run.player, run.curator)) {
-    flash('Step adjacent to the Curator (contract) or Terminal (loadout).');
+  if (!campaign.curator || !isChebyshevAdjacent(campaign.player, campaign.curator)) {
+    flash('Step adjacent to the Curator (contract) or Terminal (roster).');
     return;
   }
-  const contract = run.curator.generateContract(run.rng);
-  run.enterBriefing(contract);
-  briefingEl.setContract(contract);
-  flash(`CURATOR: ${contract.label} — review contract.`);
-  renderShell();
+  pendingContract = campaign.curator.generateContract(campaign.rng);
+  flash(`CURATOR: ${pendingContract.label} — choose crew.`);
+  presentCrewRoster('deploy');
 }
 
 function onJackIn() {
+  const run = campaign?.activeRun;
   if (!run || run.state !== RUN_STATE.BRIEFING) return;
   run.enterCombat();
+  handlePersist();
   // enterCombat rebuilds bus + world; re-attach the vision listener so live
   // entity moves keep refreshing fog-of-war.
   attachVisionListener();
@@ -508,17 +415,27 @@ function onJackIn() {
 }
 
 function onNewRunRequested() {
-  // RESULT → HUB. Clear any half-state and start fresh on a new seed.
-  if (!run) return;
+  if (!campaign) return;
   crashEl.hide();
-  run.enterHub();
-  // enterHub also rebuilds the world; re-attach vision.
+  if (pendingJobResult) {
+    const { outcome } = pendingJobResult;
+    pendingJobResult = null;
+    campaign.onJobEnd({ outcome });
+    if (campaign.state === CAMPAIGN_STATE.ENDED) {
+      dataStore.deleteCampaign();
+      startFreshCampaign();
+      return;
+    }
+  } else if (campaign.state === CAMPAIGN_STATE.ENDED) {
+    dataStore.deleteCampaign();
+    startFreshCampaign();
+    return;
+  }
   attachVisionListener();
   attachAnimationListeners();
   recomputeVision();
-  flash('NEW RUN — Curator is in the Hub.');
+  flash('HUB — choose the next job.');
   renderShell();
-  presentCharacterSelect();
 }
 
 // ---------------------------------------------------------------------------
@@ -530,6 +447,7 @@ function attachVisionListener() {
     visionMoveUnsub();
     visionMoveUnsub = null;
   }
+  const run = currentScene();
   if (!run?.bus) return;
   visionMoveUnsub = run.bus.on(EVENT.ENTITY_MOVED, () => recomputeVision());
 }
@@ -549,6 +467,7 @@ function attachVisionListener() {
 function attachAnimationListeners() {
   for (const off of animationUnsubs) off();
   animationUnsubs = [];
+  const run = currentScene();
   if (!run?.bus) return;
   animationUnsubs.push(
     run.bus.on(EVENT.ENTITY_DAMAGED, ({ target, source }) => {
@@ -580,6 +499,7 @@ function attachAnimationListeners() {
 }
 
 function recomputeVision() {
+  const run = currentScene();
   if (!run || !run.world || !run.player) return;
   vision.recompute(run.world.grid, run.player, undefined, {
     blockers: run.world.blockerKeys(),
@@ -591,9 +511,11 @@ function recomputeVision() {
 // ---------------------------------------------------------------------------
 
 function renderShell() {
-  if (!run) return;
-  switch (run.state) {
-    case RUN_STATE.HUB:
+  if (!campaign) return;
+  const run = currentScene();
+  const state = run?.state;
+  switch (state) {
+    case CAMPAIGN_STATE.HUB:
     case RUN_STATE.COMBAT:
       canvas.hidden = false;
       briefingEl.hide();
@@ -609,15 +531,24 @@ function renderShell() {
       briefingEl.hide();
       crashEl.show();
       break;
+    case CAMPAIGN_STATE.ENDED:
+      canvas.hidden = true;
+      briefingEl.hide();
+      crashEl.show();
+      break;
     default:
-      throw new Error(`[shell] unknown run state "${run.state}"`);
+      throw new Error(`[shell] unknown state "${state}"`);
   }
   paint();
 }
 
 function paint(modeHint = activeMode()) {
+  const run = currentScene();
+  if (canvas.hidden) {
+    setStatus(statusLine(modeHint));
+    return;
+  }
   if (!run || !run.world || !run.player) return;
-  if (canvas.hidden) return; // Briefing / Result panels own the viewport.
   // Hub is a safe space — no fog of war. Vision is only meaningful during
   // combat where LOS and drone stealth detection matter.
   const activeVision = run.state === RUN_STATE.COMBAT ? vision : undefined;
@@ -627,13 +558,18 @@ function paint(modeHint = activeMode()) {
 }
 
 function statusLine(modeHint) {
+  const run = currentScene();
   if (!run) return '';
   const aim = modeHint && modeHint !== MODE.IDLE ? `  |  AIM: ${modeHint}` : '';
   const player = run.player;
   if (!player) return stateLabel();
   const stealthTag = player.stealthed ? ' [CLOAKED]' : '';
+  const identity =
+    run.state === RUN_STATE.COMBAT
+      ? `${run.player.callsign ?? run.archetype} ${run.archetype.toUpperCase()}`
+      : `CREW ${campaign.crew.filter(member => !member.flatlined).length}/${campaign.crew.length} SALVAGE ${campaign.salvage}`;
   const statsInner =
-    `${stateLabel()}  |  ${run.archetype.toUpperCase()} ` +
+    `${stateLabel()}  |  ${identity} ` +
     `AP ${player.ap}/${player.maxAp} HP ${player.hp}/${player.maxHp}${stealthTag}` +
     `  |  TURN ${run.queue.turnNumber} (${run.queue.currentFaction.toUpperCase()})${aim}`;
   const hint = proximityHint();
@@ -663,13 +599,14 @@ function statusLine(modeHint) {
  * interactables land (terminals, dropped weapons, etc.).
  */
 function proximityHint() {
+  const run = currentScene();
   if (!run || !run.player) return '';
-  if (run.state === RUN_STATE.HUB) {
+  if (run.state === CAMPAIGN_STATE.HUB) {
     if (run.curator && isChebyshevAdjacent(run.player, run.curator)) {
       return 'CURATOR — press [i] for a contract.';
     }
     if (run.terminal && isChebyshevAdjacent(run.player, run.terminal)) {
-      return 'TERMINAL — press [i] to change operator.';
+      return 'TERMINAL — press [i] for roster.';
     }
     return '';
   }
@@ -690,9 +627,10 @@ function flash(line) {
 }
 
 function stateLabel() {
+  const run = currentScene();
   if (!run) return 'BOOTING';
   switch (run.state) {
-    case RUN_STATE.HUB:
+    case CAMPAIGN_STATE.HUB:
       return '[HUB]';
     case RUN_STATE.BRIEFING:
       return '[BRIEFING]';
@@ -700,6 +638,8 @@ function stateLabel() {
       return '[COMBAT]';
     case RUN_STATE.RESULT:
       return '[DEBRIEF]';
+    case CAMPAIGN_STATE.ENDED:
+      return '[ENDED]';
     default:
       return run.state ?? '';
   }
@@ -758,7 +698,7 @@ function tryShowKeyHelpOverlay() {
  * `cancel` intent for whatever aim mode was active).
  *
  * `?` is suppressed while any blocking modal owns the foreground — opening
- * help over a briefing or character-select would just stack panels.
+ * help over a briefing or crew-roster would just stack panels.
  */
 function handleGlobalKey(evt) {
   if (!keyHelpEl) return;
@@ -796,8 +736,9 @@ function handleGlobalKey(evt) {
 }
 
 function helpScopeForRunState() {
+  const run = currentScene();
   if (!run) return null;
-  if (run.state === RUN_STATE.HUB) return 'hub';
+  if (run.state === CAMPAIGN_STATE.HUB) return 'hub';
   if (run.state === RUN_STATE.COMBAT) return 'combat';
   return null;
 }
@@ -805,7 +746,7 @@ function helpScopeForRunState() {
 function isAnyBlockingModalOpen() {
   if (briefingEl?.isOpen) return true;
   if (crashEl?.isOpen) return true;
-  if (characterSelectEl?.isOpen) return true;
+  if (crewRosterEl?.isOpen) return true;
   // <confirmation-modal> uses a native <dialog> internally; treat any open
   // attribute as "blocking".
   if (resumeModalEl?.hasAttribute('open')) return true;

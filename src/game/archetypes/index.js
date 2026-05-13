@@ -6,9 +6,9 @@
  * classes don't carry: display name, blurb, perk id, and the key that fires
  * the perk in the current keymap. The three consumers:
  *
- *   - `<character-select>`        reads `ARCHETYPES` to render the modal
+ *   - `<crew-roster>` / Hub UI    reads `ARCHETYPES` for labels
  *   - `<key-help>`                reads `ARCHETYPES[id].perkKey` for labels
- *   - `Run.setArchetype / Run`    calls `buildPlayer` to instantiate a player
+ *   - `Campaign.buildCrew`        calls `buildCrewMember` to instantiate crew
  *
  * In-world glyph is `'@'` for both archetypes (the player avatar is consistent
  * regardless of pick). Archetype identity surfaces through the entity *class*
@@ -24,7 +24,7 @@ import { Razor, CALLSIGNS as RAZOR_CALLSIGNS } from './Razor.js';
 import { Tech, CALLSIGNS as TECH_CALLSIGNS } from './Tech.js';
 
 /**
- * Display order is also the default-focus order in <character-select>.
+ * Display order is also the starter crew order in `Campaign.buildCrew`.
  * Merc first so new players hit the simpler ranged archetype on first load;
  * Tech last since its gadget loop is the most involved kit to learn.
  */
@@ -115,15 +115,10 @@ export function pickCallsign(archetypeId, rng, excludeCallsigns = new Set()) {
 }
 
 /**
- * Build a named crew member. The Phase-2 replacement for `buildPlayer`:
- * threads a campaign-scoped `Rng` so the callsign is reproducible from the
- * campaign seed, and accepts an `excludeCallsigns` Set so callers
- * (`Campaign.buildCrew`, future recruitment in M6) can dedupe against
- * campaign history.
- *
- * `buildPlayer` stays as a thin back-compat wrapper around this function for
- * the debug harness and existing `Run.js` call sites; M2 will swap those over
- * and delete `buildPlayer`.
+ * Build a named crew member. Threads a campaign-scoped `Rng` so the callsign
+ * is reproducible from the campaign seed, and accepts an `excludeCallsigns`
+ * Set so callers (`Campaign.buildCrew`, future recruitment in M6) can dedupe
+ * against campaign history.
  */
 export function buildCrewMember(archetypeId, spawn, rng, options = {}) {
   if (!isArchetypeId(archetypeId)) {
@@ -148,39 +143,6 @@ export function buildCrewMember(archetypeId, spawn, rng, options = {}) {
     x: spawn.x,
     y: spawn.y,
     callsign,
-  };
-  if (spawn.maxAp !== undefined) props.maxAp = spawn.maxAp;
-  if (spawn.maxHp !== undefined) props.maxHp = spawn.maxHp;
-  return new Ctor(props);
-}
-
-/**
- * Instantiate the player entity for `id` at the given spawn tile.
- *
- * `spawn.maxAp` is honoured (Run uses the project-wide 4-AP default); other
- * Entity options pass through unchanged. Throws on unknown archetype or a
- * malformed spawn — the rest of the engine would corrupt silently with a
- * partial player object.
- *
- * **Deprecated in M1, removed in M2.** Kept while `Run.js` still calls
- * `#makePlayer` without a campaign Rng. Constructs the entity without a
- * callsign so existing tests and the debug harness keep working unchanged.
- */
-export function buildPlayer(id, spawn) {
-  if (!isArchetypeId(id)) {
-    throw new Error(`buildPlayer: unknown archetype "${id}"`);
-  }
-  if (!spawn || typeof spawn !== 'object') {
-    throw new TypeError('buildPlayer: spawn must be an object with finite {x, y}');
-  }
-  if (!Number.isFinite(spawn.x) || !Number.isFinite(spawn.y)) {
-    throw new TypeError(`buildPlayer: spawn must have finite x,y; got (${spawn.x}, ${spawn.y})`);
-  }
-  const Ctor = BUILDERS[id];
-  const props = {
-    id,
-    x: spawn.x,
-    y: spawn.y,
   };
   if (spawn.maxAp !== undefined) props.maxAp = spawn.maxAp;
   if (spawn.maxHp !== undefined) props.maxHp = spawn.maxHp;

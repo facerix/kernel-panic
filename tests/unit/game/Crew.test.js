@@ -63,9 +63,9 @@ test('Merc extends Crew and accepts a callsign through the constructor', () => {
   assert.equal(m.flatlined, false);
 });
 
-test('Merc constructed without a callsign defaults to null (back-compat path)', () => {
-  // buildPlayer (legacy entry) does not supply a callsign; the migration
-  // must not break that path.
+test('Merc constructed without a callsign defaults to null', () => {
+  // Bare constructors still expose the default; Campaign-created crew use
+  // buildCrewMember and should always have stable names.
   const m = new Merc({ id: 'm', x: 0, y: 0 });
   assert.equal(m.callsign, null);
 });
@@ -77,7 +77,7 @@ test('Razor extends Crew and accepts a callsign through the constructor', () => 
   assert.equal(r.flatlined, false);
 });
 
-test('Razor constructed without a callsign defaults to null (back-compat path)', () => {
+test('Razor constructed without a callsign defaults to null', () => {
   const r = new Razor({ id: 'r', x: 0, y: 0 });
   assert.equal(r.callsign, null);
 });

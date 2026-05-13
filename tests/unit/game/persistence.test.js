@@ -1,10 +1,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { Run, RUN_STATE } from '../../../src/game/Run.js';
+import { Campaign } from '../../../src/game/Campaign.js';
+import { Run } from '../../../src/game/Run.js';
 import { OBJECTIVES } from '../../../src/game/hub/Curator.js';
-import { snapshot, restore } from '../../../src/game/persistence.js';
+import {
+  restore,
+  restoreCampaign,
+  snapshot,
+  snapshotCampaign,
+} from '../../../src/game/persistence.js';
 import { FACTION } from '../../../src/game/constants.js';
+import { buildCrewMember } from '../../../src/game/archetypes/index.js';
+import { Rng } from '../../../src/rng.js';
 
 const fakeContract = (overrides = {}) => ({
   seed: 12345,
@@ -14,32 +22,29 @@ const fakeContract = (overrides = {}) => ({
   ...overrides,
 });
 
-function freshCombatRun(seed = 1) {
-  const run = new Run({ archetype: 'razor', seed });
-  run.enterHub();
+function makeCrew(archetype = 'razor') {
+  return buildCrewMember(archetype, { x: 0, y: 0 }, new Rng(100), {
+    id: `crew-${archetype}`,
+  });
+}
+
+function freshCombatRun(seed = 1, archetype = 'razor') {
+  const run = new Run({ crewMember: makeCrew(archetype), seed });
   run.enterBriefing(fakeContract());
   run.enterCombat();
   return run;
 }
 
-test('snapshot → restore → snapshot is byte-for-byte stable', () => {
+test('run snapshot → restore → snapshot is byte-for-byte stable', () => {
   const run = freshCombatRun(0xfeedface);
   const recA = snapshot(run);
   const { run: restoredRun } = restore(recA);
   const recB = snapshot(restoredRun);
-  // The id field is generated from Date.now() inside Run; snapshot copies
-  // it verbatim, so both records carry the same id (passed through restore).
   assert.deepEqual(recB, recA, 'round-trip should reproduce the source record');
 });
 
 test('snapshot/restore round-trips a Tech with a placed turret (M1)', () => {
-  const run = new Run({ archetype: 'tech', seed: 0xc0ffee });
-  run.enterHub();
-  run.enterBriefing(fakeContract());
-  run.enterCombat();
-  // Deploy the pre-built turret on an adjacent passable tile. The combat
-  // mapgen guarantees a passable spawn, so we scan the 8-neighbourhood for
-  // the first free floor tile and deploy there.
+  const run = freshCombatRun(0xc0ffee, 'tech');
   const tech = run.player;
   let placed = null;
   for (let dy = -1; dy <= 1 && !placed; dy++) {
@@ -51,33 +56,25 @@ test('snapshot/restore round-trips a Tech with a placed turret (M1)', () => {
     }
   }
   assert.ok(placed, 'should have found at least one legal deploy tile around the Tech');
-  assert.equal(tech.turretReady, false);
-
-  // Damage the turret a bit to make the round-trip non-trivial.
   placed.hp = 2;
 
   const rec = snapshot(run);
   const { run: restoredRun, world: restoredWorld } = restore(rec);
-  // Tech's turretReady should survive — both `false` here.
   assert.equal(restoredRun.player.turretReady, false);
   const restoredTurret = [...restoredWorld.entities.values()].find(e => e.id === placed.id);
   assert.ok(restoredTurret, 'restored world should contain the deployed turret');
   assert.equal(restoredTurret.faction, FACTION.PLAYER);
   assert.equal(restoredTurret.hp, 2);
   assert.equal(restoredTurret.ownerId, tech.id);
-  // Method (Entity.prototype.damage) survives the round-trip — regression
-  // pin for the `this.damage = number` shadowing bug.
   assert.equal(typeof restoredTurret.damage, 'function');
 });
 
 test('restored Rng produces the same next 5 numbers as the live one', () => {
   const run = freshCombatRun(7);
-  // Take a few rolls so rng.state advances past the seed.
   run.rng.next();
   run.rng.next();
   run.rng.next();
   const liveValues = [];
-  // Snapshot first, then pull values from the live rng.
   const rec = snapshot(run);
   for (let i = 0; i < 5; i++) liveValues.push(run.rng.next());
 
@@ -87,9 +84,8 @@ test('restored Rng produces the same next 5 numbers as the live one', () => {
   assert.deepEqual(restoredValues, liveValues);
 });
 
-test('restore reconstructs world entities with their HP / AP / stealth state', () => {
+test('restore reconstructs world entities with their HP / AP / stealth state and callsign', () => {
   const run = freshCombatRun(42);
-  // Bash the player's hp + ap to non-default values; flip stealth.
   run.player.hp = 1;
   run.player.ap = 2;
   run.player.stealthed = true;
@@ -98,6 +94,7 @@ test('restore reconstructs world entities with their HP / AP / stealth state', (
   assert.equal(player.hp, 1);
   assert.equal(player.ap, 2);
   assert.equal(player.stealthed, true);
+  assert.equal(player.callsign, run.player.callsign);
 });
 
 test('restore preserves drone AI state (mode + lastKnownTarget + patrol index)', () => {
@@ -125,78 +122,89 @@ test('restore preserves turnNumber and currentFaction', () => {
   assert.equal(queue.currentFaction, run.queue.currentFaction);
 });
 
-test('restore throws on missing rng', () => {
+test('restore throws on corrupt run records', () => {
   const run = freshCombatRun(1);
-  const rec = snapshot(run);
-  delete rec.rng;
-  assert.throws(() => restore(rec), /rng/);
+  const missingRng = snapshot(run);
+  delete missingRng.rng;
+  assert.throws(() => restore(missingRng), /rng/);
+
+  const badTiles = snapshot(run);
+  badTiles.grid.tiles.pop();
+  assert.throws(() => restore(badTiles), /tile count mismatch/);
+
+  const oob = snapshot(run);
+  oob.entities[0].x = oob.grid.w + 5;
+  assert.throws(() => restore(oob), /out of bounds/);
+
+  const unknownArchetype = snapshot(run);
+  unknownArchetype.entities[0].archetype = 'wizard';
+  assert.throws(() => restore(unknownArchetype), /unknown archetype/);
+
+  const badHp = snapshot(run);
+  badHp.entities[0].hp = badHp.entities[0].maxHp + 1;
+  assert.throws(() => restore(badHp), /hp/);
+
+  const badAlive = snapshot(run);
+  badAlive.entities[0].hp = 0;
+  badAlive.entities[0].alive = true;
+  assert.throws(() => restore(badAlive));
+
+  const badState = snapshot(run);
+  badState.state = 'WIBBLE';
+  assert.throws(() => restore(badState), /unknown run state/);
+
+  const badType = snapshot(run);
+  badType.type = 'other';
+  assert.throws(() => restore(badType), /type/);
 });
 
-test('restore throws on grid tile-count mismatch', () => {
-  const run = freshCombatRun(1);
-  const rec = snapshot(run);
-  rec.grid.tiles.pop();
-  assert.throws(() => restore(rec), /tile count mismatch/);
-});
-
-test('restore throws on out-of-bounds entity', () => {
-  const run = freshCombatRun(1);
-  const rec = snapshot(run);
-  rec.entities[0].x = rec.grid.w + 5;
-  assert.throws(() => restore(rec), /out of bounds/);
-});
-
-test('restore throws on unknown archetype', () => {
-  const run = freshCombatRun(1);
-  const rec = snapshot(run);
-  rec.entities[0].archetype = 'wizard';
-  assert.throws(() => restore(rec), /unknown archetype/);
-});
-
-test('restore throws on hp > maxHp (corruption guard)', () => {
-  const run = freshCombatRun(1);
-  const rec = snapshot(run);
-  rec.entities[0].hp = rec.entities[0].maxHp + 1;
-  assert.throws(() => restore(rec), /hp/);
-});
-
-test('restore throws on alive=true with hp=0 (semantic mismatch)', () => {
-  const run = freshCombatRun(1);
-  const rec = snapshot(run);
-  rec.entities[0].hp = 0;
-  rec.entities[0].alive = true;
-  assert.throws(() => restore(rec));
-});
-
-test('restore throws on unknown run state', () => {
-  const run = freshCombatRun(1);
-  const rec = snapshot(run);
-  rec.state = 'WIBBLE';
-  assert.throws(() => restore(rec), /unknown run state/);
-});
-
-test('restore throws on record.type !== "run"', () => {
-  const run = freshCombatRun(1);
-  const rec = snapshot(run);
-  rec.type = 'other';
-  assert.throws(() => restore(rec), /type/);
-});
-
-test('snapshot in HUB state captures Curator + Terminal + player', () => {
-  const run = new Run({ archetype: 'merc', seed: 1 });
-  run.enterHub();
-  const rec = snapshot(run);
-  assert.equal(rec.state, RUN_STATE.HUB);
-  const archetypes = rec.entities.map(e => e.archetype).sort();
-  assert.deepEqual(archetypes, ['curator', 'merc', 'terminal']);
-});
-
-test('snapshot before any state set throws', () => {
-  const run = new Run({ archetype: 'razor', seed: 1 });
+test('snapshot before any Run state set throws', () => {
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 1 });
   assert.throws(() => snapshot(run), /no live world/);
 });
 
 test('snapshot without a Run instance throws TypeError', () => {
   assert.throws(() => snapshot({}), TypeError);
   assert.throws(() => snapshot(null), TypeError);
+});
+
+test('campaign snapshot/restore round-trips campaign scope', () => {
+  const campaign = new Campaign({ seed: 0xface });
+  campaign.salvage = 7;
+  campaign.vouch = 62;
+  campaign.meta = { expandedCatalog: true };
+  campaign.crew[1].flatlined = true;
+
+  const recA = snapshotCampaign(campaign);
+  const restored = restoreCampaign(recA);
+  const recB = snapshotCampaign(restored);
+
+  assert.deepEqual(recB, recA);
+  assert.equal(restored.salvage, 7);
+  assert.equal(restored.vouch, 62);
+  assert.deepEqual(restored.meta, { expandedCatalog: true });
+  assert.equal(restored.crew[1].flatlined, true);
+});
+
+test('campaign snapshot captures an active briefing job', () => {
+  const campaign = new Campaign({ seed: 0xbeef });
+  campaign.deployCrewMember(campaign.crew[2].id, fakeContract({ label: 'briefing job' }));
+  const rec = snapshotCampaign(campaign);
+  assert.equal(rec.type, 'campaign');
+  assert.equal(rec.activeRun.state, 'BRIEFING');
+  assert.equal(rec.activeRun.contract.label, 'briefing job');
+
+  const restored = restoreCampaign(rec);
+  assert.equal(restored.activeRun.state, 'BRIEFING');
+  assert.equal(restored.activeRun.contract.label, 'briefing job');
+  assert.equal(restored.activeRun.crewMember.id, campaign.crew[2].id);
+});
+
+test('restoreCampaign throws on corrupt campaign records', () => {
+  const campaign = new Campaign({ seed: 0x123 });
+  const rec = snapshotCampaign(campaign);
+  assert.throws(() => restoreCampaign({ ...rec, type: 'run' }), /campaign/);
+  assert.throws(() => restoreCampaign({ ...rec, crew: [] }), /crew/);
+  assert.throws(() => restoreCampaign({ ...rec, salvage: -1 }), /salvage/);
+  assert.throws(() => restoreCampaign({ ...rec, vouch: 101 }), /vouch/);
 });

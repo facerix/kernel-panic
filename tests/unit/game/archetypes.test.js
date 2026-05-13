@@ -3,9 +3,9 @@
  *
  * `src/game/archetypes/index.js` is a thin metadata layer over the existing
  * `Merc` and `Razor` classes. It serves three callers:
- *   - `<character-select>` reads `ARCHETYPES` to render the modal
+ *   - Hub UI reads `ARCHETYPES` to render labels
  *   - `<key-help>` reads `ARCHETYPES[id].perkKey` to label the perk row
- *   - `Run.#makePlayer` and `Run.setArchetype` delegate to `buildPlayer`
+ *   - `Campaign.buildCrew` delegates to `buildCrewMember`
  * The class behaviour (vault / slide) is already covered by Merc/Razor tests;
  * here we only assert the metadata contract and the factory glue.
  */
@@ -17,13 +17,12 @@ import {
   ARCHETYPE_IDS,
   CALLSIGNS_BY_ARCHETYPE,
   buildCrewMember,
-  buildPlayer,
   isArchetypeId,
   pickCallsign,
 } from '../../../src/game/archetypes/index.js';
 import { FACTION } from '../../../src/game/constants.js';
 import { Merc, CALLSIGNS as MERC_CALLSIGNS } from '../../../src/game/archetypes/Merc.js';
-import { Razor, CALLSIGNS as RAZOR_CALLSIGNS } from '../../../src/game/archetypes/Razor.js';
+import { CALLSIGNS as RAZOR_CALLSIGNS } from '../../../src/game/archetypes/Razor.js';
 import { Rng } from '../../../src/rng.js';
 
 test('ARCHETYPES exposes merc, razor, and tech with required metadata', () => {
@@ -62,39 +61,6 @@ test('ARCHETYPE_IDS lists every registered id, in display order', () => {
   // Display order matters for the character-select modal (default focus is
   // the first entry on first load). Merc → Razor → Tech, simplest kit first.
   assert.deepEqual(ARCHETYPE_IDS, ['merc', 'razor', 'tech']);
-});
-
-test('buildPlayer("merc", spawn) returns a Merc with the spawn coords', () => {
-  const p = buildPlayer('merc', { x: 3, y: 4 });
-  assert.ok(p instanceof Merc, 'expected a Merc instance');
-  assert.equal(p.x, 3);
-  assert.equal(p.y, 4);
-  assert.equal(p.faction, FACTION.PLAYER);
-  assert.equal(p.alive, true);
-});
-
-test('buildPlayer("razor", spawn) returns a Razor with the spawn coords', () => {
-  const p = buildPlayer('razor', { x: 5, y: 6 });
-  assert.ok(p instanceof Razor, 'expected a Razor instance');
-  assert.equal(p.x, 5);
-  assert.equal(p.y, 6);
-  assert.equal(p.faction, FACTION.PLAYER);
-});
-
-test('buildPlayer accepts a maxAp override (used by Run for the global 4-AP budget)', () => {
-  const p = buildPlayer('merc', { x: 0, y: 0, maxAp: 4 });
-  assert.equal(p.maxAp, 4);
-});
-
-test('buildPlayer rejects an unknown archetype id (crash > silent fallback)', () => {
-  assert.throws(() => buildPlayer('hacker', { x: 0, y: 0 }), /unknown archetype/i);
-});
-
-test('buildPlayer requires a finite (x, y) spawn', () => {
-  assert.throws(() => buildPlayer('merc'), /spawn/i);
-  assert.throws(() => buildPlayer('merc', {}), /spawn/i);
-  assert.throws(() => buildPlayer('merc', { x: 0 }), /spawn/i);
-  assert.throws(() => buildPlayer('merc', { x: 0, y: NaN }), /spawn/i);
 });
 
 test('each archetype exports a CALLSIGNS list of 10–15 unique entries', () => {

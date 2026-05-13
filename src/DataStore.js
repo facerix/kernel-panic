@@ -5,6 +5,7 @@ let instance;
 class DataStore extends EventTarget {
   #prefs = {};
   #runs = [];
+  #campaign = null;
 
   constructor() {
     if (instance) {
@@ -18,41 +19,46 @@ class DataStore extends EventTarget {
   #loadDataFromJson(json) {
     try {
       const data = JSON.parse(json);
-      return { prefs: data.prefs ?? {}, runs: data.runs ?? [] };
+      return { prefs: data.prefs ?? {}, runs: data.runs ?? [], campaign: data.campaign ?? null };
     } catch (error) {
       console.warn('[DataStore] Failed to parse stored JSON, resetting stored data.', error);
       try {
-        window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ prefs: {}, runs: [] }));
+        window.localStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify({ prefs: {}, runs: [], campaign: null })
+        );
       } catch (storageError) {
         console.warn('[DataStore] Failed to reset stored data.', storageError);
       }
-      return { prefs: {}, runs: [] };
+      return { prefs: {}, runs: [], campaign: null };
     }
   }
 
   async init() {
     let savedDataJson = window.localStorage.getItem(STORAGE_KEY);
     if (!savedDataJson) {
-      savedDataJson = JSON.stringify({ prefs: {}, runs: [] });
+      savedDataJson = JSON.stringify({ prefs: {}, runs: [], campaign: null });
       window.localStorage.setItem(STORAGE_KEY, savedDataJson);
     }
-    const { prefs, runs } = this.#loadDataFromJson(savedDataJson);
+    const { prefs, runs, campaign } = this.#loadDataFromJson(savedDataJson);
     this.#prefs = prefs;
     this.#runs = runs;
+    this.#campaign = campaign;
     this.#emitChangeEvent('init', ['*']);
   }
 
   import(jsonData) {
-    const { prefs, runs } = this.#loadDataFromJson(jsonData);
+    const { prefs, runs, campaign } = this.#loadDataFromJson(jsonData);
     this.#prefs = prefs;
     this.#runs = runs;
+    this.#campaign = campaign;
     this.#emitChangeEvent('import', ['*']);
   }
 
   #saveData() {
     window.localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ prefs: this.#prefs, runs: this.#runs })
+      JSON.stringify({ prefs: this.#prefs, runs: this.#runs, campaign: this.#campaign })
     );
   }
 
@@ -81,6 +87,10 @@ class DataStore extends EventTarget {
     return this.#runs?.[0] ?? null;
   }
 
+  get currentCampaign() {
+    return this.#campaign;
+  }
+
   getRunById(id) {
     return this.#runs.find(run => run.id === id);
   }
@@ -104,6 +114,21 @@ class DataStore extends EventTarget {
     if (this.#runs.find(r => r.id === id)) {
       this.#runs = this.#runs.filter(r => r.id !== id);
       this.#emitChangeEvent('delete', 'runs', id);
+      this.#saveData();
+    }
+  }
+
+  setCampaign(campaign) {
+    this.#campaign = campaign;
+    this.#emitChangeEvent(campaign ? 'update' : 'delete', 'campaign', campaign);
+    this.#saveData();
+  }
+
+  deleteCampaign() {
+    if (this.#campaign) {
+      const id = this.#campaign.id;
+      this.#campaign = null;
+      this.#emitChangeEvent('delete', 'campaign', id);
       this.#saveData();
     }
   }

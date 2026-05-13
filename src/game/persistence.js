@@ -35,13 +35,14 @@ import { TurnQueue } from './TurnQueue.js';
 import { EventBus } from './events.js';
 import { FACTION } from './constants.js';
 import { Entity } from './Entity.js';
+import { Crew } from './Crew.js';
 import { Merc } from './archetypes/Merc.js';
 import { Razor } from './archetypes/Razor.js';
 import { Tech } from './archetypes/Tech.js';
 import { Turret } from './Turret.js';
 import { CorpDrone, DRONE_STATE } from './ai/CorpDrone.js';
-import { Curator } from './hub/Curator.js';
 import { Run, RUN_STATE } from './Run.js';
+import { Campaign, CAMPAIGN_STATE } from './Campaign.js';
 
 const ARCHETYPE_KEY = Symbol.for('kernel-panic.archetype');
 
@@ -51,7 +52,6 @@ const ARCHETYPE_FACTORY = Object.freeze({
   tech: props => new Tech(props),
   turret: props => new Turret(props),
   drone: props => new CorpDrone(props),
-  curator: props => new Curator(props),
   // Generic fallback so a future `Entity` subclass (NPCs, items) doesn't break
   // the round-trip when the full archetype landed but the loader hasn't.
   entity: props => new Entity({ faction: FACTION.NEUTRAL, glyph: '?', ...props }),
@@ -73,6 +73,25 @@ export function snapshot(run) {
   return run.snapshot();
 }
 
+export function snapshotCampaign(campaign) {
+  if (!campaign || !(campaign instanceof Campaign)) {
+    throw new TypeError('snapshotCampaign requires a Campaign instance');
+  }
+  return {
+    id: campaign.id,
+    type: 'campaign',
+    state: campaign.state,
+    seed: campaign.seed,
+    rng: { seed: campaign.rng.seed, state: campaign.rng.state },
+    crew: campaign.crew.map(snapshotCrewMember),
+    salvage: campaign.salvage,
+    vouch: campaign.vouch,
+    meta: { ...campaign.meta },
+    deployedMemberId: campaign.deployedMemberId,
+    activeRun: campaign.activeRun ? snapshotActiveRun(campaign.activeRun) : null,
+  };
+}
+
 /**
  * Rebuild a `Run` from a snapshot record. Returns `{ run, world, queue, rng,
  * player }` — the pieces the shell typically wires into the renderer.
@@ -84,20 +103,6 @@ export function snapshot(run) {
 export function restore(record, options = {}) {
   validateRecord(record);
 
-  const run = new Run({
-    id: record.id,
-    archetype: record.archetype,
-    seed: record.seed,
-    onPersist: options.onPersist,
-    onResult: options.onResult,
-  });
-  run.rng = new Rng(record.rng.seed);
-  run.rng.setState(record.rng.state);
-  run.contract = record.contract ? { ...record.contract } : null;
-  run.exitTile = record.exitTile ? { ...record.exitTile } : null;
-  run.telemetry = { ...record.telemetry };
-  run.state = record.state;
-
   const grid = new Grid(record.grid.w, record.grid.h);
   if (record.grid.tiles.length !== grid.tiles.length) {
     throw new Error(
@@ -108,6 +113,33 @@ export function restore(record, options = {}) {
     grid.tiles[i] = record.grid.tiles[i] & 0xff;
   }
 
+  let player = null;
+  const restoredEntities = record.entities.map(entityRec => restoreEntity(entityRec, grid));
+  for (const entity of restoredEntities) {
+    if (entity instanceof Crew && entity.faction === FACTION.PLAYER) {
+      if (player) {
+        throw new Error('restore: run snapshot has multiple player crew entities');
+      }
+      player = entity;
+    }
+  }
+  if (!player) {
+    throw new Error('restore: run snapshot has no player crew entity');
+  }
+
+  const run = new Run({
+    id: record.id,
+    crewMember: player,
+    seed: record.seed,
+    onPersist: options.onPersist,
+    onResult: options.onResult,
+  });
+  run.rng = new Rng(record.rng.seed);
+  run.rng.setState(record.rng.state);
+  run.contract = record.contract ? { ...record.contract } : null;
+  run.exitTile = record.exitTile ? { ...record.exitTile } : null;
+  run.telemetry = { ...record.telemetry };
+  run.state = record.state;
   run.bus = new EventBus();
   run.world = new World(grid, { events: run.bus });
 
@@ -120,17 +152,13 @@ export function restore(record, options = {}) {
   }
   run.queue.index = factionIndex;
 
-  for (const entityRec of record.entities) {
-    const entity = restoreEntity(entityRec, grid);
+  for (const entity of restoredEntities) {
     run.world.addEntity(entity);
     if (entity instanceof CorpDrone) {
       entity.bindToBus(run.bus);
     }
-    if (entity[ARCHETYPE_KEY] === run.archetype) {
+    if (entity === player) {
       run.player = entity;
-    }
-    if (entity instanceof Curator) {
-      run.curator = entity;
     }
   }
   if (run.state === RUN_STATE.COMBAT && !run.player) {
@@ -144,6 +172,60 @@ export function restore(record, options = {}) {
   }
 
   return { run, world: run.world, queue: run.queue, rng: run.rng, player: run.player };
+}
+
+export function restoreCampaign(record, options = {}) {
+  validateCampaignRecord(record);
+  const crew = record.crew.map(restoreCrewMember);
+  const campaign = new Campaign({
+    id: record.id,
+    seed: record.seed,
+    crew,
+    salvage: record.salvage,
+    vouch: record.vouch,
+    meta: record.meta,
+    onPersist: options.onPersist,
+    onResult: options.onResult,
+  });
+  campaign.rng = new Rng(record.rng.seed);
+  campaign.rng.setState(record.rng.state);
+
+  if (record.activeRun) {
+    const member = campaign.getCrewMember(record.activeRun.crewMemberId);
+    if (!member) {
+      throw new Error(
+        `restoreCampaign: activeRun references unknown crew "${record.activeRun.crewMemberId}"`
+      );
+    }
+    campaign.activeRun = restoreActiveRun(record.activeRun, member, {
+      onPersist: () => options.onPersist?.(campaign),
+      onResult: options.onResult,
+    });
+    campaign.deployedMemberId = member.id;
+    campaign.state = CAMPAIGN_STATE.COMBAT;
+    campaign.world = null;
+    campaign.queue = null;
+    campaign.bus = null;
+    campaign.player = null;
+    campaign.curator = null;
+    campaign.terminal = null;
+    campaign.exitTile = null;
+  } else {
+    campaign.state = record.state;
+  }
+
+  if (record.state === CAMPAIGN_STATE.ENDED) {
+    campaign.state = CAMPAIGN_STATE.ENDED;
+    campaign.world = null;
+    campaign.queue = null;
+    campaign.bus = null;
+    campaign.player = null;
+    campaign.curator = null;
+    campaign.terminal = null;
+    campaign.exitTile = null;
+  }
+
+  return campaign;
 }
 
 function restoreEntity(rec, grid) {
@@ -179,6 +261,12 @@ function restoreEntity(rec, grid) {
     maxAp: rec.maxAp,
     maxHp: rec.maxHp,
   };
+  if (isCrewArchetype(rec.archetype)) {
+    entityProps.callsign = rec.callsign ?? null;
+    entityProps.flatlined = !!rec.flatlined;
+    entityProps.inventory = rec.inventory ?? null;
+    entityProps.gear = rec.gear ?? null;
+  }
   if (rec.archetype === 'drone') {
     entityProps.patrolWaypoints = rec.drone?.patrolWaypoints ?? [];
   }
@@ -281,3 +369,131 @@ function validateRecord(record) {
 }
 
 const KNOWN_ARCHETYPES_SET = new Set(['merc', 'razor', 'tech']);
+
+function snapshotCrewMember(member) {
+  const archetype = archetypeOfCrew(member);
+  return {
+    archetype,
+    id: member.id,
+    callsign: member.callsign,
+    flatlined: !!member.flatlined,
+    hp: member.hp,
+    maxHp: member.maxHp,
+    ap: member.ap,
+    maxAp: member.maxAp,
+    alive: !!member.alive,
+    inventory: member.inventory,
+    gear: member.gear,
+  };
+}
+
+function restoreCrewMember(rec) {
+  if (!rec || typeof rec !== 'object') {
+    throw new TypeError('restoreCampaign: crew member record missing');
+  }
+  if (!KNOWN_ARCHETYPES_SET.has(rec.archetype)) {
+    throw new Error(`restoreCampaign: unknown crew archetype "${rec.archetype}"`);
+  }
+  if (typeof rec.id !== 'string' || rec.id.length === 0) {
+    throw new TypeError('restoreCampaign: crew member id must be a non-empty string');
+  }
+  const factory = ARCHETYPE_FACTORY[rec.archetype];
+  const member = factory({
+    id: rec.id,
+    x: 0,
+    y: 0,
+    callsign: rec.callsign,
+    flatlined: !!rec.flatlined,
+    inventory: rec.inventory ?? null,
+    gear: rec.gear ?? null,
+    maxHp: rec.maxHp,
+    maxAp: rec.maxAp,
+  });
+  if (Number.isInteger(rec.hp)) member.hp = rec.hp;
+  if (Number.isInteger(rec.ap)) member.ap = rec.ap;
+  member.alive = rec.alive ?? member.hp > 0;
+  return member;
+}
+
+function snapshotActiveRun(run) {
+  const base = {
+    id: run.id,
+    type: 'run',
+    state: run.state,
+    crewMemberId: run.crewMember.id,
+    archetype: run.archetype,
+    seed: run.seed,
+    rng: { seed: run.rng.seed, state: run.rng.state },
+    contract: run.contract ? { ...run.contract } : null,
+    telemetry: { ...run.telemetry },
+  };
+  if (run.state === RUN_STATE.COMBAT || run.state === RUN_STATE.RESULT) {
+    return { ...base, snapshot: snapshot(run) };
+  }
+  return base;
+}
+
+function restoreActiveRun(record, member, options) {
+  if (record.snapshot) {
+    const restored = restore(record.snapshot, options).run;
+    restored.crewMember = member;
+    return restored;
+  }
+  const run = new Run({
+    id: record.id,
+    crewMember: member,
+    seed: record.seed,
+    onPersist: options.onPersist,
+    onResult: options.onResult,
+  });
+  run.rng = new Rng(record.rng.seed);
+  run.rng.setState(record.rng.state);
+  run.contract = record.contract ? { ...record.contract } : null;
+  run.telemetry = { ...record.telemetry };
+  run.state = record.state;
+  return run;
+}
+
+function validateCampaignRecord(record) {
+  if (!record || typeof record !== 'object') {
+    throw new TypeError('restoreCampaign: record must be an object');
+  }
+  if (record.type !== 'campaign') {
+    throw new Error(`restoreCampaign: record.type must be "campaign", got "${record.type}"`);
+  }
+  if (!Object.values(CAMPAIGN_STATE).includes(record.state)) {
+    throw new Error(`restoreCampaign: unknown campaign state "${record.state}"`);
+  }
+  if (!Number.isFinite(record.seed)) {
+    throw new TypeError('restoreCampaign: record.seed must be a finite number');
+  }
+  if (!record.rng || !Number.isFinite(record.rng.seed) || !Number.isFinite(record.rng.state)) {
+    throw new TypeError('restoreCampaign: record.rng requires {seed, state}');
+  }
+  if (!Array.isArray(record.crew) || record.crew.length === 0) {
+    throw new TypeError('restoreCampaign: crew must be a non-empty array');
+  }
+  if (!Number.isInteger(record.salvage) || record.salvage < 0) {
+    throw new RangeError('restoreCampaign: salvage must be a non-negative integer');
+  }
+  if (!Number.isInteger(record.vouch) || record.vouch < 0 || record.vouch > 100) {
+    throw new RangeError('restoreCampaign: vouch must be an integer in [0, 100]');
+  }
+  if (record.meta === null || typeof record.meta !== 'object' || Array.isArray(record.meta)) {
+    throw new TypeError('restoreCampaign: meta must be an object');
+  }
+  if (record.state === CAMPAIGN_STATE.COMBAT && !record.activeRun) {
+    throw new Error('restoreCampaign: COMBAT state requires activeRun');
+  }
+}
+
+function archetypeOfCrew(member) {
+  if (member instanceof Merc) return 'merc';
+  if (member instanceof Razor) return 'razor';
+  if (member instanceof Tech) return 'tech';
+  throw new Error(`snapshotCampaign: cannot classify crew member ${member?.id}`);
+}
+
+function isCrewArchetype(value) {
+  return KNOWN_ARCHETYPES_SET.has(value);
+}

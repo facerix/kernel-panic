@@ -11,8 +11,8 @@ import { Entity } from './Entity.js';
  *     Picked from each archetype's curated `CALLSIGNS` list by
  *     `buildCrewMember(archetypeId, spawn, rng)` in M1; deduplicated against
  *     campaign history by `Campaign.buildCrew` in M2. Defaults to `null` here
- *     so existing `buildPlayer` callers (debug harness, tests) still work
- *     until the M2 refactor threads `Rng` through the campaign layer.
+ *     so bare constructor tests can still exercise defaults; Campaign-created
+ *     crew should always have a callsign.
  *   - `flatlined` — campaign-permanent death flag. `Entity.alive` is job-
  *     scoped (resets when a crew member is redeployed on a new job);
  *     `flatlined` is the persistent twin that says "this crew member is gone

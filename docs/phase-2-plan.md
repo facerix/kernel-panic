@@ -8,7 +8,7 @@ Living plan for Phase 2 of Kernel Panic. Source of truth for milestone scope, cu
 |---|---|
 | M0 — Combat feedback animations | ✅ Done |
 | M1 — Tech archetype + Deploy Turret | ✅ Done |
-| M2 — Campaign layer + named crew roster | ⬜ Pending |
+| M2 — Campaign layer + named crew roster | ✅ Done |
 | M3 — Salvage + inventory + improvised turrets | ⬜ Pending |
 | M4 — Finn's shop | ⬜ Pending |
 | M5 — Vouch + NPC taxonomy | ⬜ Pending |
@@ -184,6 +184,7 @@ Closes the **melee always hits**, **drone patrol anchor**, and **corridor procge
 - **`<contract-select>` web component** replaces `<run-briefing>` — displays all 3 contracts with difficulty badge, reward summary, and a TAKE THE JOB button. Keyboard-navigable (↑/↓, Enter, Esc). The selected contract is passed into `Campaign.deployCrewMember(memberId, contract)` and from there into `Run` → `mapBuild`.
 - `mapBuild.js`: accepts `threatCount` and `difficulty` from the contract; scales drone count and civilian spawns accordingly.
 - `Campaign.onJobEnd` applies `contract.reward`: salvage added to pool, `adjustVouch(vouchDelta)`, recruit flag sets a pending recruit for next Hub visit.
+- **Invert job acceptance flow:** Currently, when talking with the Curator, player selects the crew member to deploy, then accepts the job. Once job options land, player should first be presented with the job list, then once they take a job, they can choose the crew member best suited to that mission. Phase 3 will further enrich this paradigm when we add more complexity to job completion goals beyond "find the exit."
 - Tests: `Curator.test.js` — pool of 3, difficulty distribution, reward scaling, `better-contracts` shifts pool; `Campaign.test.js` — contract reward applied correctly (salvage, Vouch, recruit flag), `mapBuild` receives correct threat config from contract.
 
 ## Recorded problems (deferred)
