@@ -253,7 +253,7 @@ class ConfirmationModal extends HTMLElement {
     this.#modal = h('dialog', { closedby: 'any' }, [
       h('header', {}, [
         h('h3', { innerText: 'Confirmation' }),
-        h('button', { id: 'close-modal' }, [closeIcon]),
+        h('button', { type: 'button', id: 'close-modal' }, [closeIcon]),
       ]),
       h('form', { method: 'dialog', autocomplete: 'off' }, [
         h('p', { id: 'message', innerText: 'Are you sure?' }),
@@ -278,7 +278,11 @@ class ConfirmationModal extends HTMLElement {
     this.shadowRoot.querySelector('#btnCancel').addEventListener('click', closeHandler);
 
     this.shadowRoot.querySelector('dialog form').addEventListener('submit', evt => {
-      if (evt.submitter?.id === 'btnOk') {
+      evt.preventDefault();
+      const implicitOk =
+        evt.submitter == null &&
+        evt.target.querySelector('input[type="submit"]#btnOk') != null;
+      if (evt.submitter?.id === 'btnOk' || implicitOk) {
         this.#emit('confirm');
       }
       this.#modal?.close();
@@ -313,6 +317,9 @@ class ConfirmationModal extends HTMLElement {
     }
     this.render();
     this.#modal?.showModal();
+    // Native dialog focus lands on the first focusable (the header close control), so Enter
+    // would cancel. Primary action is OK — focus it so Enter submits the form as confirm.
+    this.shadowRoot.querySelector('#btnOk')?.focus();
   }
 }
 
