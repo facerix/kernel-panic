@@ -43,7 +43,7 @@ test('syntheticKeyFor resolves actions to keymap keys', () => {
   assert.equal(syntheticKeyFor('special'), 'x');
   assert.equal(syntheticKeyFor('end-turn'), '.');
   assert.equal(syntheticKeyFor('cancel'), 'Escape');
-  assert.equal(syntheticKeyFor('interact'), 'i');
+  assert.equal(syntheticKeyFor('interact'), ' ');
 });
 
 test('syntheticKeyFor throws on an unknown button (crash > silent fallback)', () => {

@@ -35,15 +35,15 @@ test('IDLE + diagonal keys (q/e/z/c) produce move intents', () => {
   }
 });
 
-test('IDLE + space is a no-op (no end-turn binding)', () => {
-  const r = dispatch(' ', MODE.IDLE);
-  assert.equal(r.intent, null);
+test('IDLE + . emits end-turn (wait / pass turn)', () => {
+  const r = dispatch('.', MODE.IDLE);
+  assert.deepEqual(r.intent, { type: 'end-turn' });
   assert.equal(r.nextMode, MODE.IDLE);
 });
 
-test('IDLE + . emits end-turn', () => {
-  const r = dispatch('.', MODE.IDLE);
-  assert.deepEqual(r.intent, { type: 'end-turn' });
+test('IDLE + Space emits interact and stays IDLE', () => {
+  const r = dispatch(' ', MODE.IDLE);
+  assert.deepEqual(r.intent, { type: 'interact' });
   assert.equal(r.nextMode, MODE.IDLE);
 });
 
@@ -181,11 +181,11 @@ test('MELEE_AIM + non-directional key stays in MELEE_AIM with no intent', () => 
   assert.equal(r.nextMode, MODE.MELEE_AIM);
 });
 
-// --- M8: context-sensitive interact verb ------------------------------
+// --- M8: context-sensitive interact verb (Space) ----------------------
 
-test('IDLE + i emits interact intent and stays IDLE', () => {
+test('IDLE + i is a no-op (reserved for future inventory)', () => {
   const r = dispatch('i', MODE.IDLE);
-  assert.deepEqual(r.intent, { type: 'interact' });
+  assert.equal(r.intent, null);
   assert.equal(r.nextMode, MODE.IDLE);
 });
 

@@ -7,7 +7,9 @@
  * The dispatcher is a small mode machine. IDLE is the default; pressing an
  * "aim" key (`f` for fire, `m` for melee, `x` for the archetype-specific
  * "special action") enters an aiming mode where the next directional press
- * resolves into a targeted intent.
+ * resolves into a targeted intent. Wait / pass turn is `.` in IDLE
+ * (`end-turn` intent). Interact (Curator, Terminal, …) is Space in IDLE;
+ * `i` is unbound (reserved for a future inventory milestone).
  *
  * The archetype-specific perks — Merc's Vault, Razor's Slide, Tech's Deploy
  * Turret — collapse into a single `special` intent here at the dispatcher
@@ -64,7 +66,13 @@ function dispatchIdle(key) {
   }
   switch (key) {
     case '.':
+      // Wait / pass turn — same intent as the touch-pad WAIT button (`.`).
       return { intent: { type: 'end-turn' }, nextMode: MODE.IDLE };
+    case ' ':
+      // Interact — context-sensitive verb resolved by the shell (Hub Curator
+      // → briefing, future terminals/items in combat). Keymap stays dumb;
+      // the shell decides what `interact` means in the current Run.state.
+      return { intent: { type: 'interact' }, nextMode: MODE.IDLE };
     case 'Escape':
       return { intent: { type: 'cancel' }, nextMode: MODE.IDLE };
     case 'f':
@@ -76,11 +84,6 @@ function dispatchIdle(key) {
       // Merc → vault, Razor → slide, Tech → deploy. `x` is unused elsewhere
       // and avoids the WASD collision that would block `d` for deploy.
       return { intent: null, nextMode: MODE.SPECIAL_AIM };
-    case 'i':
-      // Interact — context-sensitive verb resolved by the shell (Hub Curator
-      // → briefing, future terminals/items in combat). Keymap stays dumb;
-      // the shell decides what `interact` means in the current Run.state.
-      return { intent: { type: 'interact' }, nextMode: MODE.IDLE };
     default:
       return noChange(MODE.IDLE);
   }

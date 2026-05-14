@@ -60,7 +60,7 @@ const ACTION_BUTTONS = Object.freeze([
   // Slide, and Deploy. The status banner / on-screen log spells out which
   // verb actually resolves, so the player still sees their kit's flavour.
   { id: 'special', label: 'SPECIAL', shortcut: 'x' },
-  { id: 'interact', label: 'INTERACT', shortcut: 'i' },
+  { id: 'interact', label: 'INTERACT', shortcut: '␣' },
   { id: 'end-turn', label: 'WAIT', shortcut: '.' },
   { id: 'cancel', label: 'CANCEL', shortcut: 'esc' },
 ]);

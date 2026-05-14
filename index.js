@@ -226,7 +226,7 @@ function startFreshCampaign() {
 
 function onSystemStartHubEnter() {
   systemStartEl?.hide();
-  flash('HUB — Curator has contracts when you are adjacent [i].');
+  flash('HUB — Curator has contracts when you are adjacent [Space].');
 }
 
 function presentCrewRoster(mode) {
@@ -678,10 +678,10 @@ function proximityHint() {
   if (!run || !run.player) return '';
   if (run.state === CAMPAIGN_STATE.HUB) {
     if (run.curator && isChebyshevAdjacent(run.player, run.curator)) {
-      return 'CURATOR — press [i] for a contract.';
+      return 'CURATOR — press Space for a contract.';
     }
     if (run.terminal && isChebyshevAdjacent(run.player, run.terminal)) {
-      return 'TERMINAL — press [i] for roster.';
+      return 'TERMINAL — press Space for roster.';
     }
     return '';
   }

@@ -61,7 +61,7 @@ export const HELP_ROWS = Object.freeze([
     group: 'action',
   },
   {
-    keys: Object.freeze(['i']),
+    keys: Object.freeze([' ']),
     label: 'Interact (Curator, Terminal, …)',
     scope: 'both',
     group: 'action',
@@ -69,7 +69,7 @@ export const HELP_ROWS = Object.freeze([
   // --- system -----------------------------------------------------------
   {
     keys: Object.freeze(['.']),
-    label: 'Wait',
+    label: 'Wait (pass turn)',
     scope: 'combat',
     group: 'system',
   },

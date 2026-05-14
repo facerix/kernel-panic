@@ -286,7 +286,7 @@ function doInteract(ctx) {
   // combat terminals → unlock doors / hack), so applyIntent doesn't know the
   // semantics — it just routes the intent to a shell-supplied handler. Crash
   // rather than silent no-op if the shell forgot to provide one; otherwise an
-  // unbound `i` key would feel like a dead button instead of a wiring bug.
+  // unbound interact key would feel like a dead button instead of a wiring bug.
   if (typeof ctx.onInteract !== 'function') {
     throw new Error('applyIntent: interact intent received but ctx.onInteract is missing');
   }

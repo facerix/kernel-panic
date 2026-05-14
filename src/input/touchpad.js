@@ -11,6 +11,7 @@
  *
  * The `special` action covers each archetype's perk verb (Merc Vault, Razor
  * Slide, Tech Deploy) — same unified-perk-key design as the keyboard layer.
+ * `interact` synthesizes a Space keystroke (keyboard parity with the keymap).
  *
  * Unknown buttons throw — silently dropping a button press would mask UI
  * wiring bugs.
@@ -33,7 +34,7 @@ const ACTION_KEYS = Object.freeze({
   fire: 'f',
   melee: 'm',
   special: 'x',
-  interact: 'i',
+  interact: ' ',
   'end-turn': '.',
   cancel: 'Escape',
 });
