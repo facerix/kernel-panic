@@ -98,6 +98,7 @@ test('drift guard: every key handled by keymap.js dispatch appears in HELP_ROWS'
     // system
     '.',
     'Escape',
+    'Q',
   ];
   const helpKeys = new Set(HELP_ROWS.flatMap(r => r.keys));
   for (const k of sentinel) {

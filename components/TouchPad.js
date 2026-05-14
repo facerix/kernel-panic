@@ -65,6 +65,10 @@ const ACTION_BUTTONS = Object.freeze([
   { id: 'cancel', label: 'CANCEL', shortcut: 'esc' },
 ]);
 
+const META_BUTTONS = Object.freeze([
+  { id: 'quit-campaign', label: 'QUIT', shortcut: 'Q' },
+]);
+
 const AIM_MODE_LABEL = Object.freeze({
   [MODE.IDLE]: '',
   [MODE.FIRE_AIM]: 'FIRE — pick a direction',
@@ -112,6 +116,24 @@ const CSS = `
   align-items: end;
   gap: 8px;
   pointer-events: none;
+}
+
+.meta-row {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.meta-btn {
+  min-width: 72px;
+  border-color: #5a3030;
+  color: #f0c0c0;
+}
+
+.meta-btn .shortcut {
+  opacity: 0.75;
 }
 
 .aim-banner {
@@ -244,8 +266,11 @@ class TouchPad extends HTMLElement {
 
     this.#banner = h('div', { className: 'aim-banner', role: 'status' });
     const dpad = this.#buildDpad();
+    const metaRow = this.#buildMetaActions();
     const actions = this.#buildActions();
-    shadow.appendChild(h('div', { className: 'shell' }, [this.#banner, dpad, h('div'), actions]));
+    shadow.appendChild(
+      h('div', { className: 'shell' }, [this.#banner, metaRow, dpad, h('div'), actions])
+    );
 
     this.#boundOnPointerDown = this.#onPointerDown.bind(this);
     this.addEventListener('pointerdown', this.#boundOnPointerDown, POINTER_DOWN_OPTS);
@@ -326,6 +351,27 @@ class TouchPad extends HTMLElement {
       return btn;
     });
     return h('div', { className: 'dpad', role: 'group', ariaLabel: 'Movement directions' }, cells);
+  }
+
+  #buildMetaActions() {
+    const buttons = META_BUTTONS.map(({ id, label, shortcut }) => {
+      const btn = h(
+        'button',
+        {
+          className: 'meta-btn',
+          type: 'button',
+          ariaLabel: `${label} campaign`,
+        },
+        [
+          h('span', { className: 'label', textContent: label }),
+          h('span', { className: 'shortcut', textContent: shortcut }),
+        ]
+      );
+      btn.dataset.button = id;
+      this.#buttonsById.set(id, btn);
+      return btn;
+    });
+    return h('div', { className: 'meta-row', role: 'group', ariaLabel: 'Campaign' }, buttons);
   }
 
   #buildActions() {

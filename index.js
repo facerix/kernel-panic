@@ -67,7 +67,7 @@ let visionMoveUnsub = null;
 
 let canvas, statusEl, renderer, crt;
 let stageEl;
-let briefingEl, crashEl, systemStartEl, resumeModalEl, touchPadEl;
+let briefingEl, crashEl, systemStartEl, resumeModalEl, quitCampaignModalEl, touchPadEl;
 let crewRosterEl, keyHelpEl;
 let keyboard;
 
@@ -116,6 +116,7 @@ async function boot() {
   crashEl = document.getElementById('crash');
   systemStartEl = document.getElementById('system-start');
   resumeModalEl = document.getElementById('resume-modal');
+  quitCampaignModalEl = document.getElementById('quit-campaign-modal');
   touchPadEl = document.getElementById('touch-pad');
   crewRosterEl = document.getElementById('crew-roster');
   keyHelpEl = document.getElementById('key-help');
@@ -164,6 +165,13 @@ async function boot() {
         return;
       }
       tryShowKeyHelpOverlay();
+    });
+  }
+
+  if (quitCampaignModalEl) {
+    quitCampaignModalEl.addEventListener('confirm', evt => {
+      if (evt.detail?.context?.kind !== 'quit-campaign') return;
+      performQuitCampaign();
     });
   }
 
@@ -348,7 +356,42 @@ function resumeCampaign(record) {
 // Intent handling
 // ---------------------------------------------------------------------------
 
+function isConfirmationDialogOpen(el) {
+  const dialog = el?.shadowRoot?.querySelector('dialog');
+  return Boolean(dialog?.open);
+}
+
+function presentQuitCampaignConfirm() {
+  if (!quitCampaignModalEl || !campaign) return;
+  if (isConfirmationDialogOpen(quitCampaignModalEl)) return;
+  quitCampaignModalEl.showModal(
+    'Delete this campaign and all progress? This cannot be undone.',
+    { kind: 'quit-campaign' }
+  );
+}
+
+function performQuitCampaign() {
+  if (!campaign) return;
+  keyHelpEl?.hide();
+  briefingEl?.hide();
+  crashEl?.hide();
+  crewRosterEl?.hide();
+  pendingContract = null;
+  pendingJobResult = null;
+  dataStore.deleteCampaign();
+  startFreshCampaign();
+  flash('Campaign deleted — new campaign.');
+  canvas?.focus();
+}
+
 function handleIntent(intent) {
+  if (intent?.type === 'quit-campaign') {
+    resetInputModes();
+    if (!campaign) return;
+    presentQuitCampaignConfirm();
+    return;
+  }
+
   const run = currentScene();
   if (!run) return;
   // BRIEFING / RESULT swallow gameplay intents — JACK IN / NEW RUN drive
@@ -825,7 +868,8 @@ function isAnyBlockingModalOpen() {
   if (crewRosterEl?.isOpen) return true;
   // <confirmation-modal> uses a native <dialog> internally; treat any open
   // attribute as "blocking".
-  if (resumeModalEl?.hasAttribute('open')) return true;
+  if (isConfirmationDialogOpen(resumeModalEl)) return true;
+  if (isConfirmationDialogOpen(quitCampaignModalEl)) return true;
   return false;
 }
 

@@ -107,12 +107,23 @@ test('SPECIAL_AIM + non-directional key stays in SPECIAL_AIM with no intent', ()
   assert.equal(r.nextMode, MODE.SPECIAL_AIM);
 });
 
-test('dispatch is case-sensitive for letter keys (uppercase is ignored)', () => {
+test('dispatch is case-sensitive for letter keys (uppercase is ignored except Q)', () => {
   assert.deepEqual(dispatch('X', MODE.IDLE), noIdleChange());
-  assert.deepEqual(dispatch('Q', MODE.IDLE), noIdleChange());
   assert.deepEqual(dispatch('W', MODE.IDLE), noIdleChange());
   assert.deepEqual(dispatch('F', MODE.IDLE), noIdleChange());
   assert.deepEqual(dispatch('I', MODE.IDLE), noIdleChange());
+});
+
+test('IDLE + Q emits quit-campaign intent', () => {
+  const r = dispatch('Q', MODE.IDLE);
+  assert.deepEqual(r.intent, { type: 'quit-campaign' });
+  assert.equal(r.nextMode, MODE.IDLE);
+});
+
+test('FIRE_AIM + Q stays in FIRE_AIM (quit is IDLE-only)', () => {
+  const r = dispatch('Q', MODE.FIRE_AIM);
+  assert.equal(r.intent, null);
+  assert.equal(r.nextMode, MODE.FIRE_AIM);
 });
 
 test('dispatch rejects an unknown mode (crash over silent fallback)', () => {

@@ -6,6 +6,7 @@ import {
   syntheticKeyFor,
   TOUCHPAD_ACTIONS,
   TOUCHPAD_DIRECTIONS,
+  TOUCHPAD_SHELL_ACTIONS,
 } from '../../../src/input/touchpad.js';
 import { MODE } from '../../../src/input/keymap.js';
 
@@ -44,6 +45,26 @@ test('syntheticKeyFor resolves actions to keymap keys', () => {
   assert.equal(syntheticKeyFor('end-turn'), '.');
   assert.equal(syntheticKeyFor('cancel'), 'Escape');
   assert.equal(syntheticKeyFor('interact'), ' ');
+});
+
+test('TOUCHPAD_SHELL_ACTIONS lists shell-only buttons', () => {
+  assert.deepEqual([...TOUCHPAD_SHELL_ACTIONS].sort(), ['quit-campaign']);
+});
+
+test('syntheticKeyFor resolves quit-campaign to Q', () => {
+  assert.equal(syntheticKeyFor('quit-campaign'), 'Q');
+});
+
+test('IDLE + quit-campaign touch button emits quit-campaign intent', () => {
+  const r = dispatchTouchAction('quit-campaign', MODE.IDLE);
+  assert.deepEqual(r.intent, { type: 'quit-campaign' });
+  assert.equal(r.nextMode, MODE.IDLE);
+});
+
+test('FIRE_AIM + quit-campaign touch button stays in FIRE_AIM', () => {
+  const r = dispatchTouchAction('quit-campaign', MODE.FIRE_AIM);
+  assert.equal(r.intent, null);
+  assert.equal(r.nextMode, MODE.FIRE_AIM);
 });
 
 test('syntheticKeyFor throws on an unknown button (crash > silent fallback)', () => {

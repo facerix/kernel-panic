@@ -9,7 +9,9 @@
  * "special action") enters an aiming mode where the next directional press
  * resolves into a targeted intent. Wait / pass turn is `.` in IDLE
  * (`end-turn` intent). Interact (Curator, Terminal, …) is Space in IDLE;
- * `i` is unbound (reserved for a future inventory milestone).
+ * `i` is unbound (reserved for a future inventory milestone). `Q` emits
+ * `quit-campaign` in IDLE only — the shell confirms, deletes the save, and
+ * starts a new campaign (not routed through `applyIntent`).
  *
  * The archetype-specific perks — Merc's Vault, Razor's Slide, Tech's Deploy
  * Turret — collapse into a single `special` intent here at the dispatcher
@@ -65,6 +67,8 @@ function dispatchIdle(key) {
     return { intent: { type: 'move', dx: dir[0], dy: dir[1] }, nextMode: MODE.IDLE };
   }
   switch (key) {
+    case 'Q':
+      return { intent: { type: 'quit-campaign' }, nextMode: MODE.IDLE };
     case '.':
       // Wait / pass turn — same intent as the touch-pad WAIT button (`.`).
       return { intent: { type: 'end-turn' }, nextMode: MODE.IDLE };

@@ -74,6 +74,12 @@ export const HELP_ROWS = Object.freeze([
     group: 'system',
   },
   {
+    keys: Object.freeze(['Q']),
+    label: 'Quit campaign (delete save, confirm)',
+    scope: 'both',
+    group: 'system',
+  },
+  {
     keys: Object.freeze(['Escape']),
     label: 'Cancel / close',
     scope: 'both',

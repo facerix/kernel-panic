@@ -289,6 +289,12 @@ function bindUI() {
 
   input = new KeyboardController({
     onIntent: intent => {
+      if (intent?.type === 'quit-campaign') {
+        log('> QUIT CAMPAIGN is only wired in the M8 shell (no-op in harness).');
+        resetInputModes();
+        rerender(activeMode());
+        return;
+      }
       applyIntent(intent);
       rerender(activeMode());
     },
@@ -302,7 +308,14 @@ function bindUI() {
   touchPad = document.getElementById('touch-pad');
   if (touchPad) {
     touchPad.addEventListener('intent', evt => {
-      applyIntent(evt.detail);
+      const intent = evt.detail;
+      if (intent?.type === 'quit-campaign') {
+        log('> QUIT CAMPAIGN is only wired in the M8 shell (no-op in harness).');
+        resetInputModes();
+        rerender(activeMode());
+        return;
+      }
+      applyIntent(intent);
       rerender(activeMode());
     });
     touchPad.addEventListener('mode-change', evt => {
