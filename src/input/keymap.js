@@ -77,6 +77,11 @@ function dispatchIdle(key) {
       // → briefing, future terminals/items in combat). Keymap stays dumb;
       // the shell decides what `interact` means in the current Run.state.
       return { intent: { type: 'interact' }, nextMode: MODE.IDLE };
+    case 'i':
+      // Inventory — opens the consumable inventory during combat. The shell
+      // presents `<item-inventory>` and handles `use-item` events. In the Hub
+      // this is a no-op (Finn's shop uses Space-interact).
+      return { intent: { type: 'inventory' }, nextMode: MODE.IDLE };
     case 'Escape':
       return { intent: { type: 'cancel' }, nextMode: MODE.IDLE };
     case 'f':

@@ -19,6 +19,7 @@ export const TILE = Object.freeze({
   WALL: 1,
   COVER: 2,
   EXIT: 3,
+  SMOKE: 4,
 });
 
 export const FACTION = Object.freeze({
@@ -85,6 +86,14 @@ export const RANGED_DAMAGE = 1;
 export const MELEE_DAMAGE = 2;
 
 /**
+ * Vault (Merc perk). Breach-and-clear slam: hop over cover, body-check a
+ * hostile on the landing tile for VAULT_DAMAGE, knock them back 1 tile in
+ * the vault direction. Repeatable (no one-shot gate). Damage matches melee
+ * — the positional cost of lining up a clear knockback lane is the gate.
+ */
+export const VAULT_DAMAGE = 2;
+
+/**
  * How far an entity can see/shoot, in tiles. Enforced as a Euclidean
  * (circular) distance — `dx² + dy² ≤ SIGHT_RANGE²` — so an open shot at
  * (8, 0) is in range but (8, 8) is not. Combat and Vision share the
@@ -110,6 +119,24 @@ export const SIGHT_RANGE = 8;
 export const SALVAGE_DROP_MIN = 1;
 export const SALVAGE_DROP_MAX = 3;
 export const SALVAGE_PER_IMPROVISED_TURRET = 2;
+
+/**
+ * Finn's shop — item tuning constants. Job-scoped consumables are lost on
+ * job end; campaign-scoped gear persists until campaign wipe; meta upgrades
+ * survive even a full campaign wipe.
+ */
+export const STIM_HEAL = 2;
+export const SMOKE_RADIUS = 2;
+export const SMOKE_DURATION_TURNS = 1;
+export const TARGETING_BONUS = 0.1;
+
+export const SHOP_COST = Object.freeze({
+  STIM: 2,
+  SMOKE_CHARGE: 3,
+  ARMOUR_PLATING: 6,
+  TARGETING_CHIP: 8,
+  EXPANDED_CATALOG: 15,
+});
 
 export const NOISE_RADIUS = Object.freeze({
   MOVE: 3,

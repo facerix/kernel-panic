@@ -194,9 +194,9 @@ test('MELEE_AIM + non-directional key stays in MELEE_AIM with no intent', () => 
 
 // --- M8: context-sensitive interact verb (Space) ----------------------
 
-test('IDLE + i is a no-op (reserved for future inventory)', () => {
+test('IDLE + i emits inventory intent (M4)', () => {
   const r = dispatch('i', MODE.IDLE);
-  assert.equal(r.intent, null);
+  assert.deepStrictEqual(r.intent, { type: 'inventory' });
   assert.equal(r.nextMode, MODE.IDLE);
 });
 

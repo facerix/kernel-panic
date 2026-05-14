@@ -84,7 +84,9 @@ export function resolveRanged(world, attacker, target, rng, options = {}) {
   // gameplay quirk — surface it loudly per the project's no-silent-fallback
   // rule. 0 and 1 are valid (always-miss / always-hit).
   const inCover = hasCoverBetween(world.grid, attacker.x, attacker.y, target.x, target.y);
-  const baseHit = options.baseHit ?? BASE_HIT_CHANCE;
+  // M4: crew gear's targeting chip adds hitBonus to the base chance.
+  const gearBonus = attacker.gear?.hitBonus ?? 0;
+  const baseHit = options.baseHit ?? BASE_HIT_CHANCE + gearBonus;
   const coverPenalty = options.coverPenalty ?? COVER_HIT_PENALTY;
   const threshold = inCover ? baseHit - coverPenalty : baseHit;
   if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1) {

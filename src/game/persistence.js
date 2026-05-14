@@ -208,6 +208,7 @@ export function restoreCampaign(record, options = {}) {
     campaign.bus = null;
     campaign.player = null;
     campaign.curator = null;
+    campaign.finn = null;
     campaign.terminal = null;
     campaign.exitTile = null;
   } else {
@@ -221,6 +222,7 @@ export function restoreCampaign(record, options = {}) {
     campaign.bus = null;
     campaign.player = null;
     campaign.curator = null;
+    campaign.finn = null;
     campaign.terminal = null;
     campaign.exitTile = null;
   }

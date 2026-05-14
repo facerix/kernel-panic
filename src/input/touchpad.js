@@ -36,6 +36,7 @@ const ACTION_KEYS = Object.freeze({
   melee: 'm',
   special: 'x',
   interact: ' ',
+  inventory: 'i',
   'end-turn': '.',
   cancel: 'Escape',
 });

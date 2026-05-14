@@ -30,9 +30,10 @@
  * harness assumption.
  */
 
-import { FACTION, SIGHT_RANGE } from '../game/constants.js';
+import { FACTION, SIGHT_RANGE, VAULT_DAMAGE, NOISE_RADIUS } from '../game/constants.js';
 import { canFireRanged, resolveRanged, canMelee, resolveMelee } from '../game/Combat.js';
 import { hasLineOfSight, withinRange } from '../game/LineOfSight.js';
+import { EVENT } from '../game/events.js';
 
 /**
  * @typedef {{
@@ -52,6 +53,7 @@ const KNOWN_INTENT_TYPES = new Set([
   'melee',
   'fire',
   'interact',
+  'inventory',
   'end-turn',
   'cancel',
 ]);
@@ -85,6 +87,8 @@ export function applyIntent(intent, ctx) {
       return doFire(intent, ctx);
     case 'interact':
       return doInteract(ctx);
+    case 'inventory':
+      return doInventory(ctx);
     case 'end-turn': {
       const apBefore = player.ap;
       log(`> @ waits (drops ${apBefore} AP).`);
@@ -216,41 +220,45 @@ function doDeploy(intent, ctx) {
 }
 
 function doVault(intent, ctx) {
-  const { world, player, rng, log, advanceTurn } = ctx;
-  // `doSpecial` already gated this on `canVault`, so the method must exist;
-  // we go straight into the legality check.
+  const { world, player, log, advanceTurn } = ctx;
   const check = player.canVault(world, intent.dx, intent.dy);
   if (!check.ok) {
     log(`> VAULT DENIED: ${check.reason}`);
     return;
   }
-  player.vault(world, intent.dx, intent.dy);
 
-  // Vault-while-firing: attempt a free shot in the vault direction from the
-  // landing position. The 3 AP vault cost covers both the hop and the shot
-  // (blueprint: "Hop over cover while firing"). If no hostile is in the
-  // vault direction, the vault still succeeds as a pure movement perk.
-  const target = pickFireTarget(ctx, intent.dx, intent.dy);
-  if (target) {
-    const fireCheck = canFireRanged(world, player, target, { freeShot: true });
-    if (fireCheck.ok) {
-      const result = resolveRanged(world, player, target, rng, { freeShot: true });
-      log(
-        `> @ vaulted to (${player.x}, ${player.y}) and fires at ${target.id} — ` +
-          `${result.hit ? 'HIT' : 'miss'} (roll ${result.roll.toFixed(2)} vs ${result.threshold.toFixed(2)}` +
-          `${result.inCover ? ', cover' : ''}).` +
-          (result.killed ? ` ${target.id.toUpperCase()} DOWN.` : '') +
-          ` — ${player.ap} AP left.`
-      );
-      if (player.ap === 0) {
-        log('> AP EXHAUSTED — auto-ending turn.');
-        advanceTurn();
-      }
-      return;
-    }
+  // vault() handles the hop, knockback displacement, and AP debit.
+  // It returns the occupant (if any) so we can apply damage here — keeping
+  // Combat event wiring in the intent layer, not inside the archetype.
+  const { occupant } = player.vault(world, intent.dx, intent.dy);
+
+  if (occupant) {
+    // Body-check: guaranteed hit, VAULT_DAMAGE, no RNG roll.
+    occupant.damage(VAULT_DAMAGE);
+    const killed = !occupant.alive;
+    world.events?.emit(EVENT.ENTITY_DAMAGED, {
+      attacker: player,
+      target: occupant,
+      damage: VAULT_DAMAGE,
+      killed,
+      source: 'vault',
+    });
+    // A charging slam is loud — same noise radius as melee.
+    world.events?.emit(EVENT.NOISE, {
+      origin: { x: player.x, y: player.y },
+      radius: NOISE_RADIUS.MELEE,
+      source: player,
+      kind: 'vault',
+    });
+    log(
+      `> @ vaulted to (${player.x}, ${player.y}) — SLAMMED ${occupant.id} for ${VAULT_DAMAGE} damage!` +
+        (killed ? ` ${occupant.id.toUpperCase()} DOWN.` : '') +
+        ` — ${player.ap} AP left.`
+    );
+  } else {
+    log(`> @ vaulted to (${player.x}, ${player.y}) — ${player.ap} AP left.`);
   }
 
-  log(`> @ vaulted to (${player.x}, ${player.y}) — ${player.ap} AP left.`);
   if (player.ap === 0) {
     log('> AP EXHAUSTED — auto-ending turn.');
     advanceTurn();
@@ -310,6 +318,15 @@ function doInteract(ctx) {
     throw new Error('applyIntent: interact intent received but ctx.onInteract is missing');
   }
   ctx.onInteract();
+}
+
+function doInventory(ctx) {
+  // Inventory is a UI-layer verb — the shell presents the consumable list
+  // and handles the `use-item` event. Same delegation pattern as `interact`.
+  if (typeof ctx.onInventory !== 'function') {
+    throw new Error('applyIntent: inventory intent received but ctx.onInventory is missing');
+  }
+  ctx.onInventory();
 }
 
 function doFire(intent, ctx) {

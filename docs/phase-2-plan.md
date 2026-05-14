@@ -10,7 +10,7 @@ Living plan for Phase 2 of Kernel Panic. Source of truth for milestone scope, cu
 | M1 — Tech archetype + Deploy Turret | ✅ Done |
 | M2 — Campaign layer + named crew roster | ✅ Done |
 | M3 — Salvage + inventory + improvised turrets | ✅ Done |
-| M4 — Finn's shop | ⬜ Pending |
+| M4 — Finn's shop | ✅ Done |
 | M5 — Vouch + NPC taxonomy | ⬜ Pending |
 | M6 — Recruitment | ⬜ Pending |
 | M7 — Combat depth + procgen | ⬜ Pending |
@@ -51,6 +51,19 @@ Test count at Phase 2 start: **409 passing** (end of Phase 1 / M8).
 - **Interact key rebound to Space (M3):** `i` → Space (`' '`). Roguelike players associate `i` with inventory (which M4's Finn shop will want). Space is the universal "activate" key in modern games — accessible, no directional collision (qezc diagonals, WASD, arrows all occupied). Keymap, touchpad, key-help rows, and proximity hints all updated. `i` is now unbound, reserved for inventory in M4.
 - **Changed keyboard mapping to case-sensitive (M3):** In order to free up keyboard space for more commands, and taking inspiration from classic Roguelikes, key bindings are now case-sensitive.
 - **Universal Quit key:** `Q` is now how a player quits / deletes their current campaign to start a new one.
+- **Finn placement (M4):** Finn spawns at `(5, 2)` in the Hub — top row center, forming a row of NPCs (Curator at (2,2), Finn at (5,2), Terminal at (9,2)). Interact with Space (same key as all Hub NPCs). The plan's `(2, 2)` was a collision with the Curator.
+- **Inventory key (M4):** `i` opens the consumable inventory during combat. Space remains the interact key for Hub NPCs (Finn, Curator, Terminal) and combat loot. `i` is combat-only; in the Hub it's a no-op.
+- **Consumables fully usable (M4):** Both Stim and Smoke Charge are fully implemented in M4. Stim heals `STIM_HEAL` HP (capped at maxHp), costs `AP_COST.INTERACT`. Smoke Charge places `TILE.SMOKE` tiles in Chebyshev radius `SMOKE_RADIUS` around the player — passable but blocks LOS. Smoke clears at the start of the player's next turn (protects through one corp turn).
+- **Expanded Catalog gate stubbed (M4):** The `expandedCatalog` meta-upgrade flag is stored and the catalog respects it (hides the item once purchased), but no rare items exist behind the gate yet. Future milestones can add gated items with `metaGate: 'expandedCatalog'`.
+- **Gear schema (M4):** `Crew.gear = { maxHpBonus: number, hitBonus: number }`. Armour Plating increments `maxHpBonus` and `maxHp`/`hp` directly. Targeting Chip increments `hitBonus` by `TARGETING_BONUS` (0.1). `Combat.resolveRanged` reads `attacker.gear?.hitBonus ?? 0` and adds it to `BASE_HIT_CHANCE` before cover penalty. Gear persists in campaign snapshots.
+- **Campaign-scoped consumable lifecycle (M4):** Consumables are purchased in the Hub (stored in `Crew.inventory.consumables`) and persist as a permanent part of the crew member's loadout until used in combat. They are *not* cleared on job end. `Crew.inventory.salvage` is still zeroed on job end (extracted to the campaign pool or forfeited on death).
+- **HP persists across jobs (M4):** Crew members are *not* healed to full when deployed on a new job. Damage carries between runs. The only Hub-side HP recovery is Armour Plating (+1 maxHp and +1 current hp on purchase). Stims are combat-only. Hub inventory use (e.g. using a Stim outside combat) is deferred — revisit after the Terminal crew-detail view lands.
+- **Vault rework (M4):** Merc's Vault is now a repeatable breach-and-clear slam (no one-shot `vaultReady` gate). AP cost stays at 3. The old free directional shot is removed. New mechanic: if a hostile occupies the landing tile, the Merc body-checks them for `VAULT_DAMAGE` (2, matching melee) and knocks them back 1 tile in the vault direction. Knockback resolves through `World.moveEntity`. Vault is denied when the knockback destination is blocked (wall, entity, OOB) — the Merc needs a clear lane. Landing on an empty tile is pure repositioning (no shot). Landing on a friendly entity is denied. `Merc.canVault` gains hostile-on-landing + knockback-lane checks; `applyIntent.doVault` no longer calls `pickFireTarget` / `resolveRanged`.
+
+- **Crew UI refactor (M4):** Three components replace the old monolithic `<crew-roster>`:
+  - `<crew-list>` — extracted navigable row list (callsign, archetype, HP, status). Pure reusable list, no modal chrome. Emits `select` (highlight changed) and `activate` (Enter/click on a row).
+  - `<crew-roster>` — Terminal view only (no deploy mode). Two-pane layout: `<crew-list>` on the left, detail pane on the right showing the selected member's stats, gear, and consumables. No `mode` parameter.
+  - `<run-briefing>` — Curator job flow. Single modal combining contract details + embedded `<crew-list>` for operative selection. Replaces the old two-step flow (pick crew in roster → show briefing → JACK IN) with a one-step modal. Emits `deploy` with `{ memberId, contract }`.
 
 ## Architecture conventions
 
@@ -135,7 +148,7 @@ Closes the **corpse memorisation** kaizen item (load-bearing for the salvage loo
 - Status lines: combat HUD shows `SAL:N` for carried salvage; Hub shows `SALVAGE N` for campaign pool. Debug harness shows salvage count for Tech.
 - Tests (33 new, 555 total): `Crew.initInventory` + idempotency, `collectSalvage` full legality matrix (adjacency, alive, loot present, AP, inventory init), loot assignment on kill (deterministic, turret kills, non-lethal no-op), inventory initialisation at deploy, corpse memorisation + clear, memorised corpse rendering in frame builder, improvised turret full legality matrix + commit + unique ids, applyIntent routing to improvised turret, campaign persistence round-trip with inventory, keymap/touchpad/keyHelp rebind.
 
-### M4 — Finn's shop ⬜
+### M4 — Finn's shop ✅
 
 - `src/game/hub/Finn.js` — NEUTRAL Hub NPC; `catalog(metaState)` returns an array of `Item` descriptors filtered by which meta-upgrades have been purchased. Placed at `(2, 2)` in the Hub (authored, no collision with Terminal at `(9, 2)` or Curator at their authored position).
 - **Item catalog (Phase 2 initial set):**
@@ -152,6 +165,14 @@ Closes the **corpse memorisation** kaizen item (load-bearing for the salvage loo
 - Hub panel: `<finn-shop>` mounts inside the Hub panel. Finn entity in Hub grid shows `F` glyph; interact (`i`) when adjacent opens the shop (same pattern as Terminal → character-select).
 - `Campaign.js` handles `purchase` events: deducts salvage, applies item effect. Crew-gear effects are stored on `Crew.gear` (e.g. `{ maxHpBonus: 1, hitBonus: 0 }`). `Combat.resolveRanged` reads `attacker.gear?.hitBonus ?? 0`. Meta upgrades stored in `campaign.meta`.
 - Tests: `Finn.test.js` — catalog generation with and without meta-upgrade, purchase validation (insufficient salvage throws), crew-gear application, meta-upgrade flag set; `persistence.test.js` — crew gear survives campaign snapshot round-trip.
+
+**Delivered expansion (M4 tweaks):**
+
+- **HP persists across jobs.** `Run.#makePlayer` no longer resets `hp` to `maxHp`. Damage carries between runs. Armour Plating is the only Hub-side HP recovery. Stims are combat-only for now.
+- **Consumables persist until used.** `Campaign.onJobEnd` no longer clears `inventory.consumables`. Consumables are a permanent part of the crew member's loadout until consumed in combat. Only `inventory.salvage` is zeroed on job end.
+- **Vault rework.** Merc's Vault is now a repeatable breach-and-clear slam. If a hostile occupies the landing tile, the Merc body-checks for `VAULT_DAMAGE` (2) and knocks them back 1 tile in the vault direction. The old directional free shot is removed. Vault is denied when the knockback lane is blocked. See locked-in decisions for the full spec.
+- **Crew UI refactor.** `<crew-list>` extracted as a reusable navigable row list. `<crew-roster>` is now a two-pane Terminal readout (crew list left, stats/gear/consumables detail right). `<run-briefing>` is now a single-modal Curator flow: contract details + crew list + JACK IN button. The old two-step deploy flow (pick crew → briefing → jack in) is collapsed to one step.
+- Tests (614 total): HP persistence across jobs, consumable persistence, Vault body-check + knockback legality matrix (8 tests), applyIntent vault rework (4 tests), Finn glyph fix.
 
 ### M5 — Vouch + NPC taxonomy ⬜
 

@@ -226,7 +226,8 @@ export class Run {
     this.crewMember.y = spawn.y;
     this.crewMember.maxAp = 4;
     this.crewMember.ap = this.crewMember.maxAp;
-    this.crewMember.hp = this.crewMember.maxHp;
+    // HP persists across jobs — no reset. Armour Plating (via Finn) is
+    // the only Hub-side HP recovery. Stims are combat-only.
     this.crewMember.alive = true;
     this.crewMember.stealthed = false;
     this.crewMember.initInventory();

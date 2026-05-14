@@ -7,7 +7,9 @@ import { FACTION } from './constants.js';
 import { buildCrewMember } from './archetypes/index.js';
 import { Curator } from './hub/Curator.js';
 import { Terminal } from './hub/Terminal.js';
+import { Finn } from './hub/Finn.js';
 import { buildHub } from './hub/SafeSpace.js';
+import { getItemById, ITEM_SCOPE, metaKeyFor } from './items.js';
 import { OUTCOME, Run } from './Run.js';
 
 export const CAMPAIGN_STATE = Object.freeze({
@@ -90,6 +92,7 @@ export class Campaign {
     this.bus = null;
     this.player = null;
     this.curator = null;
+    this.finn = null;
     this.terminal = null;
     this.exitTile = null;
 
@@ -116,6 +119,11 @@ export class Campaign {
       x: hub.curatorSpawn.x,
       y: hub.curatorSpawn.y,
     });
+    this.finn = new Finn({
+      id: 'finn',
+      x: hub.finnSpawn.x,
+      y: hub.finnSpawn.y,
+    });
     this.terminal = new Terminal({
       id: 'terminal',
       x: hub.terminalSpawn.x,
@@ -123,6 +131,7 @@ export class Campaign {
     });
     this.world.addEntity(this.player);
     this.world.addEntity(this.curator);
+    this.world.addEntity(this.finn);
     this.world.addEntity(this.terminal);
     this.queue = new TurnQueue([FACTION.PLAYER, FACTION.CORP]);
     this.exitTile = { ...hub.exitTile };
@@ -173,6 +182,13 @@ export class Campaign {
     } else {
       this.salvage += salvage;
     }
+    // Clear job-scoped salvage (extracted or forfeited on death).
+    // Consumables persist in the crew member's inventory until used —
+    // they're a permanent part of the loadout, not job-scoped.
+    const member = this.getCrewMember(this.deployedMemberId);
+    if (member?.inventory) {
+      member.inventory.salvage = 0;
+    }
 
     this.activeRun = null;
     this.deployedMemberId = null;
@@ -196,6 +212,72 @@ export class Campaign {
     member.flatlined = true;
   }
 
+  /**
+   * Purchase an item from Finn's shop. Deducts salvage, applies the item
+   * effect, and persists. Throws on all illegal preconditions (insufficient
+   * salvage, unknown item, duplicate meta purchase) — crash over silent
+   * fallback.
+   *
+   * @param {{ itemId: string, targetMemberId?: string }} opts
+   */
+  purchase({ itemId, targetMemberId } = {}) {
+    if (this.state !== CAMPAIGN_STATE.HUB) {
+      throw new Error(`Campaign.purchase: illegal from ${this.state}`);
+    }
+    const item = getItemById(itemId);
+    if (this.salvage < item.cost) {
+      throw new Error(
+        `Campaign.purchase: insufficient salvage (have ${this.salvage}, need ${item.cost})`
+      );
+    }
+    // Validate target for items that need one.
+    let target = null;
+    if (item.needsTarget) {
+      if (!targetMemberId) {
+        throw new Error(`Campaign.purchase: "${itemId}" requires a target crew member`);
+      }
+      target = this.getCrewMember(targetMemberId);
+      if (!target) {
+        throw new Error(`Campaign.purchase: unknown crew member "${targetMemberId}"`);
+      }
+      if (target.flatlined) {
+        throw new Error(`Campaign.purchase: ${target.callsign ?? target.id} is flatlined`);
+      }
+    }
+    // Prevent duplicate unique meta purchases.
+    if (item.unique && item.scope === ITEM_SCOPE.META) {
+      const key = metaKeyFor(itemId);
+      if (key && this.meta[key]) {
+        throw new Error(`Campaign.purchase: meta upgrade "${itemId}" already purchased`);
+      }
+    }
+
+    // Commit: deduct salvage first, then apply effect.
+    this.salvage -= item.cost;
+
+    switch (item.scope) {
+      case ITEM_SCOPE.JOB:
+        // Consumables go into the crew member's inventory and persist until
+        // used (not cleared on job end despite the JOB scope label).
+        target.addConsumable(itemId);
+        break;
+      case ITEM_SCOPE.CAMPAIGN:
+        // Campaign-scoped gear applies a permanent bonus to the crew member.
+        target.applyGear(itemId);
+        break;
+      case ITEM_SCOPE.META: {
+        // Meta upgrades set a flag on the campaign meta object.
+        const key = metaKeyFor(itemId);
+        if (key) this.meta[key] = true;
+        break;
+      }
+      default:
+        throw new Error(`Campaign.purchase: unknown scope "${item.scope}"`);
+    }
+
+    this.#persist();
+  }
+
   getCrewMember(memberId) {
     return this.crew.find(member => member.id === memberId) ?? null;
   }
@@ -215,6 +297,7 @@ export class Campaign {
     this.bus = null;
     this.player = null;
     this.curator = null;
+    this.finn = null;
     this.terminal = null;
     this.exitTile = null;
   }

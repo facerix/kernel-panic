@@ -26,18 +26,27 @@ export const CALLSIGNS = Object.freeze([
 ]);
 
 /**
- * Merc — ranged-combat archetype. Phase-1 perk: **Vault**.
+ * Merc — ranged-combat archetype. Perk: **Vault** (breach-and-clear slam).
  *
  * Vault hops a single COVER tile and lands two squares away in the same
  * direction. The hopped tile must be COVER (the whole point of the perk) and
- * the landing tile must be passable, in-bounds, and unoccupied. Diagonal
- * vaults are allowed under the same Chebyshev rule the rest of movement uses.
+ * the landing tile must be passable and in-bounds. Diagonal vaults are
+ * allowed under the same Chebyshev rule the rest of movement uses.
  *
- * Vault doubles as a fire action — "hop over cover while firing" per the
- * blueprint. The shot is resolved by `applyIntent.doVault` (free shot from
- * the landing position in the vault direction, normal hit/cover math, no
- * extra AP cost). If no hostile is in the vault vector, the hop still
- * succeeds as a pure movement perk.
+ * Vault is repeatable (no one-shot gate) — the AP cost is the only limit.
+ *
+ * If a hostile entity occupies the landing tile, the Merc body-checks them:
+ *   - The hostile takes `VAULT_DAMAGE` (2).
+ *   - The hostile is knocked back 1 tile in the vault direction.
+ *   - The Merc lands on the tile the hostile vacated.
+ *
+ * Vault is denied when:
+ *   - A hostile is on the landing tile but the knockback destination is
+ *     blocked (wall, OOB, occupied) — the Merc needs a clear lane.
+ *   - A friendly entity occupies the landing tile.
+ *   - The landing tile is not walkable terrain (FLOOR or EXIT).
+ *
+ * If the landing tile is empty, vault is pure repositioning (no damage).
  */
 export class Merc extends Crew {
   constructor(props) {
@@ -75,30 +84,72 @@ export class Merc extends Crew {
     if (landTile !== TILE.FLOOR && landTile !== TILE.EXIT) {
       return { ok: false, reason: 'blocked' };
     }
-    if (world.entityAt(landX, landY)) {
-      return { ok: false, reason: 'occupied' };
+
+    const occupant = world.entityAt(landX, landY);
+    if (occupant) {
+      if (occupant.faction === this.faction) {
+        // Can't body-check an ally.
+        return { ok: false, reason: 'friendly-occupied' };
+      }
+      // Hostile on the landing tile — need a clear knockback lane.
+      const kbX = landX + dx;
+      const kbY = landY + dy;
+      if (!world.grid.inBounds(kbX, kbY)) {
+        return { ok: false, reason: 'knockback-oob' };
+      }
+      const kbTile = world.grid.tileAt(kbX, kbY);
+      if (kbTile !== TILE.FLOOR && kbTile !== TILE.EXIT && kbTile !== TILE.COVER) {
+        return { ok: false, reason: 'knockback-blocked' };
+      }
+      if (world.entityAt(kbX, kbY)) {
+        return { ok: false, reason: 'knockback-occupied' };
+      }
     }
 
-    return { ok: true };
+    return { ok: true, occupant: occupant ?? null };
   }
 
+  /**
+   * Execute the vault. Moves the Merc, and if a hostile occupies the landing
+   * tile, knocks them back first. Damage is applied by `applyIntent.doVault`
+   * (not here) so that Merc.vault stays a pure movement+knockback operation
+   * and Combat event wiring remains in the intent layer.
+   *
+   * Returns `{ occupant }` — the entity that was knocked back, or null.
+   * The caller uses this to apply VAULT_DAMAGE via the damage system.
+   */
   vault(world, dx, dy) {
     const check = this.canVault(world, dx, dy);
     if (!check.ok) {
       throw new Error(`Illegal vault for ${this.id}: ${check.reason}`);
     }
+
     const from = { x: this.x, y: this.y };
+    const occupant = check.occupant;
+
+    // Knockback hostile before Merc lands.
+    if (occupant) {
+      const kbFrom = { x: occupant.x, y: occupant.y };
+      occupant.x += dx;
+      occupant.y += dy;
+      world.events?.emit(EVENT.ENTITY_MOVED, {
+        entity: occupant,
+        from: kbFrom,
+        to: { x: occupant.x, y: occupant.y },
+      });
+    }
+
     this.spendAp(AP_COST.VAULT);
     this.x += 2 * dx;
     this.y += 2 * dy;
     // Emit ENTITY_MOVED so vision recompute and AI hooks pick the vault up
-    // like any other reposition. The shot (if any) is resolved by the intent
-    // handler *after* this method returns — Merc.vault stays a pure movement
-    // perk; Combat.resolveRanged emits its own NOISE event for the gunshot.
+    // like any other reposition.
     world.events?.emit(EVENT.ENTITY_MOVED, {
       entity: this,
       from,
       to: { x: this.x, y: this.y },
     });
+
+    return { occupant };
   }
 }

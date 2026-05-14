@@ -50,7 +50,7 @@ function buildCtx({ archetype = 'merc', placeDrone = true } = {}) {
   const rng = new Rng(1);
 
   const log = [];
-  const calls = { advanceTurn: 0, resetInputModes: 0, interact: 0 };
+  const calls = { advanceTurn: 0, resetInputModes: 0, interact: 0, inventory: 0 };
   const ctx = {
     world,
     player,
@@ -66,6 +66,9 @@ function buildCtx({ archetype = 'merc', placeDrone = true } = {}) {
     },
     onInteract: () => {
       calls.interact++;
+    },
+    onInventory: () => {
+      calls.inventory++;
     },
   };
   return { ctx, log, calls, drone, world, player, queue };
@@ -180,31 +183,31 @@ test('interact intent crashes when ctx.onInteract is missing (no silent no-op)',
   assert.throws(() => applyIntent({ type: 'interact' }, ctx), /onInteract/);
 });
 
-// --- Vault-while-firing (via the unified `special` intent) ---------------
+// --- Vault body-check + knockback (via the unified `special` intent) -----
 
-test('special on a Merc resolves a free shot at the first hostile in the vault direction', () => {
-  const { ctx, log, player } = buildCtx({ archetype: 'merc' });
-  // Player at (2,2), cover at (3,2), land at (4,2), drone at (7,2).
-  // Special east on a Merc should land AND fire at the drone.
+test('vault body-check deals VAULT_DAMAGE and knocks hostile back', () => {
+  // Place a drone on the vault landing tile (4,2) with open knockback at (5,2).
+  const { ctx, log, player, world } = buildCtx({ archetype: 'merc', placeDrone: false });
+  const drone = new CorpDrone({ id: 'd1', x: 4, y: 2, maxAp: 3 });
+  world.addEntity(drone);
+  const hpBefore = drone.hp;
   applyIntent({ type: 'special', dx: 1, dy: 0 }, ctx);
-  assert.equal(player.x, 4, 'player landed at vault destination');
-  assert.ok(
-    log.some(l => l.includes('fires at')),
-    'log mentions the shot'
-  );
-  // The shot was attempted — HP may or may not have changed depending on RNG,
-  // but the intent handler must not have thrown.
+  assert.equal(player.x, 4, 'Merc lands where the hostile was');
+  assert.equal(drone.x, 5, 'hostile knocked back 1 tile east');
+  assert.equal(drone.hp, hpBefore - 2, 'hostile took VAULT_DAMAGE (2)');
+  assert.ok(log.some(l => l.includes('SLAMMED')), 'log mentions the slam');
 });
 
-test('vault-while-fire does not debit extra AP beyond the vault cost', () => {
-  const { ctx, player } = buildCtx({ archetype: 'merc' });
+test('vault body-check does not debit extra AP beyond the vault cost', () => {
+  const { ctx, player, world } = buildCtx({ archetype: 'merc', placeDrone: false });
+  const drone = new CorpDrone({ id: 'd1', x: 4, y: 2, maxAp: 3 });
+  world.addEntity(drone);
   const apBefore = player.ap; // 4
   applyIntent({ type: 'special', dx: 1, dy: 0 }, ctx);
-  // Vault costs 3 AP; no additional AP for the shot.
-  assert.equal(player.ap, apBefore - 3, 'only vault AP spent, shot is free');
+  assert.equal(player.ap, apBefore - 3, 'only vault AP spent, slam is free');
 });
 
-test('vault succeeds without a shot when no hostile is in the vault direction', () => {
+test('vault on empty tile is pure repositioning (no damage log)', () => {
   const { ctx, log, player } = buildCtx({ archetype: 'merc', placeDrone: false });
   applyIntent({ type: 'special', dx: 1, dy: 0 }, ctx);
   assert.equal(player.x, 4, 'vault still lands');
@@ -212,7 +215,18 @@ test('vault succeeds without a shot when no hostile is in the vault direction', 
     log.some(l => l.includes('vaulted to')),
     'log mentions the vault'
   );
-  assert.ok(!log.some(l => l.includes('fires at')), 'no shot logged');
+  assert.ok(!log.some(l => l.includes('SLAMMED')), 'no slam logged');
+});
+
+test('vault denied when knockback lane is blocked', () => {
+  const { ctx, log, player, world } = buildCtx({ archetype: 'merc', placeDrone: false });
+  // Place drone at (4,2) and wall at (5,2) to block knockback.
+  const drone = new CorpDrone({ id: 'd1', x: 4, y: 2, maxAp: 3 });
+  world.addEntity(drone);
+  ctx.world.grid.setTile(5, 2, TILE.WALL);
+  applyIntent({ type: 'special', dx: 1, dy: 0 }, ctx);
+  assert.equal(player.x, 2, 'Merc stays put');
+  assert.ok(log.some(l => l.includes('VAULT DENIED')));
 });
 
 test('AP exhaustion triggers auto-end-turn during a move', () => {

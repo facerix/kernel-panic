@@ -141,3 +141,153 @@ test('onJobEnd flatlines deaths and ends the campaign when everyone is gone', ()
     [true, true, true]
   );
 });
+
+// --- M4: Campaign spawns Finn in the Hub ----------------------------------
+
+test('Campaign Hub world includes Finn NPC', () => {
+  const campaign = new Campaign({ seed: 42 });
+  assert.ok(campaign.finn, 'Finn should be spawned in the Hub');
+  assert.equal(campaign.finn.glyph, '¥');
+  assert.equal(campaign.finn.faction, 'neutral');
+});
+
+// --- M4: Campaign.purchase ------------------------------------------------
+
+test('purchase deducts salvage and adds a consumable to the target crew member', () => {
+  const campaign = new Campaign({ seed: 42, salvage: 10 });
+  const member = campaign.crew[0];
+  campaign.purchase({ itemId: 'stim', targetMemberId: member.id });
+  assert.equal(campaign.salvage, 10 - 2); // SHOP_COST.STIM = 2
+  assert.ok(member.inventory, 'inventory should be initialised after purchase');
+  assert.equal(member.inventory.consumables.length, 1);
+  assert.equal(member.inventory.consumables[0].id, 'stim');
+});
+
+test('purchase applies campaign-scoped gear bonus (armour plating)', () => {
+  const campaign = new Campaign({ seed: 42, salvage: 20 });
+  const member = campaign.crew[0];
+  const origMaxHp = member.maxHp;
+  campaign.purchase({ itemId: 'armour-plating', targetMemberId: member.id });
+  assert.equal(campaign.salvage, 20 - 6); // SHOP_COST.ARMOUR_PLATING = 6
+  assert.equal(member.maxHp, origMaxHp + 1);
+  assert.equal(member.gear.maxHpBonus, 1);
+});
+
+test('purchase applies targeting chip gear bonus', () => {
+  const campaign = new Campaign({ seed: 42, salvage: 20 });
+  const member = campaign.crew[0];
+  campaign.purchase({ itemId: 'targeting-chip', targetMemberId: member.id });
+  assert.equal(member.gear.hitBonus, 0.1);
+});
+
+test('purchase sets meta flag for Expanded Catalog', () => {
+  const campaign = new Campaign({ seed: 42, salvage: 20 });
+  campaign.purchase({ itemId: 'expanded-catalog' });
+  assert.equal(campaign.meta.expandedCatalog, true);
+  assert.equal(campaign.salvage, 20 - 15);
+});
+
+test('purchase rejects duplicate unique meta upgrades', () => {
+  const campaign = new Campaign({ seed: 42, salvage: 40 });
+  campaign.purchase({ itemId: 'expanded-catalog' });
+  assert.throws(() => campaign.purchase({ itemId: 'expanded-catalog' }), /already purchased/i);
+});
+
+test('purchase throws on insufficient salvage', () => {
+  const campaign = new Campaign({ seed: 42, salvage: 1 });
+  const member = campaign.crew[0];
+  assert.throws(
+    () => campaign.purchase({ itemId: 'stim', targetMemberId: member.id }),
+    /insufficient salvage/i
+  );
+});
+
+test('purchase throws when target is missing for items that need one', () => {
+  const campaign = new Campaign({ seed: 42, salvage: 10 });
+  assert.throws(() => campaign.purchase({ itemId: 'stim' }), /requires a target/i);
+});
+
+test('purchase throws when target is flatlined', () => {
+  const campaign = new Campaign({ seed: 42, salvage: 10 });
+  const member = campaign.crew[0];
+  campaign.flatlineMember(member.id);
+  assert.throws(
+    () => campaign.purchase({ itemId: 'stim', targetMemberId: member.id }),
+    /flatlined/i
+  );
+});
+
+test('purchase is illegal outside HUB state', () => {
+  const campaign = new Campaign({ seed: 42, salvage: 10 });
+  campaign.deployCrewMember(campaign.crew[0].id, fakeContract());
+  assert.throws(
+    () => campaign.purchase({ itemId: 'stim', targetMemberId: campaign.crew[0].id }),
+    /illegal from/i
+  );
+});
+
+// --- M4: onJobEnd clears job-scoped consumables ----------------------------
+
+test('onJobEnd preserves consumables but clears salvage', () => {
+  const campaign = new Campaign({ seed: 42, salvage: 10 });
+  const member = campaign.crew[0];
+  campaign.purchase({ itemId: 'stim', targetMemberId: member.id });
+  campaign.purchase({ itemId: 'stim', targetMemberId: member.id });
+  assert.equal(member.inventory.consumables.length, 2);
+  campaign.deployCrewMember(member.id, fakeContract());
+  campaign.activeRun.enterCombat();
+  campaign.onJobEnd({ outcome: OUTCOME.EXIT, salvage: 0 });
+  assert.equal(member.inventory.consumables.length, 2, 'consumables persist across jobs');
+  assert.equal(member.inventory.salvage, 0, 'salvage zeroed on job end');
+});
+
+test('crew member HP persists across jobs — no free heal on deploy', () => {
+  const campaign = new Campaign({ seed: 42 });
+  const member = campaign.crew[0];
+  const startingHp = member.hp;
+
+  // Deploy and enter combat — member takes damage.
+  campaign.deployCrewMember(member.id, fakeContract());
+  campaign.activeRun.enterCombat();
+  member.hp = startingHp - 2; // simulate taking 2 damage
+  campaign.onJobEnd({ outcome: OUTCOME.EXIT, salvage: 0 });
+  assert.equal(member.hp, startingHp - 2, 'HP should carry back from job');
+
+  // Deploy again — HP must NOT reset to maxHp.
+  campaign.deployCrewMember(member.id, fakeContract({ seed: 99 }));
+  campaign.activeRun.enterCombat();
+  assert.equal(member.hp, startingHp - 2, 'HP must persist into the next job');
+});
+
+// --- M4: persistence round-trip with gear and consumables ------------------
+
+test('crew gear survives campaign snapshot/restore round-trip', () => {
+  const campaign = new Campaign({ seed: 42, salvage: 20 });
+  const member = campaign.crew[0];
+  campaign.purchase({ itemId: 'armour-plating', targetMemberId: member.id });
+  campaign.purchase({ itemId: 'targeting-chip', targetMemberId: member.id });
+  const snap = snapshotCampaign(campaign);
+  const restored = restoreCampaign(snap);
+  const restoredMember = restored.crew[0];
+  assert.deepEqual(restoredMember.gear, { maxHpBonus: 1, hitBonus: 0.1 });
+  assert.equal(restoredMember.maxHp, member.maxHp);
+});
+
+test('meta state survives campaign snapshot/restore round-trip', () => {
+  const campaign = new Campaign({ seed: 42, salvage: 20 });
+  campaign.purchase({ itemId: 'expanded-catalog' });
+  const snap = snapshotCampaign(campaign);
+  const restored = restoreCampaign(snap);
+  assert.equal(restored.meta.expandedCatalog, true);
+});
+
+test('consumables survive campaign snapshot/restore round-trip', () => {
+  const campaign = new Campaign({ seed: 42, salvage: 10 });
+  const member = campaign.crew[0];
+  campaign.purchase({ itemId: 'stim', targetMemberId: member.id });
+  const snap = snapshotCampaign(campaign);
+  const restored = restoreCampaign(snap);
+  const restoredMember = restored.crew[0];
+  assert.equal(restoredMember.inventory.consumables.length, 1);
+  assert.equal(restoredMember.inventory.consumables[0].id, 'stim');
+});

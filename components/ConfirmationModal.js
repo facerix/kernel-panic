@@ -280,8 +280,7 @@ class ConfirmationModal extends HTMLElement {
     this.shadowRoot.querySelector('dialog form').addEventListener('submit', evt => {
       evt.preventDefault();
       const implicitOk =
-        evt.submitter == null &&
-        evt.target.querySelector('input[type="submit"]#btnOk') != null;
+        evt.submitter == null && evt.target.querySelector('input[type="submit"]#btnOk') != null;
       if (evt.submitter?.id === 'btnOk' || implicitOk) {
         this.#emit('confirm');
       }

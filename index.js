@@ -47,13 +47,18 @@ import { KeyboardController } from '/src/input/KeyboardController.js';
 import { MODE } from '/src/input/keymap.js';
 import { applyIntent } from '/src/input/applyIntent.js';
 
+import { placeSmoke, clearSmoke } from '/src/game/Smoke.js';
+
 import '/components/ConfirmationModal.js';
 import '/components/UpdateNotification.js';
 import '/components/TouchPad.js';
 import '/components/RunBriefing.js';
 import '/components/CrashDump.js';
 import '/components/SystemStart.js';
+import '/components/CrewList.js';
 import '/components/CrewRoster.js';
+import '/components/FinnShop.js';
+import '/components/ItemInventory.js';
 import '/components/KeyHelp.js';
 
 // ---------------------------------------------------------------------------
@@ -68,7 +73,7 @@ let visionMoveUnsub = null;
 let canvas, statusEl, renderer, crt;
 let stageEl;
 let briefingEl, crashEl, systemStartEl, resumeModalEl, quitCampaignModalEl, touchPadEl;
-let crewRosterEl, keyHelpEl;
+let crewRosterEl, finnShopEl, itemInventoryEl, keyHelpEl;
 let keyboard;
 
 /**
@@ -81,8 +86,14 @@ const animLock = createAnimationLock();
 /** Unsubscribers for the run-bus animation listeners. Re-bound on every state transition. */
 let animationUnsubs = [];
 
-let pendingContract = null;
+
 let pendingJobResult = null;
+/**
+ * Active smoke overlays from Smoke Charge consumables. Each entry records
+ * the tile position and original tile type so `clearSmoke` can restore the
+ * grid. Cleared at the start of the player's next turn (`onPlayerTurnReady`).
+ */
+let activeSmokeOverlays = [];
 
 /**
  * Most recent intent-result log line ("@ moved to (3,4) — 2 AP left.").
@@ -98,7 +109,10 @@ const seedFromClock = () => Date.now() & 0xffffffff;
 const allComponentsReady = Promise.all([
   customElements.whenDefined('update-notification'),
   customElements.whenDefined('confirmation-modal'),
+  customElements.whenDefined('finn-shop'),
+  customElements.whenDefined('item-inventory'),
   customElements.whenDefined('touch-pad'),
+  customElements.whenDefined('crew-list'),
   customElements.whenDefined('crew-roster'),
   customElements.whenDefined('key-help'),
   customElements.whenDefined('system-start'),
@@ -119,6 +133,8 @@ async function boot() {
   quitCampaignModalEl = document.getElementById('quit-campaign-modal');
   touchPadEl = document.getElementById('touch-pad');
   crewRosterEl = document.getElementById('crew-roster');
+  finnShopEl = document.getElementById('finn-shop');
+  itemInventoryEl = document.getElementById('item-inventory');
   keyHelpEl = document.getElementById('key-help');
 
   renderer = new AsciiRenderer(canvas);
@@ -144,13 +160,23 @@ async function boot() {
   // panel is open keeps both behaviours clean.
   window.addEventListener('keydown', handleGlobalKey, true);
 
-  briefingEl.addEventListener('jack-in', onJackIn);
+  briefingEl.addEventListener('deploy', onBriefingDeploy);
+  briefingEl.addEventListener('dismiss', () => briefingEl.hide());
   crashEl.addEventListener('new-run', onNewRunRequested);
   systemStartEl?.addEventListener('hub-enter', onSystemStartHubEnter);
 
   if (crewRosterEl) {
-    crewRosterEl.addEventListener('deploy', onCrewDeployPicked);
     crewRosterEl.addEventListener('dismiss', () => crewRosterEl.hide());
+  }
+
+  if (finnShopEl) {
+    finnShopEl.addEventListener('purchase', onFinnPurchase);
+    finnShopEl.addEventListener('dismiss', () => finnShopEl.hide());
+  }
+
+  if (itemInventoryEl) {
+    itemInventoryEl.addEventListener('use-item', onUseItem);
+    itemInventoryEl.addEventListener('dismiss', () => itemInventoryEl.hide());
   }
 
   if (keyHelpEl) {
@@ -218,7 +244,7 @@ function startFreshCampaign() {
     onResult: handleResult,
   });
   handlePersist();
-  pendingContract = null;
+
   pendingJobResult = null;
   attachVisionListener();
   attachAnimationListeners();
@@ -237,28 +263,100 @@ function onSystemStartHubEnter() {
   flash('HUB — Curator has contracts when you are adjacent [Space].');
 }
 
-function presentCrewRoster(mode) {
+function presentCrewRoster() {
   if (!crewRosterEl || !campaign) return;
-  crewRosterEl.setCrew(campaign.crew, { mode, salvage: campaign.salvage });
+  crewRosterEl.setCrew(campaign.crew, { salvage: campaign.salvage });
   crewRosterEl.show();
 }
 
-function onCrewDeployPicked(evt) {
-  if (!campaign || !pendingContract) return;
-  const memberId = evt?.detail?.memberId;
+function presentBriefing(contract) {
+  if (!briefingEl || !campaign) return;
+  briefingEl.setContract(contract);
+  briefingEl.setCrew(campaign.crew);
+  briefingEl.show();
+}
+
+function onBriefingDeploy(evt) {
+  if (!campaign) return;
+  const { memberId, contract } = evt?.detail ?? {};
   const member = campaign.getCrewMember(memberId);
-  if (!member || member.flatlined) return;
-  crewRosterEl.hide();
-  campaign.deployCrewMember(member.id, pendingContract);
-  const activeRun = campaign.activeRun;
-  briefingEl.setContract(pendingContract);
-  flash(`CURATOR: ${member.callsign} takes ${pendingContract.label}.`);
-  pendingContract = null;
+  if (!member || member.flatlined || !contract) return;
+  briefingEl.hide();
+  campaign.deployCrewMember(member.id, contract);
+  flash(`CURATOR: ${member.callsign} takes ${contract.label}. JACKING IN.`);
+  // Go straight into combat — the player already reviewed the contract and
+  // chose their operative in the combined briefing modal.
+  const run = campaign.activeRun;
+  if (!run || run.state !== RUN_STATE.BRIEFING) {
+    throw new Error(`[shell] expected deployed run to enter BRIEFING, got ${run?.state}`);
+  }
+  run.enterCombat();
+  handlePersist();
+  vision.resetFogState();
   attachVisionListener();
   attachAnimationListeners();
+  recomputeVision();
+  flash('JACKED IN. Reach the exit tile (¤) before the drones drop you.');
   renderShell();
-  if (activeRun?.state !== RUN_STATE.BRIEFING) {
-    throw new Error(`[shell] expected deployed run to enter BRIEFING, got ${activeRun?.state}`);
+}
+
+function presentFinnShop() {
+  if (!finnShopEl || !campaign) return;
+  const catalog = campaign.finn.catalog(campaign.meta);
+  finnShopEl.setCatalog(catalog, campaign.crew, campaign.salvage);
+  finnShopEl.show();
+}
+
+function onFinnPurchase(evt) {
+  if (!campaign) return;
+  const { itemId, targetMemberId } = evt?.detail ?? {};
+  try {
+    campaign.purchase({ itemId, targetMemberId });
+  } catch (err) {
+    flash(`PURCHASE FAILED: ${err.message}`);
+    return;
+  }
+  flash(`FINN: Purchased ${itemId}. SALVAGE ${campaign.salvage}.`);
+  // Refresh the shop to reflect new balance and purchased meta upgrades.
+  presentFinnShop();
+}
+
+function presentItemInventory() {
+  if (!itemInventoryEl || !campaign) return;
+  const run = campaign.activeRun;
+  if (!run || !run.player || !run.player.inventory) return;
+  itemInventoryEl.setItems(run.player.inventory.consumables);
+  itemInventoryEl.show();
+}
+
+function onUseItem(evt) {
+  if (!campaign) return;
+  const run = campaign.activeRun;
+  if (!run || !run.player) return;
+  const { itemId } = evt?.detail ?? {};
+  try {
+    const result = run.player.useConsumable(itemId);
+    if (result.type === 'stim') {
+      flash(
+        `Used STIM — healed ${result.healed} HP (now ${run.player.hp}/${run.player.maxHp}). ${run.player.ap} AP left.`
+      );
+    } else if (result.type === 'smoke') {
+      const overlays = placeSmoke(run.world.grid, result.cx, result.cy, result.radius);
+      activeSmokeOverlays.push(...overlays);
+      recomputeVision();
+      flash(
+        `Used SMOKE CHARGE — LOS blocked in radius ${result.radius}. ${run.player.ap} AP left.`
+      );
+    }
+  } catch (err) {
+    flash(`USE FAILED: ${err.message}`);
+    return;
+  }
+  itemInventoryEl.hide();
+  paint();
+  if (run.player.ap === 0) {
+    flash('AP EXHAUSTED — auto-ending turn.');
+    advanceTurn();
   }
 }
 
@@ -335,6 +433,7 @@ function resumeCampaign(record) {
     recomputeVision();
     if (campaign.activeRun?.state === RUN_STATE.BRIEFING && campaign.activeRun.contract) {
       briefingEl.setContract(campaign.activeRun.contract);
+      briefingEl.setCrew(campaign.crew);
     }
     if (campaign.state === CAMPAIGN_STATE.ENDED) {
       pendingJobResult = null;
@@ -378,7 +477,9 @@ function performQuitCampaign() {
   briefingEl?.hide();
   crashEl?.hide();
   crewRosterEl?.hide();
-  pendingContract = null;
+  finnShopEl?.hide();
+  itemInventoryEl?.hide();
+
   pendingJobResult = null;
   dataStore.deleteCampaign();
   startFreshCampaign();
@@ -420,6 +521,18 @@ function handleIntent(intent) {
     advanceTurn,
     resetInputModes,
     onInteract: handleInteract,
+    onInventory: () => {
+      // Only open inventory during combat when it's the player's turn.
+      if (
+        campaign?.state !== CAMPAIGN_STATE.COMBAT ||
+        run.state !== RUN_STATE.COMBAT ||
+        run.queue.currentFaction !== FACTION.PLAYER
+      ) {
+        flash('Inventory is only available during combat on your turn.');
+        return;
+      }
+      presentItemInventory();
+    },
   });
 }
 
@@ -462,6 +575,11 @@ function advanceTurn() {
       runCorpTurn(onFinish);
     },
     onPlayerTurnReady: () => {
+      // Clear any smoke from last turn before the player acts.
+      if (activeSmokeOverlays.length > 0 && run.world) {
+        clearSmoke(run.world.grid, activeSmokeOverlays);
+        activeSmokeOverlays = [];
+      }
       // Stealth & vision may both have changed during the corp turn.
       recomputeVision();
       paint();
@@ -507,18 +625,23 @@ function handleInteract() {
     flash('Nothing to interact with here.');
     return;
   }
+  if (campaign.finn && isChebyshevAdjacent(campaign.player, campaign.finn)) {
+    flash('FINN — browse the shop.');
+    presentFinnShop();
+    return;
+  }
   if (campaign.terminal && isChebyshevAdjacent(campaign.player, campaign.terminal)) {
     flash('TERMINAL — crew roster.');
-    presentCrewRoster('view');
+    presentCrewRoster();
     return;
   }
   if (!campaign.curator || !isChebyshevAdjacent(campaign.player, campaign.curator)) {
-    flash('Step adjacent to the Curator (contract) or Terminal (roster).');
+    flash('Step adjacent to Finn (shop), Curator (contract), or Terminal (roster).');
     return;
   }
-  pendingContract = campaign.curator.generateContract(campaign.rng);
-  flash(`CURATOR: ${pendingContract.label} — choose crew.`);
-  presentCrewRoster('deploy');
+  const contract = campaign.curator.generateContract(campaign.rng);
+  flash(`CURATOR: ${contract.label} — review and deploy.`);
+  presentBriefing(contract);
 }
 
 /**
@@ -558,23 +681,7 @@ function handleCombatInteract() {
   flash('Nothing to loot nearby.');
 }
 
-function onJackIn() {
-  const run = campaign?.activeRun;
-  if (!run || run.state !== RUN_STATE.BRIEFING) return;
-  run.enterCombat();
-  handlePersist();
-  // New grid + new entities — the module-level VisionField outlives each Run;
-  // wipe fog / corpse memory so the previous job's memorised % glyphs cannot
-  // reappear at the same coordinates.
-  vision.resetFogState();
-  // enterCombat rebuilds bus + world; re-attach the vision listener so live
-  // entity moves keep refreshing fog-of-war.
-  attachVisionListener();
-  attachAnimationListeners();
-  recomputeVision();
-  flash('JACKED IN. Reach the exit tile (¤) before the drones drop you.');
-  renderShell();
-}
+// onJackIn removed — combat entry is handled in onBriefingDeploy.
 
 function onNewRunRequested() {
   if (!campaign) return;
@@ -691,8 +798,15 @@ function renderShell() {
       crashEl.hide();
       break;
     case RUN_STATE.BRIEFING:
+      // The combined briefing modal handles its own show/hide. If we land
+      // here on resume, re-present the briefing so the player can pick an
+      // operative.
       canvas.hidden = true;
-      briefingEl.show();
+      if (!briefingEl.isOpen) {
+        briefingEl.setContract(campaign.activeRun.contract);
+        briefingEl.setCrew(campaign.crew);
+        briefingEl.show();
+      }
       crashEl.hide();
       break;
     case RUN_STATE.RESULT:
@@ -778,6 +892,9 @@ function proximityHint() {
   const run = currentScene();
   if (!run || !run.player) return '';
   if (run.state === CAMPAIGN_STATE.HUB) {
+    if (run.finn && isChebyshevAdjacent(run.player, run.finn)) {
+      return 'FINN — press [Space] to shop.';
+    }
     if (run.curator && isChebyshevAdjacent(run.player, run.curator)) {
       return 'CURATOR — press [Space] for a contract.';
     }
@@ -934,6 +1051,8 @@ function isAnyBlockingModalOpen() {
   if (crashEl?.isOpen) return true;
   if (systemStartEl?.isOpen) return true;
   if (crewRosterEl?.isOpen) return true;
+  if (finnShopEl?.isOpen) return true;
+  if (itemInventoryEl?.isOpen) return true;
   // <confirmation-modal> uses a native <dialog> internally; treat any open
   // attribute as "blocking".
   if (isConfirmationDialogOpen(resumeModalEl)) return true;

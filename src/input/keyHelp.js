@@ -62,8 +62,14 @@ export const HELP_ROWS = Object.freeze([
   },
   {
     keys: Object.freeze([' ']),
-    label: 'Interact (Curator, Salvage, …)',
+    label: 'Interact (Finn, Curator, Salvage, …)',
     scope: 'both',
+    group: 'action',
+  },
+  {
+    keys: Object.freeze(['i']),
+    label: 'Inventory (use consumables)',
+    scope: 'combat',
     group: 'action',
   },
   // --- system -----------------------------------------------------------

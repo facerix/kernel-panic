@@ -14,14 +14,16 @@ test('TOUCHPAD_DIRECTIONS lists all 8 compass directions', () => {
   assert.deepEqual([...TOUCHPAD_DIRECTIONS].sort(), ['E', 'N', 'NE', 'NW', 'S', 'SE', 'SW', 'W']);
 });
 
-test('TOUCHPAD_ACTIONS includes the six gameplay actions (perks unified as `special`)', () => {
+test('TOUCHPAD_ACTIONS includes the seven gameplay actions (perks unified as `special`)', () => {
   // Vault and slide collapsed into one `special` button alongside the new
   // Tech deploy verb — same unified-perk-key model as the keyboard layer.
+  // M4 added `inventory` for the consumable use overlay.
   assert.deepEqual([...TOUCHPAD_ACTIONS].sort(), [
     'cancel',
     'end-turn',
     'fire',
     'interact',
+    'inventory',
     'melee',
     'special',
   ]);
@@ -45,6 +47,7 @@ test('syntheticKeyFor resolves actions to keymap keys', () => {
   assert.equal(syntheticKeyFor('end-turn'), '.');
   assert.equal(syntheticKeyFor('cancel'), 'Escape');
   assert.equal(syntheticKeyFor('interact'), ' ');
+  assert.equal(syntheticKeyFor('inventory'), 'i');
 });
 
 test('TOUCHPAD_SHELL_ACTIONS lists shell-only buttons', () => {

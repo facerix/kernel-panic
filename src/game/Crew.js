@@ -1,5 +1,6 @@
 import { Entity } from './Entity.js';
-import { AP_COST } from './constants.js';
+import { AP_COST, STIM_HEAL, SMOKE_RADIUS, TARGETING_BONUS } from './constants.js';
+import { ITEM_ID } from './items.js';
 
 /**
  * Crew — the base class for every player-controlled archetype.
@@ -55,7 +56,12 @@ export class Crew extends Entity {
      * null inventory crash legibly, which is the failure mode we want.
      */
     this.inventory = inventory;
-    /** Stub for M4 — `{ maxHpBonus, hitBonus, … }` once Finn's shop lands. */
+    /**
+     * Permanent gear bonuses purchased from Finn's shop (campaign-scoped).
+     * `{ maxHpBonus: number, hitBonus: number }`. Defaults to `null` until
+     * the first gear purchase; `initGear()` locks in the schema. Combat and
+     * persistence read `gear?.hitBonus ?? 0` etc. so `null` is safe.
+     */
     this.gear = gear;
   }
 
@@ -67,6 +73,90 @@ export class Crew extends Entity {
   initInventory() {
     if (this.inventory !== null) return;
     this.inventory = { salvage: 0, consumables: [] };
+  }
+
+  /**
+   * Ensure the gear schema is set. Idempotent — safe to call before every
+   * gear-modifying operation. Called by `Campaign.purchase` on the first
+   * crew-gear purchase.
+   */
+  initGear() {
+    if (this.gear !== null) return;
+    this.gear = { maxHpBonus: 0, hitBonus: 0 };
+  }
+
+  /**
+   * Apply a campaign-scoped gear bonus. Mutates both `this.gear` (tracking)
+   * and the underlying stat (`maxHp`, etc.) so the bonus is immediately
+   * effective. Throws on unknown gear items — crash over silent fallback.
+   */
+  applyGear(itemId) {
+    this.initGear();
+    switch (itemId) {
+      case ITEM_ID.ARMOUR_PLATING:
+        this.gear.maxHpBonus += 1;
+        this.maxHp += 1;
+        this.hp += 1; // immediate benefit — no need to heal it
+        break;
+      case ITEM_ID.TARGETING_CHIP:
+        this.gear.hitBonus += TARGETING_BONUS;
+        break;
+      default:
+        throw new Error(`Crew.applyGear: unknown gear item "${itemId}"`);
+    }
+  }
+
+  /**
+   * Add a consumable to inventory for the next job. Initialises inventory if
+   * null (purchase can happen before deploy). The consumable is a plain
+   * `{ id }` record — enough for `useConsumable` to dispatch on.
+   */
+  addConsumable(itemId) {
+    this.initInventory();
+    this.inventory.consumables.push({ id: itemId });
+  }
+
+  /**
+   * Use a consumable from inventory during combat. Costs `AP_COST.INTERACT`.
+   * Returns a result descriptor so the shell can apply world effects (smoke).
+   *
+   * Pre-conditions (all throw):
+   *   - inventory is initialised
+   *   - crew member can afford INTERACT AP
+   *   - consumable exists in inventory
+   *
+   * On commit: debits AP, removes the consumable from inventory, applies
+   * immediate effects (Stim heals HP). Smoke placement is returned as a
+   * result for the shell to apply to the grid (keeping Crew pure of World).
+   */
+  useConsumable(itemId) {
+    if (!this.inventory) {
+      throw new Error(`useConsumable: inventory not initialised for ${this.id}`);
+    }
+    if (!this.canAfford(AP_COST.INTERACT)) {
+      throw new Error(`useConsumable: insufficient AP for ${this.id}`);
+    }
+    const idx = this.inventory.consumables.findIndex(c => c.id === itemId);
+    if (idx === -1) {
+      throw new Error(`useConsumable: ${this.id} does not have "${itemId}"`);
+    }
+    this.spendAp(AP_COST.INTERACT);
+    this.inventory.consumables.splice(idx, 1);
+
+    switch (itemId) {
+      case ITEM_ID.STIM: {
+        const healed = Math.min(STIM_HEAL, this.maxHp - this.hp);
+        this.hp += healed;
+        return { type: 'stim', healed };
+      }
+      case ITEM_ID.SMOKE_CHARGE:
+        // Smoke placement is a world mutation — return a descriptor so the
+        // shell can place SMOKE tiles on the grid. The crew member's position
+        // is the center; radius comes from constants.
+        return { type: 'smoke', cx: this.x, cy: this.y, radius: SMOKE_RADIUS };
+      default:
+        throw new Error(`useConsumable: unknown consumable "${itemId}"`);
+    }
   }
 
   /**

@@ -61,6 +61,7 @@ const ACTION_BUTTONS = Object.freeze([
   // verb actually resolves, so the player still sees their kit's flavour.
   { id: 'special', label: 'SPECIAL', shortcut: 'x' },
   { id: 'interact', label: 'INTERACT', shortcut: '␣' },
+  { id: 'inventory', label: 'ITEMS', shortcut: 'i' },
   { id: 'end-turn', label: 'WAIT', shortcut: '.' },
   { id: 'cancel', label: 'CANCEL', shortcut: 'esc' },
 ]);
