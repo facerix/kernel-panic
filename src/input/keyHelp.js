@@ -6,7 +6,8 @@
  * (`tests/unit/input/keyHelp.test.js`) verifies every advertised key is
  * actually handled by `dispatch(key, MODE.IDLE)` and that a sentinel of known
  * keymap keys is present here. When a future milestone adds a binding to
- * `keymap.js`, the sentinel test fails until this list catches up.
+ * `keymap.js`, the sentinel test fails until this list catches up. Letter
+ * keys in the keymap are lower-case only (case-sensitive dispatch).
  *
  * Scope semantics:
  *   - `'hub'`     — visible in the Hub only (no combat verbs)

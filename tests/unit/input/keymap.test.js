@@ -3,6 +3,10 @@ import assert from 'node:assert/strict';
 
 import { dispatch, MODE } from '../../../src/input/keymap.js';
 
+function noIdleChange() {
+  return { intent: null, nextMode: MODE.IDLE };
+}
+
 test('IDLE + arrow keys produce move intents in the right direction', () => {
   const cases = [
     ['ArrowUp', 0, -1],
@@ -103,11 +107,12 @@ test('SPECIAL_AIM + non-directional key stays in SPECIAL_AIM with no intent', ()
   assert.equal(r.nextMode, MODE.SPECIAL_AIM);
 });
 
-test('dispatch is case-tolerant for letter keys (X, Q, etc.)', () => {
-  // Aim with X: same as x.
-  assert.equal(dispatch('X', MODE.IDLE).nextMode, MODE.SPECIAL_AIM);
-  // Diagonal with Q: same as q.
-  assert.deepEqual(dispatch('Q', MODE.IDLE).intent, { type: 'move', dx: -1, dy: -1 });
+test('dispatch is case-sensitive for letter keys (uppercase is ignored)', () => {
+  assert.deepEqual(dispatch('X', MODE.IDLE), noIdleChange());
+  assert.deepEqual(dispatch('Q', MODE.IDLE), noIdleChange());
+  assert.deepEqual(dispatch('W', MODE.IDLE), noIdleChange());
+  assert.deepEqual(dispatch('F', MODE.IDLE), noIdleChange());
+  assert.deepEqual(dispatch('I', MODE.IDLE), noIdleChange());
 });
 
 test('dispatch rejects an unknown mode (crash over silent fallback)', () => {
@@ -184,8 +189,14 @@ test('IDLE + i emits interact intent and stays IDLE', () => {
   assert.equal(r.nextMode, MODE.IDLE);
 });
 
-test('IDLE + I (caps) emits interact intent (case-tolerant)', () => {
+test('IDLE + I (uppercase) is a no-op (case-sensitive)', () => {
   const r = dispatch('I', MODE.IDLE);
-  assert.deepEqual(r.intent, { type: 'interact' });
+  assert.equal(r.intent, null);
   assert.equal(r.nextMode, MODE.IDLE);
+});
+
+test('SPECIAL_AIM + Q (uppercase) does not resolve a direction', () => {
+  const r = dispatch('Q', MODE.SPECIAL_AIM);
+  assert.equal(r.intent, null);
+  assert.equal(r.nextMode, MODE.SPECIAL_AIM);
 });

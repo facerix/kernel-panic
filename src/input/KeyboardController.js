@@ -13,6 +13,9 @@ import { dispatch, MODE } from './keymap.js';
  * combat-feedback animations use this to lock input for ~300ms while a
  * shake/reddening plays — the controller early-returns before consulting
  * the keymap so mode transitions can't queue up during the lockout either.
+ *
+ * `evt.key` is forwarded case-sensitively into `dispatch` — only lower-case
+ * letter bindings in the keymap produce gameplay intents.
  */
 export class KeyboardController {
   constructor({ target = document, onIntent, onModeChange, isBlocked } = {}) {

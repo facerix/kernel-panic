@@ -18,6 +18,11 @@
  *
  * Intents are plain serializable objects so they can be replayed for tests,
  * undo, or networked play later.
+ *
+ * Letter bindings are **case-sensitive**: only the lower-case keys shown in
+ * `DIRECTION_KEYS` and `dispatchIdle` are recognised. `KeyboardEvent.key` is
+ * passed through as-is so Shift/Caps Lock upper-case letters do not alias to
+ * gameplay verbs (touch-pad synthesis continues to use lower-case keys).
  */
 
 export const MODE = Object.freeze({
@@ -48,7 +53,7 @@ const DIRECTION_KEYS = {
   d: [1, 0],
 };
 
-const directionFor = key => DIRECTION_KEYS[key] ?? DIRECTION_KEYS[key?.toLowerCase?.()] ?? null;
+const directionFor = key => DIRECTION_KEYS[key] ?? null;
 
 const noChange = mode => ({ intent: null, nextMode: mode });
 
@@ -63,19 +68,15 @@ function dispatchIdle(key) {
     case 'Escape':
       return { intent: { type: 'cancel' }, nextMode: MODE.IDLE };
     case 'f':
-    case 'F':
       return { intent: null, nextMode: MODE.FIRE_AIM };
     case 'm':
-    case 'M':
       return { intent: null, nextMode: MODE.MELEE_AIM };
     case 'x':
-    case 'X':
       // Unified archetype perk. The intent layer dispatches by class —
       // Merc → vault, Razor → slide, Tech → deploy. `x` is unused elsewhere
       // and avoids the WASD collision that would block `d` for deploy.
       return { intent: null, nextMode: MODE.SPECIAL_AIM };
     case 'i':
-    case 'I':
       // Interact — context-sensitive verb resolved by the shell (Hub Curator
       // → briefing, future terminals/items in combat). Keymap stays dumb;
       // the shell decides what `interact` means in the current Run.state.
