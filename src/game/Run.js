@@ -36,7 +36,7 @@ import { Rng } from '../rng.js';
 import { World } from './World.js';
 import { TurnQueue } from './TurnQueue.js';
 import { EventBus, EVENT } from './events.js';
-import { FACTION } from './constants.js';
+import { FACTION, SALVAGE_DROP_MIN, SALVAGE_DROP_MAX } from './constants.js';
 import { Entity } from './Entity.js';
 import { Crew } from './Crew.js';
 import { Merc } from './archetypes/Merc.js';
@@ -229,6 +229,7 @@ export class Run {
     this.crewMember.hp = this.crewMember.maxHp;
     this.crewMember.alive = true;
     this.crewMember.stealthed = false;
+    this.crewMember.initInventory();
     if (this.crewMember instanceof Tech) {
       this.crewMember.turretReady = true;
     }
@@ -264,6 +265,13 @@ export class Run {
       this.telemetry.kills = (this.telemetry.kills ?? 0) + 1;
     } else if (killed && attacker instanceof Turret && attacker.ownerId === this.player.id) {
       this.telemetry.kills = (this.telemetry.kills ?? 0) + 1;
+    }
+    // M3: assign loot to killed corp entities. The loot roll uses the Run's
+    // own Rng so it's deterministic on the contract seed.
+    if (killed && target.faction === FACTION.CORP && !target.loot) {
+      target.loot = {
+        salvage: this.rng.intRange(SALVAGE_DROP_MIN, SALVAGE_DROP_MAX + 1),
+      };
     }
   }
 

@@ -15,7 +15,9 @@ import { Crew } from '../../../src/game/Crew.js';
 import { Entity } from '../../../src/game/Entity.js';
 import { Merc } from '../../../src/game/archetypes/Merc.js';
 import { Razor } from '../../../src/game/archetypes/Razor.js';
-import { FACTION } from '../../../src/game/constants.js';
+import { Grid } from '../../../src/game/Grid.js';
+import { World } from '../../../src/game/World.js';
+import { FACTION, AP_COST } from '../../../src/game/constants.js';
 
 const baseProps = { id: 'c', x: 0, y: 0, faction: FACTION.PLAYER };
 
@@ -80,4 +82,169 @@ test('Razor extends Crew and accepts a callsign through the constructor', () => 
 test('Razor constructed without a callsign defaults to null', () => {
   const r = new Razor({ id: 'r', x: 0, y: 0 });
   assert.equal(r.callsign, null);
+});
+
+// --- M3: inventory solidification ----------------------------------------
+
+test('Crew.initInventory sets inventory to { salvage: 0, consumables: [] }', () => {
+  const c = new Crew({ ...baseProps });
+  c.initInventory();
+  assert.deepEqual(c.inventory, { salvage: 0, consumables: [] });
+});
+
+test('Crew.initInventory is idempotent (no-op if already initialized)', () => {
+  const c = new Crew({ ...baseProps });
+  c.initInventory();
+  c.inventory.salvage = 5;
+  c.initInventory();
+  assert.equal(c.inventory.salvage, 5, 'should not reset an already-init inventory');
+});
+
+test('Crew.collectSalvage transfers loot from adjacent corpse', () => {
+  const g = new Grid(8, 8);
+  const w = new World(g);
+  const crew = new Crew({ ...baseProps, x: 3, y: 3 });
+  crew.initInventory();
+  w.addEntity(crew);
+
+  const corpse = new Entity({ id: 'drone-0', x: 4, y: 3, faction: FACTION.CORP, glyph: 'd' });
+  corpse.damage(corpse.maxHp); // kill it
+  corpse.loot = { salvage: 2 };
+  w.addEntity(corpse);
+
+  crew.collectSalvage(w, corpse);
+  assert.equal(crew.inventory.salvage, 2);
+  assert.equal(corpse.loot.salvage, 0, 'corpse loot zeroed after collection');
+  assert.equal(crew.ap, crew.maxAp - AP_COST.INTERACT, 'INTERACT AP cost applied');
+});
+
+test('Crew.collectSalvage allows corpse on the same tile (Chebyshev 0)', () => {
+  const g = new Grid(8, 8);
+  const w = new World(g);
+  const corpse = new Entity({ id: 'drone-0', x: 3, y: 3, faction: FACTION.CORP, glyph: 'd' });
+  w.addEntity(corpse);
+  corpse.damage(corpse.maxHp);
+  corpse.loot = { salvage: 3 };
+
+  const crew = new Crew({ ...baseProps, x: 4, y: 3 });
+  crew.initInventory();
+  w.addEntity(crew);
+  w.moveEntity(crew, -1, 0);
+
+  assert.equal(crew.x, 3);
+  assert.equal(crew.y, 3);
+  crew.collectSalvage(w, corpse);
+  assert.equal(crew.inventory.salvage, 3);
+  assert.equal(corpse.loot.salvage, 0);
+});
+
+test('Crew.collectSalvage throws when corpse is not adjacent (Chebyshev > 1)', () => {
+  const g = new Grid(8, 8);
+  const w = new World(g);
+  const crew = new Crew({ ...baseProps, x: 3, y: 3 });
+  crew.initInventory();
+  w.addEntity(crew);
+
+  const corpse = new Entity({ id: 'drone-0', x: 6, y: 3, faction: FACTION.CORP, glyph: 'd' });
+  corpse.damage(corpse.maxHp);
+  corpse.loot = { salvage: 1 };
+  w.addEntity(corpse);
+
+  assert.throws(() => crew.collectSalvage(w, corpse), /adjacent/i);
+});
+
+test('Crew.collectSalvage throws when target is still alive', () => {
+  const g = new Grid(8, 8);
+  const w = new World(g);
+  const crew = new Crew({ ...baseProps, x: 3, y: 3 });
+  crew.initInventory();
+  w.addEntity(crew);
+
+  const alive = new Entity({ id: 'drone-0', x: 4, y: 3, faction: FACTION.CORP, glyph: 'd' });
+  alive.loot = { salvage: 1 };
+  w.addEntity(alive);
+
+  assert.throws(() => crew.collectSalvage(w, alive), /alive|dead/i);
+});
+
+test('Crew.collectSalvage throws when target has no loot', () => {
+  const g = new Grid(8, 8);
+  const w = new World(g);
+  const crew = new Crew({ ...baseProps, x: 3, y: 3 });
+  crew.initInventory();
+  w.addEntity(crew);
+
+  const corpse = new Entity({ id: 'drone-0', x: 4, y: 3, faction: FACTION.CORP, glyph: 'd' });
+  corpse.damage(corpse.maxHp);
+  w.addEntity(corpse);
+
+  assert.throws(() => crew.collectSalvage(w, corpse), /loot/i);
+});
+
+test('Crew.collectSalvage throws when target loot.salvage is 0', () => {
+  const g = new Grid(8, 8);
+  const w = new World(g);
+  const crew = new Crew({ ...baseProps, x: 3, y: 3 });
+  crew.initInventory();
+  w.addEntity(crew);
+
+  const corpse = new Entity({ id: 'drone-0', x: 4, y: 3, faction: FACTION.CORP, glyph: 'd' });
+  corpse.damage(corpse.maxHp);
+  corpse.loot = { salvage: 0 };
+  w.addEntity(corpse);
+
+  assert.throws(() => crew.collectSalvage(w, corpse), /salvage/i);
+});
+
+test('Crew.collectSalvage throws when crew lacks AP for INTERACT', () => {
+  const g = new Grid(8, 8);
+  const w = new World(g);
+  const crew = new Crew({ ...baseProps, x: 3, y: 3 });
+  crew.initInventory();
+  crew.ap = 0;
+  w.addEntity(crew);
+
+  const corpse = new Entity({ id: 'drone-0', x: 4, y: 3, faction: FACTION.CORP, glyph: 'd' });
+  corpse.damage(corpse.maxHp);
+  corpse.loot = { salvage: 2 };
+  w.addEntity(corpse);
+
+  assert.throws(() => crew.collectSalvage(w, corpse), /ap/i);
+});
+
+test('Crew.collectSalvage throws when inventory not initialized', () => {
+  const g = new Grid(8, 8);
+  const w = new World(g);
+  const crew = new Crew({ ...baseProps, x: 3, y: 3 });
+  // no initInventory — inventory is null
+  w.addEntity(crew);
+
+  const corpse = new Entity({ id: 'drone-0', x: 4, y: 3, faction: FACTION.CORP, glyph: 'd' });
+  corpse.damage(corpse.maxHp);
+  corpse.loot = { salvage: 1 };
+  w.addEntity(corpse);
+
+  assert.throws(() => crew.collectSalvage(w, corpse), /inventory/i);
+});
+
+test('Crew.collectSalvage accumulates across multiple corpses', () => {
+  const g = new Grid(8, 8);
+  const w = new World(g);
+  const crew = new Crew({ ...baseProps, x: 3, y: 3, maxAp: 10 });
+  crew.initInventory();
+  w.addEntity(crew);
+
+  const c1 = new Entity({ id: 'd1', x: 4, y: 3, faction: FACTION.CORP, glyph: 'd' });
+  c1.damage(c1.maxHp);
+  c1.loot = { salvage: 2 };
+  w.addEntity(c1);
+
+  const c2 = new Entity({ id: 'd2', x: 3, y: 4, faction: FACTION.CORP, glyph: 'd' });
+  c2.damage(c2.maxHp);
+  c2.loot = { salvage: 3 };
+  w.addEntity(c2);
+
+  crew.collectSalvage(w, c1);
+  crew.collectSalvage(w, c2);
+  assert.equal(crew.inventory.salvage, 5);
 });

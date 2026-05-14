@@ -1,5 +1,5 @@
 import { Crew } from '../Crew.js';
-import { FACTION, AP_COST } from '../constants.js';
+import { FACTION, AP_COST, SALVAGE_PER_IMPROVISED_TURRET } from '../constants.js';
 import { Turret } from '../Turret.js';
 
 /**
@@ -50,6 +50,8 @@ export class Tech extends Crew {
      * rebuild so this stays at `true` until the player deploys.
      */
     this.turretReady = true;
+    /** Counter for unique improvised turret ids within a job. */
+    this._improvisedTurretCount = 0;
   }
 
   /**
@@ -122,6 +124,72 @@ export class Tech extends Crew {
     this.turretReady = false;
     const turret = new Turret({
       id: `${this.id}-turret`,
+      x: tx,
+      y: ty,
+      ownerId: this.id,
+    });
+    world.addEntity(turret);
+    return turret;
+  }
+
+  /**
+   * Pre-flight check for placing an improvised turret. Same tile validation as
+   * `canDeploy`, but gates on `inventory.salvage >= SALVAGE_PER_IMPROVISED_TURRET`
+   * instead of the `turretReady` flag.
+   */
+  canImproviseTurret(world, dx, dy) {
+    if (!Number.isInteger(dx) || !Number.isInteger(dy)) {
+      throw new TypeError(`canImproviseTurret requires integer offsets, got (${dx}, ${dy})`);
+    }
+    if (!this.alive) {
+      return { ok: false, reason: 'dead' };
+    }
+    if (dx === 0 && dy === 0) {
+      return { ok: false, reason: 'no-op' };
+    }
+    if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
+      return { ok: false, reason: 'too-far' };
+    }
+    if (!this.canAfford(AP_COST.DEPLOY)) {
+      return { ok: false, reason: 'insufficient-ap' };
+    }
+    if (!this.inventory) {
+      return { ok: false, reason: 'no-inventory' };
+    }
+    if (this.inventory.salvage < SALVAGE_PER_IMPROVISED_TURRET) {
+      return { ok: false, reason: 'insufficient-salvage' };
+    }
+    const tx = this.x + dx;
+    const ty = this.y + dy;
+    if (!world.grid.inBounds(tx, ty)) {
+      return { ok: false, reason: 'out-of-bounds' };
+    }
+    if (!world.grid.isPassable(tx, ty)) {
+      return { ok: false, reason: 'blocked' };
+    }
+    if (world.entityAt(tx, ty)) {
+      return { ok: false, reason: 'occupied' };
+    }
+    return { ok: true };
+  }
+
+  /**
+   * Commit an improvised turret deployment. Costs `AP_COST.DEPLOY` AP and
+   * `SALVAGE_PER_IMPROVISED_TURRET` salvage from inventory. Throws on all
+   * illegal preconditions before mutating state.
+   */
+  improviseTurret(world, dx, dy) {
+    const check = this.canImproviseTurret(world, dx, dy);
+    if (!check.ok) {
+      throw new Error(`Illegal improvise for ${this.id}: ${check.reason}`);
+    }
+    const tx = this.x + dx;
+    const ty = this.y + dy;
+    this.spendAp(AP_COST.DEPLOY);
+    this.inventory.salvage -= SALVAGE_PER_IMPROVISED_TURRET;
+    this._improvisedTurretCount++;
+    const turret = new Turret({
+      id: `${this.id}-imp-turret-${this._improvisedTurretCount}`,
       x: tx,
       y: ty,
       ownerId: this.id,

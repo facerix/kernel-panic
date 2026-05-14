@@ -9,7 +9,7 @@ Living plan for Phase 2 of Kernel Panic. Source of truth for milestone scope, cu
 | M0 — Combat feedback animations | ✅ Done |
 | M1 — Tech archetype + Deploy Turret | ✅ Done |
 | M2 — Campaign layer + named crew roster | ✅ Done |
-| M3 — Salvage + inventory + improvised turrets | ⬜ Pending |
+| M3 — Salvage + inventory + improvised turrets | ✅ Done |
 | M4 — Finn's shop | ⬜ Pending |
 | M5 — Vouch + NPC taxonomy | ⬜ Pending |
 | M6 — Recruitment | ⬜ Pending |
@@ -48,6 +48,9 @@ Test count at Phase 2 start: **409 passing** (end of Phase 1 / M8).
 - **Recruitment:** New crew members unlock when Vouch reaches a threshold (suggest 65) or as a specific contract reward. Archetype and callsign generated on recruit; callsign deduplication applies.
 - **Animations (M0):** Turn-blocking — input disabled for ~300ms during the longest active animation. Three effects: screen shake (CSS `@keyframes` translate on game container, ~150ms), damage reddening (CRT filter temporary red vignette, ~300ms), muzzle flash (1-frame canvas color override at shooter's tile, ~80ms). All wired to the existing event bus. No game-logic changes.
 - **Unified special-action key (M1):** Vault, Slide, and Deploy collapse into a single `x` → `MODE.SPECIAL_AIM` → `{ type: 'special', dx, dy }` intent at the keymap layer; `applyIntent.doSpecial` dispatches to the archetype's perk by capability sniffing (`canDeploy` → Tech, `canVault` → Merc, `canSlide` → Razor). One key, one touch-pad button, one help row — no WASD collision (the original plan's `d` key clashed with WASD-right), and adding a future archetype only requires implementing its perk method.
+- **Interact key rebound to Space (M3):** `i` → Space (`' '`). Roguelike players associate `i` with inventory (which M4's Finn shop will want). Space is the universal "activate" key in modern games — accessible, no directional collision (qezc diagonals, WASD, arrows all occupied). Keymap, touchpad, key-help rows, and proximity hints all updated. `i` is now unbound, reserved for inventory in M4.
+- **Changed keyboard mapping to case-sensitive (M3):** In order to free up keyboard space for more commands, and taking inspiration from classic Roguelikes, key bindings are now case-sensitive.
+- **Universal Quit key:** `Q` is now how a player quits / deletes their current campaign to start a new one.
 
 ## Architecture conventions
 
@@ -99,7 +102,7 @@ Introduces `Crew`, migrates existing archetypes, and delivers the third playable
 
 The main shell uses paced aftermath so each step can paint and hold the animation lock before the next step. The debug harness uses the same pipeline with synchronous aftermath for compact logging. This deliberately preserves the pure/DOM split: game modules own ordering and mutations; shells own canvas, status text, timers, and animation effects.
 
-### M2 — Campaign layer + named crew roster ⬜
+### M2 — Campaign layer + named crew roster ✅
 
 The biggest architectural seam in Phase 2. `Run.js` is refactored; Hub logic moves up.
 
@@ -118,17 +121,19 @@ The biggest architectural seam in Phase 2. `Run.js` is refactored; Hub logic mov
 - `buildPlayer` removed from `src/game/archetypes/index.js`; all callers updated.
 - Tests: `Campaign.test.js` — crew creation (3 members, one per archetype, unique callsigns), deployment validation (not flatlined), flatline + campaign-end condition, `onJobEnd` salvage accumulation, snapshot/restore round-trip.
 
-### M3 — Salvage + inventory + improvised turrets ⬜
+### M3 — Salvage + inventory + improvised turrets ✅
 
 Closes the **corpse memorisation** kaizen item (load-bearing for the salvage loop).
 
 - **Corpse memorisation:** `VisionField` gains a `memorisedCorpses: Map<coordKey, GlyphRecord>` updated whenever a drone death (`entity:damaged` with lethal damage) occurs within the current LOS. Remembered corpse renders at `MEMORY_DIM` color when out of current LOS (same dim pass used for remembered tiles). Clears on job end. Closes kaizen item.
-- **Loot drop:** On lethal damage, the drone entity gains `loot: { salvage: N }` where N is rolled from `Rng` in the range `[1, 3]`. Loot is not removed when LOS is lost — the memorised position is enough to navigate back.
-- **`Crew.inventory` solidified:** `{ salvage: number, consumables: Item[] }` (consumables stub `[]` until M4). `collectSalvage(world, targetEntity)` — legal when crew member is Chebyshev-adjacent to the target corpse (not `alive`) and `targetEntity.loot.salvage > 0`; costs `AP_COST.INTERACT`; moves loot into `inventory.salvage`; zeroes `targetEntity.loot.salvage`. Throws on all illegal preconditions.
-- **Salvage extraction:** On `Run` RESULT, `Campaign.onJobEnd` reads `deployedMember.inventory.salvage` and adds it to `campaign.salvage` before zeroing the member's inventory. Salvage is always extracted — it does not stay on the crew member between jobs.
-- **Tech improvised turret:** `Tech.improviseTurret(world, tx, ty)` — identical to `deployTurret` in tile checks and AP cost, but also gates on `inventory.salvage >= SALVAGE_PER_IMPROVISED_TURRET` (suggest 2) and deducts that salvage on commit. The unified `x` special path routes to `deployTurret` if `turretReady`, otherwise to `improviseTurret` if inventory allows, otherwise throws a legibility error.
-- `SALVAGE_PER_IMPROVISED_TURRET = 2` added to `src/game/constants.js`.
-- Tests: loot roll distribution, corpse memorisation triggers and clears on job end, `collectSalvage` legality matrix (adjacency, alive check, loot present, AP gate), extraction into campaign pool, improvised turret legality (salvage gate, tile checks, AP debit + salvage debit).
+- **Loot drop:** On lethal damage, the drone entity gains `loot: { salvage: N }` where N is rolled from `Rng` in the range `[1, 3]`. Loot is not removed when LOS is lost — the memorised position is enough to navigate back. Loot roll lives in `Run.#onEntityDamaged` (not Combat.js) to keep combat resolvers pure.
+- **`Crew.inventory` solidified:** `{ salvage: number, consumables: Item[] }` (consumables stub `[]` until M4). `initInventory()` is idempotent; called by `Run.#makePlayer` at deploy time. `collectSalvage(world, targetEntity)` — legal when crew member is Chebyshev-adjacent to the target corpse (not `alive`) and `targetEntity.loot.salvage > 0`; costs `AP_COST.INTERACT`; moves loot into `inventory.salvage`; zeroes `targetEntity.loot.salvage`. Throws on all illegal preconditions.
+- **Salvage extraction:** On `Run` RESULT with EXIT, the shell reads `deployedMember.inventory.salvage` and passes it to `Campaign.onJobEnd({ outcome, salvage })`. Death forfeits all carried salvage.
+- **Tech improvised turret:** `Tech.canImproviseTurret(world, dx, dy)` / `Tech.improviseTurret(world, dx, dy)` — identical to `deployTurret` in tile checks and AP cost, but gates on `inventory.salvage >= SALVAGE_PER_IMPROVISED_TURRET` (2) instead of `turretReady`. Uses `_improvisedTurretCount` for unique turret ids. The unified `x` special path in `applyIntent.doDeploy` routes to `deployTurret` if `turretReady`, falls back to `improviseTurret` if `canImproviseTurret` passes, otherwise surfaces the most helpful denial reason.
+- `SALVAGE_DROP_MIN = 1`, `SALVAGE_DROP_MAX = 3`, `SALVAGE_PER_IMPROVISED_TURRET = 2` added to `src/game/constants.js`.
+- **Interact key rebound:** `i` → Space (`' '`). `i` freed for inventory in M4. Keymap, touchpad, key-help, and all tests updated. Proximity hints updated with `[Space]` labels.
+- Status lines: combat HUD shows `SAL:N` for carried salvage; Hub shows `SALVAGE N` for campaign pool. Debug harness shows salvage count for Tech.
+- Tests (33 new, 555 total): `Crew.initInventory` + idempotency, `collectSalvage` full legality matrix (adjacency, alive, loot present, AP, inventory init), loot assignment on kill (deterministic, turret kills, non-lethal no-op), inventory initialisation at deploy, corpse memorisation + clear, memorised corpse rendering in frame builder, improvised turret full legality matrix + commit + unique ids, applyIntent routing to improvised turret, campaign persistence round-trip with inventory, keymap/touchpad/keyHelp rebind.
 
 ### M4 — Finn's shop ⬜
 

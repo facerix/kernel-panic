@@ -10,6 +10,7 @@ import {
 import { OUTCOME, RUN_STATE } from '../../../src/game/Run.js';
 import { Rng } from '../../../src/rng.js';
 import { OBJECTIVES } from '../../../src/game/hub/Curator.js';
+import { snapshotCampaign, restoreCampaign } from '../../../src/game/persistence.js';
 
 const fakeContract = (overrides = {}) => ({
   seed: 12345,
@@ -84,6 +85,46 @@ test('willEndCampaignOnThisDeath is true only for the last surviving crew slot',
   campaign.flatlineMember(campaign.crew[1].id);
   assert.equal(willEndCampaignOnThisDeath(campaign), true);
   assert.throws(() => willEndCampaignOnThisDeath(null), /Campaign-like/);
+});
+
+// --- M3: salvage extraction from inventory --------------------------------
+
+test('onJobEnd with EXIT transfers crew inventory salvage to campaign pool', () => {
+  const campaign = new Campaign({ seed: 42 });
+  const member = campaign.crew[0];
+  const run = campaign.deployCrewMember(member.id, fakeContract());
+  run.enterCombat();
+  // Simulate the crew member collecting salvage during the job.
+  member.initInventory();
+  member.inventory.salvage = 7;
+  // Exit extracts inventory salvage.
+  campaign.onJobEnd({ outcome: OUTCOME.EXIT, salvage: 7 });
+  assert.equal(campaign.salvage, 7, 'salvage accumulated from job');
+});
+
+test('onJobEnd with DEATH does not add salvage to the campaign pool', () => {
+  const campaign = new Campaign({ seed: 42 });
+  const member = campaign.crew[0];
+  const run = campaign.deployCrewMember(member.id, fakeContract());
+  run.enterCombat();
+  member.initInventory();
+  member.inventory.salvage = 5;
+  campaign.onJobEnd({ outcome: OUTCOME.DEATH });
+  assert.equal(campaign.salvage, 0, 'death forfeits salvage');
+});
+
+// --- M3: persistence round-trip with inventory ----------------------------
+
+test('crew inventory survives campaign snapshot/restore round-trip', () => {
+  const campaign = new Campaign({ seed: 42 });
+  const member = campaign.crew[0];
+  member.initInventory();
+  member.inventory.salvage = 7;
+  member.inventory.consumables = [];
+  const snap = snapshotCampaign(campaign);
+  const restored = restoreCampaign(snap);
+  const restoredMember = restored.crew[0];
+  assert.deepEqual(restoredMember.inventory, { salvage: 7, consumables: [] });
 });
 
 test('onJobEnd flatlines deaths and ends the campaign when everyone is gone', () => {

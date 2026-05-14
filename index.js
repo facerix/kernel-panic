@@ -25,7 +25,7 @@ import { Campaign, CAMPAIGN_STATE, willEndCampaignOnThisDeath } from '/src/game/
 import { RUN_STATE } from '/src/game/Run.js';
 import { restoreCampaign, snapshotCampaign } from '/src/game/persistence.js';
 import { runCorpTurn as driveCorpTurn } from '/src/game/corpTurnDriver.js';
-import { FACTION } from '/src/game/constants.js';
+import { FACTION, AP_COST } from '/src/game/constants.js';
 import {
   advanceFromPlayerTurn,
   drivePlayerAftermath,
@@ -327,6 +327,9 @@ function resumeCampaign(record) {
       onPersist: () => handlePersist(),
       onResult: handleResult,
     });
+    if (campaign.activeRun?.state === RUN_STATE.COMBAT) {
+      vision.resetFogState();
+    }
     attachVisionListener();
     attachAnimationListeners();
     recomputeVision();
@@ -364,10 +367,9 @@ function isConfirmationDialogOpen(el) {
 function presentQuitCampaignConfirm() {
   if (!quitCampaignModalEl || !campaign) return;
   if (isConfirmationDialogOpen(quitCampaignModalEl)) return;
-  quitCampaignModalEl.showModal(
-    'Delete this campaign and all progress? This cannot be undone.',
-    { kind: 'quit-campaign' }
-  );
+  quitCampaignModalEl.showModal('Delete this campaign and all progress? This cannot be undone.', {
+    kind: 'quit-campaign',
+  });
 }
 
 function performQuitCampaign() {
@@ -496,6 +498,11 @@ function runCorpTurn(onFinish) {
 
 function handleInteract() {
   if (!campaign) return;
+  // Combat interact: check for adjacent lootable corpses first.
+  if (campaign.state === CAMPAIGN_STATE.COMBAT && campaign.activeRun?.state === RUN_STATE.COMBAT) {
+    handleCombatInteract();
+    return;
+  }
   if (campaign.state !== CAMPAIGN_STATE.HUB) {
     flash('Nothing to interact with here.');
     return;
@@ -514,11 +521,52 @@ function handleInteract() {
   presentCrewRoster('deploy');
 }
 
+/**
+ * Combat interact — scan Chebyshev-adjacent tiles for a lootable corpse.
+ * If found: call `player.collectSalvage`, flash result, auto-end turn on AP
+ * exhaustion. If not found: show a no-loot hint.
+ */
+function handleCombatInteract() {
+  const run = campaign.activeRun;
+  if (!run || !run.player) return;
+  const player = run.player;
+  // Scan the 8 neighbours plus the player's own tile for lootable corpses.
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      const tx = player.x + dx;
+      const ty = player.y + dy;
+      const entity = run.world.lootableCorpseAt(tx, ty);
+      if (entity && !entity.alive && entity.loot && entity.loot.salvage > 0) {
+        if (!player.canAfford(AP_COST.INTERACT)) {
+          flash('Insufficient AP to loot.');
+          return;
+        }
+        const amount = entity.loot.salvage;
+        player.collectSalvage(run.world, entity);
+        flash(
+          `Salvaged +${amount} — carrying ${player.inventory.salvage} total. ${player.ap} AP left.`
+        );
+        paint();
+        if (player.ap === 0) {
+          flash('AP EXHAUSTED — auto-ending turn.');
+          advanceTurn();
+        }
+        return;
+      }
+    }
+  }
+  flash('Nothing to loot nearby.');
+}
+
 function onJackIn() {
   const run = campaign?.activeRun;
   if (!run || run.state !== RUN_STATE.BRIEFING) return;
   run.enterCombat();
   handlePersist();
+  // New grid + new entities — the module-level VisionField outlives each Run;
+  // wipe fog / corpse memory so the previous job's memorised % glyphs cannot
+  // reappear at the same coordinates.
+  vision.resetFogState();
   // enterCombat rebuilds bus + world; re-attach the vision listener so live
   // entity moves keep refreshing fog-of-war.
   attachVisionListener();
@@ -533,7 +581,10 @@ function onNewRunRequested() {
   if (pendingJobResult) {
     const { outcome } = pendingJobResult;
     pendingJobResult = null;
-    campaign.onJobEnd({ outcome });
+    // M3: extract salvage from the deployed crew member's inventory on exit.
+    const member = campaign.getCrewMember(campaign.deployedMemberId);
+    const salvage = member?.inventory?.salvage ?? 0;
+    campaign.onJobEnd({ outcome, salvage });
     if (campaign.state === CAMPAIGN_STATE.ENDED) {
       dataStore.deleteCampaign();
       startFreshCampaign();
@@ -584,7 +635,7 @@ function attachAnimationListeners() {
   const run = currentScene();
   if (!run?.bus) return;
   animationUnsubs.push(
-    run.bus.on(EVENT.ENTITY_DAMAGED, ({ target, source }) => {
+    run.bus.on(EVENT.ENTITY_DAMAGED, ({ target, killed, source }) => {
       // Player-side feedback: screen shake + red vignette when *we* get hit.
       if (run?.player && target === run.player && stageEl) {
         triggerShake(stageEl);
@@ -597,6 +648,10 @@ function attachAnimationListeners() {
       if (source === 'melee' && target && renderer) {
         const fired = runMuzzleFlash(renderer, paint, target.x, target.y);
         if (fired) animLock.push(ANIMATION_DURATIONS.MUZZLE_FLASH);
+      }
+      // M3: memorise corpse position when a kill occurs within current LOS.
+      if (killed && target && vision.isVisible(target.x, target.y)) {
+        vision.memoriseCorpse(target);
       }
     }),
     run.bus.on(EVENT.NOISE, payload => {
@@ -678,10 +733,13 @@ function statusLine(modeHint) {
   const player = run.player;
   if (!player) return stateLabel();
   const stealthTag = player.stealthed ? ' [CLOAKED]' : '';
-  const identity =
-    run.state === RUN_STATE.COMBAT
-      ? `${run.player.callsign ?? run.archetype} ${run.archetype.toUpperCase()}`
-      : `CREW ${campaign.crew.filter(member => !member.flatlined).length}/${campaign.crew.length} SALVAGE ${campaign.salvage}`;
+  let identity;
+  if (run.state === RUN_STATE.COMBAT) {
+    const salvageTag = player.inventory ? ` SAL:${player.inventory.salvage}` : '';
+    identity = `${run.player.callsign ?? run.archetype} ${run.archetype.toUpperCase()}${salvageTag}`;
+  } else {
+    identity = `CREW ${campaign.crew.filter(member => !member.flatlined).length}/${campaign.crew.length} SALVAGE ${campaign.salvage}`;
+  }
   const statsInner =
     `${stateLabel()}  |  ${identity} ` +
     `AP ${player.ap}/${player.maxAp} HP ${player.hp}/${player.maxHp}${stealthTag}` +
@@ -721,20 +779,30 @@ function proximityHint() {
   if (!run || !run.player) return '';
   if (run.state === CAMPAIGN_STATE.HUB) {
     if (run.curator && isChebyshevAdjacent(run.player, run.curator)) {
-      return 'CURATOR — press Space for a contract.';
+      return 'CURATOR — press [Space] for a contract.';
     }
     if (run.terminal && isChebyshevAdjacent(run.player, run.terminal)) {
-      return 'TERMINAL — press Space for roster.';
+      return 'TERMINAL — press [Space] for roster.';
     }
     return '';
   }
-  if (run.state === RUN_STATE.COMBAT && run.exitTile) {
-    const d = chebyshevDistance(run.player, run.exitTile);
-    // d === 0 fires `Run.#onEntityMoved` → enterResult on the same tick, so
-    // by the time the next paint runs we're in RESULT — covered by the
-    // outer state gate. Adjacency is the warning that you can JACK OUT next
-    // step.
-    if (d === 1) return 'EXIT (¤) one step away.';
+  if (run.state === RUN_STATE.COMBAT) {
+    // Loot hint: check for adjacent lootable corpses.
+    if (run.world && run.player) {
+      const p = run.player;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const e = run.world.lootableCorpseAt(p.x + dx, p.y + dy);
+          if (e && !e.alive && e.loot && e.loot.salvage > 0) {
+            return 'SALVAGE nearby — press [Space] to loot.';
+          }
+        }
+      }
+    }
+    if (run.exitTile) {
+      const d = chebyshevDistance(run.player, run.exitTile);
+      if (d === 1) return 'EXIT (¤) one step away.';
+    }
   }
   return '';
 }

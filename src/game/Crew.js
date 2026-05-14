@@ -1,4 +1,5 @@
 import { Entity } from './Entity.js';
+import { AP_COST } from './constants.js';
 
 /**
  * Crew — the base class for every player-controlled archetype.
@@ -47,9 +48,62 @@ export class Crew extends Entity {
     }
     this.callsign = callsign;
     this.flatlined = flatlined;
-    /** Stub for M3 — `{ salvage, consumables }` once the schema lands. */
+    /**
+     * Inventory — `{ salvage: number, consumables: Item[] }` once
+     * `initInventory()` has been called (at job deploy time in `Run`).
+     * `null` before initialisation; callers that touch `.salvage` on a
+     * null inventory crash legibly, which is the failure mode we want.
+     */
     this.inventory = inventory;
     /** Stub for M4 — `{ maxHpBonus, hitBonus, … }` once Finn's shop lands. */
     this.gear = gear;
+  }
+
+  /**
+   * Lock in the inventory schema. Idempotent — safe to call at the top of
+   * every job deploy without clobbering mid-campaign state (e.g. salvage
+   * accumulated but not yet extracted). Called by `Run.#makePlayer`.
+   */
+  initInventory() {
+    if (this.inventory !== null) return;
+    this.inventory = { salvage: 0, consumables: [] };
+  }
+
+  /**
+   * Loot salvage from an adjacent corpse. Costs `AP_COST.INTERACT`.
+   *
+   * Pre-conditions (all throw on violation — crash > silent fallback):
+   *   - `this.inventory` is initialised
+   *   - crew member can afford INTERACT AP
+   *   - `targetEntity` is not alive (must be a corpse)
+   *   - `targetEntity` has a `loot` object with `salvage > 0`
+   *   - `targetEntity` is Chebyshev-adjacent (distance ≤ 1) to this crew member
+   *
+   * On commit: debits AP, transfers loot.salvage to `this.inventory.salvage`,
+   * zeroes `targetEntity.loot.salvage`.
+   */
+  collectSalvage(world, targetEntity) {
+    if (!this.inventory) {
+      throw new Error(`collectSalvage: inventory not initialised for ${this.id}`);
+    }
+    if (!this.canAfford(AP_COST.INTERACT)) {
+      throw new Error(`collectSalvage: insufficient AP for ${this.id}`);
+    }
+    if (targetEntity.alive) {
+      throw new Error(`collectSalvage: target ${targetEntity.id} is still alive`);
+    }
+    if (!targetEntity.loot || !targetEntity.loot.salvage || targetEntity.loot.salvage <= 0) {
+      throw new Error(`collectSalvage: no salvage loot on ${targetEntity.id}`);
+    }
+    const dx = Math.abs(targetEntity.x - this.x);
+    const dy = Math.abs(targetEntity.y - this.y);
+    if (Math.max(dx, dy) > 1) {
+      throw new Error(
+        `collectSalvage: ${targetEntity.id} is not adjacent to ${this.id} (Chebyshev ${Math.max(dx, dy)})`
+      );
+    }
+    this.spendAp(AP_COST.INTERACT);
+    this.inventory.salvage += targetEntity.loot.salvage;
+    targetEntity.loot.salvage = 0;
   }
 }

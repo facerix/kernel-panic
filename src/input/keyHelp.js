@@ -62,7 +62,7 @@ export const HELP_ROWS = Object.freeze([
   },
   {
     keys: Object.freeze([' ']),
-    label: 'Interact (Curator, Terminal, …)',
+    label: 'Interact (Curator, Salvage, …)',
     scope: 'both',
     group: 'action',
   },

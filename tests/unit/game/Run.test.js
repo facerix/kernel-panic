@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { Run, RUN_STATE, OUTCOME } from '../../../src/game/Run.js';
 import { OBJECTIVES } from '../../../src/game/hub/Curator.js';
-import { FACTION } from '../../../src/game/constants.js';
+import { FACTION, SALVAGE_DROP_MIN, SALVAGE_DROP_MAX } from '../../../src/game/constants.js';
 import { Turret } from '../../../src/game/Turret.js';
 import { buildCrewMember } from '../../../src/game/archetypes/index.js';
 import { Rng } from '../../../src/rng.js';
@@ -189,6 +189,94 @@ test('reaching the exit tile transitions to RESULT(EXIT)', () => {
   });
   assert.equal(run.state, RUN_STATE.RESULT);
   assert.equal(results[0].outcome, OUTCOME.EXIT);
+});
+
+// --- M3: loot drops on kill -----------------------------------------------
+
+test('killing a corp entity assigns loot to the target', () => {
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 1 });
+  run.enterBriefing(fakeContract());
+  run.enterCombat();
+  const drone = [...run.world.entities.values()].find(e => e.faction === FACTION.CORP);
+  assert.ok(drone);
+  drone.damage(drone.maxHp);
+  run.bus.emit('entity:damaged', {
+    attacker: run.player,
+    target: drone,
+    damage: drone.maxHp,
+    killed: true,
+    source: 'ranged',
+  });
+  assert.ok(drone.loot, 'killed drone should have loot assigned');
+  assert.ok(
+    drone.loot.salvage >= SALVAGE_DROP_MIN && drone.loot.salvage <= SALVAGE_DROP_MAX,
+    `salvage ${drone.loot.salvage} outside [${SALVAGE_DROP_MIN}, ${SALVAGE_DROP_MAX}]`
+  );
+});
+
+test('killing a corp entity via turret also assigns loot', () => {
+  const run = new Run({ crewMember: makeCrew('tech'), seed: 1 });
+  run.enterBriefing(fakeContract());
+  run.enterCombat();
+  const drone = [...run.world.entities.values()].find(e => e.faction === FACTION.CORP);
+  assert.ok(drone);
+  const turret = new Turret({ id: `${run.player.id}-turret`, x: 1, y: 1, ownerId: run.player.id });
+  drone.damage(drone.maxHp);
+  run.bus.emit('entity:damaged', {
+    attacker: turret,
+    target: drone,
+    damage: 1,
+    killed: true,
+    source: 'ranged',
+  });
+  assert.ok(drone.loot, 'turret-killed drone should have loot');
+  assert.ok(drone.loot.salvage >= SALVAGE_DROP_MIN);
+});
+
+test('non-lethal damage does not assign loot', () => {
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 1 });
+  run.enterBriefing(fakeContract());
+  run.enterCombat();
+  const drone = [...run.world.entities.values()].find(e => e.faction === FACTION.CORP);
+  assert.ok(drone);
+  run.bus.emit('entity:damaged', {
+    attacker: run.player,
+    target: drone,
+    damage: 1,
+    killed: false,
+    source: 'ranged',
+  });
+  assert.equal(drone.loot, undefined, 'non-lethal hit should not assign loot');
+});
+
+test('loot rolls are deterministic across seeds', () => {
+  // Two runs with the same seed should produce the same loot roll.
+  const loots = [];
+  for (let i = 0; i < 2; i++) {
+    const run = new Run({ crewMember: makeCrew('razor'), seed: 42 });
+    run.enterBriefing(fakeContract());
+    run.enterCombat();
+    const drone = [...run.world.entities.values()].find(e => e.faction === FACTION.CORP);
+    drone.damage(drone.maxHp);
+    run.bus.emit('entity:damaged', {
+      attacker: run.player,
+      target: drone,
+      damage: drone.maxHp,
+      killed: true,
+      source: 'ranged',
+    });
+    loots.push(drone.loot.salvage);
+  }
+  assert.equal(loots[0], loots[1], 'same seed should produce same loot');
+});
+
+test('player inventory is initialised at job deploy (enterCombat)', () => {
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 42 });
+  run.enterBriefing(fakeContract());
+  run.enterCombat();
+  assert.ok(run.player.inventory, 'inventory should be initialised');
+  assert.equal(run.player.inventory.salvage, 0);
+  assert.deepEqual(run.player.inventory.consumables, []);
 });
 
 test('Run constructor rejects bad inputs', () => {

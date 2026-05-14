@@ -5,7 +5,7 @@ import { Grid } from '../../../src/game/Grid.js';
 import { World } from '../../../src/game/World.js';
 import { TurnQueue } from '../../../src/game/TurnQueue.js';
 import { EventBus } from '../../../src/game/events.js';
-import { TILE, FACTION } from '../../../src/game/constants.js';
+import { TILE, FACTION, SALVAGE_PER_IMPROVISED_TURRET } from '../../../src/game/constants.js';
 import { Merc } from '../../../src/game/archetypes/Merc.js';
 import { Razor } from '../../../src/game/archetypes/Razor.js';
 import { Tech } from '../../../src/game/archetypes/Tech.js';
@@ -221,4 +221,32 @@ test('AP exhaustion triggers auto-end-turn during a move', () => {
   applyIntent({ type: 'move', dx: 0, dy: 1 }, ctx);
   assert.equal(player.ap, 0);
   assert.equal(calls.advanceTurn, 1);
+});
+
+// --- M3: improvised turret dispatch via special intent ---------------------
+
+test('special on a Tech routes to improviseTurret when turretReady is false and salvage is available', () => {
+  const { ctx, world, player } = buildCtx({ archetype: 'tech', placeDrone: false });
+  player.initInventory();
+  player.inventory.salvage = SALVAGE_PER_IMPROVISED_TURRET;
+  // Deploy the pre-built turret south — (2, 3) is plain floor.
+  player.deployTurret(world, 0, 1);
+  player.refreshAp();
+  // Now special deploy west — (1, 2) is plain floor, not the cover at (3, 2).
+  applyIntent({ type: 'special', dx: -1, dy: 0 }, ctx);
+  const placed = world.entityAt(1, 2);
+  assert.ok(placed instanceof Turret, 'expected an improvised turret placed');
+  assert.equal(player.inventory.salvage, 0, 'salvage deducted for improvised turret');
+});
+
+test('special on a Tech with no turret and no salvage logs a denial', () => {
+  const { ctx, player, log } = buildCtx({ archetype: 'tech', placeDrone: false });
+  player.initInventory();
+  player.inventory.salvage = 0;
+  player.turretReady = false;
+  applyIntent({ type: 'special', dx: 0, dy: 1 }, ctx);
+  assert.ok(
+    log.some(l => l.includes('DEPLOY DENIED')),
+    'should log a denial when no turret and no salvage'
+  );
 });

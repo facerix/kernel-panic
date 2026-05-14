@@ -184,16 +184,35 @@ function doSpecial(intent, ctx) {
 function doDeploy(intent, ctx) {
   const { world, player, log, advanceTurn } = ctx;
   const check = player.canDeploy(world, intent.dx, intent.dy);
-  if (!check.ok) {
-    log(`> DEPLOY DENIED: ${check.reason}`);
+  if (check.ok) {
+    const turret = player.deployTurret(world, intent.dx, intent.dy);
+    log(`> @ deploys turret ${turret.id} at (${turret.x}, ${turret.y}) — ${player.ap} AP left.`);
+    if (player.ap === 0) {
+      log('> AP EXHAUSTED — auto-ending turn.');
+      advanceTurn();
+    }
     return;
   }
-  const turret = player.deployTurret(world, intent.dx, intent.dy);
-  log(`> @ deploys turret ${turret.id} at (${turret.x}, ${turret.y}) — ` + `${player.ap} AP left.`);
-  if (player.ap === 0) {
-    log('> AP EXHAUSTED — auto-ending turn.');
-    advanceTurn();
+  // M3: if the pre-built turret is spent, try an improvised turret from salvage.
+  if (check.reason === 'no-turret' && typeof player.canImproviseTurret === 'function') {
+    const impCheck = player.canImproviseTurret(world, intent.dx, intent.dy);
+    if (impCheck.ok) {
+      const turret = player.improviseTurret(world, intent.dx, intent.dy);
+      log(
+        `> @ improvises turret ${turret.id} at (${turret.x}, ${turret.y}) — ` +
+          `${player.inventory.salvage} salvage left, ${player.ap} AP left.`
+      );
+      if (player.ap === 0) {
+        log('> AP EXHAUSTED — auto-ending turn.');
+        advanceTurn();
+      }
+      return;
+    }
+    // Fall through to the original deny — surface the most helpful reason.
+    log(`> DEPLOY DENIED: ${impCheck.reason}`);
+    return;
   }
+  log(`> DEPLOY DENIED: ${check.reason}`);
 }
 
 function doVault(intent, ctx) {

@@ -22,6 +22,48 @@ export class VisionField {
   constructor() {
     this.visible = new Set();
     this.seen = new Set();
+    /**
+     * Corpse positions memorised during this job. Updated when a kill occurs
+     * within current LOS (the shell wires `entity:damaged` with `killed: true`
+     * to `memoriseCorpse`). Rendered at `MEMORY_DIM` when the tile is out of
+     * current LOS but has been `seen`. Cleared when a new combat episode
+     * starts ({@link resetFogState} from the shell).
+     *
+     * @type {Map<string, { x: number, y: number, faction: string }>}
+     */
+    this.memorisedCorpses = new Map();
+  }
+
+  /**
+   * Record a corpse's position so the frame builder can render it dimly when
+   * the tile leaves current LOS. Called by the shell's `entity:damaged`
+   * listener when `killed` is true and the corpse tile is currently visible.
+   * Cleared with {@link resetFogState} when a new combat episode starts.
+   */
+  memoriseCorpse(entity) {
+    const k = keyOf(entity.x, entity.y);
+    this.memorisedCorpses.set(k, {
+      x: entity.x,
+      y: entity.y,
+      faction: entity.faction,
+    });
+  }
+
+  /** Clear all corpse memory — used when tearing down fog for a new grid. */
+  clearCorpseMemory() {
+    this.memorisedCorpses.clear();
+  }
+
+  /**
+   * Drop `visible`, `seen`, and corpse memory in one shot. The main shell
+   * calls this when **jacking into** a new combat map so coordinates from the
+   * previous job cannot paint memorised corpses or exploration into the new
+   * episode (the `VisionField` instance outlives each `Run`).
+   */
+  resetFogState() {
+    this.visible.clear();
+    this.seen.clear();
+    this.memorisedCorpses.clear();
   }
 
   /**

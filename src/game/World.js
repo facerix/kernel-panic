@@ -45,10 +45,41 @@ export class World {
   /**
    * Linear scan — fine for V1 entity counts (~tens). If we ever break a
    * thousand entities on screen we'll add a position index.
+   *
+   * Live entities only — corpses stay in `entities` for salvage / rendering
+   * but must not block movement or register as LOS blockers (see
+   * `blockerKeys`). Use {@link anyEntityAt} for any occupant regardless of
+   * `alive`, or {@link lootableCorpseAt} for salvage targets (including when a
+   * live actor shares the tile).
    */
   entityAt(x, y) {
     for (const e of this.entities.values()) {
       if (e.alive && e.x === x && e.y === y) return e;
+    }
+    return null;
+  }
+
+  /**
+   * First entity at `(x, y)` whether living or dead. Map iteration order is
+   * undefined — prefer {@link lootableCorpseAt} when you need a corpse on a
+   * tile that may also hold a live actor (e.g. player standing on salvage).
+   */
+  anyEntityAt(x, y) {
+    for (const e of this.entities.values()) {
+      if (e.x === x && e.y === y) return e;
+    }
+    return null;
+  }
+
+  /**
+   * Dead entity on `(x, y)` with `loot.salvage > 0`, if any. Scans every
+   * occupant so co-located live + corpse (legal after moving onto a body)
+   * still resolves the lootable target.
+   */
+  lootableCorpseAt(x, y) {
+    for (const e of this.entities.values()) {
+      if (e.x !== x || e.y !== y) continue;
+      if (!e.alive && e.loot && e.loot.salvage > 0) return e;
     }
     return null;
   }

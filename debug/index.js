@@ -152,6 +152,9 @@ function rerender(modeHint = '') {
   let turretTag = '';
   if (archetype === 'tech') {
     turretTag = player.turretReady ? ' [TURRET READY]' : ' [TURRET DEPLOYED]';
+    if (player.inventory) {
+      turretTag += ` SALVAGE:${player.inventory.salvage}`;
+    }
   }
   document.getElementById('status').textContent =
     `TURN ${queue.turnNumber}  |  ACTING: ${queue.currentFaction.toUpperCase()}  |  ` +

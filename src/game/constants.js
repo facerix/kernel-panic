@@ -102,6 +102,15 @@ export const SIGHT_RANGE = 8;
  * `lastKnownTarget`; same-faction noise is filtered at the listener so
  * drones don't investigate each other's footsteps.
  */
+/**
+ * Salvage parameters. Phase 2 salvage is generic units (no typed components).
+ * Drone corpses drop a random amount in [DROP_MIN, DROP_MAX]; improvised
+ * turrets cost IMPROVISED_TURRET_COST units from the crew member's inventory.
+ */
+export const SALVAGE_DROP_MIN = 1;
+export const SALVAGE_DROP_MAX = 3;
+export const SALVAGE_PER_IMPROVISED_TURRET = 2;
+
 export const NOISE_RADIUS = Object.freeze({
   MOVE: 3,
   MELEE: 5,

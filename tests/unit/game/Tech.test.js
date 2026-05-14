@@ -16,7 +16,12 @@ import { Turret } from '../../../src/game/Turret.js';
 import { Grid } from '../../../src/game/Grid.js';
 import { World } from '../../../src/game/World.js';
 import { Entity } from '../../../src/game/Entity.js';
-import { TILE, FACTION, AP_COST } from '../../../src/game/constants.js';
+import {
+  TILE,
+  FACTION,
+  AP_COST,
+  SALVAGE_PER_IMPROVISED_TURRET,
+} from '../../../src/game/constants.js';
 
 function makeWorld({ techAt = [3, 3], grid, extraEntities = [] } = {}) {
   const g = grid ?? new Grid(8, 8);
@@ -137,4 +142,99 @@ test('Tech.deployTurret blocks a second deploy in the same job (no double-drop)'
   assert.equal(tech.canDeploy(world, 0, 1).reason, 'no-turret');
   // And a commit attempt throws.
   assert.throws(() => tech.deployTurret(world, 0, 1), /no-turret/);
+});
+
+// --- M3: improvised turrets -----------------------------------------------
+
+function makeWorldWithInventory({ techAt = [3, 3], grid, salvage = 4, extraEntities = [] } = {}) {
+  const g = grid ?? new Grid(8, 8);
+  const w = new World(g);
+  const tech = new Tech({ id: 'tech', x: techAt[0], y: techAt[1] });
+  tech.initInventory();
+  tech.inventory.salvage = salvage;
+  w.addEntity(tech);
+  for (const e of extraEntities) w.addEntity(e);
+  return { world: w, tech };
+}
+
+test('Tech.canImproviseTurret accepts when salvage >= cost and tile is legal', () => {
+  const { world, tech } = makeWorldWithInventory({ salvage: SALVAGE_PER_IMPROVISED_TURRET });
+  // Pre-built turret already deployed.
+  tech.turretReady = false;
+  const check = tech.canImproviseTurret(world, 1, 0);
+  assert.equal(check.ok, true);
+});
+
+test('Tech.canImproviseTurret rejects when inventory not initialised', () => {
+  const { world, tech } = makeWorld(); // null inventory
+  tech.turretReady = false;
+  const check = tech.canImproviseTurret(world, 1, 0);
+  assert.equal(check.ok, false);
+  assert.equal(check.reason, 'no-inventory');
+});
+
+test('Tech.canImproviseTurret rejects when salvage < cost', () => {
+  const { world, tech } = makeWorldWithInventory({ salvage: SALVAGE_PER_IMPROVISED_TURRET - 1 });
+  tech.turretReady = false;
+  const check = tech.canImproviseTurret(world, 1, 0);
+  assert.equal(check.ok, false);
+  assert.equal(check.reason, 'insufficient-salvage');
+});
+
+test('Tech.canImproviseTurret rejects when AP < DEPLOY cost', () => {
+  const { world, tech } = makeWorldWithInventory();
+  tech.turretReady = false;
+  tech.spendAp(tech.ap - (AP_COST.DEPLOY - 1));
+  const check = tech.canImproviseTurret(world, 1, 0);
+  assert.equal(check.ok, false);
+  assert.equal(check.reason, 'insufficient-ap');
+});
+
+test('Tech.canImproviseTurret rejects out-of-bounds tile', () => {
+  const g = new Grid(5, 5);
+  const { world, tech } = makeWorldWithInventory({ grid: g, techAt: [4, 4] });
+  tech.turretReady = false;
+  assert.equal(tech.canImproviseTurret(world, 1, 0).reason, 'out-of-bounds');
+});
+
+test('Tech.canImproviseTurret rejects occupied tile', () => {
+  const drone = new Entity({ id: 'd', x: 4, y: 3, faction: FACTION.CORP, glyph: 'd' });
+  const { world, tech } = makeWorldWithInventory({ extraEntities: [drone] });
+  tech.turretReady = false;
+  assert.equal(tech.canImproviseTurret(world, 1, 0).reason, 'occupied');
+});
+
+test('Tech.improviseTurret commits: deducts salvage + AP, places turret', () => {
+  const { world, tech } = makeWorldWithInventory({ salvage: 4 });
+  tech.turretReady = false;
+  const apBefore = tech.ap;
+  const salvageBefore = tech.inventory.salvage;
+  const turret = tech.improviseTurret(world, 1, 0);
+  assert.ok(turret instanceof Turret);
+  assert.equal(turret.x, 4);
+  assert.equal(turret.y, 3);
+  assert.equal(turret.faction, FACTION.PLAYER);
+  assert.equal(tech.ap, apBefore - AP_COST.DEPLOY);
+  assert.equal(tech.inventory.salvage, salvageBefore - SALVAGE_PER_IMPROVISED_TURRET);
+  assert.equal(world.entityAt(4, 3), turret);
+});
+
+test('Tech.improviseTurret throws on illegal pre-conditions without mutating state', () => {
+  const { world, tech } = makeWorldWithInventory({ salvage: 0 });
+  tech.turretReady = false;
+  const apBefore = tech.ap;
+  assert.throws(() => tech.improviseTurret(world, 1, 0), /Illegal/);
+  assert.equal(tech.ap, apBefore, 'AP not debited on illegal improvise');
+  assert.equal(tech.inventory.salvage, 0, 'salvage not debited on illegal improvise');
+});
+
+test('Tech.improviseTurret uses unique turret ids for multiple placements', () => {
+  const { world, tech } = makeWorldWithInventory({ salvage: 10 });
+  tech.turretReady = false;
+  const t1 = tech.improviseTurret(world, 1, 0);
+  tech.refreshAp();
+  const t2 = tech.improviseTurret(world, 0, 1);
+  assert.notEqual(t1.id, t2.id, 'turret ids must be unique');
+  assert.equal(world.entityAt(4, 3), t1);
+  assert.equal(world.entityAt(3, 4), t2);
 });

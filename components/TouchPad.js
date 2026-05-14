@@ -65,9 +65,7 @@ const ACTION_BUTTONS = Object.freeze([
   { id: 'cancel', label: 'CANCEL', shortcut: 'esc' },
 ]);
 
-const META_BUTTONS = Object.freeze([
-  { id: 'quit-campaign', label: 'QUIT', shortcut: 'Q' },
-]);
+const META_BUTTONS = Object.freeze([{ id: 'quit-campaign', label: 'QUIT', shortcut: 'Q' }]);
 
 const AIM_MODE_LABEL = Object.freeze({
   [MODE.IDLE]: '',

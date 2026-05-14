@@ -3,8 +3,11 @@ import {
   glyphForEntity,
   glyphForCorpse,
   dimGlyph,
+  dimColor,
   OOB_GLYPH,
   UNSEEN_GLYPH,
+  CORPSE_GLYPH_CHAR,
+  MEMORY_DIM,
 } from './palette.js';
 
 /**
@@ -22,10 +25,11 @@ import {
  * aren't memorised, so a drone that ducked behind a wall vanishes.
  *
  * Corpses render via `glyphForCorpse` when their tile is currently visible.
- * Memory mode still hides them (same "we don't track where things were" rule
- * as live entities) — memorising corpse positions is a separate concern; see
- * the deferred-fix list. If a live entity walks onto a corpse's tile, the
- * live one wins the cell.
+ * M3 added **corpse memorisation**: when a kill occurs within current LOS,
+ * the shell calls `vision.memoriseCorpse(entity)`, and the memory pass here
+ * renders memorised corpses at `MEMORY_DIM` (dimmer than a live corpse in
+ * LOS). This lets the player navigate back to loot. Live entities moving
+ * onto a corpse tile still win the cell.
  */
 
 /**
@@ -83,9 +87,17 @@ export function buildFrame(world, camera, options = {}) {
         if (vision.isVisible(wx, wy)) {
           cells[idx] = glyphForCell(world, entityIndex, wx, wy);
         } else if (vision.hasSeen(wx, wy)) {
-          // Memory: tile only, no entities (live or dead). We don't track
-          // where things were — see the module comment.
-          cells[idx] = dimGlyph(glyphForTile(world.grid.tileAt(wx, wy)));
+          // Memory pass: tile only for live entities (we don't track where
+          // they are). Memorised corpses render at MEMORY_DIM so the player
+          // can navigate back to loot them. The corpse glyph uses its faction
+          // colour at the memory dim factor.
+          const corpseRec = vision.memorisedCorpses?.get(`${wx},${wy}`);
+          if (corpseRec) {
+            const fg = factionFgForMemory(corpseRec.faction);
+            cells[idx] = { char: CORPSE_GLYPH_CHAR, fg: dimColor(fg, MEMORY_DIM) };
+          } else {
+            cells[idx] = dimGlyph(glyphForTile(world.grid.tileAt(wx, wy)));
+          }
         } else {
           cells[idx] = UNSEEN_GLYPH;
         }
@@ -109,4 +121,14 @@ function glyphForCell(world, entityIndex, wx, wy) {
     return entity.alive ? glyphForEntity(entity) : glyphForCorpse(entity);
   }
   return glyphForTile(world.grid.tileAt(wx, wy));
+}
+
+/**
+ * Resolve a faction string to its canonical foreground colour. Used by the
+ * memorised-corpse path which stores a faction string rather than a full
+ * entity reference. Uses `glyphForEntity` on a minimal shim so the colour
+ * mapping has one source of truth in `palette.js`.
+ */
+function factionFgForMemory(faction) {
+  return glyphForEntity({ faction, glyph: '?' }).fg;
 }
