@@ -3,8 +3,7 @@
  * monolithic <crew-roster>. Pure reusable list with no modal chrome.
  *
  * Emits:
- *   - `select`   — highlight changed. `detail: { member }` (snapshot object).
- *   - `activate` — Enter/click on a non-flatlined row. `detail: { member }`.
+ *   - `select` — highlight changed. `detail: { member }` (snapshot object).
  *
  * The parent component owns the modal backdrop, title, and any detail pane.
  * This component is just the row list + keyboard nav.
@@ -92,7 +91,6 @@ button.row[aria-current='true'] .cursor {
 
 class CrewList extends HTMLElement {
   #crew = [];
-  #selectable = false;
   #ready = false;
   #rowsEl = null;
   #buttons = [];
@@ -119,11 +117,8 @@ class CrewList extends HTMLElement {
 
   /**
    * @param {Array} crew — array of crew member objects (or snapshots).
-   * @param {{ selectable?: boolean }} options
-   *   selectable: when true, non-flatlined rows are clickable and emit
-   *   `activate`. When false, all rows are disabled (view-only).
    */
-  setCrew(crew, { selectable = false } = {}) {
+  setCrew(crew) {
     if (!Array.isArray(crew)) {
       throw new TypeError('<crew-list>.setCrew requires an array');
     }
@@ -135,7 +130,6 @@ class CrewList extends HTMLElement {
       maxHp: member.maxHp,
       flatlined: !!member.flatlined,
     }));
-    this.#selectable = selectable;
     this.#selectedIndex = Math.max(
       0,
       this.#crew.findIndex(member => !member.flatlined)
@@ -171,8 +165,8 @@ class CrewList extends HTMLElement {
 
     for (let i = 0; i < this.#crew.length; i++) {
       const member = this.#crew[i];
-      // Only flatlined members are truly disabled. Non-selectable rows stay
-      // enabled so they can receive focus and keyboard nav in view mode.
+      // Only flatlined members are disabled; living rows stay focusable for
+      // keyboard navigation and click-to-select.
       const disabled = member.flatlined;
       const row = h('button', {
         type: 'button',
@@ -212,11 +206,6 @@ class CrewList extends HTMLElement {
       this.#move(-1);
       return;
     }
-    if (evt.key === 'Enter' || evt.key === ' ') {
-      evt.preventDefault();
-      evt.stopPropagation();
-      this.#activate(this.#selectedIndex);
-    }
   }
 
   #move(delta) {
@@ -239,16 +228,6 @@ class CrewList extends HTMLElement {
     this.#selectedIndex = index;
     this.#syncCurrent();
     this.#emitSelect();
-    // In selectable mode, a click also activates.
-    if (this.#selectable) {
-      this.#activate(index);
-    }
-  }
-
-  #activate(index) {
-    const member = this.#crew[index];
-    if (!member || member.flatlined || !this.#selectable) return;
-    this.dispatchEvent(new CustomEvent('activate', { detail: { member } }));
   }
 
   #emitSelect() {

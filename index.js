@@ -86,7 +86,6 @@ const animLock = createAnimationLock();
 /** Unsubscribers for the run-bus animation listeners. Re-bound on every state transition. */
 let animationUnsubs = [];
 
-
 let pendingJobResult = null;
 /**
  * Active smoke overlays from Smoke Charge consumables. Each entry records

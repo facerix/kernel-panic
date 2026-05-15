@@ -21,7 +21,7 @@ import { h } from '/src/domUtils.js';
 import '/components/CrewList.js';
 
 const OBJECTIVE_COPY = Object.freeze({
-  'reach-exit': 'Reach exit tile',
+  'reach-exit': 'Reach exit (¤) with stolen data.',
 });
 
 const CSS = `
@@ -196,6 +196,7 @@ class RunBriefing extends HTMLElement {
   #cells = null;
   #listEl = null;
   #jackInBtn = null;
+  #panelEl = null;
   #onKeyDown = null;
   #onBackdrop = null;
 
@@ -235,11 +236,6 @@ class RunBriefing extends HTMLElement {
         this.#jackInBtn.disabled = !this.#selectedMember || this.#selectedMember.flatlined;
       }
     });
-    // Double-click / Enter on a list row also confirms (convenience).
-    this.#listEl.addEventListener('activate', evt => {
-      this.#selectedMember = evt.detail.member;
-      this.#commit();
-    });
 
     this.#jackInBtn = h('button', {
       type: 'button',
@@ -256,21 +252,26 @@ class RunBriefing extends HTMLElement {
     ]);
 
     const body = h('div', { className: 'body' }, [contractPane, deployPane]);
-    const hint = h('p', { className: 'hint', textContent: '[ ↑/↓ select  ·  ENTER jack in  ·  Esc dismiss ]' });
+    const hint = h('p', {
+      className: 'hint',
+      textContent: '[ ↑/↓ select  ·  Enter / JACK IN deploy  ·  Esc dismiss ]',
+    });
 
-    const panel = h('section', { className: 'panel' }, [
+    this.#panelEl = h('section', { className: 'panel' }, [
       h('h2', { className: 'title', textContent: '── CONTRACT ──' }),
       body,
       hint,
     ]);
-    shadow.appendChild(panel);
+    shadow.appendChild(this.#panelEl);
 
     this.#onKeyDown = this.#handleKey.bind(this);
-    this.addEventListener('keydown', this.#onKeyDown);
+    // Capture: Enter on <crew-list> rows must commit here before the row
+    // <button> runs its implicit activation (redundant click).
+    this.addEventListener('keydown', this.#onKeyDown, { capture: true });
     this.#onBackdrop = evt => {
-      if (evt.target === this) {
-        this.dispatchEvent(new CustomEvent('dismiss'));
-      }
+      // Nested shadow (crew-list rows) retargets `target` to this host.
+      if (evt.composedPath().includes(this.#panelEl)) return;
+      this.dispatchEvent(new CustomEvent('dismiss'));
     };
     this.addEventListener('click', this.#onBackdrop);
 
@@ -299,7 +300,7 @@ class RunBriefing extends HTMLElement {
     }
     this.#selectedMember = null;
     if (this.#jackInBtn) this.#jackInBtn.disabled = true;
-    this.#listEl.setCrew(crew, { selectable: true });
+    this.#listEl.setCrew(crew);
   }
 
   show() {
@@ -318,7 +319,7 @@ class RunBriefing extends HTMLElement {
   }
 
   disconnectedCallback() {
-    if (this.#onKeyDown) this.removeEventListener('keydown', this.#onKeyDown);
+    if (this.#onKeyDown) this.removeEventListener('keydown', this.#onKeyDown, { capture: true });
     if (this.#onBackdrop) this.removeEventListener('click', this.#onBackdrop);
   }
 
@@ -337,9 +338,21 @@ class RunBriefing extends HTMLElement {
       evt.preventDefault();
       evt.stopPropagation();
       this.dispatchEvent(new CustomEvent('dismiss'));
+      return;
     }
-    // Arrow/WASD + Enter are handled by <crew-list> internally.
-    // Enter on a selected crew member triggers `activate`, which calls #commit.
+    // Enter on a crew row (focus inside <crew-list>) submits like a form —
+    // JACK IN is a sibling of the list, so it is excluded from this path check.
+    if (
+      evt.key === 'Enter' &&
+      !this.#jackInBtn?.disabled &&
+      evt.composedPath().includes(this.#listEl)
+    ) {
+      evt.preventDefault();
+      evt.stopPropagation();
+      this.#commit();
+      return;
+    }
+    // Arrow/WASD selection is handled by <crew-list> internally.
   }
 
   #commit() {

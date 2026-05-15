@@ -195,7 +195,10 @@ test('vault body-check deals VAULT_DAMAGE and knocks hostile back', () => {
   assert.equal(player.x, 4, 'Merc lands where the hostile was');
   assert.equal(drone.x, 5, 'hostile knocked back 1 tile east');
   assert.equal(drone.hp, hpBefore - 2, 'hostile took VAULT_DAMAGE (2)');
-  assert.ok(log.some(l => l.includes('SLAMMED')), 'log mentions the slam');
+  assert.ok(
+    log.some(l => l.includes('SLAMMED')),
+    'log mentions the slam'
+  );
 });
 
 test('vault body-check does not debit extra AP beyond the vault cost', () => {
