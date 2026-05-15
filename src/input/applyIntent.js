@@ -4,9 +4,18 @@
  * harness and the M8 game shell drive their input through this module so a
  * change to combat or movement plumbing only has one consumer to update.
  *
- * The intent shape is the closed enum the keymap dispatch produces:
+ * The intent shape is the closed enum the keymap / touch layer and other
+ * callers may produce:
  *   { type: 'move' | 'special' | 'melee' | 'fire' | 'interact' | 'end-turn'
  *         | 'cancel', dx?, dy? }
+ *
+ * `move` into an occupied tile is resolved in `doMove`: a corp (or any
+ * non-allied, non-neutral) neighbour is a bump-melee; same-faction or neutral
+ * (Hub NPCs, …) delegates to the shell via `interact` without spending move AP.
+ *
+ * The dedicated `melee` intent is **not** emitted by the player keymap (bump
+ * uses `move`); it stays in the enum so AI drivers, replay, tests, and future
+ * automation can commit a melee strike without synthesizing a walk intent.
  *
  * The archetype-specific perks (Merc's Vault, Razor's Slide, Tech's Deploy
  * Turret) collapse into a single `special` intent at the keymap layer. The
@@ -137,6 +146,15 @@ export function pickFireTarget(ctx, dx, dy) {
 
 function doMove(intent, ctx) {
   const { world, player, log, advanceTurn } = ctx;
+  const nx = player.x + intent.dx;
+  const ny = player.y + intent.dy;
+  const occupant = world.entityAt(nx, ny);
+  if (occupant) {
+    if (occupant.faction === FACTION.HOSTILE) {
+      return doMelee({ type: 'melee', dx: intent.dx, dy: intent.dy }, ctx);
+    }
+    return doInteract(ctx);
+  }
   const check = world.canMoveEntity(player, intent.dx, intent.dy);
   if (!check.ok) {
     log(`> MOVE DENIED: ${check.reason}`);

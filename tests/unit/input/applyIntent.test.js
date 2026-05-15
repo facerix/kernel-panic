@@ -183,6 +183,17 @@ test('interact intent crashes when ctx.onInteract is missing (no silent no-op)',
   assert.throws(() => applyIntent({ type: 'interact' }, ctx), /onInteract/);
 });
 
+test('melee intent still resolves adjacent strikes (for AI / replay, not player keymap)', () => {
+  const { ctx, log, drone } = buildCtx({ placeDrone: true });
+  // Adjacent east of player at (2,2): park drone at (3,2).
+  drone.x = 3;
+  drone.y = 2;
+  const hpBefore = drone.hp;
+  applyIntent({ type: 'melee', dx: 1, dy: 0 }, ctx);
+  assert.ok(log.some(l => l.includes('slashes')), 'melee intent should log a strike');
+  assert.equal(drone.hp, hpBefore - 2, 'MELEE_DAMAGE');
+});
+
 // --- Vault body-check + knockback (via the unified `special` intent) -----
 
 test('vault body-check deals VAULT_DAMAGE and knocks hostile back', () => {

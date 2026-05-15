@@ -14,17 +14,17 @@ test('TOUCHPAD_DIRECTIONS lists all 8 compass directions', () => {
   assert.deepEqual([...TOUCHPAD_DIRECTIONS].sort(), ['E', 'N', 'NE', 'NW', 'S', 'SE', 'SW', 'W']);
 });
 
-test('TOUCHPAD_ACTIONS includes the seven gameplay actions (perks unified as `special`)', () => {
+test('TOUCHPAD_ACTIONS includes the six gameplay actions (perks unified as `special`)', () => {
   // Vault and slide collapsed into one `special` button alongside the new
   // Tech deploy verb — same unified-perk-key model as the keyboard layer.
-  // M4 added `inventory` for the consumable use overlay.
+  // M4 added `inventory` for the consumable use overlay. Melee is bump-only
+  // on the D-pad; no dedicated touch action.
   assert.deepEqual([...TOUCHPAD_ACTIONS].sort(), [
     'cancel',
     'end-turn',
     'fire',
     'interact',
     'inventory',
-    'melee',
     'special',
   ]);
 });
@@ -42,7 +42,6 @@ test('syntheticKeyFor resolves directions to keymap arrow/diagonal keys', () => 
 
 test('syntheticKeyFor resolves actions to keymap keys', () => {
   assert.equal(syntheticKeyFor('fire'), 'f');
-  assert.equal(syntheticKeyFor('melee'), 'm');
   assert.equal(syntheticKeyFor('special'), 'x');
   assert.equal(syntheticKeyFor('end-turn'), '.');
   assert.equal(syntheticKeyFor('cancel'), 'Escape');
@@ -122,16 +121,8 @@ test('FIRE_AIM + direction emits a directional fire and returns to IDLE', () => 
   assert.equal(r.nextMode, MODE.IDLE);
 });
 
-test('IDLE + melee button enters MELEE_AIM', () => {
-  const r = dispatchTouchAction('melee', MODE.IDLE);
-  assert.equal(r.intent, null);
-  assert.equal(r.nextMode, MODE.MELEE_AIM);
-});
-
-test('MELEE_AIM + diagonal direction emits a diagonal melee', () => {
-  const r = dispatchTouchAction('NW', MODE.MELEE_AIM);
-  assert.deepEqual(r.intent, { type: 'melee', dx: -1, dy: -1 });
-  assert.equal(r.nextMode, MODE.IDLE);
+test('syntheticKeyFor rejects legacy melee button id (removed from pad)', () => {
+  assert.throws(() => syntheticKeyFor('melee'), /unknown button/i);
 });
 
 test('IDLE + special button enters SPECIAL_AIM', () => {
@@ -165,12 +156,6 @@ test('FIRE_AIM + cancel button drops back to IDLE with cancel intent', () => {
 
 test('SPECIAL_AIM + cancel button drops back to IDLE with cancel intent', () => {
   const r = dispatchTouchAction('cancel', MODE.SPECIAL_AIM);
-  assert.deepEqual(r.intent, { type: 'cancel' });
-  assert.equal(r.nextMode, MODE.IDLE);
-});
-
-test('MELEE_AIM + cancel button drops back to IDLE with cancel intent', () => {
-  const r = dispatchTouchAction('cancel', MODE.MELEE_AIM);
   assert.deepEqual(r.intent, { type: 'cancel' });
   assert.equal(r.nextMode, MODE.IDLE);
 });

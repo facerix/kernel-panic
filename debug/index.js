@@ -257,7 +257,6 @@ function formatCorpAction(actor, action) {
 
 function logModeChange(nextMode) {
   if (nextMode === MODE.FIRE_AIM) log('> FIRE — pick a direction (Esc to cancel).');
-  if (nextMode === MODE.MELEE_AIM) log('> MELEE — pick a direction (Esc to cancel).');
   if (nextMode === MODE.SPECIAL_AIM) {
     // Surface the archetype-specific verb so the banner still reads naturally
     // even though the keystroke and mode are now shared.

@@ -33,6 +33,12 @@ const GROUPS = Object.freeze([
   { id: 'system', title: 'SYSTEM' },
 ]);
 
+const GROUP_NOTES = Object.freeze({
+  move: 'Move into a hostile = melee, into an ally or neutral = interact',
+  action: '',
+  system: '',
+});
+
 /** True when the primary pointer is coarse (touch / most on-screen pads). */
 function isCoarsePointer() {
   if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
@@ -124,6 +130,13 @@ const CSS = `
   font-weight: 600;
 }
 
+.group-note {
+  font-size: 0.78rem !important;
+  color: var(--help-dim) !important;
+  letter-spacing: 0.04em;
+  margin: 0.25rem 1rem;
+}
+
 @media (pointer: coarse) {
   .section-label {
     font-size: 0.72rem;
@@ -136,6 +149,7 @@ const CSS = `
 
 section.group {
   margin: 0.6rem 0 0;
+  padding-bottom: 0.25rem;
 }
 
 section.group h3 {
@@ -256,14 +270,18 @@ class KeyHelp extends HTMLElement {
     for (const group of GROUPS) {
       const groupRows = rows.filter(r => r.group === group.id);
       if (groupRows.length === 0) continue;
+      const bodyChildren = [h('h3', { textContent: group.title })];
+      const note = GROUP_NOTES[group.id];
+      if (note) {
+        bodyChildren.push(h('p', { className: 'group-note', textContent: note }));
+      }
       const dl = h('dl', { className: 'rows' });
       for (const r of groupRows) {
         dl.appendChild(h('dt', { textContent: joinKeys(r.keys) }));
         dl.appendChild(h('dd', { textContent: r.label }));
       }
-      this.#body.appendChild(
-        h('section', { className: 'group' }, [h('h3', { textContent: group.title }), dl])
-      );
+      bodyChildren.push(dl);
+      this.#body.appendChild(h('section', { className: 'group' }, bodyChildren));
     }
   }
 

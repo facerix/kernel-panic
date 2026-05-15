@@ -160,36 +160,13 @@ test('FIRE_AIM + non-directional key stays in FIRE_AIM with no intent', () => {
   assert.equal(r.nextMode, MODE.FIRE_AIM);
 });
 
-// --- M6: melee aim mode ------------------------------------------------
+// `melee` remains a valid `applyIntent` type for AI / replay; the player
+// keymap no longer binds `m` (bump-to-melee uses `move`).
 
-test('IDLE + m enters MELEE_AIM with no intent yet', () => {
+test('IDLE + m is a no-op (melee is bump-only for the player keymap)', () => {
   const r = dispatch('m', MODE.IDLE);
   assert.equal(r.intent, null);
-  assert.equal(r.nextMode, MODE.MELEE_AIM);
-});
-
-test('MELEE_AIM + arrow emits a melee intent and returns to IDLE', () => {
-  const r = dispatch('ArrowRight', MODE.MELEE_AIM);
-  assert.deepEqual(r.intent, { type: 'melee', dx: 1, dy: 0 });
   assert.equal(r.nextMode, MODE.IDLE);
-});
-
-test('MELEE_AIM + diagonal key emits a diagonal melee', () => {
-  const r = dispatch('q', MODE.MELEE_AIM);
-  assert.deepEqual(r.intent, { type: 'melee', dx: -1, dy: -1 });
-  assert.equal(r.nextMode, MODE.IDLE);
-});
-
-test('MELEE_AIM + Escape cancels back to IDLE', () => {
-  const r = dispatch('Escape', MODE.MELEE_AIM);
-  assert.deepEqual(r.intent, { type: 'cancel' });
-  assert.equal(r.nextMode, MODE.IDLE);
-});
-
-test('MELEE_AIM + non-directional key stays in MELEE_AIM with no intent', () => {
-  const r = dispatch(' ', MODE.MELEE_AIM);
-  assert.equal(r.intent, null);
-  assert.equal(r.nextMode, MODE.MELEE_AIM);
 });
 
 // --- M8: context-sensitive interact verb (Space) ----------------------

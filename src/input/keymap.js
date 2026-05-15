@@ -5,8 +5,8 @@
  * keystrokes via `src/input/touchpad.js`).
  *
  * The dispatcher is a small mode machine. IDLE is the default; pressing an
- * "aim" key (`f` for fire, `m` for melee, `x` for the archetype-specific
- * "special action") enters an aiming mode where the next directional press
+ * "aim" key (`f` for fire, `x` for the archetype-specific "special action")
+ * enters an aiming mode where the next directional press
  * resolves into a targeted intent. Wait / pass turn is `.` in IDLE
  * (`end-turn` intent). Interact (Curator, Terminal, …) is Space in IDLE;
  * `i` is unbound (reserved for a future inventory milestone). `Q` emits
@@ -32,7 +32,6 @@
 export const MODE = Object.freeze({
   IDLE: 'IDLE',
   FIRE_AIM: 'FIRE_AIM',
-  MELEE_AIM: 'MELEE_AIM',
   /**
    * Unified archetype-perk aim mode. Replaces the M1 `VAULT_AIM` and
    * `SLIDE_AIM` modes; the active player's class decides what `special`
@@ -86,8 +85,6 @@ function dispatchIdle(key) {
       return { intent: { type: 'cancel' }, nextMode: MODE.IDLE };
     case 'f':
       return { intent: null, nextMode: MODE.FIRE_AIM };
-    case 'm':
-      return { intent: null, nextMode: MODE.MELEE_AIM };
     case 'x':
       // Unified archetype perk. The intent layer dispatches by class —
       // Merc → vault, Razor → slide, Tech → deploy. `x` is unused elsewhere
@@ -109,17 +106,6 @@ function dispatchFireAim(key) {
   return noChange(MODE.FIRE_AIM);
 }
 
-function dispatchMeleeAim(key) {
-  if (key === 'Escape') {
-    return { intent: { type: 'cancel' }, nextMode: MODE.IDLE };
-  }
-  const dir = directionFor(key);
-  if (dir) {
-    return { intent: { type: 'melee', dx: dir[0], dy: dir[1] }, nextMode: MODE.IDLE };
-  }
-  return noChange(MODE.MELEE_AIM);
-}
-
 function dispatchSpecialAim(key) {
   if (key === 'Escape') {
     return { intent: { type: 'cancel' }, nextMode: MODE.IDLE };
@@ -137,8 +123,6 @@ export function dispatch(key, mode) {
       return dispatchIdle(key);
     case MODE.FIRE_AIM:
       return dispatchFireAim(key);
-    case MODE.MELEE_AIM:
-      return dispatchMeleeAim(key);
     case MODE.SPECIAL_AIM:
       return dispatchSpecialAim(key);
     default:
