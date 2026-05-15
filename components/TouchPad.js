@@ -47,8 +47,8 @@ const DIRECTION_LABELS = Object.freeze({
 });
 
 // Order matters: this is the visual layout of the 3×3 d-pad. Centre slot is
-// reserved for the "wait/hold position" action so it's reachable with the
-// same thumb that drives movement.
+// reserved for the thumb that drives movement (centre is unused — Wait is
+// the action column).
 const DPAD_SLOTS = Object.freeze(['NW', 'N', 'NE', 'W', null, 'E', 'SW', 'S', 'SE']);
 
 // Action buttons live in a separate column. Order tuned for thumb reach on
@@ -56,26 +56,29 @@ const DPAD_SLOTS = Object.freeze(['NW', 'N', 'NE', 'W', null, 'E', 'SW', 'S', 'S
 const ACTION_BUTTONS = Object.freeze([
   { id: 'fire', label: 'FIRE', shortcut: 'f' },
   { id: 'melee', label: 'MELEE', shortcut: 'm' },
-  { id: 'vault', label: 'VAULT', shortcut: 'v' },
-  { id: 'slide', label: 'SLIDE', shortcut: 't' },
-  { id: 'interact', label: 'INTERACT', shortcut: 'i' },
-  { id: 'end-turn', label: 'END', shortcut: '␣' },
+  // One button for the archetype perk — same `special` intent for Vault,
+  // Slide, and Deploy. The status banner / on-screen log spells out which
+  // verb actually resolves, so the player still sees their kit's flavour.
+  { id: 'special', label: 'SPECIAL', shortcut: 'x' },
+  { id: 'interact', label: 'INTERACT', shortcut: '␣' },
+  { id: 'inventory', label: 'ITEMS', shortcut: 'i' },
+  { id: 'end-turn', label: 'WAIT', shortcut: '.' },
   { id: 'cancel', label: 'CANCEL', shortcut: 'esc' },
 ]);
+
+const META_BUTTONS = Object.freeze([{ id: 'quit-campaign', label: 'QUIT', shortcut: 'Q' }]);
 
 const AIM_MODE_LABEL = Object.freeze({
   [MODE.IDLE]: '',
   [MODE.FIRE_AIM]: 'FIRE — pick a direction',
   [MODE.MELEE_AIM]: 'MELEE — pick a direction',
-  [MODE.VAULT_AIM]: 'VAULT — pick a direction',
-  [MODE.SLIDE_AIM]: 'SLIDE — pick a direction',
+  [MODE.SPECIAL_AIM]: 'SPECIAL — pick a direction',
 });
 
 const AIM_MODE_ACTION = Object.freeze({
   [MODE.FIRE_AIM]: 'fire',
   [MODE.MELEE_AIM]: 'melee',
-  [MODE.VAULT_AIM]: 'vault',
-  [MODE.SLIDE_AIM]: 'slide',
+  [MODE.SPECIAL_AIM]: 'special',
 });
 
 const CSS = `
@@ -112,6 +115,24 @@ const CSS = `
   align-items: end;
   gap: 8px;
   pointer-events: none;
+}
+
+.meta-row {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.meta-btn {
+  min-width: 72px;
+  border-color: #5a3030;
+  color: #f0c0c0;
+}
+
+.meta-btn .shortcut {
+  opacity: 0.75;
 }
 
 .aim-banner {
@@ -221,6 +242,13 @@ class TouchPad extends HTMLElement {
   #banner = null;
   #boundOnPointerDown = null;
   #ready = false;
+  /**
+   * Optional input lockout. The M0 combat-feedback animations set this to
+   * the shell's animation-lock checker; `pointerdown` early-returns while
+   * it returns true so a held thumb can't queue actions mid-shake. Defaults
+   * to a no-op so unit tests and non-animating callers don't have to wire it.
+   */
+  #isBlocked = () => false;
 
   static get observedAttributes() {
     return ['force-show'];
@@ -237,8 +265,11 @@ class TouchPad extends HTMLElement {
 
     this.#banner = h('div', { className: 'aim-banner', role: 'status' });
     const dpad = this.#buildDpad();
+    const metaRow = this.#buildMetaActions();
     const actions = this.#buildActions();
-    shadow.appendChild(h('div', { className: 'shell' }, [this.#banner, dpad, h('div'), actions]));
+    shadow.appendChild(
+      h('div', { className: 'shell' }, [this.#banner, metaRow, dpad, h('div'), actions])
+    );
 
     this.#boundOnPointerDown = this.#onPointerDown.bind(this);
     this.addEventListener('pointerdown', this.#boundOnPointerDown, POINTER_DOWN_OPTS);
@@ -272,6 +303,22 @@ class TouchPad extends HTMLElement {
     return this.#mode;
   }
 
+  /**
+   * Install (or replace) the input-lockout predicate. Pass `null` to clear.
+   * See `#isBlocked` for the motivation. Validated so a typo'd assignment
+   * crashes loudly instead of silently bypassing the lock.
+   */
+  setBlocked(predicate) {
+    if (predicate === null || predicate === undefined) {
+      this.#isBlocked = () => false;
+      return;
+    }
+    if (typeof predicate !== 'function') {
+      throw new TypeError('<touch-pad>.setBlocked: expected a function or null');
+    }
+    this.#isBlocked = predicate;
+  }
+
   #shouldForceShow() {
     if (this.hasAttribute('force-show')) return true;
     try {
@@ -303,6 +350,27 @@ class TouchPad extends HTMLElement {
       return btn;
     });
     return h('div', { className: 'dpad', role: 'group', ariaLabel: 'Movement directions' }, cells);
+  }
+
+  #buildMetaActions() {
+    const buttons = META_BUTTONS.map(({ id, label, shortcut }) => {
+      const btn = h(
+        'button',
+        {
+          className: 'meta-btn',
+          type: 'button',
+          ariaLabel: `${label} campaign`,
+        },
+        [
+          h('span', { className: 'label', textContent: label }),
+          h('span', { className: 'shortcut', textContent: shortcut }),
+        ]
+      );
+      btn.dataset.button = id;
+      this.#buttonsById.set(id, btn);
+      return btn;
+    });
+    return h('div', { className: 'meta-row', role: 'group', ariaLabel: 'Campaign' }, buttons);
   }
 
   #buildActions() {
@@ -344,6 +412,10 @@ class TouchPad extends HTMLElement {
     // Block emulated mouse events that follow a touch — otherwise we'd
     // double-fire the same button.
     evt.preventDefault();
+    // Input lockout — checked after preventDefault so a tap during a
+    // damage shake still suppresses the emulated mouse fallback, but no
+    // intent gets dispatched. Matches the KeyboardController contract.
+    if (this.#isBlocked()) return;
 
     const previousMode = this.#mode;
     const { intent, nextMode } = dispatchTouchAction(buttonId, this.#mode);

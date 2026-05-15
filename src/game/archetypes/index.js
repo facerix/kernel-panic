@@ -6,9 +6,9 @@
  * classes don't carry: display name, blurb, perk id, and the key that fires
  * the perk in the current keymap. The three consumers:
  *
- *   - `<character-select>`        reads `ARCHETYPES` to render the modal
+ *   - `<crew-roster>` / Hub UI    reads `ARCHETYPES` for labels
  *   - `<key-help>`                reads `ARCHETYPES[id].perkKey` for labels
- *   - `Run.setArchetype / Run`    calls `buildPlayer` to instantiate a player
+ *   - `Campaign.buildCrew`        calls `buildCrewMember` to instantiate crew
  *
  * In-world glyph is `'@'` for both archetypes (the player avatar is consistent
  * regardless of pick). Archetype identity surfaces through the entity *class*
@@ -19,22 +19,31 @@
  * and the rest of the game picks it up automatically.
  */
 
-import { Merc } from './Merc.js';
-import { Razor } from './Razor.js';
+import { Merc, CALLSIGNS as MERC_CALLSIGNS } from './Merc.js';
+import { Razor, CALLSIGNS as RAZOR_CALLSIGNS } from './Razor.js';
+import { Tech, CALLSIGNS as TECH_CALLSIGNS } from './Tech.js';
 
 /**
- * Display order is also the default-focus order in <character-select>.
- * Merc first so new players hit the simpler ranged archetype on first load.
+ * Display order is also the starter crew order in `Campaign.buildCrew`.
+ * Merc first so new players hit the simpler ranged archetype on first load;
+ * Tech last since its gadget loop is the most involved kit to learn.
  */
-export const ARCHETYPE_IDS = Object.freeze(['merc', 'razor']);
+export const ARCHETYPE_IDS = Object.freeze(['merc', 'razor', 'tech']);
 
+/**
+ * All three archetypes share a single perk key (`x`) — the keymap collapses
+ * vault/slide/deploy into one `MODE.SPECIAL_AIM` aim mode that dispatches by
+ * archetype at the intent layer (`applyIntent.doSpecial`). The per-archetype
+ * `perkLabel` is what surfaces in `<character-select>` and `<key-help>`, so
+ * the visible verb stays archetype-specific even though the keystroke doesn't.
+ */
 export const ARCHETYPES = Object.freeze({
   merc: Object.freeze({
     id: 'merc',
     name: 'MERC',
     blurb: 'Ranged specialist. Trades position for line-of-fire control.',
     perks: Object.freeze(['vault']),
-    perkKey: 'v',
+    perkKey: 'x',
     perkLabel: 'VAULT — hop cover & fire',
   }),
   razor: Object.freeze({
@@ -42,14 +51,35 @@ export const ARCHETYPES = Object.freeze({
     name: 'RAZOR',
     blurb: 'Stealth / melee. Cuts angles drones can’t cover.',
     perks: Object.freeze(['slide']),
-    perkKey: 't',
+    perkKey: 'x',
     perkLabel: 'SLIDE — 2-tile silent dash',
+  }),
+  tech: Object.freeze({
+    id: 'tech',
+    name: 'TECH',
+    blurb: 'Engineer. Drops auto-firing turrets to lock down sightlines.',
+    perks: Object.freeze(['deploy']),
+    perkKey: 'x',
+    perkLabel: 'DEPLOY — place a turret',
   }),
 });
 
 const BUILDERS = Object.freeze({
   merc: Merc,
   razor: Razor,
+  tech: Tech,
+});
+
+/**
+ * Per-archetype callsign pool, mirrored from each archetype module. Kept as a
+ * single map so `buildCrewMember` doesn't need a per-archetype branch — and
+ * so `Campaign.buildCrew` (M2) can iterate archetypes and dedupe across the
+ * union in one pass.
+ */
+export const CALLSIGNS_BY_ARCHETYPE = Object.freeze({
+  merc: MERC_CALLSIGNS,
+  razor: RAZOR_CALLSIGNS,
+  tech: TECH_CALLSIGNS,
 });
 
 export function isArchetypeId(value) {
@@ -57,28 +87,62 @@ export function isArchetypeId(value) {
 }
 
 /**
- * Instantiate the player entity for `id` at the given spawn tile.
- *
- * `spawn.maxAp` is honoured (Run uses the project-wide 4-AP default); other
- * Entity options pass through unchanged. Throws on unknown archetype or a
- * malformed spawn — the rest of the engine would corrupt silently with a
- * partial player object.
+ * Pick a callsign for `archetypeId` using `rng`, excluding any names in
+ * `excludeCallsigns` (a Set). Throws if the pool is empty after filtering —
+ * we'd rather crash than silently hand back a duplicate or a placeholder.
+ * Pure helper so M2's `Campaign.buildCrew` can call it directly when seeding
+ * the starter trio.
  */
-export function buildPlayer(id, spawn) {
-  if (!isArchetypeId(id)) {
-    throw new Error(`buildPlayer: unknown archetype "${id}"`);
+export function pickCallsign(archetypeId, rng, excludeCallsigns = new Set()) {
+  if (!isArchetypeId(archetypeId)) {
+    throw new Error(`pickCallsign: unknown archetype "${archetypeId}"`);
+  }
+  if (!rng || typeof rng.pick !== 'function') {
+    throw new TypeError('pickCallsign requires an Rng with a pick() method');
+  }
+  if (!(excludeCallsigns instanceof Set)) {
+    throw new TypeError('pickCallsign: excludeCallsigns must be a Set');
+  }
+  const pool = CALLSIGNS_BY_ARCHETYPE[archetypeId];
+  const available = pool.filter(name => !excludeCallsigns.has(name));
+  if (available.length === 0) {
+    throw new Error(
+      `pickCallsign: no callsigns available for "${archetypeId}" ` +
+        `(pool size ${pool.length}, excluded ${excludeCallsigns.size})`
+    );
+  }
+  return rng.pick(available);
+}
+
+/**
+ * Build a named crew member. Threads a campaign-scoped `Rng` so the callsign
+ * is reproducible from the campaign seed, and accepts an `excludeCallsigns`
+ * Set so callers (`Campaign.buildCrew`, future recruitment in M6) can dedupe
+ * against campaign history.
+ */
+export function buildCrewMember(archetypeId, spawn, rng, options = {}) {
+  if (!isArchetypeId(archetypeId)) {
+    throw new Error(`buildCrewMember: unknown archetype "${archetypeId}"`);
   }
   if (!spawn || typeof spawn !== 'object') {
-    throw new TypeError('buildPlayer: spawn must be an object with finite {x, y}');
+    throw new TypeError('buildCrewMember: spawn must be an object with finite {x, y}');
   }
   if (!Number.isFinite(spawn.x) || !Number.isFinite(spawn.y)) {
-    throw new TypeError(`buildPlayer: spawn must have finite x,y; got (${spawn.x}, ${spawn.y})`);
+    throw new TypeError(
+      `buildCrewMember: spawn must have finite x,y; got (${spawn.x}, ${spawn.y})`
+    );
   }
-  const Ctor = BUILDERS[id];
+  if (!rng || typeof rng.pick !== 'function') {
+    throw new TypeError('buildCrewMember requires an Rng with a pick() method');
+  }
+  const exclude = options.excludeCallsigns ?? new Set();
+  const callsign = pickCallsign(archetypeId, rng, exclude);
+  const Ctor = BUILDERS[archetypeId];
   const props = {
-    id,
+    id: options.id ?? archetypeId,
     x: spawn.x,
     y: spawn.y,
+    callsign,
   };
   if (spawn.maxAp !== undefined) props.maxAp = spawn.maxAp;
   if (spawn.maxHp !== undefined) props.maxHp = spawn.maxHp;

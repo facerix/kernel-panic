@@ -5,9 +5,11 @@ import { Grid } from '../../../src/game/Grid.js';
 import { World } from '../../../src/game/World.js';
 import { TurnQueue } from '../../../src/game/TurnQueue.js';
 import { EventBus } from '../../../src/game/events.js';
-import { TILE, FACTION } from '../../../src/game/constants.js';
+import { TILE, FACTION, SALVAGE_PER_IMPROVISED_TURRET } from '../../../src/game/constants.js';
 import { Merc } from '../../../src/game/archetypes/Merc.js';
 import { Razor } from '../../../src/game/archetypes/Razor.js';
+import { Tech } from '../../../src/game/archetypes/Tech.js';
+import { Turret } from '../../../src/game/Turret.js';
 import { CorpDrone } from '../../../src/game/ai/CorpDrone.js';
 import { Rng } from '../../../src/rng.js';
 import { applyIntent, pickFireTarget } from '../../../src/input/applyIntent.js';
@@ -32,7 +34,9 @@ function buildCtx({ archetype = 'merc', placeDrone = true } = {}) {
   const player =
     archetype === 'merc'
       ? new Merc({ id: 'merc', x: 2, y: 2, maxAp: 4 })
-      : new Razor({ id: 'razor', x: 2, y: 2, maxAp: 4 });
+      : archetype === 'tech'
+        ? new Tech({ id: 'tech', x: 2, y: 2, maxAp: 4 })
+        : new Razor({ id: 'razor', x: 2, y: 2, maxAp: 4 });
   world.addEntity(player);
 
   let drone = null;
@@ -46,7 +50,7 @@ function buildCtx({ archetype = 'merc', placeDrone = true } = {}) {
   const rng = new Rng(1);
 
   const log = [];
-  const calls = { advanceTurn: 0, resetInputModes: 0, interact: 0 };
+  const calls = { advanceTurn: 0, resetInputModes: 0, interact: 0, inventory: 0 };
   const ctx = {
     world,
     player,
@@ -62,6 +66,9 @@ function buildCtx({ archetype = 'merc', placeDrone = true } = {}) {
     },
     onInteract: () => {
       calls.interact++;
+    },
+    onInventory: () => {
+      calls.inventory++;
     },
   };
   return { ctx, log, calls, drone, world, player, queue };
@@ -86,42 +93,45 @@ test('move into a wall is denied (logs MOVE DENIED, no mutation)', () => {
   assert.ok(log.some(l => l.includes('MOVE DENIED')));
 });
 
-test('vault hops cover for the Merc and lands two tiles away', () => {
+test('special intent routes to Vault on a Merc and lands two tiles away', () => {
+  // Cover is at (3,2); player at (2,2) — special dx=1 should land at (4,2).
+  // applyIntent.doSpecial dispatches by capability check on the live player.
   const { ctx, player } = buildCtx({ archetype: 'merc' });
-  // Cover is at (3,2); player at (2,2) — vault dx=1 should land at (4,2).
-  applyIntent({ type: 'vault', dx: 1, dy: 0 }, ctx);
+  applyIntent({ type: 'special', dx: 1, dy: 0 }, ctx);
   assert.equal(player.x, 4);
   assert.equal(player.y, 2);
 });
 
-test('vault refuses a non-Merc archetype', () => {
-  const { ctx, log, player } = buildCtx({ archetype: 'razor' });
-  applyIntent({ type: 'vault', dx: 1, dy: 0 }, ctx);
-  assert.equal(player.x, 2, 'Razor should not move on a vault');
-  assert.ok(log.some(l => l.includes('only the Merc')));
+test('special intent routes to Deploy on a Tech and places a Turret adjacent', () => {
+  // Player at (2,2). Special dy=1 (south) targets (2,3) — plain floor in the
+  // shared `buildCtx` grid, so the deploy is legal.
+  const { ctx, world, player } = buildCtx({ archetype: 'tech', placeDrone: false });
+  applyIntent({ type: 'special', dx: 0, dy: 1 }, ctx);
+  const placed = world.entityAt(2, 3);
+  assert.ok(placed instanceof Turret, 'expected a Turret placed south of the Tech');
+  assert.equal(placed.faction, FACTION.PLAYER);
+  assert.equal(player.turretReady, false, 'Tech.turretReady consumed on commit');
 });
 
-test('slide moves the Razor 2 tiles and engages stealth', () => {
+test('special intent routes to Slide on a Razor (moves 2 tiles, engages stealth)', () => {
   const { ctx, player } = buildCtx({ archetype: 'razor' });
-  // Player at (2,2). Slide dy=1 wants to land at (2,4) — but (3,2) is cover
+  // Player at (2,2). Special dy=1 wants to land at (2,4) — but (3,2) is cover
   // so dy=1 (down) avoids it: step (2,3), land (2,4). Both should be FLOOR.
-  applyIntent({ type: 'slide', dx: 0, dy: 1 }, ctx);
+  applyIntent({ type: 'special', dx: 0, dy: 1 }, ctx);
   assert.equal(player.x, 2);
   assert.equal(player.y, 4);
   assert.equal(player.stealthed, true);
 });
 
-test('end-turn invokes advanceTurn callback exactly once', () => {
-  const { ctx, calls } = buildCtx();
+test('end-turn drains AP to 0, logs wait, and invokes advanceTurn once', () => {
+  const { ctx, player, calls, log } = buildCtx();
   applyIntent({ type: 'end-turn' }, ctx);
-  assert.equal(calls.advanceTurn, 1);
-});
-
-test('wait drains AP to 0 and ends the turn', () => {
-  const { ctx, player, calls } = buildCtx();
-  applyIntent({ type: 'wait' }, ctx);
   assert.equal(player.ap, 0);
   assert.equal(calls.advanceTurn, 1);
+  assert.ok(
+    log.some(l => l.includes('waits')),
+    'combat log should mention waiting'
+  );
 });
 
 test('cancel calls resetInputModes and does not mutate state', () => {
@@ -173,39 +183,50 @@ test('interact intent crashes when ctx.onInteract is missing (no silent no-op)',
   assert.throws(() => applyIntent({ type: 'interact' }, ctx), /onInteract/);
 });
 
-// --- Vault-while-firing ---------------------------------------------------
+// --- Vault body-check + knockback (via the unified `special` intent) -----
 
-test('vault resolves a free shot at the first hostile in the vault direction', () => {
-  const { ctx, log, player } = buildCtx({ archetype: 'merc' });
-  // Player at (2,2), cover at (3,2), land at (4,2), drone at (7,2).
-  // Vault east should land AND fire at the drone.
-  applyIntent({ type: 'vault', dx: 1, dy: 0 }, ctx);
-  assert.equal(player.x, 4, 'player landed at vault destination');
-  assert.ok(
-    log.some(l => l.includes('fires at')),
-    'log mentions the shot'
-  );
-  // The shot was attempted — HP may or may not have changed depending on RNG,
-  // but the intent handler must not have thrown.
+test('vault body-check deals VAULT_DAMAGE and knocks hostile back', () => {
+  // Place a drone on the vault landing tile (4,2) with open knockback at (5,2).
+  const { ctx, log, player, world } = buildCtx({ archetype: 'merc', placeDrone: false });
+  const drone = new CorpDrone({ id: 'd1', x: 4, y: 2, maxAp: 3 });
+  world.addEntity(drone);
+  const hpBefore = drone.hp;
+  applyIntent({ type: 'special', dx: 1, dy: 0 }, ctx);
+  assert.equal(player.x, 4, 'Merc lands where the hostile was');
+  assert.equal(drone.x, 5, 'hostile knocked back 1 tile east');
+  assert.equal(drone.hp, hpBefore - 2, 'hostile took VAULT_DAMAGE (2)');
+  assert.ok(log.some(l => l.includes('SLAMMED')), 'log mentions the slam');
 });
 
-test('vault-while-fire does not debit extra AP beyond the vault cost', () => {
-  const { ctx, player } = buildCtx({ archetype: 'merc' });
+test('vault body-check does not debit extra AP beyond the vault cost', () => {
+  const { ctx, player, world } = buildCtx({ archetype: 'merc', placeDrone: false });
+  const drone = new CorpDrone({ id: 'd1', x: 4, y: 2, maxAp: 3 });
+  world.addEntity(drone);
   const apBefore = player.ap; // 4
-  applyIntent({ type: 'vault', dx: 1, dy: 0 }, ctx);
-  // Vault costs 3 AP; no additional AP for the shot.
-  assert.equal(player.ap, apBefore - 3, 'only vault AP spent, shot is free');
+  applyIntent({ type: 'special', dx: 1, dy: 0 }, ctx);
+  assert.equal(player.ap, apBefore - 3, 'only vault AP spent, slam is free');
 });
 
-test('vault succeeds without a shot when no hostile is in the vault direction', () => {
+test('vault on empty tile is pure repositioning (no damage log)', () => {
   const { ctx, log, player } = buildCtx({ archetype: 'merc', placeDrone: false });
-  applyIntent({ type: 'vault', dx: 1, dy: 0 }, ctx);
+  applyIntent({ type: 'special', dx: 1, dy: 0 }, ctx);
   assert.equal(player.x, 4, 'vault still lands');
   assert.ok(
     log.some(l => l.includes('vaulted to')),
     'log mentions the vault'
   );
-  assert.ok(!log.some(l => l.includes('fires at')), 'no shot logged');
+  assert.ok(!log.some(l => l.includes('SLAMMED')), 'no slam logged');
+});
+
+test('vault denied when knockback lane is blocked', () => {
+  const { ctx, log, player, world } = buildCtx({ archetype: 'merc', placeDrone: false });
+  // Place drone at (4,2) and wall at (5,2) to block knockback.
+  const drone = new CorpDrone({ id: 'd1', x: 4, y: 2, maxAp: 3 });
+  world.addEntity(drone);
+  ctx.world.grid.setTile(5, 2, TILE.WALL);
+  applyIntent({ type: 'special', dx: 1, dy: 0 }, ctx);
+  assert.equal(player.x, 2, 'Merc stays put');
+  assert.ok(log.some(l => l.includes('VAULT DENIED')));
 });
 
 test('AP exhaustion triggers auto-end-turn during a move', () => {
@@ -214,4 +235,32 @@ test('AP exhaustion triggers auto-end-turn during a move', () => {
   applyIntent({ type: 'move', dx: 0, dy: 1 }, ctx);
   assert.equal(player.ap, 0);
   assert.equal(calls.advanceTurn, 1);
+});
+
+// --- M3: improvised turret dispatch via special intent ---------------------
+
+test('special on a Tech routes to improviseTurret when turretReady is false and salvage is available', () => {
+  const { ctx, world, player } = buildCtx({ archetype: 'tech', placeDrone: false });
+  player.initInventory();
+  player.inventory.salvage = SALVAGE_PER_IMPROVISED_TURRET;
+  // Deploy the pre-built turret south — (2, 3) is plain floor.
+  player.deployTurret(world, 0, 1);
+  player.refreshAp();
+  // Now special deploy west — (1, 2) is plain floor, not the cover at (3, 2).
+  applyIntent({ type: 'special', dx: -1, dy: 0 }, ctx);
+  const placed = world.entityAt(1, 2);
+  assert.ok(placed instanceof Turret, 'expected an improvised turret placed');
+  assert.equal(player.inventory.salvage, 0, 'salvage deducted for improvised turret');
+});
+
+test('special on a Tech with no turret and no salvage logs a denial', () => {
+  const { ctx, player, log } = buildCtx({ archetype: 'tech', placeDrone: false });
+  player.initInventory();
+  player.inventory.salvage = 0;
+  player.turretReady = false;
+  applyIntent({ type: 'special', dx: 0, dy: 1 }, ctx);
+  assert.ok(
+    log.some(l => l.includes('DEPLOY DENIED')),
+    'should log a denial when no turret and no salvage'
+  );
 });

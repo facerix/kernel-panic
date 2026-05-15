@@ -5,8 +5,17 @@
  * change to combat or movement plumbing only has one consumer to update.
  *
  * The intent shape is the closed enum the keymap dispatch produces:
- *   { type: 'move' | 'vault' | 'slide' | 'melee' | 'fire' | 'wait'
- *         | 'end-turn' | 'cancel', dx?, dy? }
+ *   { type: 'move' | 'special' | 'melee' | 'fire' | 'interact' | 'end-turn'
+ *         | 'cancel', dx?, dy? }
+ *
+ * The archetype-specific perks (Merc's Vault, Razor's Slide, Tech's Deploy
+ * Turret) collapse into a single `special` intent at the keymap layer. The
+ * `doSpecial` dispatcher below routes it to the right verb based on which
+ * methods the active player class exposes — `canVault` → vault, `canSlide` →
+ * slide, `canDeploy` → deploy. This keeps the input surface symmetric across
+ * archetypes (one key, one touch button) and stays out of the player's way:
+ * the keymap doesn't need to know which class is in play, and the intent
+ * dispatcher doesn't need an explicit archetype switch.
  *
  * The function is pure-ish: it mutates `ctx.world` / `ctx.player` /
  * `ctx.queue` and emits log lines via `ctx.log`, but doesn't touch the DOM.
@@ -21,9 +30,10 @@
  * harness assumption.
  */
 
-import { FACTION, SIGHT_RANGE } from '../game/constants.js';
+import { FACTION, SIGHT_RANGE, VAULT_DAMAGE, NOISE_RADIUS } from '../game/constants.js';
 import { canFireRanged, resolveRanged, canMelee, resolveMelee } from '../game/Combat.js';
 import { hasLineOfSight, withinRange } from '../game/LineOfSight.js';
+import { EVENT } from '../game/events.js';
 
 /**
  * @typedef {{
@@ -39,12 +49,11 @@ import { hasLineOfSight, withinRange } from '../game/LineOfSight.js';
 
 const KNOWN_INTENT_TYPES = new Set([
   'move',
-  'vault',
-  'slide',
+  'special',
   'melee',
   'fire',
   'interact',
-  'wait',
+  'inventory',
   'end-turn',
   'cancel',
 ]);
@@ -63,31 +72,30 @@ export function applyIntent(intent, ctx) {
   const { player, queue, log, advanceTurn, resetInputModes } = ctx;
 
   if (queue.currentFaction !== FACTION.PLAYER && intent.type !== 'cancel') {
-    log('> NOT YOUR TURN — press space.');
+    log('> NOT YOUR TURN — press . to wait.');
     return;
   }
 
   switch (intent.type) {
     case 'move':
       return doMove(intent, ctx);
-    case 'vault':
-      return doVault(intent, ctx);
-    case 'slide':
-      return doSlide(intent, ctx);
+    case 'special':
+      return doSpecial(intent, ctx);
     case 'melee':
       return doMelee(intent, ctx);
     case 'fire':
       return doFire(intent, ctx);
     case 'interact':
       return doInteract(ctx);
-    case 'wait':
-      log(`> @ holds position (drops ${player.ap} AP).`);
+    case 'inventory':
+      return doInventory(ctx);
+    case 'end-turn': {
+      const apBefore = player.ap;
+      log(`> @ waits (drops ${apBefore} AP).`);
       player.ap = 0;
       advanceTurn();
       return;
-    case 'end-turn':
-      advanceTurn();
-      return;
+    }
     case 'cancel':
       // Cancel is the universal "stop aiming" — clear *both* input
       // controllers (keyboard + touch) so an Esc/CANCEL from either side
@@ -142,34 +150,61 @@ function doMove(intent, ctx) {
   }
 }
 
-function doVault(intent, ctx) {
-  const { world, player, rng, log, advanceTurn } = ctx;
-  if (typeof player.canVault !== 'function') {
-    log('> VAULT: only the Merc can vault.');
-    return;
+/**
+ * Archetype dispatcher for the unified `special` intent. Picks the perk verb
+ * by capability check on the live player:
+ *   - `canDeploy` → Tech's Deploy Turret
+ *   - `canVault`  → Merc's Vault
+ *   - `canSlide`  → Razor's Slide
+ *
+ * Capability sniffing (vs. a class `instanceof` check) keeps this module free
+ * of the archetype-class imports — applyIntent stays a thin glue layer. A
+ * player class that exposed both `canVault` and `canDeploy` would crash the
+ * test suite, which is the failure mode we want if a future archetype
+ * stacks perks ambiguously.
+ *
+ * If the player class has no perk method, we log a legibility message rather
+ * than silently dropping the press; same shape as the old "only the Merc can
+ * vault" guard.
+ */
+function doSpecial(intent, ctx) {
+  const { player, log } = ctx;
+  // The dispatch order is fixed (deploy before vault before slide) so an
+  // archetype mix-up surfaces here rather than silently picking the wrong
+  // perk. Only Tech exposes canDeploy in M1; only Merc exposes canVault;
+  // only Razor exposes canSlide.
+  if (typeof player.canDeploy === 'function') {
+    return doDeploy(intent, ctx);
   }
-  const check = player.canVault(world, intent.dx, intent.dy);
-  if (!check.ok) {
-    log(`> VAULT DENIED: ${check.reason}`);
-    return;
+  if (typeof player.canVault === 'function') {
+    return doVault(intent, ctx);
   }
-  player.vault(world, intent.dx, intent.dy);
+  if (typeof player.canSlide === 'function') {
+    return doSlide(intent, ctx);
+  }
+  log('> SPECIAL: this archetype has no perk action.');
+}
 
-  // Vault-while-firing: attempt a free shot in the vault direction from the
-  // landing position. The 3 AP vault cost covers both the hop and the shot
-  // (blueprint: "Hop over cover while firing"). If no hostile is in the
-  // vault direction, the vault still succeeds as a pure movement perk.
-  const target = pickFireTarget(ctx, intent.dx, intent.dy);
-  if (target) {
-    const fireCheck = canFireRanged(world, player, target, { freeShot: true });
-    if (fireCheck.ok) {
-      const result = resolveRanged(world, player, target, rng, { freeShot: true });
+function doDeploy(intent, ctx) {
+  const { world, player, log, advanceTurn } = ctx;
+  const check = player.canDeploy(world, intent.dx, intent.dy);
+  if (check.ok) {
+    const turret = player.deployTurret(world, intent.dx, intent.dy);
+    log(`> @ deploys turret ${turret.id} at (${turret.x}, ${turret.y}) — ${player.ap} AP left.`);
+    if (player.ap === 0) {
+      log('> AP EXHAUSTED — auto-ending turn.');
+      advanceTurn();
+    }
+    return;
+  }
+  // M3: if the pre-built turret is spent, try an improvised turret from salvage.
+  if (check.reason === 'no-turret' && typeof player.canImproviseTurret === 'function') {
+    const impCheck = player.canImproviseTurret(world, intent.dx, intent.dy);
+    if (impCheck.ok) {
+      const turret = player.improviseTurret(world, intent.dx, intent.dy);
       log(
-        `> @ vaulted to (${player.x}, ${player.y}) and fires at ${target.id} — ` +
-          `${result.hit ? 'HIT' : 'miss'} (roll ${result.roll.toFixed(2)} vs ${result.threshold.toFixed(2)}` +
-          `${result.inCover ? ', cover' : ''}).` +
-          (result.killed ? ` ${target.id.toUpperCase()} DOWN.` : '') +
-          ` — ${player.ap} AP left.`
+        `> @ improvises turret ${turret.id} at (${turret.x}, ${turret.y}) — ` +
+          `${player.inventory.salvage} salvage left, ${player.ap} AP left.`
       );
       if (player.ap === 0) {
         log('> AP EXHAUSTED — auto-ending turn.');
@@ -177,9 +212,53 @@ function doVault(intent, ctx) {
       }
       return;
     }
+    // Fall through to the original deny — surface the most helpful reason.
+    log(`> DEPLOY DENIED: ${impCheck.reason}`);
+    return;
+  }
+  log(`> DEPLOY DENIED: ${check.reason}`);
+}
+
+function doVault(intent, ctx) {
+  const { world, player, log, advanceTurn } = ctx;
+  const check = player.canVault(world, intent.dx, intent.dy);
+  if (!check.ok) {
+    log(`> VAULT DENIED: ${check.reason}`);
+    return;
   }
 
-  log(`> @ vaulted to (${player.x}, ${player.y}) — ${player.ap} AP left.`);
+  // vault() handles the hop, knockback displacement, and AP debit.
+  // It returns the occupant (if any) so we can apply damage here — keeping
+  // Combat event wiring in the intent layer, not inside the archetype.
+  const { occupant } = player.vault(world, intent.dx, intent.dy);
+
+  if (occupant) {
+    // Body-check: guaranteed hit, VAULT_DAMAGE, no RNG roll.
+    occupant.damage(VAULT_DAMAGE);
+    const killed = !occupant.alive;
+    world.events?.emit(EVENT.ENTITY_DAMAGED, {
+      attacker: player,
+      target: occupant,
+      damage: VAULT_DAMAGE,
+      killed,
+      source: 'vault',
+    });
+    // A charging slam is loud — same noise radius as melee.
+    world.events?.emit(EVENT.NOISE, {
+      origin: { x: player.x, y: player.y },
+      radius: NOISE_RADIUS.MELEE,
+      source: player,
+      kind: 'vault',
+    });
+    log(
+      `> @ vaulted to (${player.x}, ${player.y}) — SLAMMED ${occupant.id} for ${VAULT_DAMAGE} damage!` +
+        (killed ? ` ${occupant.id.toUpperCase()} DOWN.` : '') +
+        ` — ${player.ap} AP left.`
+    );
+  } else {
+    log(`> @ vaulted to (${player.x}, ${player.y}) — ${player.ap} AP left.`);
+  }
+
   if (player.ap === 0) {
     log('> AP EXHAUSTED — auto-ending turn.');
     advanceTurn();
@@ -188,10 +267,8 @@ function doVault(intent, ctx) {
 
 function doSlide(intent, ctx) {
   const { world, player, log, advanceTurn } = ctx;
-  if (typeof player.canSlide !== 'function') {
-    log('> SLIDE: only the Razor can slide.');
-    return;
-  }
+  // `doSpecial` already gated this on `canSlide`, so the method must exist;
+  // we go straight into the legality check.
   const check = player.canSlide(world, intent.dx, intent.dy);
   if (!check.ok) {
     log(`> SLIDE DENIED: ${check.reason}`);
@@ -236,11 +313,20 @@ function doInteract(ctx) {
   // combat terminals → unlock doors / hack), so applyIntent doesn't know the
   // semantics — it just routes the intent to a shell-supplied handler. Crash
   // rather than silent no-op if the shell forgot to provide one; otherwise an
-  // unbound `i` key would feel like a dead button instead of a wiring bug.
+  // unbound interact key would feel like a dead button instead of a wiring bug.
   if (typeof ctx.onInteract !== 'function') {
     throw new Error('applyIntent: interact intent received but ctx.onInteract is missing');
   }
   ctx.onInteract();
+}
+
+function doInventory(ctx) {
+  // Inventory is a UI-layer verb — the shell presents the consumable list
+  // and handles the `use-item` event. Same delegation pattern as `interact`.
+  if (typeof ctx.onInventory !== 'function') {
+    throw new Error('applyIntent: inventory intent received but ctx.onInventory is missing');
+  }
+  ctx.onInventory();
 }
 
 function doFire(intent, ctx) {

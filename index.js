@@ -2,11 +2,12 @@
  * M8 game shell. Promotes `/index.html` from the M0 scaffold to a real game:
  *
  *   - boots DataStore + service worker,
- *   - prompts to Resume / Abandon a saved run via <confirmation-modal>,
- *   - drives a single `Run` state machine (HUB → BRIEFING → COMBAT → RESULT),
+ *   - restores a saved campaign when present,
+ *   - drives `Campaign` (HUB) plus one active `Run` job episode,
  *   - paints the canvas during HUB / COMBAT, swaps DOM overlays during
  *     BRIEFING / RESULT (per the M8 plan: "DOM panels above the canvas;
- *     canvas paints during HUB/COMBAT only"),
+ *     canvas paints during HUB/COMBAT only"), plus <system-start> on a new
+ *     campaign,
  *   - wires KeyboardController and <touch-pad> through the shared
  *     `applyIntent` helper that the M7 debug harness also uses,
  *   - persists snapshots on every `turn:ended` and clears the save on
@@ -20,44 +21,79 @@
 import { serviceWorkerManager } from '/src/ServiceWorkerManager.js';
 import dataStore from '/src/DataStore.js';
 
-import { Run, RUN_STATE } from '/src/game/Run.js';
-import { restore } from '/src/game/persistence.js';
-import { FACTION } from '/src/game/constants.js';
+import { Campaign, CAMPAIGN_STATE, willEndCampaignOnThisDeath } from '/src/game/Campaign.js';
+import { RUN_STATE } from '/src/game/Run.js';
+import { restoreCampaign, snapshotCampaign } from '/src/game/persistence.js';
+import { runCorpTurn as driveCorpTurn } from '/src/game/corpTurnDriver.js';
+import { FACTION, AP_COST } from '/src/game/constants.js';
+import {
+  advanceFromPlayerTurn,
+  drivePlayerAftermath,
+  formatPlayerAftermathStepLogLines,
+} from '/src/game/combatTurnPipeline.js';
+import { corpTurnStatusBody, countVisibleCorpEntities } from '/src/game/corpTurnStatusCopy.js';
 import { EVENT } from '/src/game/events.js';
 import { VisionField } from '/src/game/Vision.js';
 import { AsciiRenderer } from '/src/render/AsciiRenderer.js';
 import { CrtFilter } from '/src/render/CrtFilter.js';
+import {
+  ANIMATION_DURATIONS,
+  createAnimationLock,
+  runMuzzleFlash,
+  triggerDamageFlash,
+  triggerShake,
+} from '/src/render/animations.js';
 import { KeyboardController } from '/src/input/KeyboardController.js';
 import { MODE } from '/src/input/keymap.js';
 import { applyIntent } from '/src/input/applyIntent.js';
 
-import { ARCHETYPE_IDS, ARCHETYPES, isArchetypeId } from '/src/game/archetypes/index.js';
+import { placeSmoke, clearSmoke } from '/src/game/Smoke.js';
 
 import '/components/ConfirmationModal.js';
 import '/components/UpdateNotification.js';
 import '/components/TouchPad.js';
 import '/components/RunBriefing.js';
 import '/components/CrashDump.js';
-import '/components/CharacterSelect.js';
+import '/components/SystemStart.js';
+import '/components/CrewList.js';
+import '/components/CrewRoster.js';
+import '/components/FinnShop.js';
+import '/components/ItemInventory.js';
 import '/components/KeyHelp.js';
 
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
 
-/** @type {Run|null} */
-let run = null;
-/** DataStore-assigned UUID for the active run record. Null when no save exists. */
-let runRecordId = null;
+/** @type {Campaign|null} */
+let campaign = null;
 let vision = new VisionField();
 let visionMoveUnsub = null;
 
 let canvas, statusEl, renderer, crt;
-let briefingEl, crashEl, resumeModalEl, touchPadEl;
-let characterSelectEl, keyHelpEl;
+let stageEl;
+let briefingEl, crashEl, systemStartEl, resumeModalEl, quitCampaignModalEl, touchPadEl;
+let crewRosterEl, finnShopEl, itemInventoryEl, keyHelpEl;
 let keyboard;
 
-const DEFAULT_ARCHETYPE = 'merc';
+/**
+ * Animation-lock for M0 combat feedback. Listeners on the run bus
+ * (`attachAnimationListeners`) push durations as effects fire; both
+ * input controllers consult `isLocked()` so a key held mid-shake doesn't
+ * sneak through. See `src/render/animations.js`.
+ */
+const animLock = createAnimationLock();
+/** Unsubscribers for the run-bus animation listeners. Re-bound on every state transition. */
+let animationUnsubs = [];
+
+
+let pendingJobResult = null;
+/**
+ * Active smoke overlays from Smoke Charge consumables. Each entry records
+ * the tile position and original tile type so `clearSmoke` can restore the
+ * grid. Cleared at the start of the player's next turn (`onPlayerTurnReady`).
+ */
+let activeSmokeOverlays = [];
 
 /**
  * Most recent intent-result log line ("@ moved to (3,4) — 2 AP left.").
@@ -67,25 +103,19 @@ const DEFAULT_ARCHETYPE = 'merc';
  * subsequent statusLine() rewrite.
  */
 let lastActionLine = '';
-/**
- * Starting archetype. Filled in `boot()` after DataStore.init runs:
- *   1. URL override (`?archetype=razor`) wins for testing — same toggle the
- *      M7 harness honoured.
- *   2. Then the persisted preference (`DataStore.prefs.archetype`).
- *   3. Finally `DEFAULT_ARCHETYPE` on a fresh first load.
- * Run.setArchetype mutates this back via onPrefsChange so subsequent
- * `enterHub` calls and snapshot/restore stay in sync.
- */
-let archetype = DEFAULT_ARCHETYPE;
 
 const seedFromClock = () => Date.now() & 0xffffffff;
 
 const allComponentsReady = Promise.all([
   customElements.whenDefined('update-notification'),
   customElements.whenDefined('confirmation-modal'),
+  customElements.whenDefined('finn-shop'),
+  customElements.whenDefined('item-inventory'),
   customElements.whenDefined('touch-pad'),
-  customElements.whenDefined('character-select'),
+  customElements.whenDefined('crew-list'),
+  customElements.whenDefined('crew-roster'),
   customElements.whenDefined('key-help'),
+  customElements.whenDefined('system-start'),
 ]);
 
 // ---------------------------------------------------------------------------
@@ -94,12 +124,17 @@ const allComponentsReady = Promise.all([
 
 async function boot() {
   canvas = document.getElementById('game-canvas');
+  stageEl = canvas?.parentElement ?? null;
   statusEl = document.getElementById('game-status');
   briefingEl = document.getElementById('briefing');
   crashEl = document.getElementById('crash');
+  systemStartEl = document.getElementById('system-start');
   resumeModalEl = document.getElementById('resume-modal');
+  quitCampaignModalEl = document.getElementById('quit-campaign-modal');
   touchPadEl = document.getElementById('touch-pad');
-  characterSelectEl = document.getElementById('character-select');
+  crewRosterEl = document.getElementById('crew-roster');
+  finnShopEl = document.getElementById('finn-shop');
+  itemInventoryEl = document.getElementById('item-inventory');
   keyHelpEl = document.getElementById('key-help');
 
   renderer = new AsciiRenderer(canvas);
@@ -115,6 +150,7 @@ async function boot() {
       // rule the M7 harness established still holds in the shell.
       paint(nextMode);
     },
+    isBlocked: () => animLock.isLocked() || isAnyBlockingModalOpen(),
   });
   keyboard.attach();
 
@@ -124,17 +160,45 @@ async function boot() {
   // panel is open keeps both behaviours clean.
   window.addEventListener('keydown', handleGlobalKey, true);
 
-  briefingEl.addEventListener('jack-in', onJackIn);
+  briefingEl.addEventListener('deploy', onBriefingDeploy);
+  briefingEl.addEventListener('dismiss', () => briefingEl.hide());
   crashEl.addEventListener('new-run', onNewRunRequested);
+  systemStartEl?.addEventListener('hub-enter', onSystemStartHubEnter);
 
-  if (characterSelectEl) {
-    characterSelectEl.setArchetypes(ARCHETYPE_IDS.map(id => ARCHETYPES[id]));
-    characterSelectEl.addEventListener('pick', onArchetypePicked);
-    characterSelectEl.addEventListener('dismiss', onArchetypeDismissed);
+  if (crewRosterEl) {
+    crewRosterEl.addEventListener('dismiss', () => crewRosterEl.hide());
+  }
+
+  if (finnShopEl) {
+    finnShopEl.addEventListener('purchase', onFinnPurchase);
+    finnShopEl.addEventListener('dismiss', () => finnShopEl.hide());
+  }
+
+  if (itemInventoryEl) {
+    itemInventoryEl.addEventListener('use-item', onUseItem);
+    itemInventoryEl.addEventListener('dismiss', () => itemInventoryEl.hide());
   }
 
   if (keyHelpEl) {
     keyHelpEl.addEventListener('dismiss', () => keyHelpEl.hide());
+  }
+
+  const keyHelpToggleEl = document.getElementById('key-help-toggle');
+  if (keyHelpToggleEl && keyHelpEl) {
+    keyHelpToggleEl.addEventListener('click', () => {
+      if (keyHelpEl.isOpen) {
+        keyHelpEl.hide();
+        return;
+      }
+      tryShowKeyHelpOverlay();
+    });
+  }
+
+  if (quitCampaignModalEl) {
+    quitCampaignModalEl.addEventListener('confirm', evt => {
+      if (evt.detail?.context?.kind !== 'quit-campaign') return;
+      performQuitCampaign();
+    });
   }
 
   if (touchPadEl) {
@@ -145,6 +209,7 @@ async function boot() {
     touchPadEl.addEventListener('mode-change', evt => {
       paint(evt.detail.mode);
     });
+    touchPadEl.setBlocked(() => animLock.isLocked() || isAnyBlockingModalOpen());
   }
 
   // Update-notification wiring kept from the original scaffold.
@@ -154,14 +219,13 @@ async function boot() {
   });
 
   await dataStore.init();
-
-  archetype = pickStartingArchetype();
-
-  const savedRun = dataStore.currentRun;
-  if (savedRun) {
-    promptResume(savedRun);
+  if (dataStore.currentRun) {
+    dataStore.deleteRun(dataStore.currentRun.id);
+  }
+  if (dataStore.currentCampaign) {
+    resumeCampaign(dataStore.currentCampaign);
   } else {
-    startFreshRun();
+    startFreshCampaign();
   }
 
   // SW registration is the same posture as the M0 scaffold — kicked off last
@@ -169,162 +233,224 @@ async function boot() {
   serviceWorkerManager.register().catch(err => console.warn('[shell] sw register failed', err));
 }
 
-/**
- * Resolve the starting archetype across the three sources, in priority order.
- * Falls back to DEFAULT_ARCHETYPE only on a fresh-ever load with no prefs
- * record yet — the first `pick` will write one via `dataStore.setPref()`.
- */
-function pickStartingArchetype() {
-  const params = new URLSearchParams(globalThis.location?.search || '');
-  const urlPick = params.get('archetype');
-  if (isArchetypeId(urlPick)) {
-    return urlPick;
-  }
-  if (isArchetypeId(dataStore.prefs.archetype)) {
-    return dataStore.prefs.archetype;
-  }
-  return DEFAULT_ARCHETYPE;
-}
-
 // ---------------------------------------------------------------------------
 // Run lifecycle
 // ---------------------------------------------------------------------------
 
-function startFreshRun() {
-  flash('NEW RUN — Curator is in the Hub.');
-  run = makeRun({ seed: seedFromClock() });
-  run.enterHub();
+function startFreshCampaign() {
+  campaign = new Campaign({
+    seed: seedFromClock(),
+    onPersist: handlePersist,
+    onResult: handleResult,
+  });
+  handlePersist();
+
+  pendingJobResult = null;
   attachVisionListener();
+  attachAnimationListeners();
   recomputeVision();
   renderShell();
-  if (!dataStore.prefs.archetype) {
-    presentCharacterSelect();
+  if (systemStartEl) {
+    systemStartEl.setSession({ seed: campaign.seed });
+    systemStartEl.show();
+  } else {
+    flash('NEW RUN — Curator is in the Hub.');
   }
+}
+
+function onSystemStartHubEnter() {
+  systemStartEl?.hide();
+  flash('HUB — Curator has contracts when you are adjacent [Space].');
+}
+
+function presentCrewRoster() {
+  if (!crewRosterEl || !campaign) return;
+  crewRosterEl.setCrew(campaign.crew, { salvage: campaign.salvage });
+  crewRosterEl.show();
+}
+
+function presentBriefing(contract) {
+  if (!briefingEl || !campaign) return;
+  briefingEl.setContract(contract);
+  briefingEl.setCrew(campaign.crew);
+  briefingEl.show();
+}
+
+function onBriefingDeploy(evt) {
+  if (!campaign) return;
+  const { memberId, contract } = evt?.detail ?? {};
+  const member = campaign.getCrewMember(memberId);
+  if (!member || member.flatlined || !contract) return;
+  briefingEl.hide();
+  campaign.deployCrewMember(member.id, contract);
+  flash(`CURATOR: ${member.callsign} takes ${contract.label}. JACKING IN.`);
+  // Go straight into combat — the player already reviewed the contract and
+  // chose their operative in the combined briefing modal.
+  const run = campaign.activeRun;
+  if (!run || run.state !== RUN_STATE.BRIEFING) {
+    throw new Error(`[shell] expected deployed run to enter BRIEFING, got ${run?.state}`);
+  }
+  run.enterCombat();
+  handlePersist();
+  vision.resetFogState();
+  attachVisionListener();
+  attachAnimationListeners();
+  recomputeVision();
+  flash('JACKED IN. Reach the exit tile (¤) before the drones drop you.');
+  renderShell();
+}
+
+function presentFinnShop() {
+  if (!finnShopEl || !campaign) return;
+  const catalog = campaign.finn.catalog(campaign.meta);
+  finnShopEl.setCatalog(catalog, campaign.crew, campaign.salvage);
+  finnShopEl.show();
+}
+
+function onFinnPurchase(evt) {
+  if (!campaign) return;
+  const { itemId, targetMemberId } = evt?.detail ?? {};
+  try {
+    campaign.purchase({ itemId, targetMemberId });
+  } catch (err) {
+    flash(`PURCHASE FAILED: ${err.message}`);
+    return;
+  }
+  flash(`FINN: Purchased ${itemId}. SALVAGE ${campaign.salvage}.`);
+  // Refresh the shop to reflect new balance and purchased meta upgrades.
+  presentFinnShop();
+}
+
+function presentItemInventory() {
+  if (!itemInventoryEl || !campaign) return;
+  const run = campaign.activeRun;
+  if (!run || !run.player || !run.player.inventory) return;
+  itemInventoryEl.setItems(run.player.inventory.consumables);
+  itemInventoryEl.show();
+}
+
+function onUseItem(evt) {
+  if (!campaign) return;
+  const run = campaign.activeRun;
+  if (!run || !run.player) return;
+  const { itemId } = evt?.detail ?? {};
+  try {
+    const result = run.player.useConsumable(itemId);
+    if (result.type === 'stim') {
+      flash(
+        `Used STIM — healed ${result.healed} HP (now ${run.player.hp}/${run.player.maxHp}). ${run.player.ap} AP left.`
+      );
+    } else if (result.type === 'smoke') {
+      const overlays = placeSmoke(run.world.grid, result.cx, result.cy, result.radius);
+      activeSmokeOverlays.push(...overlays);
+      recomputeVision();
+      flash(
+        `Used SMOKE CHARGE — LOS blocked in radius ${result.radius}. ${run.player.ap} AP left.`
+      );
+    }
+  } catch (err) {
+    flash(`USE FAILED: ${err.message}`);
+    return;
+  }
+  itemInventoryEl.hide();
+  paint();
+  if (run.player.ap === 0) {
+    flash('AP EXHAUSTED — auto-ending turn.');
+    advanceTurn();
+  }
+}
+
+function handlePersist() {
+  if (!campaign) return;
+  dataStore.setCampaign(snapshotCampaign(campaign));
+}
+
+function crewMemberArchetypeId(member) {
+  const n = member?.constructor?.name;
+  if (n === 'Merc') return 'merc';
+  if (n === 'Razor') return 'razor';
+  if (n === 'Tech') return 'tech';
+  return 'op';
+}
+
+function telemetryForEndedCampaign(c) {
+  return {
+    outcome: 'campaign-over',
+    seed: c.seed,
+    salvage: c.salvage,
+    crewRoster: c.crew.map(member => ({
+      callsign: member.callsign ?? member.id,
+      archetype: crewMemberArchetypeId(member),
+      flatlined: !!member.flatlined,
+    })),
+  };
 }
 
 /**
- * Mount <character-select> with the current archetype highlighted. Called on
- * every Hub entry and on Terminal interact. Dismissable: closing without
- * picking leaves the existing archetype in effect.
+ * Drives `<crash-dump>` and `pendingJobResult` whenever the active job is in
+ * RESULT — both from a live `Run.onResult` callback and from a cold resume
+ * (otherwise `renderShell` opens the overlay with no `setTelemetry` call).
  */
-function presentCharacterSelect() {
-  if (!characterSelectEl) return;
-  if (!run || run.state !== RUN_STATE.HUB) return;
-  characterSelectEl.setCurrent(run.archetype);
-  characterSelectEl.show();
-}
-
-function onArchetypePicked(evt) {
-  const id = evt?.detail?.archetypeId;
-  if (!isArchetypeId(id)) return;
-  if (!run) return;
-  // Setting the same archetype is intentional — first-load default is 'merc'
-  // and no prefs record exists yet; the setArchetype call writes one through
-  // onPrefsChange. Idempotent at the entity layer.
-  if (run.state === RUN_STATE.HUB) {
-    run.setArchetype(id);
-    flash(`OPERATOR: ${id.toUpperCase()}.`);
+function pushPendingJobResultOverlay(telemetry) {
+  if (!crashEl) return;
+  const tel = { ...telemetry };
+  const outcome = tel.outcome;
+  if (outcome !== 'death' && outcome !== 'exit') {
+    throw new Error(`[shell] invalid job outcome for debrief overlay: "${outcome}"`);
   }
-  characterSelectEl.hide();
-  paint();
-}
-
-function onArchetypeDismissed() {
-  characterSelectEl.hide();
-}
-
-function makeRun(opts) {
-  return new Run({
-    archetype,
-    seed: opts.seed,
-    onPersist: handlePersist,
-    onResult: handleResult,
-    onPrefsChange: id => {
-      // Run already updated its own `archetype` field; mirror the shell's
-      // module-level copy so the *next* `makeRun()` picks the same value,
-      // and persist for future page loads.
-      archetype = id;
-      dataStore.setPref('archetype', id);
-    },
+  pendingJobResult = { outcome, telemetry: tel };
+  const campaignTerminal = outcome === 'death' && campaign && willEndCampaignOnThisDeath(campaign);
+  crashEl.setTelemetry({
+    ...tel,
+    campaignTerminal,
   });
 }
 
-function handlePersist(snapshot) {
-  // First snapshot of a run: add (DataStore assigns its own UUID and mutates
-  // `snapshot.id` in place — we mirror that back into Run.id so the next
-  // snapshot keeps the same record). Subsequent snapshots: in-place update.
-  if (!runRecordId) {
-    dataStore.addRun(snapshot);
-    runRecordId = snapshot.id;
-    if (run) run.id = runRecordId;
-  } else {
-    snapshot.id = runRecordId;
-    dataStore.updateRun(snapshot);
-  }
-}
-
 function handleResult({ outcome, telemetry }) {
-  // Death + Exit both end the run; clear the save either way per the M8 plan
-  // ("Death screen clears the save"; EXIT also clears since the run is over).
-  if (runRecordId) {
-    dataStore.deleteRun(runRecordId);
-    runRecordId = null;
-  }
-  crashEl.setTelemetry({ outcome, ...telemetry });
+  pushPendingJobResultOverlay({
+    ...telemetry,
+    outcome: telemetry?.outcome ?? outcome,
+  });
   renderShell();
 }
 
-// ---------------------------------------------------------------------------
-// Resume flow
-// ---------------------------------------------------------------------------
-
-function promptResume(record) {
-  flash(`Saved run found — turn ${record.turnNumber}, ${record.archetype.toUpperCase()}.`);
-
-  const onConfirm = () => {
-    cleanup();
-    resumeFromRecord(record);
-  };
-  const onCancel = () => {
-    cleanup();
-    dataStore.deleteRun(record.id);
-    runRecordId = null;
-    startFreshRun();
-  };
-  function cleanup() {
-    resumeModalEl.removeEventListener('confirm', onConfirm);
-    resumeModalEl.removeEventListener('cancel', onCancel);
-  }
-
-  resumeModalEl.addEventListener('confirm', onConfirm);
-  resumeModalEl.addEventListener('cancel', onCancel);
-  resumeModalEl.showModal(
-    `Resume your last run? (turn ${record.turnNumber}, ${record.archetype.toUpperCase()})`
-  );
+function currentScene() {
+  if (!campaign) return null;
+  return campaign.activeRun ?? campaign;
 }
 
-function resumeFromRecord(record) {
+function resumeCampaign(record) {
   try {
-    const { run: restoredRun } = restore(record, {
-      onPersist: handlePersist,
+    campaign = restoreCampaign(record, {
+      onPersist: () => handlePersist(),
       onResult: handleResult,
     });
-    run = restoredRun;
-    runRecordId = record.id;
-    archetype = restoredRun.archetype;
+    if (campaign.activeRun?.state === RUN_STATE.COMBAT) {
+      vision.resetFogState();
+    }
     attachVisionListener();
+    attachAnimationListeners();
     recomputeVision();
-    flash(
-      `RESUMED — ${restoredRun.archetype.toUpperCase()} | turn ${restoredRun.queue.turnNumber}`
-    );
+    if (campaign.activeRun?.state === RUN_STATE.BRIEFING && campaign.activeRun.contract) {
+      briefingEl.setContract(campaign.activeRun.contract);
+      briefingEl.setCrew(campaign.crew);
+    }
+    if (campaign.state === CAMPAIGN_STATE.ENDED) {
+      pendingJobResult = null;
+      crashEl.setTelemetry(telemetryForEndedCampaign(campaign));
+      flash('CAMPAIGN ENDED — no surviving crew in this save.');
+    } else if (campaign.activeRun?.state === RUN_STATE.RESULT) {
+      pushPendingJobResultOverlay({ ...campaign.activeRun.telemetry });
+      flash('RESUMED — mission debrief.');
+    } else {
+      flash(`RESUMED — crew ${campaign.crew.filter(member => !member.flatlined).length} active.`);
+    }
     renderShell();
   } catch (err) {
-    // Corrupt record — log and start fresh rather than booting into a half-state.
-    console.error('[shell] failed to restore saved run', err);
-    dataStore.deleteRun(record.id);
-    runRecordId = null;
-    flash('SAVE CORRUPT — starting a new run.');
-    startFreshRun();
+    console.error('[shell] failed to restore saved campaign', err);
+    dataStore.deleteCampaign();
+    flash('CAMPAIGN SAVE CORRUPT — starting fresh.');
+    startFreshCampaign();
   }
 }
 
@@ -332,12 +458,53 @@ function resumeFromRecord(record) {
 // Intent handling
 // ---------------------------------------------------------------------------
 
+function isConfirmationDialogOpen(el) {
+  const dialog = el?.shadowRoot?.querySelector('dialog');
+  return Boolean(dialog?.open);
+}
+
+function presentQuitCampaignConfirm() {
+  if (!quitCampaignModalEl || !campaign) return;
+  if (isConfirmationDialogOpen(quitCampaignModalEl)) return;
+  quitCampaignModalEl.showModal('Delete this campaign and all progress? This cannot be undone.', {
+    kind: 'quit-campaign',
+  });
+}
+
+function performQuitCampaign() {
+  if (!campaign) return;
+  keyHelpEl?.hide();
+  briefingEl?.hide();
+  crashEl?.hide();
+  crewRosterEl?.hide();
+  finnShopEl?.hide();
+  itemInventoryEl?.hide();
+
+  pendingJobResult = null;
+  dataStore.deleteCampaign();
+  startFreshCampaign();
+  flash('Campaign deleted — new campaign.');
+  canvas?.focus();
+}
+
 function handleIntent(intent) {
+  if (intent?.type === 'quit-campaign') {
+    resetInputModes();
+    if (!campaign) return;
+    presentQuitCampaignConfirm();
+    return;
+  }
+
+  const run = currentScene();
   if (!run) return;
   // BRIEFING / RESULT swallow gameplay intents — JACK IN / NEW RUN drive
   // those transitions through the DOM buttons. Cancel is still valid (it
   // clears any stuck aim mode, per the M7 cross-input cancel rule).
-  if (run.state === RUN_STATE.BRIEFING || run.state === RUN_STATE.RESULT) {
+  if (
+    run.state === RUN_STATE.BRIEFING ||
+    run.state === RUN_STATE.RESULT ||
+    run.state === CAMPAIGN_STATE.ENDED
+  ) {
     if (intent?.type === 'cancel') {
       resetInputModes();
     }
@@ -354,79 +521,193 @@ function handleIntent(intent) {
     advanceTurn,
     resetInputModes,
     onInteract: handleInteract,
+    onInventory: () => {
+      // Only open inventory during combat when it's the player's turn.
+      if (
+        campaign?.state !== CAMPAIGN_STATE.COMBAT ||
+        run.state !== RUN_STATE.COMBAT ||
+        run.queue.currentFaction !== FACTION.PLAYER
+      ) {
+        flash('Inventory is only available during combat on your turn.');
+        return;
+      }
+      presentItemInventory();
+    },
   });
 }
 
+/**
+ * Pacing between drone actions when the corp turn is animated step-by-step.
+ * Tuned just above MUZZLE_FLASH duration so the firing flash decays cleanly
+ * before the same drone takes its next action (move, second shot, etc.) —
+ * the M0 user-reported bug where a "fire then move" turn left the flash
+ * stranded on the tile the drone had just vacated.
+ */
+const CORP_ACTION_DELAY_MS = 130;
+const PLAYER_AFTERMATH_ACTION_DELAY_MS = 130;
+
 function advanceTurn() {
+  const run = currentScene();
   if (!run) return;
-  run.queue.endTurn(run.world);
-  if (run.queue.currentFaction === FACTION.CORP) {
-    runCorpTurn();
-    // Same shape the harness uses: end the CORP turn synchronously so control
-    // returns to the player on the same input event.
-    run.queue.endTurn(run.world);
-  }
-  // Stealth & vision may both have changed during the corp turn.
-  recomputeVision();
+  advanceFromPlayerTurn({
+    queue: run.queue,
+    world: run.world,
+    rng: run.rng,
+    isTerminal: () => run?.state === RUN_STATE.RESULT,
+    drivePlayerAftermath: ({ onStep, onFinish }) => {
+      drivePlayerAftermath({
+        world: run.world,
+        rng: run.rng,
+        onStep,
+        onFinish,
+        animLock,
+        stepDelayMs: PLAYER_AFTERMATH_ACTION_DELAY_MS,
+        lockMarginMs: ANIMATION_DURATIONS.MUZZLE_FLASH,
+      });
+    },
+    onPlayerAftermathStep: step => {
+      for (const line of formatPlayerAftermathStepLogLines(step)) {
+        flash(line);
+      }
+      paint();
+    },
+    driveCorpTurn: ({ onFinish }) => {
+      runCorpTurn(onFinish);
+    },
+    onPlayerTurnReady: () => {
+      // Clear any smoke from last turn before the player acts.
+      if (activeSmokeOverlays.length > 0 && run.world) {
+        clearSmoke(run.world.grid, activeSmokeOverlays);
+        activeSmokeOverlays = [];
+      }
+      // Stealth & vision may both have changed during the corp turn.
+      recomputeVision();
+      paint();
+    },
+  });
 }
 
-function runCorpTurn() {
+/**
+ * Kick off the animated corp turn. Delegates to `corpTurnDriver.runCorpTurn`,
+ * which iterates each corp entity's `takeTurnSteps` generator one yield at
+ * a time, paints between each, and fires `onFinish` once every generator
+ * drains (or immediately when the world has zero corp entities — hub, or a
+ * combat map the player has cleared). The driver lives in `/src/game/` so
+ * its state machine is testable under `node --test`.
+ */
+function runCorpTurn(onFinish) {
+  const run = currentScene();
   if (!run) return;
-  for (const e of run.world.entities.values()) {
-    if (!e.alive || e.faction !== FACTION.CORP) continue;
-    if (typeof e.takeTurn !== 'function') continue; // Curator / inert entities.
-    e.takeTurn(run.world, run.rng);
-  }
+  driveCorpTurn({
+    run,
+    corpFaction: FACTION.CORP,
+    paint,
+    animLock,
+    actionDelayMs: CORP_ACTION_DELAY_MS,
+    lockMarginMs: ANIMATION_DURATIONS.MUZZLE_FLASH,
+    onFinish,
+  });
 }
+
+/*
+ * `advanceFromPlayerTurn` owns the final CORP→PLAYER queue transition; the
+ * shell callback above only refreshes presentation state after that happens.
+ */
 
 function handleInteract() {
-  if (!run) return;
-  if (run.state !== RUN_STATE.HUB) {
+  if (!campaign) return;
+  // Combat interact: check for adjacent lootable corpses first.
+  if (campaign.state === CAMPAIGN_STATE.COMBAT && campaign.activeRun?.state === RUN_STATE.COMBAT) {
+    handleCombatInteract();
+    return;
+  }
+  if (campaign.state !== CAMPAIGN_STATE.HUB) {
     flash('Nothing to interact with here.');
     return;
   }
-  // Terminal first — adjacency to the loadout kiosk re-opens character
-  // select. Curator second — receive a contract. Both checked before the
-  // "step adjacent" fallback so a player standing between the two gets the
-  // Terminal interaction (closer in the typical layout).
-  if (run.terminal && isChebyshevAdjacent(run.player, run.terminal)) {
-    flash('TERMINAL — pick an operator.');
-    presentCharacterSelect();
+  if (campaign.finn && isChebyshevAdjacent(campaign.player, campaign.finn)) {
+    flash('FINN — browse the shop.');
+    presentFinnShop();
     return;
   }
-  if (!run.curator || !isChebyshevAdjacent(run.player, run.curator)) {
-    flash('Step adjacent to the Curator (contract) or Terminal (loadout).');
+  if (campaign.terminal && isChebyshevAdjacent(campaign.player, campaign.terminal)) {
+    flash('TERMINAL — crew roster.');
+    presentCrewRoster();
     return;
   }
-  const contract = run.curator.generateContract(run.rng);
-  run.enterBriefing(contract);
-  briefingEl.setContract(contract);
-  flash(`CURATOR: ${contract.label} — review contract.`);
-  renderShell();
+  if (!campaign.curator || !isChebyshevAdjacent(campaign.player, campaign.curator)) {
+    flash('Step adjacent to Finn (shop), Curator (contract), or Terminal (roster).');
+    return;
+  }
+  const contract = campaign.curator.generateContract(campaign.rng);
+  flash(`CURATOR: ${contract.label} — review and deploy.`);
+  presentBriefing(contract);
 }
 
-function onJackIn() {
-  if (!run || run.state !== RUN_STATE.BRIEFING) return;
-  run.enterCombat();
-  // enterCombat rebuilds bus + world; re-attach the vision listener so live
-  // entity moves keep refreshing fog-of-war.
-  attachVisionListener();
-  recomputeVision();
-  flash('JACKED IN. Reach the exit tile (¤) before the drones drop you.');
-  renderShell();
+/**
+ * Combat interact — scan Chebyshev-adjacent tiles for a lootable corpse.
+ * If found: call `player.collectSalvage`, flash result, auto-end turn on AP
+ * exhaustion. If not found: show a no-loot hint.
+ */
+function handleCombatInteract() {
+  const run = campaign.activeRun;
+  if (!run || !run.player) return;
+  const player = run.player;
+  // Scan the 8 neighbours plus the player's own tile for lootable corpses.
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      const tx = player.x + dx;
+      const ty = player.y + dy;
+      const entity = run.world.lootableCorpseAt(tx, ty);
+      if (entity && !entity.alive && entity.loot && entity.loot.salvage > 0) {
+        if (!player.canAfford(AP_COST.INTERACT)) {
+          flash('Insufficient AP to loot.');
+          return;
+        }
+        const amount = entity.loot.salvage;
+        player.collectSalvage(run.world, entity);
+        flash(
+          `Salvaged +${amount} — carrying ${player.inventory.salvage} total. ${player.ap} AP left.`
+        );
+        paint();
+        if (player.ap === 0) {
+          flash('AP EXHAUSTED — auto-ending turn.');
+          advanceTurn();
+        }
+        return;
+      }
+    }
+  }
+  flash('Nothing to loot nearby.');
 }
+
+// onJackIn removed — combat entry is handled in onBriefingDeploy.
 
 function onNewRunRequested() {
-  // RESULT → HUB. Clear any half-state and start fresh on a new seed.
-  if (!run) return;
+  if (!campaign) return;
+  if (pendingJobResult) {
+    const { outcome } = pendingJobResult;
+    pendingJobResult = null;
+    // M3: extract salvage from the deployed crew member's inventory on exit.
+    const member = campaign.getCrewMember(campaign.deployedMemberId);
+    const salvage = member?.inventory?.salvage ?? 0;
+    campaign.onJobEnd({ outcome, salvage });
+    if (campaign.state === CAMPAIGN_STATE.ENDED) {
+      dataStore.deleteCampaign();
+      startFreshCampaign();
+      return;
+    }
+  } else if (campaign.state === CAMPAIGN_STATE.ENDED) {
+    dataStore.deleteCampaign();
+    startFreshCampaign();
+    return;
+  }
   crashEl.hide();
-  run.enterHub();
-  // enterHub also rebuilds the world; re-attach vision.
   attachVisionListener();
+  attachAnimationListeners();
   recomputeVision();
-  flash('NEW RUN — Curator is in the Hub.');
+  flash('HUB — choose the next job.');
   renderShell();
-  presentCharacterSelect();
 }
 
 // ---------------------------------------------------------------------------
@@ -438,11 +719,63 @@ function attachVisionListener() {
     visionMoveUnsub();
     visionMoveUnsub = null;
   }
+  const run = currentScene();
   if (!run?.bus) return;
   visionMoveUnsub = run.bus.on(EVENT.ENTITY_MOVED, () => recomputeVision());
 }
 
+/**
+ * Subscribe the M0 combat-feedback animations to the active run's bus.
+ *
+ *   - `entity:damaged` where the player is the target → shake + reddening
+ *     (~300ms lock).
+ *   - `noise` of `kind: 'ranged'` or `'melee'` → muzzle flash on the
+ *     shooter's tile (~80ms lock). Fires for *any* attacker so the player
+ *     also sees drones return fire.
+ *
+ * Re-attached on every Run state transition because Run.#tearDownWorld
+ * recreates `bus` from scratch — same posture as `attachVisionListener`.
+ */
+function attachAnimationListeners() {
+  for (const off of animationUnsubs) off();
+  animationUnsubs = [];
+  const run = currentScene();
+  if (!run?.bus) return;
+  animationUnsubs.push(
+    run.bus.on(EVENT.ENTITY_DAMAGED, ({ target, killed, source }) => {
+      // Player-side feedback: screen shake + red vignette when *we* get hit.
+      if (run?.player && target === run.player && stageEl) {
+        triggerShake(stageEl);
+        triggerDamageFlash(stageEl);
+        animLock.push(ANIMATION_DURATIONS.DAMAGE_FLASH);
+      }
+      // Melee impact: the strike reads as landing on the *target*, not
+      // hovering above the attacker. Ranged stays on the NOISE path so
+      // misses still get a muzzle flash on the shooter's tile.
+      if (source === 'melee' && target && renderer) {
+        const fired = runMuzzleFlash(renderer, paint, target.x, target.y);
+        if (fired) animLock.push(ANIMATION_DURATIONS.MUZZLE_FLASH);
+      }
+      // M3: memorise corpse position when a kill occurs within current LOS.
+      if (killed && target && vision.isVisible(target.x, target.y)) {
+        vision.memoriseCorpse(target);
+      }
+    }),
+    run.bus.on(EVENT.NOISE, payload => {
+      // Muzzle flash on the shooter's tile. Melee is handled via
+      // ENTITY_DAMAGED above (so we know the *target* position); NOISE
+      // for melee would only know the attacker.
+      if (!payload || payload.kind !== 'ranged') return;
+      const origin = payload.origin;
+      if (!origin || !renderer) return;
+      const fired = runMuzzleFlash(renderer, paint, origin.x, origin.y);
+      if (fired) animLock.push(ANIMATION_DURATIONS.MUZZLE_FLASH);
+    })
+  );
+}
+
 function recomputeVision() {
+  const run = currentScene();
   if (!run || !run.world || !run.player) return;
   vision.recompute(run.world.grid, run.player, undefined, {
     blockers: run.world.blockerKeys(),
@@ -454,17 +787,26 @@ function recomputeVision() {
 // ---------------------------------------------------------------------------
 
 function renderShell() {
-  if (!run) return;
-  switch (run.state) {
-    case RUN_STATE.HUB:
+  if (!campaign) return;
+  const run = currentScene();
+  const state = run?.state;
+  switch (state) {
+    case CAMPAIGN_STATE.HUB:
     case RUN_STATE.COMBAT:
       canvas.hidden = false;
       briefingEl.hide();
       crashEl.hide();
       break;
     case RUN_STATE.BRIEFING:
+      // The combined briefing modal handles its own show/hide. If we land
+      // here on resume, re-present the briefing so the player can pick an
+      // operative.
       canvas.hidden = true;
-      briefingEl.show();
+      if (!briefingEl.isOpen) {
+        briefingEl.setContract(campaign.activeRun.contract);
+        briefingEl.setCrew(campaign.crew);
+        briefingEl.show();
+      }
       crashEl.hide();
       break;
     case RUN_STATE.RESULT:
@@ -472,15 +814,24 @@ function renderShell() {
       briefingEl.hide();
       crashEl.show();
       break;
+    case CAMPAIGN_STATE.ENDED:
+      canvas.hidden = true;
+      briefingEl.hide();
+      crashEl.show();
+      break;
     default:
-      throw new Error(`[shell] unknown run state "${run.state}"`);
+      throw new Error(`[shell] unknown state "${state}"`);
   }
   paint();
 }
 
 function paint(modeHint = activeMode()) {
+  const run = currentScene();
+  if (canvas.hidden) {
+    setStatus(statusLine(modeHint));
+    return;
+  }
   if (!run || !run.world || !run.player) return;
-  if (canvas.hidden) return; // Briefing / Result panels own the viewport.
   // Hub is a safe space — no fog of war. Vision is only meaningful during
   // combat where LOS and drone stealth detection matter.
   const activeVision = run.state === RUN_STATE.COMBAT ? vision : undefined;
@@ -490,18 +841,40 @@ function paint(modeHint = activeMode()) {
 }
 
 function statusLine(modeHint) {
+  const run = currentScene();
   if (!run) return '';
   const aim = modeHint && modeHint !== MODE.IDLE ? `  |  AIM: ${modeHint}` : '';
   const player = run.player;
   if (!player) return stateLabel();
   const stealthTag = player.stealthed ? ' [CLOAKED]' : '';
-  const stats =
-    `${stateLabel()}  |  ${run.archetype.toUpperCase()} ` +
+  let identity;
+  if (run.state === RUN_STATE.COMBAT) {
+    const salvageTag = player.inventory ? ` SAL:${player.inventory.salvage}` : '';
+    identity = `${run.player.callsign ?? run.archetype} ${run.archetype.toUpperCase()}${salvageTag}`;
+  } else {
+    identity = `CREW ${campaign.crew.filter(member => !member.flatlined).length}/${campaign.crew.length} SALVAGE ${campaign.salvage}`;
+  }
+  const statsInner =
+    `${stateLabel()}  |  ${identity} ` +
     `AP ${player.ap}/${player.maxAp} HP ${player.hp}/${player.maxHp}${stealthTag}` +
     `  |  TURN ${run.queue.turnNumber} (${run.queue.currentFaction.toUpperCase()})${aim}`;
-  const hint = proximityHint();
-  const action = lastActionLine ? `  ·  ${lastActionLine}` : '';
-  return stats + (hint ? `  |  ${hint}` : '') + action;
+  const stats = `<span class="game-shell__stats">${statsInner}</span>`;
+  // Proximity hint and action line each render in their own reserved-height
+  // row so the status block's geometry is constant — appearing/disappearing
+  // hints change text, not the height of the bar. See `.game-shell__hint`
+  // and `.game-shell__activity` in main.css.
+  const hint = `<span class="game-shell__hint">${proximityHint()}</span>`;
+  let action = '';
+  if (run.state === RUN_STATE.COMBAT && run.queue.currentFaction === FACTION.CORP) {
+    const visibleCorp = countVisibleCorpEntities(run.world.entities.values(), (x, y) =>
+      vision.isVisible(x, y)
+    );
+    const body = corpTurnStatusBody(visibleCorp, run.queue.turnNumber);
+    action = `<span class="game-shell__activity corp"><span class="faction-tag">CORP</span> — ${body}</span>`;
+  } else {
+    action = `<span class="game-shell__activity">${lastActionLine ?? ''}</span>`;
+  }
+  return stats + hint + action;
 }
 
 /**
@@ -516,23 +889,37 @@ function statusLine(modeHint) {
  * interactables land (terminals, dropped weapons, etc.).
  */
 function proximityHint() {
+  const run = currentScene();
   if (!run || !run.player) return '';
-  if (run.state === RUN_STATE.HUB) {
+  if (run.state === CAMPAIGN_STATE.HUB) {
+    if (run.finn && isChebyshevAdjacent(run.player, run.finn)) {
+      return 'FINN — press [Space] to shop.';
+    }
     if (run.curator && isChebyshevAdjacent(run.player, run.curator)) {
-      return 'CURATOR — press [i] for a contract.';
+      return 'CURATOR — press [Space] for a contract.';
     }
     if (run.terminal && isChebyshevAdjacent(run.player, run.terminal)) {
-      return 'TERMINAL — press [i] to change operator.';
+      return 'TERMINAL — press [Space] for roster.';
     }
     return '';
   }
-  if (run.state === RUN_STATE.COMBAT && run.exitTile) {
-    const d = chebyshevDistance(run.player, run.exitTile);
-    // d === 0 fires `Run.#onEntityMoved` → enterResult on the same tick, so
-    // by the time the next paint runs we're in RESULT — covered by the
-    // outer state gate. Adjacency is the warning that you can JACK OUT next
-    // step.
-    if (d === 1) return 'EXIT (¤) one step away.';
+  if (run.state === RUN_STATE.COMBAT) {
+    // Loot hint: check for adjacent lootable corpses.
+    if (run.world && run.player) {
+      const p = run.player;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const e = run.world.lootableCorpseAt(p.x + dx, p.y + dy);
+          if (e && !e.alive && e.loot && e.loot.salvage > 0) {
+            return 'SALVAGE nearby — press [Space] to loot.';
+          }
+        }
+      }
+    }
+    if (run.exitTile) {
+      const d = chebyshevDistance(run.player, run.exitTile);
+      if (d === 1) return 'EXIT (¤) one step away.';
+    }
   }
   return '';
 }
@@ -543,9 +930,10 @@ function flash(line) {
 }
 
 function stateLabel() {
+  const run = currentScene();
   if (!run) return 'BOOTING';
   switch (run.state) {
-    case RUN_STATE.HUB:
+    case CAMPAIGN_STATE.HUB:
       return '[HUB]';
     case RUN_STATE.BRIEFING:
       return '[BRIEFING]';
@@ -553,13 +941,15 @@ function stateLabel() {
       return '[COMBAT]';
     case RUN_STATE.RESULT:
       return '[DEBRIEF]';
+    case CAMPAIGN_STATE.ENDED:
+      return '[ENDED]';
     default:
       return run.state ?? '';
   }
 }
 
-function setStatus(text) {
-  if (statusEl) statusEl.textContent = text;
+function setStatus(richText) {
+  if (statusEl) statusEl.innerHTML = richText;
 }
 
 function activeMode() {
@@ -590,12 +980,28 @@ function chebyshevDistance(a, b) {
 // ---------------------------------------------------------------------------
 
 /**
+ * Opens <key-help> when Hub/Combat and no blocking modal — same rules as the
+ * `?` shortcut and the header toolbar button.
+ *
+ * @returns {'ok'|'blocking'|'no-scope'|'none'}
+ */
+function tryShowKeyHelpOverlay() {
+  if (!keyHelpEl) return 'none';
+  if (isAnyBlockingModalOpen()) return 'blocking';
+  const scope = helpScopeForRunState();
+  if (!scope) return 'no-scope';
+  keyHelpEl.setScope(scope);
+  keyHelpEl.show();
+  return 'ok';
+}
+
+/**
  * `?` toggles the help overlay. Esc, when the help overlay is open, dismisses
  * it (and we swallow the event so the keymap doesn't also turn it into a
  * `cancel` intent for whatever aim mode was active).
  *
  * `?` is suppressed while any blocking modal owns the foreground — opening
- * help over a briefing or character-select would just stack panels.
+ * help over a briefing or crew-roster would just stack panels.
  */
 function handleGlobalKey(evt) {
   if (!keyHelpEl) return;
@@ -620,22 +1026,22 @@ function handleGlobalKey(evt) {
   }
 
   if (evt.key !== '?') return;
-  if (isAnyBlockingModalOpen()) {
-    // Briefing / Crash / Resume / Character-select own focus — silently drop
-    // `?` rather than stacking yet another overlay over them.
+  const opened = tryShowKeyHelpOverlay();
+  if (opened === 'ok') {
     evt.preventDefault();
     return;
   }
-  const scope = helpScopeForRunState();
-  if (!scope) return;
-  evt.preventDefault();
-  keyHelpEl.setScope(scope);
-  keyHelpEl.show();
+  if (opened === 'blocking') {
+    // Briefing / Crash / System start / Resume / Character-select own focus — silently drop
+    // `?` rather than stacking yet another overlay over them.
+    evt.preventDefault();
+  }
 }
 
 function helpScopeForRunState() {
+  const run = currentScene();
   if (!run) return null;
-  if (run.state === RUN_STATE.HUB) return 'hub';
+  if (run.state === CAMPAIGN_STATE.HUB) return 'hub';
   if (run.state === RUN_STATE.COMBAT) return 'combat';
   return null;
 }
@@ -643,10 +1049,14 @@ function helpScopeForRunState() {
 function isAnyBlockingModalOpen() {
   if (briefingEl?.isOpen) return true;
   if (crashEl?.isOpen) return true;
-  if (characterSelectEl?.isOpen) return true;
+  if (systemStartEl?.isOpen) return true;
+  if (crewRosterEl?.isOpen) return true;
+  if (finnShopEl?.isOpen) return true;
+  if (itemInventoryEl?.isOpen) return true;
   // <confirmation-modal> uses a native <dialog> internally; treat any open
   // attribute as "blocking".
-  if (resumeModalEl?.hasAttribute('open')) return true;
+  if (isConfirmationDialogOpen(resumeModalEl)) return true;
+  if (isConfirmationDialogOpen(quitCampaignModalEl)) return true;
   return false;
 }
 

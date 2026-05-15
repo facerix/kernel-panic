@@ -3,9 +3,9 @@
  *
  * `src/game/archetypes/index.js` is a thin metadata layer over the existing
  * `Merc` and `Razor` classes. It serves three callers:
- *   - `<character-select>` reads `ARCHETYPES` to render the modal
+ *   - Hub UI reads `ARCHETYPES` to render labels
  *   - `<key-help>` reads `ARCHETYPES[id].perkKey` to label the perk row
- *   - `Run.#makePlayer` and `Run.setArchetype` delegate to `buildPlayer`
+ *   - `Campaign.buildCrew` delegates to `buildCrewMember`
  * The class behaviour (vault / slide) is already covered by Merc/Razor tests;
  * here we only assert the metadata contract and the factory glue.
  */
@@ -15,15 +15,18 @@ import assert from 'node:assert/strict';
 import {
   ARCHETYPES,
   ARCHETYPE_IDS,
-  buildPlayer,
+  CALLSIGNS_BY_ARCHETYPE,
+  buildCrewMember,
   isArchetypeId,
+  pickCallsign,
 } from '../../../src/game/archetypes/index.js';
 import { FACTION } from '../../../src/game/constants.js';
-import { Merc } from '../../../src/game/archetypes/Merc.js';
-import { Razor } from '../../../src/game/archetypes/Razor.js';
+import { Merc, CALLSIGNS as MERC_CALLSIGNS } from '../../../src/game/archetypes/Merc.js';
+import { CALLSIGNS as RAZOR_CALLSIGNS } from '../../../src/game/archetypes/Razor.js';
+import { Rng } from '../../../src/rng.js';
 
-test('ARCHETYPES exposes merc and razor with required metadata', () => {
-  for (const id of ['merc', 'razor']) {
+test('ARCHETYPES exposes merc, razor, and tech with required metadata', () => {
+  for (const id of ['merc', 'razor', 'tech']) {
     const a = ARCHETYPES[id];
     assert.ok(a, `missing archetype "${id}"`);
     assert.equal(a.id, id);
@@ -39,52 +42,118 @@ test('ARCHETYPES exposes merc and razor with required metadata', () => {
   }
 });
 
-test('Merc perk is vault on key v; Razor perk is slide on key t', () => {
-  // These keys are already implemented in keymap.js — the registry just has
-  // to mirror them. If they ever drift, key-help renders nonsense.
-  assert.equal(ARCHETYPES.merc.perkKey, 'v');
+test('every archetype shares the unified `x` perk key (M1 design lock)', () => {
+  // The keymap collapses Vault / Slide / Deploy into a single SPECIAL_AIM
+  // mode keyed on `x`. The registry's perkKey must mirror that — drift here
+  // would make <key-help> teach a key the dispatcher no longer accepts.
+  for (const id of ARCHETYPE_IDS) {
+    assert.equal(ARCHETYPES[id].perkKey, 'x', `${id} perkKey expected to be 'x'`);
+  }
+});
+
+test('Merc perk is vault; Razor perk is slide; Tech perk is deploy', () => {
   assert.deepEqual(ARCHETYPES.merc.perks, ['vault']);
-  assert.equal(ARCHETYPES.razor.perkKey, 't');
   assert.deepEqual(ARCHETYPES.razor.perks, ['slide']);
+  assert.deepEqual(ARCHETYPES.tech.perks, ['deploy']);
 });
 
 test('ARCHETYPE_IDS lists every registered id, in display order', () => {
   // Display order matters for the character-select modal (default focus is
-  // the first entry on first load). Merc first, then Razor.
-  assert.deepEqual(ARCHETYPE_IDS, ['merc', 'razor']);
+  // the first entry on first load). Merc → Razor → Tech, simplest kit first.
+  assert.deepEqual(ARCHETYPE_IDS, ['merc', 'razor', 'tech']);
 });
 
-test('buildPlayer("merc", spawn) returns a Merc with the spawn coords', () => {
-  const p = buildPlayer('merc', { x: 3, y: 4 });
-  assert.ok(p instanceof Merc, 'expected a Merc instance');
-  assert.equal(p.x, 3);
-  assert.equal(p.y, 4);
-  assert.equal(p.faction, FACTION.PLAYER);
-  assert.equal(p.alive, true);
+test('each archetype exports a CALLSIGNS list of 10–15 unique entries', () => {
+  // M1 plan: 10–15 curated callsigns per archetype. Uniqueness inside a list
+  // matters because `pickCallsign` filters by exclusion — two identical
+  // entries would silently double the odds of either being picked.
+  for (const [id, list] of Object.entries(CALLSIGNS_BY_ARCHETYPE)) {
+    assert.ok(list.length >= 10 && list.length <= 15, `${id} CALLSIGNS size out of [10, 15]`);
+    assert.equal(new Set(list).size, list.length, `${id} CALLSIGNS contains duplicates`);
+    for (const name of list) {
+      assert.equal(typeof name, 'string');
+      assert.ok(name.length > 0);
+    }
+  }
 });
 
-test('buildPlayer("razor", spawn) returns a Razor with the spawn coords', () => {
-  const p = buildPlayer('razor', { x: 5, y: 6 });
-  assert.ok(p instanceof Razor, 'expected a Razor instance');
-  assert.equal(p.x, 5);
-  assert.equal(p.y, 6);
-  assert.equal(p.faction, FACTION.PLAYER);
+test('CALLSIGNS_BY_ARCHETYPE mirrors the per-archetype module exports', () => {
+  assert.deepEqual(CALLSIGNS_BY_ARCHETYPE.merc, MERC_CALLSIGNS);
+  assert.deepEqual(CALLSIGNS_BY_ARCHETYPE.razor, RAZOR_CALLSIGNS);
 });
 
-test('buildPlayer accepts a maxAp override (used by Run for the global 4-AP budget)', () => {
-  const p = buildPlayer('merc', { x: 0, y: 0, maxAp: 4 });
-  assert.equal(p.maxAp, 4);
+test('pickCallsign returns a name from the archetype pool', () => {
+  const rng = new Rng(1);
+  const name = pickCallsign('merc', rng);
+  assert.ok(MERC_CALLSIGNS.includes(name), `picked "${name}" not in Merc list`);
 });
 
-test('buildPlayer rejects an unknown archetype id (crash > silent fallback)', () => {
-  assert.throws(() => buildPlayer('hacker', { x: 0, y: 0 }), /unknown archetype/i);
+test('pickCallsign honours an excludeCallsigns Set', () => {
+  const rng = new Rng(7);
+  const exclude = new Set(MERC_CALLSIGNS.slice(0, MERC_CALLSIGNS.length - 1));
+  const name = pickCallsign('merc', rng, exclude);
+  assert.equal(name, MERC_CALLSIGNS[MERC_CALLSIGNS.length - 1]);
 });
 
-test('buildPlayer requires a finite (x, y) spawn', () => {
-  assert.throws(() => buildPlayer('merc'), /spawn/i);
-  assert.throws(() => buildPlayer('merc', {}), /spawn/i);
-  assert.throws(() => buildPlayer('merc', { x: 0 }), /spawn/i);
-  assert.throws(() => buildPlayer('merc', { x: 0, y: NaN }), /spawn/i);
+test('pickCallsign crashes when every name is excluded (no silent placeholder)', () => {
+  const rng = new Rng(1);
+  const exclude = new Set(RAZOR_CALLSIGNS);
+  assert.throws(() => pickCallsign('razor', rng, exclude), /no callsigns available/i);
+});
+
+test('pickCallsign rejects an unknown archetype', () => {
+  assert.throws(() => pickCallsign('wizard', new Rng(0)), /unknown archetype/i);
+});
+
+test('pickCallsign rejects a non-Set exclude argument', () => {
+  // Easy footgun: pass an Array instead of a Set. `.has` would be undefined
+  // and the filter would silently exclude nothing — exactly the silent-
+  // fallback shape we're avoiding.
+  assert.throws(() => pickCallsign('merc', new Rng(0), ['Tracer']), /must be a Set/i);
+});
+
+test('buildCrewMember returns the right archetype class with a populated callsign', () => {
+  const rng = new Rng(42);
+  const m = buildCrewMember('merc', { x: 3, y: 4 }, rng);
+  assert.ok(m instanceof Merc);
+  assert.equal(m.x, 3);
+  assert.equal(m.y, 4);
+  assert.equal(m.faction, FACTION.PLAYER);
+  assert.equal(typeof m.callsign, 'string');
+  assert.ok(MERC_CALLSIGNS.includes(m.callsign));
+  assert.equal(m.flatlined, false);
+});
+
+test('buildCrewMember is reproducible from the same Rng seed', () => {
+  // Reproducibility is the whole point of threading a seeded Rng through the
+  // campaign factory — same seed must yield the same callsign so save/restore
+  // never re-rolls names.
+  const a = buildCrewMember('razor', { x: 0, y: 0 }, new Rng(123));
+  const b = buildCrewMember('razor', { x: 0, y: 0 }, new Rng(123));
+  assert.equal(a.callsign, b.callsign);
+});
+
+test('buildCrewMember threads excludeCallsigns through pickCallsign', () => {
+  const exclude = new Set(MERC_CALLSIGNS.slice(0, MERC_CALLSIGNS.length - 1));
+  const m = buildCrewMember('merc', { x: 0, y: 0 }, new Rng(0), {
+    excludeCallsigns: exclude,
+  });
+  assert.equal(m.callsign, MERC_CALLSIGNS[MERC_CALLSIGNS.length - 1]);
+});
+
+test('buildCrewMember rejects an unknown archetype', () => {
+  assert.throws(() => buildCrewMember('wizard', { x: 0, y: 0 }, new Rng(0)), /unknown archetype/i);
+});
+
+test('buildCrewMember rejects a malformed spawn', () => {
+  assert.throws(() => buildCrewMember('merc', null, new Rng(0)), /spawn/i);
+  assert.throws(() => buildCrewMember('merc', { x: 0 }, new Rng(0)), /spawn/i);
+  assert.throws(() => buildCrewMember('merc', { x: NaN, y: 0 }, new Rng(0)), /spawn/i);
+});
+
+test('buildCrewMember rejects a missing or invalid rng', () => {
+  assert.throws(() => buildCrewMember('merc', { x: 0, y: 0 }), /Rng/i);
+  assert.throws(() => buildCrewMember('merc', { x: 0, y: 0 }, {}), /Rng/i);
 });
 
 test('isArchetypeId is a string-set membership check', () => {

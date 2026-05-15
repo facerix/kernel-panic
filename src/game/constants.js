@@ -19,6 +19,7 @@ export const TILE = Object.freeze({
   WALL: 1,
   COVER: 2,
   EXIT: 3,
+  SMOKE: 4,
 });
 
 export const FACTION = Object.freeze({
@@ -38,7 +39,20 @@ export const AP_COST = Object.freeze({
   // Archetype perks (proposed; tunable):
   VAULT: 3, // Merc — hop a cover tile while firing
   SLIDE: 2, // Razor — 2-tile reposition with stealth bonus
+  DEPLOY: 2, // Tech — place a turret on an adjacent tile
 });
+
+/**
+ * Tech turret parameters. The turret is a placed grid entity (peer of
+ * `Entity`, not an archetype) deployed by Tech at `AP_COST.DEPLOY`. Tunables:
+ *   - `TURRET_MAX_HP` — destruction takes the same shots as a drone (3).
+ *   - `TURRET_RANGE` — half the player's SIGHT_RANGE, so it cleans up adjacent
+ *     drones but doesn't dominate the engagement.
+ *   - `TURRET_DAMAGE` — flat 1; same per-hit damage as the player's gun.
+ */
+export const TURRET_MAX_HP = 3;
+export const TURRET_RANGE = 4;
+export const TURRET_DAMAGE = 1;
 
 /**
  * Default AP per turn for an entity. Not in the blueprint — picked so that a
@@ -72,6 +86,14 @@ export const RANGED_DAMAGE = 1;
 export const MELEE_DAMAGE = 2;
 
 /**
+ * Vault (Merc perk). Breach-and-clear slam: hop over cover, body-check a
+ * hostile on the landing tile for VAULT_DAMAGE, knock them back 1 tile in
+ * the vault direction. Repeatable (no one-shot gate). Damage matches melee
+ * — the positional cost of lining up a clear knockback lane is the gate.
+ */
+export const VAULT_DAMAGE = 2;
+
+/**
  * How far an entity can see/shoot, in tiles. Enforced as a Euclidean
  * (circular) distance — `dx² + dy² ≤ SIGHT_RANGE²` — so an open shot at
  * (8, 0) is in range but (8, 8) is not. Combat and Vision share the
@@ -89,6 +111,33 @@ export const SIGHT_RANGE = 8;
  * `lastKnownTarget`; same-faction noise is filtered at the listener so
  * drones don't investigate each other's footsteps.
  */
+/**
+ * Salvage parameters. Phase 2 salvage is generic units (no typed components).
+ * Drone corpses drop a random amount in [DROP_MIN, DROP_MAX]; improvised
+ * turrets cost IMPROVISED_TURRET_COST units from the crew member's inventory.
+ */
+export const SALVAGE_DROP_MIN = 1;
+export const SALVAGE_DROP_MAX = 3;
+export const SALVAGE_PER_IMPROVISED_TURRET = 2;
+
+/**
+ * Finn's shop — item tuning constants. Job-scoped consumables are lost on
+ * job end; campaign-scoped gear persists until campaign wipe; meta upgrades
+ * survive even a full campaign wipe.
+ */
+export const STIM_HEAL = 2;
+export const SMOKE_RADIUS = 2;
+export const SMOKE_DURATION_TURNS = 1;
+export const TARGETING_BONUS = 0.1;
+
+export const SHOP_COST = Object.freeze({
+  STIM: 2,
+  SMOKE_CHARGE: 3,
+  ARMOUR_PLATING: 6,
+  TARGETING_CHIP: 8,
+  EXPANDED_CATALOG: 15,
+});
+
 export const NOISE_RADIUS = Object.freeze({
   MOVE: 3,
   MELEE: 5,

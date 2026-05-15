@@ -37,6 +37,27 @@ test('World.entityAt finds an entity or returns null', () => {
   assert.equal(w.entityAt(0, 0), null);
 });
 
+test('World.entityAt ignores corpses; anyEntityAt still resolves them', () => {
+  const w = new World(new Grid(5, 5));
+  const corpse = new Entity({ id: 'd', x: 2, y: 2, faction: FACTION.CORP, glyph: 'd' });
+  w.addEntity(corpse);
+  corpse.alive = false;
+  assert.equal(w.entityAt(2, 2), null, 'movement / targeting queries stay corpse-blind');
+  assert.equal(w.anyEntityAt(2, 2), corpse, 'salvage / UI can still find the tile occupant');
+});
+
+test('World.lootableCorpseAt finds a corpse even when a live actor shares the tile', () => {
+  const w = new World(new Grid(5, 5));
+  const corpse = new Entity({ id: 'd', x: 2, y: 2, faction: FACTION.CORP, glyph: 'd' });
+  w.addEntity(corpse);
+  corpse.alive = false;
+  corpse.loot = { salvage: 2 };
+  const player = makePlayer(2, 2);
+  w.addEntity(player);
+  assert.equal(w.lootableCorpseAt(2, 2), corpse);
+  assert.equal(w.entityAt(2, 2), player);
+});
+
 test('World.canMoveEntity rejects step further than 1 tile (Chebyshev)', () => {
   const w = new World(new Grid(5, 5));
   const p = makePlayer(2, 2);

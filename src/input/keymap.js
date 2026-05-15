@@ -5,19 +5,40 @@
  * keystrokes via `src/input/touchpad.js`).
  *
  * The dispatcher is a small mode machine. IDLE is the default; pressing an
- * "aim" key (`v` for vault, `f` for fire in M4) enters an aiming mode where
- * the next directional press resolves into a targeted intent.
+ * "aim" key (`f` for fire, `m` for melee, `x` for the archetype-specific
+ * "special action") enters an aiming mode where the next directional press
+ * resolves into a targeted intent. Wait / pass turn is `.` in IDLE
+ * (`end-turn` intent). Interact (Curator, Terminal, …) is Space in IDLE;
+ * `i` is unbound (reserved for a future inventory milestone). `Q` emits
+ * `quit-campaign` in IDLE only — the shell confirms, deletes the save, and
+ * starts a new campaign (not routed through `applyIntent`).
+ *
+ * The archetype-specific perks — Merc's Vault, Razor's Slide, Tech's Deploy
+ * Turret — collapse into a single `special` intent here at the dispatcher
+ * layer (one key, one aim mode). `applyIntent.doSpecial` then routes the
+ * intent to the right verb based on the player class. Rationale: one mental
+ * model for the player ("press the perk key, pick a direction"), one set of
+ * touch-pad buttons, no key-bind collisions with WASD movement.
  *
  * Intents are plain serializable objects so they can be replayed for tests,
  * undo, or networked play later.
+ *
+ * Letter bindings are **case-sensitive**: only the lower-case keys shown in
+ * `DIRECTION_KEYS` and `dispatchIdle` are recognised. `KeyboardEvent.key` is
+ * passed through as-is so Shift/Caps Lock upper-case letters do not alias to
+ * gameplay verbs (touch-pad synthesis continues to use lower-case keys).
  */
 
 export const MODE = Object.freeze({
   IDLE: 'IDLE',
-  VAULT_AIM: 'VAULT_AIM',
   FIRE_AIM: 'FIRE_AIM',
   MELEE_AIM: 'MELEE_AIM',
-  SLIDE_AIM: 'SLIDE_AIM',
+  /**
+   * Unified archetype-perk aim mode. Replaces the M1 `VAULT_AIM` and
+   * `SLIDE_AIM` modes; the active player's class decides what `special`
+   * resolves to at intent-apply time.
+   */
+  SPECIAL_AIM: 'SPECIAL_AIM',
 });
 
 const DIRECTION_KEYS = {
@@ -36,7 +57,7 @@ const DIRECTION_KEYS = {
   d: [1, 0],
 };
 
-const directionFor = key => DIRECTION_KEYS[key] ?? DIRECTION_KEYS[key?.toLowerCase?.()] ?? null;
+const directionFor = key => DIRECTION_KEYS[key] ?? null;
 
 const noChange = mode => ({ intent: null, nextMode: mode });
 
@@ -46,48 +67,35 @@ function dispatchIdle(key) {
     return { intent: { type: 'move', dx: dir[0], dy: dir[1] }, nextMode: MODE.IDLE };
   }
   switch (key) {
-    case ' ':
-      return { intent: { type: 'end-turn' }, nextMode: MODE.IDLE };
+    case 'Q':
+      return { intent: { type: 'quit-campaign' }, nextMode: MODE.IDLE };
     case '.':
-      return { intent: { type: 'wait' }, nextMode: MODE.IDLE };
-    case 'Escape':
-      return { intent: { type: 'cancel' }, nextMode: MODE.IDLE };
-    case 'v':
-    case 'V':
-      return { intent: null, nextMode: MODE.VAULT_AIM };
-    case 'f':
-    case 'F':
-      return { intent: null, nextMode: MODE.FIRE_AIM };
-    case 'm':
-    case 'M':
-      return { intent: null, nextMode: MODE.MELEE_AIM };
-    case 't':
-    case 'T':
-      // Razor's Slide perk. `t` chosen because `s` is WASD-down and would
-      // collide with movement; `t` is unused and reads as "tactical slide".
-      return { intent: null, nextMode: MODE.SLIDE_AIM };
-    case 'i':
-    case 'I':
+      // Wait / pass turn — same intent as the touch-pad WAIT button (`.`).
+      return { intent: { type: 'end-turn' }, nextMode: MODE.IDLE };
+    case ' ':
       // Interact — context-sensitive verb resolved by the shell (Hub Curator
       // → briefing, future terminals/items in combat). Keymap stays dumb;
       // the shell decides what `interact` means in the current Run.state.
       return { intent: { type: 'interact' }, nextMode: MODE.IDLE };
+    case 'i':
+      // Inventory — opens the consumable inventory during combat. The shell
+      // presents `<item-inventory>` and handles `use-item` events. In the Hub
+      // this is a no-op (Finn's shop uses Space-interact).
+      return { intent: { type: 'inventory' }, nextMode: MODE.IDLE };
+    case 'Escape':
+      return { intent: { type: 'cancel' }, nextMode: MODE.IDLE };
+    case 'f':
+      return { intent: null, nextMode: MODE.FIRE_AIM };
+    case 'm':
+      return { intent: null, nextMode: MODE.MELEE_AIM };
+    case 'x':
+      // Unified archetype perk. The intent layer dispatches by class —
+      // Merc → vault, Razor → slide, Tech → deploy. `x` is unused elsewhere
+      // and avoids the WASD collision that would block `d` for deploy.
+      return { intent: null, nextMode: MODE.SPECIAL_AIM };
     default:
       return noChange(MODE.IDLE);
   }
-}
-
-function dispatchVaultAim(key) {
-  if (key === 'Escape') {
-    return { intent: { type: 'cancel' }, nextMode: MODE.IDLE };
-  }
-  const dir = directionFor(key);
-  if (dir) {
-    return { intent: { type: 'vault', dx: dir[0], dy: dir[1] }, nextMode: MODE.IDLE };
-  }
-  // Stay in aim mode on noise — user pressed something that wasn't a direction
-  // or escape. Better than silently dropping out of aim mode.
-  return noChange(MODE.VAULT_AIM);
 }
 
 function dispatchFireAim(key) {
@@ -112,29 +120,27 @@ function dispatchMeleeAim(key) {
   return noChange(MODE.MELEE_AIM);
 }
 
-function dispatchSlideAim(key) {
+function dispatchSpecialAim(key) {
   if (key === 'Escape') {
     return { intent: { type: 'cancel' }, nextMode: MODE.IDLE };
   }
   const dir = directionFor(key);
   if (dir) {
-    return { intent: { type: 'slide', dx: dir[0], dy: dir[1] }, nextMode: MODE.IDLE };
+    return { intent: { type: 'special', dx: dir[0], dy: dir[1] }, nextMode: MODE.IDLE };
   }
-  return noChange(MODE.SLIDE_AIM);
+  return noChange(MODE.SPECIAL_AIM);
 }
 
 export function dispatch(key, mode) {
   switch (mode) {
     case MODE.IDLE:
       return dispatchIdle(key);
-    case MODE.VAULT_AIM:
-      return dispatchVaultAim(key);
     case MODE.FIRE_AIM:
       return dispatchFireAim(key);
     case MODE.MELEE_AIM:
       return dispatchMeleeAim(key);
-    case MODE.SLIDE_AIM:
-      return dispatchSlideAim(key);
+    case MODE.SPECIAL_AIM:
+      return dispatchSpecialAim(key);
     default:
       throw new Error(`keymap: unknown mode "${mode}"`);
   }

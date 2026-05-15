@@ -3,6 +3,10 @@ import assert from 'node:assert/strict';
 
 import { dispatch, MODE } from '../../../src/input/keymap.js';
 
+function noIdleChange() {
+  return { intent: null, nextMode: MODE.IDLE };
+}
+
 test('IDLE + arrow keys produce move intents in the right direction', () => {
   const cases = [
     ['ArrowUp', 0, -1],
@@ -31,22 +35,25 @@ test('IDLE + diagonal keys (q/e/z/c) produce move intents', () => {
   }
 });
 
-test('IDLE + space emits end-turn', () => {
-  const r = dispatch(' ', MODE.IDLE);
+test('IDLE + . emits end-turn (wait / pass turn)', () => {
+  const r = dispatch('.', MODE.IDLE);
   assert.deepEqual(r.intent, { type: 'end-turn' });
   assert.equal(r.nextMode, MODE.IDLE);
 });
 
-test('IDLE + . emits wait', () => {
-  const r = dispatch('.', MODE.IDLE);
-  assert.deepEqual(r.intent, { type: 'wait' });
+test('IDLE + Space emits interact and stays IDLE', () => {
+  const r = dispatch(' ', MODE.IDLE);
+  assert.deepEqual(r.intent, { type: 'interact' });
   assert.equal(r.nextMode, MODE.IDLE);
 });
 
-test('IDLE + v enters VAULT_AIM with no intent yet', () => {
-  const r = dispatch('v', MODE.IDLE);
+test('IDLE + x enters SPECIAL_AIM with no intent yet', () => {
+  // The unified perk key. Replaces M1's per-archetype `v` (vault) and
+  // `t` (slide) bindings; the live archetype decides the resolved verb at
+  // intent-apply time in `applyIntent.doSpecial`.
+  const r = dispatch('x', MODE.IDLE);
   assert.equal(r.intent, null, 'aiming alone produces no intent');
-  assert.equal(r.nextMode, MODE.VAULT_AIM);
+  assert.equal(r.nextMode, MODE.SPECIAL_AIM);
 });
 
 test('IDLE + Escape emits cancel and stays IDLE', () => {
@@ -61,35 +68,62 @@ test('IDLE + unknown key produces no intent and no mode change', () => {
   assert.equal(r.nextMode, MODE.IDLE);
 });
 
-test('VAULT_AIM + arrow emits vault intent and returns to IDLE', () => {
-  const r = dispatch('ArrowRight', MODE.VAULT_AIM);
-  assert.deepEqual(r.intent, { type: 'vault', dx: 1, dy: 0 });
+// Once-removed `v` (Vault) and `t` (Slide) shortcuts no longer enter an
+// aim mode — they're plain noise inside IDLE now. `v` still has no other
+// meaning so a press is dropped; `t` is unassigned at IDLE too.
+test('IDLE + v is a no-op (collapsed into the unified `x` perk key)', () => {
+  const r = dispatch('v', MODE.IDLE);
+  assert.equal(r.intent, null);
   assert.equal(r.nextMode, MODE.IDLE);
 });
 
-test('VAULT_AIM + diagonal key emits a diagonal vault', () => {
-  const r = dispatch('q', MODE.VAULT_AIM);
-  assert.deepEqual(r.intent, { type: 'vault', dx: -1, dy: -1 });
+test('IDLE + t is a no-op (collapsed into the unified `x` perk key)', () => {
+  const r = dispatch('t', MODE.IDLE);
+  assert.equal(r.intent, null);
   assert.equal(r.nextMode, MODE.IDLE);
 });
 
-test('VAULT_AIM + Escape cancels back to IDLE', () => {
-  const r = dispatch('Escape', MODE.VAULT_AIM);
+test('SPECIAL_AIM + arrow emits a special intent and returns to IDLE', () => {
+  const r = dispatch('ArrowRight', MODE.SPECIAL_AIM);
+  assert.deepEqual(r.intent, { type: 'special', dx: 1, dy: 0 });
+  assert.equal(r.nextMode, MODE.IDLE);
+});
+
+test('SPECIAL_AIM + diagonal key emits a diagonal special', () => {
+  const r = dispatch('q', MODE.SPECIAL_AIM);
+  assert.deepEqual(r.intent, { type: 'special', dx: -1, dy: -1 });
+  assert.equal(r.nextMode, MODE.IDLE);
+});
+
+test('SPECIAL_AIM + Escape cancels back to IDLE', () => {
+  const r = dispatch('Escape', MODE.SPECIAL_AIM);
   assert.deepEqual(r.intent, { type: 'cancel' });
   assert.equal(r.nextMode, MODE.IDLE);
 });
 
-test('VAULT_AIM + non-directional key stays in VAULT_AIM with no intent', () => {
-  const r = dispatch(' ', MODE.VAULT_AIM);
+test('SPECIAL_AIM + non-directional key stays in SPECIAL_AIM with no intent', () => {
+  const r = dispatch(' ', MODE.SPECIAL_AIM);
   assert.equal(r.intent, null, 'space should not be confused for a direction');
-  assert.equal(r.nextMode, MODE.VAULT_AIM);
+  assert.equal(r.nextMode, MODE.SPECIAL_AIM);
 });
 
-test('dispatch is case-tolerant for letter keys (V, Q, etc.)', () => {
-  // Aim with V: same as v.
-  assert.equal(dispatch('V', MODE.IDLE).nextMode, MODE.VAULT_AIM);
-  // Diagonal with Q: same as q.
-  assert.deepEqual(dispatch('Q', MODE.IDLE).intent, { type: 'move', dx: -1, dy: -1 });
+test('dispatch is case-sensitive for letter keys (uppercase is ignored except Q)', () => {
+  assert.deepEqual(dispatch('X', MODE.IDLE), noIdleChange());
+  assert.deepEqual(dispatch('W', MODE.IDLE), noIdleChange());
+  assert.deepEqual(dispatch('F', MODE.IDLE), noIdleChange());
+  assert.deepEqual(dispatch('I', MODE.IDLE), noIdleChange());
+});
+
+test('IDLE + Q emits quit-campaign intent', () => {
+  const r = dispatch('Q', MODE.IDLE);
+  assert.deepEqual(r.intent, { type: 'quit-campaign' });
+  assert.equal(r.nextMode, MODE.IDLE);
+});
+
+test('FIRE_AIM + Q stays in FIRE_AIM (quit is IDLE-only)', () => {
+  const r = dispatch('Q', MODE.FIRE_AIM);
+  assert.equal(r.intent, null);
+  assert.equal(r.nextMode, MODE.FIRE_AIM);
 });
 
 test('dispatch rejects an unknown mode (crash over silent fallback)', () => {
@@ -126,7 +160,7 @@ test('FIRE_AIM + non-directional key stays in FIRE_AIM with no intent', () => {
   assert.equal(r.nextMode, MODE.FIRE_AIM);
 });
 
-// --- M6: melee + slide aim modes ---------------------------------------
+// --- M6: melee aim mode ------------------------------------------------
 
 test('IDLE + m enters MELEE_AIM with no intent yet', () => {
   const r = dispatch('m', MODE.IDLE);
@@ -158,40 +192,22 @@ test('MELEE_AIM + non-directional key stays in MELEE_AIM with no intent', () => 
   assert.equal(r.nextMode, MODE.MELEE_AIM);
 });
 
-test('IDLE + t enters SLIDE_AIM with no intent yet', () => {
-  const r = dispatch('t', MODE.IDLE);
-  assert.equal(r.intent, null);
-  assert.equal(r.nextMode, MODE.SLIDE_AIM);
-});
+// --- M8: context-sensitive interact verb (Space) ----------------------
 
-test('SLIDE_AIM + arrow emits a slide intent and returns to IDLE', () => {
-  const r = dispatch('ArrowDown', MODE.SLIDE_AIM);
-  assert.deepEqual(r.intent, { type: 'slide', dx: 0, dy: 1 });
-  assert.equal(r.nextMode, MODE.IDLE);
-});
-
-test('SLIDE_AIM + diagonal key emits a diagonal slide', () => {
-  const r = dispatch('e', MODE.SLIDE_AIM);
-  assert.deepEqual(r.intent, { type: 'slide', dx: 1, dy: -1 });
-  assert.equal(r.nextMode, MODE.IDLE);
-});
-
-test('SLIDE_AIM + Escape cancels back to IDLE', () => {
-  const r = dispatch('Escape', MODE.SLIDE_AIM);
-  assert.deepEqual(r.intent, { type: 'cancel' });
-  assert.equal(r.nextMode, MODE.IDLE);
-});
-
-// --- M8: context-sensitive interact verb ------------------------------
-
-test('IDLE + i emits interact intent and stays IDLE', () => {
+test('IDLE + i emits inventory intent (M4)', () => {
   const r = dispatch('i', MODE.IDLE);
-  assert.deepEqual(r.intent, { type: 'interact' });
+  assert.deepStrictEqual(r.intent, { type: 'inventory' });
   assert.equal(r.nextMode, MODE.IDLE);
 });
 
-test('IDLE + I (caps) emits interact intent (case-tolerant)', () => {
+test('IDLE + I (uppercase) is a no-op (case-sensitive)', () => {
   const r = dispatch('I', MODE.IDLE);
-  assert.deepEqual(r.intent, { type: 'interact' });
+  assert.equal(r.intent, null);
   assert.equal(r.nextMode, MODE.IDLE);
+});
+
+test('SPECIAL_AIM + Q (uppercase) does not resolve a direction', () => {
+  const r = dispatch('Q', MODE.SPECIAL_AIM);
+  assert.equal(r.intent, null);
+  assert.equal(r.nextMode, MODE.SPECIAL_AIM);
 });

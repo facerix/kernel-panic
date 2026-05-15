@@ -11,6 +11,7 @@ import {
   UNSEEN_GLYPH,
   CORPSE_GLYPH_CHAR,
   CORPSE_DIM,
+  MEMORY_DIM,
   dimColor,
 } from '../../../src/render/palette.js';
 import { VisionField } from '../../../src/game/Vision.js';
@@ -160,6 +161,45 @@ test('buildFrame with vision renders a corpse on a currently-visible tile', () =
   vision.recompute(g, player, 8);
   const frame = buildFrame(w, { x: 0, y: 0, width: 6, height: 4 }, { vision });
   assert.equal(cellAt(frame, drone.x, drone.y).char, CORPSE_GLYPH_CHAR);
+});
+
+// --- M3: memorised corpse rendering in fog of war -------------------------
+
+test('buildFrame renders memorised corpses at MEMORY_DIM when out of LOS', () => {
+  const g = new Grid(6, 4);
+  const w = new World(g);
+  const player = new Entity({ id: 'p', x: 1, y: 1, faction: FACTION.PLAYER, glyph: '@' });
+  // Dead drone is on the map but currently out of LOS.
+  const drone = new Entity({ id: 'd', x: 5, y: 3, faction: FACTION.CORP, glyph: 'd' });
+  w.addEntity(player);
+  w.addEntity(drone);
+  drone.alive = false;
+  const vision = new VisionField();
+  // The drone tile was previously seen...
+  vision.seen.add(`${drone.x},${drone.y}`);
+  // ...and we memorised the corpse when the kill happened in LOS.
+  vision.memoriseCorpse(drone);
+  // But current LOS doesn't reach there.
+  vision.recompute(g, player, 1);
+  const frame = buildFrame(w, { x: 0, y: 0, width: 6, height: 4 }, { vision });
+  const cell = cellAt(frame, drone.x, drone.y);
+  assert.equal(cell.char, CORPSE_GLYPH_CHAR, 'memorised corpse shows % glyph');
+  // Colour is faction-coloured, dimmed by MEMORY_DIM (not CORPSE_DIM).
+  assert.equal(cell.fg, dimColor('#ff4d6d', MEMORY_DIM));
+});
+
+test('buildFrame does NOT show memorised corpse on a never-seen tile', () => {
+  const g = new Grid(6, 4);
+  const w = new World(g);
+  const player = new Entity({ id: 'p', x: 1, y: 1, faction: FACTION.PLAYER, glyph: '@' });
+  w.addEntity(player);
+  const vision = new VisionField();
+  // Memorise a corpse on a tile we've never seen — should NOT render.
+  vision.memoriseCorpse({ x: 5, y: 3, faction: FACTION.CORP, glyph: '%' });
+  vision.recompute(g, player, 1);
+  const frame = buildFrame(w, { x: 0, y: 0, width: 6, height: 4 }, { vision });
+  const cell = cellAt(frame, 5, 3);
+  assert.equal(cell.char, UNSEEN_GLYPH.char, 'unseen tile with memorised corpse stays unseen');
 });
 
 test('buildFrame with vision renders entities only where currently visible', () => {

@@ -46,7 +46,7 @@ export class Grid {
   isPassable(x, y) {
     if (!this.inBounds(x, y)) return false;
     const t = this.tiles[y * this.width + x];
-    return t === TILE.FLOOR || t === TILE.EXIT;
+    return t === TILE.FLOOR || t === TILE.EXIT || t === TILE.SMOKE;
   }
 
   /**
@@ -55,6 +55,7 @@ export class Grid {
    */
   blocksLineOfSight(x, y) {
     if (!this.inBounds(x, y)) return true;
-    return this.tiles[y * this.width + x] === TILE.WALL;
+    const t = this.tiles[y * this.width + x];
+    return t === TILE.WALL || t === TILE.SMOKE;
   }
 }

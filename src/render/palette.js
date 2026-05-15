@@ -15,6 +15,7 @@ const TILE_GLYPH = {
   [TILE.WALL]: { char: '#', fg: '#5fbcd4' },
   [TILE.COVER]: { char: '=', fg: '#d49a3a' },
   [TILE.EXIT]: { char: '¤', fg: '#eed5fa' },
+  [TILE.SMOKE]: { char: '░', fg: '#8b9da8' },
 };
 
 const FACTION_FG = {

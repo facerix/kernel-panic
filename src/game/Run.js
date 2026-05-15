@@ -1,16 +1,14 @@
 /**
- * `Run` — the game-lifecycle state machine.
+ * `Run` — one job episode inside a Campaign.
  *
- * Owns the active `Rng`, `World`, `TurnQueue`, player entity, and current
- * contract. Drives the four-state cycle:
+ * Owns the active `Rng`, `World`, `TurnQueue`, deployed crew entity, and
+ * current contract. Drives the three-state job cycle:
  *
- *   null/RESULT → enterHub → HUB
- *                              ↓ enterBriefing(contract)
- *                          BRIEFING
- *                              ↓ enterCombat()
- *                           COMBAT
- *                              ↓ enterResult({outcome})  (DEATH | EXIT)
- *                           RESULT → enterHub …
+ *   null → enterBriefing(contract) → BRIEFING
+ *                                ↓ enterCombat()
+ *                              COMBAT
+ *                                ↓ enterResult({outcome})  (DEATH | EXIT)
+ *                              RESULT
  *
  * Every transition is an explicit method that throws when called from an
  * illegal source state. No auto-coercion, no silent fallback — illegal
@@ -19,8 +17,10 @@
  *
  * Side effects are surfaced through callbacks so the shell decides how to
  * persist or display them:
- *   - `onPersist(record)` fires on every `turn:ended` while in COMBAT. The
- *     shell wires this to DataStore.
+ *   - `onPersist(record)` fires on every `turn:ended` while in COMBAT, and
+ *     once when entering `RESULT` (death or exit) after the state flip, so
+ *     storage never lags a terminal mission behind the last COMBAT autosave.
+ *     Campaign/shell wires this to DataStore.
  *   - `onResult({outcome, telemetry})` fires when entering RESULT. The shell
  *     wires this to <crash-dump>.
  *
@@ -36,19 +36,18 @@ import { Rng } from '../rng.js';
 import { World } from './World.js';
 import { TurnQueue } from './TurnQueue.js';
 import { EventBus, EVENT } from './events.js';
-import { FACTION } from './constants.js';
+import { FACTION, SALVAGE_DROP_MIN, SALVAGE_DROP_MAX } from './constants.js';
 import { Entity } from './Entity.js';
+import { Crew } from './Crew.js';
 import { Merc } from './archetypes/Merc.js';
 import { Razor } from './archetypes/Razor.js';
-import { buildPlayer, isArchetypeId } from './archetypes/index.js';
+import { Tech } from './archetypes/Tech.js';
+import { Turret } from './Turret.js';
 import { CorpDrone } from './ai/CorpDrone.js';
-import { Curator, isObjective } from './hub/Curator.js';
-import { Terminal } from './hub/Terminal.js';
-import { buildHub } from './hub/SafeSpace.js';
+import { isObjective } from './hub/Curator.js';
 import { buildMap } from './procgen/mapBuild.js';
 
 export const RUN_STATE = Object.freeze({
-  HUB: 'HUB',
   BRIEFING: 'BRIEFING',
   COMBAT: 'COMBAT',
   RESULT: 'RESULT',
@@ -65,12 +64,15 @@ const COMBAT_MAP_WIDTH = 24;
 const COMBAT_MAP_HEIGHT = 16;
 
 export class Run {
-  constructor({ id, archetype = 'razor', seed, onPersist, onResult, onPrefsChange } = {}) {
+  constructor({ id, crewMember, seed, onPersist, onResult } = {}) {
     if (!Number.isFinite(seed)) {
       throw new TypeError(`Run requires a finite numeric seed, got ${seed}`);
     }
-    if (!isArchetypeId(archetype)) {
-      throw new Error(`Run: unknown archetype "${archetype}"`);
+    if (!(crewMember instanceof Crew)) {
+      throw new TypeError('Run requires a deployed Crew member');
+    }
+    if (crewMember.flatlined) {
+      throw new Error(`Run: cannot deploy flatlined crew member "${crewMember.id}"`);
     }
     if (onPersist !== undefined && typeof onPersist !== 'function') {
       throw new TypeError('Run: onPersist must be a function');
@@ -78,12 +80,10 @@ export class Run {
     if (onResult !== undefined && typeof onResult !== 'function') {
       throw new TypeError('Run: onResult must be a function');
     }
-    if (onPrefsChange !== undefined && typeof onPrefsChange !== 'function') {
-      throw new TypeError('Run: onPrefsChange must be a function');
-    }
 
     this.id = id ?? makeRunId(seed);
-    this.archetype = archetype;
+    this.crewMember = crewMember;
+    this.archetype = archetypeOfCrew(crewMember);
     this.seed = seed >>> 0;
     this.rng = new Rng(this.seed);
     this.state = null;
@@ -91,84 +91,19 @@ export class Run {
     this.queue = null;
     this.bus = null;
     this.player = null;
-    this.curator = null;
-    this.terminal = null;
     this.contract = null;
     this.exitTile = null;
-    this.telemetry = freshTelemetry(archetype, this.seed);
+    this.telemetry = freshTelemetry(this.archetype, this.seed);
     this.onPersist = onPersist ?? null;
     this.onResult = onResult ?? null;
-    this.onPrefsChange = onPrefsChange ?? null;
 
     /** @type {Array<() => void>} active bus subscriptions */
     this._busUnsubs = [];
   }
 
-  /**
-   * Set the active archetype. Legal from `null` (pre-Hub) and `HUB`. During
-   * BRIEFING / COMBAT / RESULT the player entity is mid-flight and swapping
-   * its class would corrupt the in-flight contract or world — those throw.
-   *
-   * Fires `onPrefsChange(id)` so the shell can persist the last pick
-   * (DataStore preferences record, separate from the run snapshot).
-   */
-  setArchetype(id) {
-    if (!isArchetypeId(id)) {
-      throw new Error(`Run.setArchetype: unknown archetype "${id}"`);
-    }
-    if (this.state !== null && this.state !== RUN_STATE.HUB) {
-      throw new Error(`Run.setArchetype: illegal from ${this.state}`);
-    }
-    if (this.state === RUN_STATE.HUB && this.world && this.player) {
-      // Rebuild the player in place — keep the spawn tile, swap the class.
-      // World.removeEntity takes an id; capture the OLD id before updating
-      // this.archetype (player ids are keyed off archetype).
-      const spawn = { x: this.player.x, y: this.player.y };
-      this.world.removeEntity(this.player.id);
-      this.archetype = id;
-      this.player = this.#makePlayer(spawn);
-      this.world.addEntity(this.player);
-    } else {
-      this.archetype = id;
-    }
-    this.telemetry.archetype = id;
-    this.onPrefsChange?.(id);
-  }
-
-  /** Permitted from `null` (fresh) or RESULT (post-debrief). */
-  enterHub() {
-    if (this.state !== null && this.state !== RUN_STATE.RESULT) {
-      throw new Error(`Run.enterHub: illegal transition from ${this.state}`);
-    }
-    this.#tearDownWorld();
-    this.contract = null;
-    this.telemetry = freshTelemetry(this.archetype, this.seed);
-
-    const hub = buildHub();
-    this.bus = new EventBus();
-    this.world = new World(hub.grid, { events: this.bus });
-    this.player = this.#makePlayer(hub.playerSpawn);
-    this.curator = new Curator({
-      id: 'curator',
-      x: hub.curatorSpawn.x,
-      y: hub.curatorSpawn.y,
-    });
-    this.terminal = new Terminal({
-      id: 'terminal',
-      x: hub.terminalSpawn.x,
-      y: hub.terminalSpawn.y,
-    });
-    this.world.addEntity(this.player);
-    this.world.addEntity(this.curator);
-    this.world.addEntity(this.terminal);
-    this.queue = new TurnQueue([FACTION.PLAYER, FACTION.CORP]);
-    this.exitTile = { ...hub.exitTile };
-    this.state = RUN_STATE.HUB;
-  }
-
-  /** Permitted from HUB only. Caches the contract for `enterCombat`. */
+  /** Permitted from a fresh Run only. Caches the contract for `enterCombat`. */
   enterBriefing(contract) {
-    if (this.state !== RUN_STATE.HUB) {
+    if (this.state !== null) {
       throw new Error(`Run.enterBriefing: illegal transition from ${this.state}`);
     }
     validateContract(contract);
@@ -236,6 +171,9 @@ export class Run {
     this.telemetry.turn = this.queue?.turnNumber ?? this.telemetry.turn;
     this.#unwireCombatListeners();
     this.state = RUN_STATE.RESULT;
+    if (this.onPersist) {
+      this.onPersist(this.snapshot());
+    }
     this.onResult?.({ outcome, telemetry: { ...this.telemetry } });
   }
 
@@ -284,14 +222,19 @@ export class Run {
   // ------------------------------------------------------------------
 
   #makePlayer(spawn) {
-    // Delegate to the archetypes registry so the class/glyph/perk binding
-    // lives in one place (Run, <character-select>, <key-help> all go through
-    // the same factory).
-    return buildPlayer(this.archetype, {
-      x: spawn.x,
-      y: spawn.y,
-      maxAp: 4,
-    });
+    this.crewMember.x = spawn.x;
+    this.crewMember.y = spawn.y;
+    this.crewMember.maxAp = 4;
+    this.crewMember.ap = this.crewMember.maxAp;
+    // HP persists across jobs — no reset. Armour Plating (via Finn) is
+    // the only Hub-side HP recovery. Stims are combat-only.
+    this.crewMember.alive = true;
+    this.crewMember.stealthed = false;
+    this.crewMember.initInventory();
+    if (this.crewMember instanceof Tech) {
+      this.crewMember.turretReady = true;
+    }
+    return this.crewMember;
   }
 
   #unwireCombatListeners() {
@@ -321,6 +264,15 @@ export class Run {
     }
     if (attacker === this.player && killed) {
       this.telemetry.kills = (this.telemetry.kills ?? 0) + 1;
+    } else if (killed && attacker instanceof Turret && attacker.ownerId === this.player.id) {
+      this.telemetry.kills = (this.telemetry.kills ?? 0) + 1;
+    }
+    // M3: assign loot to killed corp entities. The loot roll uses the Run's
+    // own Rng so it's deterministic on the contract seed.
+    if (killed && target.faction === FACTION.CORP && !target.loot) {
+      target.loot = {
+        salvage: this.rng.intRange(SALVAGE_DROP_MIN, SALVAGE_DROP_MAX + 1),
+      };
     }
   }
 
@@ -343,8 +295,6 @@ export class Run {
     this.world = null;
     this.queue = null;
     this.player = null;
-    this.curator = null;
-    this.terminal = null;
     this.exitTile = null;
     this.bus = null;
   }
@@ -379,17 +329,44 @@ function snapshotEntity(entity) {
       patrolIndex: entity.patrolIndex,
     };
   }
+  if (entity instanceof Tech) {
+    // M1 design lock: the Tech's pre-built turret is a flag, not a count. M3
+    // will rework this into an inventory-based item once the salvage loop
+    // lands; for now snapshotting the bool is enough to round-trip a run
+    // where the player did or did not deploy mid-job.
+    base.tech = { turretReady: !!entity.turretReady };
+  }
+  if (entity instanceof Merc || entity instanceof Razor || entity instanceof Tech) {
+    base.callsign = entity.callsign;
+    base.flatlined = !!entity.flatlined;
+    base.inventory = entity.inventory;
+    base.gear = entity.gear;
+  }
+  if (entity instanceof Turret) {
+    base.turret = {
+      range: entity.range,
+      attackDamage: entity.attackDamage,
+      ownerId: entity.ownerId,
+    };
+  }
   return base;
 }
 
 function archetypeOf(entity) {
   if (entity instanceof Merc) return 'merc';
   if (entity instanceof Razor) return 'razor';
+  if (entity instanceof Tech) return 'tech';
+  if (entity instanceof Turret) return 'turret';
   if (entity instanceof CorpDrone) return 'drone';
-  if (entity instanceof Curator) return 'curator';
-  if (entity instanceof Terminal) return 'terminal';
   if (entity instanceof Entity) return 'entity';
   throw new Error(`archetypeOf: cannot classify entity ${entity?.id}`);
+}
+
+function archetypeOfCrew(entity) {
+  if (entity instanceof Merc) return 'merc';
+  if (entity instanceof Razor) return 'razor';
+  if (entity instanceof Tech) return 'tech';
+  throw new Error(`archetypeOfCrew: cannot classify crew member ${entity?.id}`);
 }
 
 function freshTelemetry(archetype, seed) {
@@ -428,8 +405,6 @@ function validateContract(contract) {
 
 function makeRunId(seed) {
   // Browser-friendly id without crypto: seed + millisecond. Persistence
-  // stores it verbatim; if the shell wires this through DataStore.addRun,
-  // DataStore will assign its own UUID — the shell is responsible for
-  // mirroring that back into Run.id.
+  // stores it verbatim inside the surrounding campaign snapshot.
   return `run-${(seed >>> 0).toString(16)}-${Date.now().toString(36)}`;
 }

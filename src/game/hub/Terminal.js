@@ -4,7 +4,7 @@
  * Fictionally, the terminal is where the operator picks which body they're
  * jacking into for the next contract. Mechanically, it's a Curator-shaped
  * sibling: NEUTRAL faction, immobile, no AI hooks. The shell wires `interact`
- * adjacent to a Terminal → re-open the <character-select> modal.
+ * adjacent to a Terminal → open the <crew-roster> modal.
  *
  * Glyph `'‡'` (double dagger) — distinct from any letter the renderer uses
  * for actors, prints in the neutral palette next to the Curator's `'C'`.

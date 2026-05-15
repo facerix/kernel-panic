@@ -76,6 +76,43 @@ test('VisionField rejects a negative range', () => {
   assert.throws(() => v.recompute(g, { x: 2, y: 2 }, -1), RangeError);
 });
 
+// --- M3: corpse memorisation -----------------------------------------------
+
+test('VisionField.memoriseCorpse stores a glyph record at the corpse key', () => {
+  const v = new VisionField();
+  const corpse = { x: 4, y: 3, faction: FACTION.CORP, glyph: '%' };
+  v.memoriseCorpse(corpse);
+  assert.ok(v.memorisedCorpses.has('4,3'), 'corpse key should be memorised');
+  const rec = v.memorisedCorpses.get('4,3');
+  assert.equal(rec.x, 4);
+  assert.equal(rec.y, 3);
+  assert.equal(rec.faction, FACTION.CORP);
+});
+
+test('VisionField.clearCorpseMemory wipes all memorised corpses', () => {
+  const v = new VisionField();
+  v.memoriseCorpse({ x: 1, y: 1, faction: FACTION.CORP, glyph: '%' });
+  v.memoriseCorpse({ x: 2, y: 3, faction: FACTION.CORP, glyph: '%' });
+  assert.equal(v.memorisedCorpses.size, 2);
+  v.clearCorpseMemory();
+  assert.equal(v.memorisedCorpses.size, 0);
+});
+
+test('VisionField.resetFogState clears visible, seen, and memorised corpses', () => {
+  const g = new Grid(8, 8);
+  const viewer = new Entity({ id: 'p', x: 2, y: 2, faction: FACTION.PLAYER, glyph: '@' });
+  const v = new VisionField();
+  v.recompute(g, viewer, 4);
+  v.memoriseCorpse({ x: 5, y: 5, faction: FACTION.CORP, glyph: '%' });
+  assert.ok(v.visible.size > 0);
+  assert.ok(v.seen.size > 0);
+  assert.equal(v.memorisedCorpses.size, 1);
+  v.resetFogState();
+  assert.equal(v.visible.size, 0);
+  assert.equal(v.seen.size, 0);
+  assert.equal(v.memorisedCorpses.size, 0);
+});
+
 test('VisionField does not see past an entity blocker on the line', () => {
   // M4 review fix: a body on the line breaks the sightline, just like a wall.
   const g = new Grid(10, 10);

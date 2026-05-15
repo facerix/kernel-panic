@@ -24,6 +24,26 @@ export class AsciiRenderer {
     // Soft glow for that CRT-phosphor look — matches the colour of each glyph.
     this.glow = options.glow ?? 6;
 
+    /**
+     * Captured camera from the most recent `draw()` so M0's muzzle-flash
+     * overlay (`flashCell`) can translate world coords back into screen
+     * pixels without re-doing `cameraFor`. Cleared until the first draw.
+     */
+    this.lastCamera = null;
+
+    /**
+     * Active muzzle-flash overlays. Each draw() paints non-expired entries
+     * on top of the regular frame so the flash *survives* the next redraw
+     * (the shell calls `paint()` right after the bus event that registers
+     * the flash — without this, the redraw would wipe an immediate paint
+     * before the browser ever flushes the canvas to screen).
+     */
+    this.activeFlashes = [];
+
+    /** Time source — injectable so unit tests can pin a deterministic clock. */
+    this.now =
+      options.now ?? (() => (typeof performance !== 'undefined' ? performance.now() : Date.now()));
+
     this.#syncViewport();
   }
 
@@ -46,6 +66,74 @@ export class AsciiRenderer {
     const camera = cameraOverride ?? cameraFor(followTarget, this.viewport);
     const frame = buildFrame(world, camera, frameOpts);
     this.#drawFrame(frame);
+    this.lastCamera = camera;
+    this.#paintActiveFlashes();
+  }
+
+  /**
+   * Register a single-cell flash overlay — the M0 muzzle-flash effect.
+   * The next `draw()` paints it on top of the regular frame; the flash
+   * is dropped automatically once `expiresAt` passes (the shell schedules
+   * a `paint()` at expiry via `animations.runMuzzleFlash`).
+   *
+   * Painting at draw-time (rather than immediately) is critical: the shell
+   * calls `paint()` right after applyIntent returns, in the same synchronous
+   * tick as this registration. An "overpaint now" approach would be wiped
+   * by that next draw before the browser ever flushed the canvas to screen.
+   *
+   * Returns `true` so callers can keep the `flashCell()` → `runMuzzleFlash`
+   * contract uniform; throws on malformed coords (no silent fallback).
+   */
+  flashCell(worldX, worldY, options = {}) {
+    if (!Number.isInteger(worldX) || !Number.isInteger(worldY)) {
+      throw new TypeError(`flashCell: world coords must be integers, got (${worldX}, ${worldY})`);
+    }
+    const { duration = 80, char = '*', color = '#ffff66', fontScale = 1.6 } = options;
+    if (!Number.isFinite(duration) || duration < 0) {
+      throw new RangeError(`flashCell: duration must be non-negative, got ${duration}`);
+    }
+    this.activeFlashes.push({
+      worldX,
+      worldY,
+      expiresAt: this.now() + duration,
+      char,
+      color,
+      fontScale,
+    });
+    return true;
+  }
+
+  /**
+   * Paint every non-expired flash entry on top of the freshly-drawn frame.
+   * Expired entries are filtered out in the same pass so the list stays
+   * O(active flashes) — never more than a handful in practice.
+   */
+  #paintActiveFlashes() {
+    if (!this.activeFlashes.length) return;
+    const tNow = this.now();
+    this.activeFlashes = this.activeFlashes.filter(f => f.expiresAt > tNow);
+    if (!this.activeFlashes.length || !this.lastCamera) return;
+
+    const { x: cx, y: cy, width, height } = this.lastCamera;
+    const { ctx, cellSize, fontSize, fontFamily, glow } = this;
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (const flash of this.activeFlashes) {
+      const dx = flash.worldX - cx;
+      const dy = flash.worldY - cy;
+      if (dx < 0 || dy < 0 || dx >= width || dy >= height) continue;
+      const px = dx * cellSize + cellSize / 2;
+      const py = dy * cellSize + cellSize / 2;
+      // Larger glyph + heavier glow than a normal cell so the flash reads
+      // as an explosive burst even when the shooter's own @ sits underneath.
+      ctx.font = `${Math.round(fontSize * flash.fontScale)}px ${fontFamily}`;
+      ctx.shadowBlur = glow * 3;
+      ctx.shadowColor = flash.color;
+      ctx.fillStyle = flash.color;
+      ctx.fillText(flash.char, px, py);
+    }
+    ctx.restore();
   }
 
   #drawFrame(frame) {

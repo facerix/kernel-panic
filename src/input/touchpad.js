@@ -7,7 +7,12 @@
  *
  * Button identifiers:
  *   - Directions (8): N, NE, E, SE, S, SW, W, NW
- *   - Actions: fire, melee, vault, slide, interact, wait, end-turn, cancel
+ *   - Actions: fire, melee, special, interact, end-turn, cancel
+ *   - Shell (not `applyIntent`): quit-campaign → synthetic `Q`
+ *
+ * The `special` action covers each archetype's perk verb (Merc Vault, Razor
+ * Slide, Tech Deploy) — same unified-perk-key design as the keyboard layer.
+ * `interact` synthesizes a Space keystroke (keyboard parity with the keymap).
  *
  * Unknown buttons throw — silently dropping a button press would mask UI
  * wiring bugs.
@@ -29,16 +34,20 @@ const DIRECTION_KEYS = Object.freeze({
 const ACTION_KEYS = Object.freeze({
   fire: 'f',
   melee: 'm',
-  vault: 'v',
-  slide: 't',
-  interact: 'i',
-  wait: '.',
-  'end-turn': ' ',
+  special: 'x',
+  interact: ' ',
+  inventory: 'i',
+  'end-turn': '.',
   cancel: 'Escape',
+});
+
+const SHELL_KEYS = Object.freeze({
+  'quit-campaign': 'Q',
 });
 
 export const TOUCHPAD_DIRECTIONS = Object.freeze(Object.keys(DIRECTION_KEYS));
 export const TOUCHPAD_ACTIONS = Object.freeze(Object.keys(ACTION_KEYS));
+export const TOUCHPAD_SHELL_ACTIONS = Object.freeze(Object.keys(SHELL_KEYS));
 
 /**
  * Resolve a touch-pad button id to the synthetic key the keymap expects.
@@ -48,6 +57,7 @@ export const TOUCHPAD_ACTIONS = Object.freeze(Object.keys(ACTION_KEYS));
 export function syntheticKeyFor(buttonId) {
   if (Object.hasOwn(DIRECTION_KEYS, buttonId)) return DIRECTION_KEYS[buttonId];
   if (Object.hasOwn(ACTION_KEYS, buttonId)) return ACTION_KEYS[buttonId];
+  if (Object.hasOwn(SHELL_KEYS, buttonId)) return SHELL_KEYS[buttonId];
   throw new Error(`touchpad: unknown button "${buttonId}"`);
 }
 

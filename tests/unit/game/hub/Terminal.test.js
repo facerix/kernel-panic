@@ -1,6 +1,6 @@
 /**
  * Terminal — the Hub's "loadout kiosk" entity. Glyph 'T', NEUTRAL faction,
- * immobile. Players `interact` adjacent to it to re-open <character-select>.
+ * immobile. Players `interact` adjacent to it to open <crew-roster>.
  *
  * The interact wiring lives in the shell (not on this class), so these tests
  * only cover the entity contract: a stationary Curator-shaped sibling that

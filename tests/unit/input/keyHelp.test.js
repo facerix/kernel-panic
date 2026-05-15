@@ -93,13 +93,13 @@ test('drift guard: every key handled by keymap.js dispatch appears in HELP_ROWS'
     // action / aim
     'f',
     'm',
-    'v',
-    't',
+    'x',
+    ' ',
     'i',
     // system
-    ' ',
     '.',
     'Escape',
+    'Q',
   ];
   const helpKeys = new Set(HELP_ROWS.flatMap(r => r.keys));
   for (const k of sentinel) {
@@ -115,9 +115,15 @@ test("'?' is in HELP_ROWS as a system-scope row", () => {
   assert.equal(help.scope, 'both');
 });
 
-test('perk keys v and t are present and labelled', () => {
-  const v = HELP_ROWS.find(r => r.keys.includes('v'));
-  const tRow = HELP_ROWS.find(r => r.keys.includes('t'));
-  assert.ok(v && /vault/i.test(v.label), 'expected a row labelled with vault for key v');
-  assert.ok(tRow && /slide/i.test(tRow.label), 'expected a row labelled with slide for key t');
+test('unified `x` perk key has a help row labelled as the archetype perk', () => {
+  // Phase-2 M1 collapsed Vault and Slide into a single SPECIAL aim mode that
+  // dispatches by archetype at intent-apply time. The help row must surface
+  // that to the player — generic "Special action" copy is fine; the live
+  // verb (Vault / Slide / Deploy) shows up in the on-screen log.
+  const row = HELP_ROWS.find(r => r.keys.includes('x'));
+  assert.ok(row, "HELP_ROWS must include a row for the 'x' perk key");
+  assert.ok(
+    /special/i.test(row.label),
+    `expected 'x' row to mention "special", got "${row.label}"`
+  );
 });

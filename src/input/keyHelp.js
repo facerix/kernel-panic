@@ -6,7 +6,8 @@
  * (`tests/unit/input/keyHelp.test.js`) verifies every advertised key is
  * actually handled by `dispatch(key, MODE.IDLE)` and that a sentinel of known
  * keymap keys is present here. When a future milestone adds a binding to
- * `keymap.js`, the sentinel test fails until this list catches up.
+ * `keymap.js`, the sentinel test fails until this list catches up. Letter
+ * keys in the keymap are lower-case only (case-sensitive dispatch).
  *
  * Scope semantics:
  *   - `'hub'`     — visible in the Hub only (no combat verbs)
@@ -51,34 +52,37 @@ export const HELP_ROWS = Object.freeze([
     group: 'action',
   },
   {
-    keys: Object.freeze(['v']),
-    label: 'Vault (Merc) — hop cover & fire',
+    // Unified archetype perk: Merc → Vault, Razor → Slide, Tech → Deploy.
+    // Single key, single touch button, single help row — the live verb is
+    // determined by the player's class at intent-apply time.
+    keys: Object.freeze(['x']),
+    label: 'Special action (archetype perk)',
     scope: 'combat',
     group: 'action',
   },
   {
-    keys: Object.freeze(['t']),
-    label: 'Slide (Razor) — silent dash',
-    scope: 'combat',
+    keys: Object.freeze([' ']),
+    label: 'Interact (Finn, Curator, Salvage, …)',
+    scope: 'both',
     group: 'action',
   },
   {
     keys: Object.freeze(['i']),
-    label: 'Interact (Curator, Terminal, …)',
-    scope: 'both',
+    label: 'Inventory (use consumables)',
+    scope: 'combat',
     group: 'action',
   },
   // --- system -----------------------------------------------------------
   {
-    keys: Object.freeze([' ']),
-    label: 'End turn (space)',
+    keys: Object.freeze(['.']),
+    label: 'Wait (pass turn)',
     scope: 'combat',
     group: 'system',
   },
   {
-    keys: Object.freeze(['.']),
-    label: 'Wait',
-    scope: 'combat',
+    keys: Object.freeze(['Q']),
+    label: 'Quit campaign (delete save, confirm)',
+    scope: 'both',
     group: 'system',
   },
   {

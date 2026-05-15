@@ -1,20 +1,30 @@
 /**
  * M7 debug harness. Both KeyboardController and the on-screen <touch-pad>
  * emit the same intent shape; the game loop applies them through one path.
- * Player can be a Merc (vault) or a Razor (slide + stealth) — toggle with
- * `1` (Merc) or `2` (Razor) on reset, or via `?archetype=razor` in the URL.
- * Razor is the default since M6.
+ * Player can be a Merc (vault), a Razor (slide + stealth), or a Tech
+ * (deploy turret) — toggle with `1` / `2` / `3` on reset, or via
+ * `?archetype=tech` in the URL. Razor is the default since M6.
  *
  * New in M7: <touch-pad> overlay. Auto-shown on coarse pointers; force on
  * desktop with `?touch=force`. Touch and keyboard each own their own aim
  * mode (per-input). On reset, both are reset to IDLE so a stale half-press
  * can't carry into a new scenario.
+ *
+ * New in M1 (Phase 2): Tech archetype + auto-firing turrets. At end of every
+ * player turn, before the corp turn begins, `runPlayerAftermath` in
+ * `combatTurnPipeline.js` runs the player aftermath (turret autofire today;
+ * allied NPCs / hazards later). The harness logs each line to the feed.
  */
 import { Grid } from '/src/game/Grid.js';
 import { World } from '/src/game/World.js';
 import { TurnQueue } from '/src/game/TurnQueue.js';
 import { Merc } from '/src/game/archetypes/Merc.js';
 import { Razor } from '/src/game/archetypes/Razor.js';
+import { Tech } from '/src/game/archetypes/Tech.js';
+import {
+  advanceFromPlayerTurn,
+  formatPlayerAftermathStepLogLines,
+} from '/src/game/combatTurnPipeline.js';
 import { CorpDrone } from '/src/game/ai/CorpDrone.js';
 import { EventBus, EVENT } from '/src/game/events.js';
 import { TILE, FACTION } from '/src/game/constants.js';
@@ -44,7 +54,9 @@ let archetype = (() => {
   // URL override at first load. Reset keys toggle this in `bindUI`.
   const params = new URLSearchParams(globalThis.location?.search || '');
   const a = params.get('archetype');
-  return a === 'merc' ? 'merc' : 'razor';
+  if (a === 'merc') return 'merc';
+  if (a === 'tech') return 'tech';
+  return 'razor';
 })();
 const logLines = [];
 
@@ -77,7 +89,9 @@ function buildScenario() {
   player =
     archetype === 'razor'
       ? new Razor({ id: 'razor', x: 3, y: 3, maxAp: 4 })
-      : new Merc({ id: 'merc', x: 3, y: 3, maxAp: 4 });
+      : archetype === 'tech'
+        ? new Tech({ id: 'tech', x: 3, y: 3, maxAp: 4 })
+        : new Merc({ id: 'merc', x: 3, y: 3, maxAp: 4 });
   // Patrol the right-hand room; the drone spends most of its time visible to
   // a player who pushes east, so M5 behaviour is observable from spawn.
   drone = new CorpDrone({
@@ -133,9 +147,18 @@ function rerender(modeHint = '') {
     ? `DRONE @(${drone.x},${drone.y}) HP ${drone.hp}/${drone.maxHp} [${drone.state.toUpperCase()}]`
     : 'DRONE DOWN';
   const stealthTag = player.stealthed ? ' [CLOAKED]' : '';
+  // Tech-specific status: the pre-built turret token, and whether a placed
+  // turret is alive on the grid.
+  let turretTag = '';
+  if (archetype === 'tech') {
+    turretTag = player.turretReady ? ' [TURRET READY]' : ' [TURRET DEPLOYED]';
+    if (player.inventory) {
+      turretTag += ` SALVAGE:${player.inventory.salvage}`;
+    }
+  }
   document.getElementById('status').textContent =
     `TURN ${queue.turnNumber}  |  ACTING: ${queue.currentFaction.toUpperCase()}  |  ` +
-    `${archetype.toUpperCase()} AP ${player.ap}/${player.maxAp} HP ${player.hp}/${player.maxHp}${stealthTag}  |  ` +
+    `${archetype.toUpperCase()} AP ${player.ap}/${player.maxAp} HP ${player.hp}/${player.maxHp}${stealthTag}${turretTag}  |  ` +
     `${droneStatus}${aim}`;
   document.getElementById('log').textContent = logLines.slice(-12).join('\n');
 }
@@ -155,20 +178,33 @@ function applyIntent(intent) {
     log,
     advanceTurn,
     resetInputModes,
-    // The harness has no Curator / interactables. Without this, pressing `i`
+    // The harness has no Curator / interactables. Without this, pressing Space
     // would crash through `applyIntent`'s "interact requires onInteract" guard.
     onInteract: () => log('> Nothing to interact with here.'),
   });
 }
 
 function advanceTurn() {
-  queue.endTurn(world);
-  log(`> ${queue.currentFaction.toUpperCase()} acts (turn ${queue.turnNumber}).`);
-  if (queue.currentFaction === FACTION.CORP) {
-    runCorpTurn();
-    queue.endTurn(world);
-    log(`> PLAYER acts (turn ${queue.turnNumber}).`);
-  }
+  advanceFromPlayerTurn({
+    queue,
+    world,
+    rng,
+    onCorpTurnReady: () => {
+      log(`> ${queue.currentFaction.toUpperCase()} acts (turn ${queue.turnNumber}).`);
+    },
+    onPlayerAftermathStep: step => {
+      for (const line of formatPlayerAftermathStepLogLines(step)) {
+        log(`> ${line}`);
+      }
+    },
+    driveCorpTurn: ({ onFinish }) => {
+      runCorpTurn();
+      onFinish();
+    },
+    onPlayerTurnReady: () => {
+      log(`> PLAYER acts (turn ${queue.turnNumber}).`);
+    },
+  });
 }
 
 /**
@@ -220,10 +256,21 @@ function formatCorpAction(actor, action) {
 }
 
 function logModeChange(nextMode) {
-  if (nextMode === MODE.VAULT_AIM) log('> VAULT — pick a direction (Esc to cancel).');
   if (nextMode === MODE.FIRE_AIM) log('> FIRE — pick a direction (Esc to cancel).');
   if (nextMode === MODE.MELEE_AIM) log('> MELEE — pick a direction (Esc to cancel).');
-  if (nextMode === MODE.SLIDE_AIM) log('> SLIDE — pick a direction (Esc to cancel).');
+  if (nextMode === MODE.SPECIAL_AIM) {
+    // Surface the archetype-specific verb so the banner still reads naturally
+    // even though the keystroke and mode are now shared.
+    const verb =
+      archetype === 'merc'
+        ? 'VAULT'
+        : archetype === 'razor'
+          ? 'SLIDE'
+          : archetype === 'tech'
+            ? 'DEPLOY'
+            : 'SPECIAL';
+    log(`> ${verb} — pick a direction (Esc to cancel).`);
+  }
 }
 
 function activeMode() {
@@ -245,6 +292,12 @@ function bindUI() {
 
   input = new KeyboardController({
     onIntent: intent => {
+      if (intent?.type === 'quit-campaign') {
+        log('> QUIT CAMPAIGN is only wired in the M8 shell (no-op in harness).');
+        resetInputModes();
+        rerender(activeMode());
+        return;
+      }
       applyIntent(intent);
       rerender(activeMode());
     },
@@ -258,7 +311,14 @@ function bindUI() {
   touchPad = document.getElementById('touch-pad');
   if (touchPad) {
     touchPad.addEventListener('intent', evt => {
-      applyIntent(evt.detail);
+      const intent = evt.detail;
+      if (intent?.type === 'quit-campaign') {
+        log('> QUIT CAMPAIGN is only wired in the M8 shell (no-op in harness).');
+        resetInputModes();
+        rerender(activeMode());
+        return;
+      }
+      applyIntent(intent);
       rerender(activeMode());
     });
     touchPad.addEventListener('mode-change', evt => {
@@ -283,6 +343,12 @@ function bindUI() {
       evt.preventDefault();
     } else if (evt.key === '2') {
       archetype = 'razor';
+      buildScenario();
+      resetInputModes();
+      rerender(activeMode());
+      evt.preventDefault();
+    } else if (evt.key === '3') {
+      archetype = 'tech';
       buildScenario();
       resetInputModes();
       rerender(activeMode());
