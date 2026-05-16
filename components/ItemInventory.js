@@ -139,6 +139,7 @@ class ItemInventory extends HTMLElement {
   #ready = false;
   #rowsEl = null;
   #titleEl = null;
+  #panelEl = null;
   #hintEl = null;
   #buttons = [];
   #selectedIndex = 0;
@@ -156,13 +157,13 @@ class ItemInventory extends HTMLElement {
     this.#titleEl = h('h2', { className: 'title' });
     this.#rowsEl = h('div', { className: 'rows' });
     this.#hintEl = h('p', { className: 'hint' });
-    const panel = h('section', { className: 'panel' }, [this.#titleEl, this.#rowsEl, this.#hintEl]);
-    shadow.appendChild(panel);
+    this.#panelEl = h('section', { className: 'panel' }, [this.#titleEl, this.#rowsEl, this.#hintEl]);
+    shadow.appendChild(this.#panelEl);
 
     this.#onKeyDown = this.#handleKey.bind(this);
     this.addEventListener('keydown', this.#onKeyDown);
     this.#onBackdrop = evt => {
-      if (evt.target === this) this.#emit('dismiss');
+      if (!evt.composedPath().includes(this.#panelEl)) this.#emit('dismiss');
     };
     this.addEventListener('click', this.#onBackdrop);
 

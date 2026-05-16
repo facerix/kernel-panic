@@ -267,8 +267,10 @@ class FinnShop extends HTMLElement {
 
     this.#onKeyDown = this.#handleKey.bind(this);
     this.addEventListener('keydown', this.#onKeyDown);
+    // Clicks inside the shadow tree retarget `evt.target` to the host, so
+    // `evt.target === this` would dismiss on every panel click. Use composedPath.
     this.#onBackdrop = evt => {
-      if (evt.target === this) this.#emit('dismiss');
+      if (!evt.composedPath().includes(this.#panelEl)) this.#emit('dismiss');
     };
     this.addEventListener('click', this.#onBackdrop);
 
