@@ -32,7 +32,7 @@ import { AsciiRenderer } from '/src/render/AsciiRenderer.js';
 import { CrtFilter } from '/src/render/CrtFilter.js';
 import { KeyboardController } from '/src/input/KeyboardController.js';
 import { MODE } from '/src/input/keymap.js';
-import { applyIntent as applyPlayerIntent } from '/src/input/applyIntent.js';
+import { applyIntent as applyPlayerIntent, PLAYER_ACTIONS } from '/src/input/applyIntent.js';
 import { VisionField } from '/src/game/Vision.js';
 import { Rng } from '/src/rng.js';
 
