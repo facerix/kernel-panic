@@ -165,6 +165,7 @@ class CharacterSelect extends HTMLElement {
   #current = null;
   #ready = false;
   #optionsEl = null;
+  #panelEl = null;
   #buttons = new Map();
   #onKeyDown = null;
   #onBackdrop = null;
@@ -178,12 +179,12 @@ class CharacterSelect extends HTMLElement {
 
     this.#optionsEl = h('div', { className: 'options' });
 
-    const panel = h('section', { className: 'panel' }, [
+    this.#panelEl = h('section', { className: 'panel' }, [
       h('h2', { className: 'title', textContent: '── SELECT OPERATOR ──' }),
       this.#optionsEl,
       h('p', { className: 'hint', textContent: '[ ENTER confirm  ·  Esc dismiss ]' }),
     ]);
-    shadow.appendChild(panel);
+    shadow.appendChild(this.#panelEl);
 
     // The keydown listener lives on the host so arrow nav works even when the
     // focus has drifted between option buttons. Backdrop click also dismisses
@@ -192,7 +193,7 @@ class CharacterSelect extends HTMLElement {
     this.addEventListener('keydown', this.#onKeyDown);
 
     this.#onBackdrop = evt => {
-      if (evt.target === this) this.#emit('dismiss');
+      if (!evt.composedPath().includes(this.#panelEl)) this.#emit('dismiss');
     };
     this.addEventListener('click', this.#onBackdrop);
 

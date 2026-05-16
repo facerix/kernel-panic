@@ -61,7 +61,7 @@ Test count at Phase 2 start: **409 passing** (end of Phase 1 / M8).
 - **Vault rework (M4):** Merc's Vault is now a repeatable breach-and-clear slam (no one-shot `vaultReady` gate). AP cost stays at 3. The old free directional shot is removed. New mechanic: if a hostile occupies the landing tile, the Merc body-checks them for `VAULT_DAMAGE` (2, matching melee) and knocks them back 1 tile in the vault direction. Knockback resolves through `World.moveEntity`. Vault is denied when the knockback destination is blocked (wall, entity, OOB) — the Merc needs a clear lane. Landing on an empty tile is pure repositioning (no shot). Landing on a friendly entity is denied. `Merc.canVault` gains hostile-on-landing + knockback-lane checks; `applyIntent.doVault` no longer calls `pickFireTarget` / `resolveRanged`.
 
 - **Crew UI refactor (M4):** Three components replace the old monolithic `<crew-roster>`:
-  - `<crew-list>` — extracted navigable row list (callsign, archetype, HP, status). Pure reusable list, no modal chrome. Emits `select` (highlight changed) and `activate` (Enter/click on a row).
+  - `<crew-list>` — extracted navigable row list (callsign, archetype, HP, status). Pure reusable list, no modal chrome. Emits `select` when the highlighted row changes.
   - `<crew-roster>` — Terminal view only (no deploy mode). Two-pane layout: `<crew-list>` on the left, detail pane on the right showing the selected member's stats, gear, and consumables. No `mode` parameter.
   - `<run-briefing>` — Curator job flow. Single modal combining contract details + embedded `<crew-list>` for operative selection. Replaces the old two-step flow (pick crew in roster → show briefing → JACK IN) with a one-step modal. Emits `deploy` with `{ memberId, contract }`.
 

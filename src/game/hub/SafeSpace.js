@@ -14,7 +14,7 @@
  *   #..........#
  *   #..........#
  *   #.....@....#
- *   #.........¤#
+ *   #..........¤
  *   ############
  *
  * The door cell is `TILE.EXIT` (passable like FLOOR, distinct glyph); the

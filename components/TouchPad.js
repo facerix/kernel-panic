@@ -55,7 +55,6 @@ const DPAD_SLOTS = Object.freeze(['NW', 'N', 'NE', 'W', null, 'E', 'SW', 'S', 'S
 // a right-handed grip — most-used first.
 const ACTION_BUTTONS = Object.freeze([
   { id: 'fire', label: 'FIRE', shortcut: 'f' },
-  { id: 'melee', label: 'MELEE', shortcut: 'm' },
   // One button for the archetype perk — same `special` intent for Vault,
   // Slide, and Deploy. The status banner / on-screen log spells out which
   // verb actually resolves, so the player still sees their kit's flavour.
@@ -71,13 +70,11 @@ const META_BUTTONS = Object.freeze([{ id: 'quit-campaign', label: 'QUIT', shortc
 const AIM_MODE_LABEL = Object.freeze({
   [MODE.IDLE]: '',
   [MODE.FIRE_AIM]: 'FIRE — pick a direction',
-  [MODE.MELEE_AIM]: 'MELEE — pick a direction',
   [MODE.SPECIAL_AIM]: 'SPECIAL — pick a direction',
 });
 
 const AIM_MODE_ACTION = Object.freeze({
   [MODE.FIRE_AIM]: 'fire',
-  [MODE.MELEE_AIM]: 'melee',
   [MODE.SPECIAL_AIM]: 'special',
 });
 

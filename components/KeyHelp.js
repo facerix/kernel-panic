@@ -33,6 +33,12 @@ const GROUPS = Object.freeze([
   { id: 'system', title: 'SYSTEM' },
 ]);
 
+const GROUP_NOTES = Object.freeze({
+  move: 'Move into a hostile = melee, into an ally or neutral = interact',
+  action: '',
+  system: '',
+});
+
 /** True when the primary pointer is coarse (touch / most on-screen pads). */
 function isCoarsePointer() {
   if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
@@ -85,7 +91,8 @@ const CSS = `
   padding-bottom: 0.4rem;
 }
 
-.intro {
+.intro,
+.tile-hints {
   margin: 0 0 0.85rem;
   padding: 0 0 0.75rem;
   border-bottom: 1px dashed rgba(0, 217, 165, 0.25);
@@ -110,6 +117,19 @@ const CSS = `
   margin-bottom: 0;
 }
 
+.tile-hints {
+  .tile-hints-content {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    grid-auto-flow: column;
+    align-items: baseline;
+    column-gap: 2rem;
+    row-gap: 0.18rem;
+    margin: 0.5rem 0 0;
+    font-size: 0.9rem;
+  }
+}
+
 .controls-note {
   font-size: 0.78rem !important;
   color: var(--help-dim) !important;
@@ -124,6 +144,13 @@ const CSS = `
   font-weight: 600;
 }
 
+.group-note {
+  font-size: 0.78rem !important;
+  color: var(--help-dim) !important;
+  letter-spacing: 0.04em;
+  margin: 0.25rem 1rem;
+}
+
 @media (pointer: coarse) {
   .section-label {
     font-size: 0.72rem;
@@ -136,6 +163,7 @@ const CSS = `
 
 section.group {
   margin: 0.6rem 0 0;
+  padding-bottom: 0.25rem;
 }
 
 section.group h3 {
@@ -185,6 +213,7 @@ class KeyHelp extends HTMLElement {
   #scope = 'combat';
   #ready = false;
   #body = null;
+  #panelEl = null;
   #onBackdrop = null;
 
   connectedCallback() {
@@ -195,16 +224,16 @@ class KeyHelp extends HTMLElement {
     shadow.appendChild(style);
 
     this.#body = h('div');
-    const panel = h('section', { className: 'panel' }, [
+    this.#panelEl = h('section', { className: 'panel' }, [
       h('h2', { className: 'title', textContent: '── HELP ──' }),
       this.#body,
       h('p', { className: 'hint', textContent: '[ ? or Esc to close ]' }),
     ]);
-    shadow.appendChild(panel);
+    shadow.appendChild(this.#panelEl);
 
     // Backdrop click closes — matches <character-select>'s affordance.
     this.#onBackdrop = evt => {
-      if (evt.target === this) this.#emit('dismiss');
+      if (!evt.composedPath().includes(this.#panelEl)) this.#emit('dismiss');
     };
     this.addEventListener('click', this.#onBackdrop);
 
@@ -250,20 +279,25 @@ class KeyHelp extends HTMLElement {
     if (!this.#body) return;
     while (this.#body.firstChild) this.#body.removeChild(this.#body.firstChild);
     this.#body.appendChild(this.#buildIntro());
+    this.#body.appendChild(this.#buildTileHints());
     this.#body.appendChild(h('h3', { className: 'section-label', textContent: 'SHORTCUTS' }));
     // `describeKeymap` throws on a bad scope — propagate, don't paper over.
     const rows = describeKeymap(this.#scope);
     for (const group of GROUPS) {
       const groupRows = rows.filter(r => r.group === group.id);
       if (groupRows.length === 0) continue;
+      const bodyChildren = [h('h3', { textContent: group.title })];
+      const note = GROUP_NOTES[group.id];
+      if (note) {
+        bodyChildren.push(h('p', { className: 'group-note', textContent: note }));
+      }
       const dl = h('dl', { className: 'rows' });
       for (const r of groupRows) {
         dl.appendChild(h('dt', { textContent: joinKeys(r.keys) }));
         dl.appendChild(h('dd', { textContent: r.label }));
       }
-      this.#body.appendChild(
-        h('section', { className: 'group' }, [h('h3', { textContent: group.title }), dl])
-      );
+      bodyChildren.push(dl);
+      this.#body.appendChild(h('section', { className: 'group' }, bodyChildren));
     }
   }
 
@@ -309,6 +343,42 @@ class KeyHelp extends HTMLElement {
     ];
 
     return h('div', { className: 'intro' }, children);
+  }
+
+  #buildTileHints() {
+    const scope = this.#scope;
+
+    const universalTiles = h('dl', { className: 'rows' }, [
+      h('dt', { textContent: '#' }),
+      h('dd', { textContent: 'wall' }),
+      h('dt', { textContent: '¤' }),
+      h('dd', { textContent: 'exit' }),
+    ]);
+    const hubTiles = h('dl', { className: 'rows' }, [
+      h('dt', { textContent: 'C' }),
+      h('dd', { textContent: 'Curator' }),
+      h('dt', { textContent: '¥' }),
+      h('dd', { textContent: "Finn's shop" }),
+      h('dt', { textContent: '‡' }),
+      h('dd', { textContent: 'Crew terminal' }),
+    ]);
+    const combatTiles = h('dl', { className: 'rows' }, [
+      h('dt', { textContent: '=' }),
+      h('dd', { textContent: 'cover (some protection from shots)' }),
+      h('dt', { textContent: '░' }),
+      h('dd', { textContent: 'smoke' }),
+    ]);
+
+    const children = [
+      universalTiles,
+      scope === 'hub' ? hubTiles : null,
+      scope === 'combat' ? combatTiles : null,
+    ].filter(Boolean);
+
+    return h('section', { className: 'tile-hints' }, [
+      h('h3', { className: 'section-label', textContent: 'KEY TO MAP SYMBOLS' }),
+      h('div', { className: 'tile-hints-content' }, children),
+    ]);
   }
 
   #emit(eventName, detail) {

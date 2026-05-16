@@ -45,7 +45,7 @@ import {
 } from '/src/render/animations.js';
 import { KeyboardController } from '/src/input/KeyboardController.js';
 import { MODE } from '/src/input/keymap.js';
-import { applyIntent } from '/src/input/applyIntent.js';
+import { applyIntent, PLAYER_ACTIONS } from '/src/input/applyIntent.js';
 
 import { placeSmoke, clearSmoke } from '/src/game/Smoke.js';
 
@@ -74,6 +74,7 @@ let canvas, statusEl, renderer, crt;
 let stageEl;
 let briefingEl, crashEl, systemStartEl, resumeModalEl, quitCampaignModalEl, touchPadEl;
 let crewRosterEl, finnShopEl, itemInventoryEl, keyHelpEl;
+let logEl, logHeaderEl, logContentEl;
 let keyboard;
 
 /**
@@ -85,7 +86,6 @@ let keyboard;
 const animLock = createAnimationLock();
 /** Unsubscribers for the run-bus animation listeners. Re-bound on every state transition. */
 let animationUnsubs = [];
-
 
 let pendingJobResult = null;
 /**
@@ -103,6 +103,15 @@ let activeSmokeOverlays = [];
  * subsequent statusLine() rewrite.
  */
 let lastActionLine = '';
+
+/**
+ * Most recent intent-result log lines ("@ moved to (3,4) — 2 AP left.").
+ * Tracked at module level because `applyIntent`'s `log` callback fires
+ * during intent handling, but the status line is finalised later in
+ * `paint()` — without this, the action line gets clobbered by the
+ * subsequent statusLine() rewrite.
+ */
+let logLines = [];
 
 const seedFromClock = () => Date.now() & 0xffffffff;
 
@@ -136,6 +145,9 @@ async function boot() {
   finnShopEl = document.getElementById('finn-shop');
   itemInventoryEl = document.getElementById('item-inventory');
   keyHelpEl = document.getElementById('key-help');
+  logEl = document.querySelector('.game-log');
+  logHeaderEl = document.querySelector('.game-log h3');
+  logContentEl = logEl.querySelector('pre');
 
   renderer = new AsciiRenderer(canvas);
   crt = new CrtFilter(canvas);
@@ -210,6 +222,12 @@ async function boot() {
       paint(evt.detail.mode);
     });
     touchPadEl.setBlocked(() => animLock.isLocked() || isAnyBlockingModalOpen());
+  }
+
+  if (logHeaderEl) {
+    logHeaderEl.addEventListener('click', () => {
+      logEl.classList.toggle('collapsed');
+    });
   }
 
   // Update-notification wiring kept from the original scaffold.
@@ -520,18 +538,28 @@ function handleIntent(intent) {
     log: line => flash(line),
     advanceTurn,
     resetInputModes,
-    onInteract: handleInteract,
-    onInventory: () => {
-      // Only open inventory during combat when it's the player's turn.
-      if (
-        campaign?.state !== CAMPAIGN_STATE.COMBAT ||
-        run.state !== RUN_STATE.COMBAT ||
-        run.queue.currentFaction !== FACTION.PLAYER
-      ) {
-        flash('Inventory is only available during combat on your turn.');
-        return;
+    onPlayerAction: actionName => {
+      switch (actionName) {
+        case PLAYER_ACTIONS.INVENTORY:
+          // Only open inventory during combat when it's the player's turn.
+          if (
+            campaign?.state !== CAMPAIGN_STATE.COMBAT ||
+            run.state !== RUN_STATE.COMBAT ||
+            run.queue.currentFaction !== FACTION.PLAYER
+          ) {
+            flash('Inventory is only available during combat on your turn.');
+            return;
+          }
+          presentItemInventory();
+          break;
+        case PLAYER_ACTIONS.INTERACT:
+          handleInteract();
+          break;
+        case PLAYER_ACTIONS.REACHED_EXIT:
+          flash('Curator: Hang tight! Come talk to me to claim a contract.');
+          advanceTurn();
+          break;
       }
-      presentItemInventory();
     },
   });
 }
@@ -901,6 +929,9 @@ function proximityHint() {
     if (run.terminal && isChebyshevAdjacent(run.player, run.terminal)) {
       return 'TERMINAL — press [Space] for roster.';
     }
+    if (run.exitTile && isChebyshevAdjacent(run.player, run.exitTile)) {
+      return 'EXIT (¤) one step away.';
+    }
     return '';
   }
   if (run.state === RUN_STATE.COMBAT) {
@@ -916,9 +947,8 @@ function proximityHint() {
         }
       }
     }
-    if (run.exitTile) {
-      const d = chebyshevDistance(run.player, run.exitTile);
-      if (d === 1) return 'EXIT (¤) one step away.';
+    if (run.exitTile && isChebyshevAdjacent(run.player, run.exitTile)) {
+      return 'EXIT (¤) one step away.';
     }
   }
   return '';
@@ -927,6 +957,9 @@ function proximityHint() {
 /** Stash a one-shot message that the next paint surfaces in the status bar. */
 function flash(line) {
   lastActionLine = String(line ?? '').replace(/^>\s*/, '');
+  logLines.unshift(`> ${lastActionLine}`);
+  if (logLines.length > 20) logLines.splice(20);
+  logContentEl.textContent = logLines.join('\n');
 }
 
 function stateLabel() {

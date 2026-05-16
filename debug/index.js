@@ -32,7 +32,7 @@ import { AsciiRenderer } from '/src/render/AsciiRenderer.js';
 import { CrtFilter } from '/src/render/CrtFilter.js';
 import { KeyboardController } from '/src/input/KeyboardController.js';
 import { MODE } from '/src/input/keymap.js';
-import { applyIntent as applyPlayerIntent } from '/src/input/applyIntent.js';
+import { applyIntent as applyPlayerIntent, PLAYER_ACTIONS } from '/src/input/applyIntent.js';
 import { VisionField } from '/src/game/Vision.js';
 import { Rng } from '/src/rng.js';
 
@@ -179,8 +179,14 @@ function applyIntent(intent) {
     advanceTurn,
     resetInputModes,
     // The harness has no Curator / interactables. Without this, pressing Space
-    // would crash through `applyIntent`'s "interact requires onInteract" guard.
-    onInteract: () => log('> Nothing to interact with here.'),
+    // would crash through `applyIntent`'s "interact requires onPlayerAction" guard.
+    onPlayerAction: actionName => {
+      switch (actionName) {
+        case PLAYER_ACTIONS.INTERACT:
+          log('> Nothing to interact with here.');
+          break;
+      }
+    },
   });
 }
 
@@ -257,7 +263,6 @@ function formatCorpAction(actor, action) {
 
 function logModeChange(nextMode) {
   if (nextMode === MODE.FIRE_AIM) log('> FIRE — pick a direction (Esc to cancel).');
-  if (nextMode === MODE.MELEE_AIM) log('> MELEE — pick a direction (Esc to cancel).');
   if (nextMode === MODE.SPECIAL_AIM) {
     // Surface the archetype-specific verb so the banner still reads naturally
     // even though the keystroke and mode are now shared.

@@ -120,19 +120,24 @@ crew-list {
   min-height: 120px;
 }
 
+.detail-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.15rem;
+  margin: 0 0 0.5rem;
+}
+
 .detail-name {
   color: var(--roster-accent);
   font-weight: 700;
   font-size: 1rem;
   letter-spacing: 0.12em;
-  margin: 0 0 0.15rem;
 }
 
 .detail-class {
   color: var(--roster-dim);
   font-size: 0.88rem;
   letter-spacing: 0.08em;
-  margin: 0 0 0.6rem;
 }
 
 .detail-section {
@@ -183,6 +188,7 @@ class CrewRoster extends HTMLElement {
   #titleEl = null;
   #balanceEl = null;
   #hintEl = null;
+  #panelEl = null;
   #onKeyDown = null;
   #onBackdrop = null;
 
@@ -204,20 +210,22 @@ class CrewRoster extends HTMLElement {
 
     const body = h('div', { className: 'body' }, [this.#listEl, this.#detailEl]);
     this.#hintEl = h('p', { className: 'hint', textContent: '[ ↑/↓ navigate  ·  Esc dismiss ]' });
-    const panel = h('section', { className: 'panel' }, [
+    this.#panelEl = h('section', { className: 'panel' }, [
       this.#titleEl,
       this.#balanceEl,
       body,
       this.#hintEl,
     ]);
-    shadow.appendChild(panel);
+    shadow.appendChild(this.#panelEl);
 
     this.#onKeyDown = this.#handleKey.bind(this);
     this.addEventListener('keydown', this.#onKeyDown);
     this.#onBackdrop = evt => {
-      if (evt.target === this) {
-        this.dispatchEvent(new CustomEvent('dismiss'));
-      }
+      // Clicks inside nested shadow trees (e.g. <crew-list> rows) retarget
+      // `event.target` to this host, so `target === this` is not a safe
+      // backdrop test — use the real event path instead.
+      if (evt.composedPath().includes(this.#panelEl)) return;
+      this.dispatchEvent(new CustomEvent('dismiss'));
     };
     this.addEventListener('click', this.#onBackdrop);
 
@@ -236,7 +244,7 @@ class CrewRoster extends HTMLElement {
     this.#salvage = salvage;
     this.#balanceEl.textContent = `SALVAGE ${this.#salvage}`;
     // Crew list handles its own rendering; selection triggers detail update.
-    this.#listEl.setCrew(crew, { selectable: false });
+    this.#listEl.setCrew(crew);
   }
 
   show() {
@@ -282,10 +290,13 @@ class CrewRoster extends HTMLElement {
 
     // Name + class header
     this.#detailEl.appendChild(
-      h('p', { className: 'detail-name', textContent: member.callsign })
-    );
-    this.#detailEl.appendChild(
-      h('p', { className: 'detail-class', textContent: member.archetype.toUpperCase() })
+      h('p', { className: 'detail-header' }, [
+        h('span', { className: 'detail-name', textContent: member.callsign }),
+        h('span', {
+          className: 'detail-class',
+          textContent: ` [${member.archetype.toUpperCase()}]`,
+        }),
+      ])
     );
 
     if (member.flatlined) {
@@ -298,10 +309,15 @@ class CrewRoster extends HTMLElement {
     // Stats
     const statsSection = h('div', { className: 'detail-section' });
     statsSection.appendChild(h('p', { className: 'detail-section-title', textContent: 'STATS' }));
-    statsSection.appendChild(h('p', { className: 'detail-stat', textContent: `HP  ${member.hp}/${member.maxHp}` }));
+    statsSection.appendChild(
+      h('p', { className: 'detail-stat', textContent: `HP  ${member.hp}/${member.maxHp}` })
+    );
     if (full.gear?.hitBonus > 0) {
       statsSection.appendChild(
-        h('p', { className: 'detail-stat', textContent: `HIT  +${(full.gear.hitBonus * 100).toFixed(0)}%` })
+        h('p', {
+          className: 'detail-stat',
+          textContent: `HIT  +${(full.gear.hitBonus * 100).toFixed(0)}%`,
+        })
       );
     }
     this.#detailEl.appendChild(statsSection);
@@ -323,7 +339,9 @@ class CrewRoster extends HTMLElement {
     const consumables = full.inventory?.consumables ?? [];
     const cLines = consumableLines(consumables);
     const consSection = h('div', { className: 'detail-section' });
-    consSection.appendChild(h('p', { className: 'detail-section-title', textContent: 'CONSUMABLES' }));
+    consSection.appendChild(
+      h('p', { className: 'detail-section-title', textContent: 'CONSUMABLES' })
+    );
     if (cLines.length === 0) {
       consSection.appendChild(h('p', { className: 'detail-none', textContent: 'None' }));
     } else {

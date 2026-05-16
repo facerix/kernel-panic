@@ -4,9 +4,18 @@
  * harness and the M8 game shell drive their input through this module so a
  * change to combat or movement plumbing only has one consumer to update.
  *
- * The intent shape is the closed enum the keymap dispatch produces:
+ * The intent shape is the closed enum the keymap / touch layer and other
+ * callers may produce:
  *   { type: 'move' | 'special' | 'melee' | 'fire' | 'interact' | 'end-turn'
  *         | 'cancel', dx?, dy? }
+ *
+ * `move` into an occupied tile is resolved in `doMove`: a corp (or any
+ * non-allied, non-neutral) neighbour is a bump-melee; same-faction or neutral
+ * (Hub NPCs, …) delegates to the shell via `interact` without spending move AP.
+ *
+ * The dedicated `melee` intent is **not** emitted by the player keymap (bump
+ * uses `move`); it stays in the enum so AI drivers, replay, tests, and future
+ * automation can commit a melee strike without synthesizing a walk intent.
  *
  * The archetype-specific perks (Merc's Vault, Razor's Slide, Tech's Deploy
  * Turret) collapse into a single `special` intent at the keymap layer. The
@@ -34,6 +43,7 @@ import { FACTION, SIGHT_RANGE, VAULT_DAMAGE, NOISE_RADIUS } from '../game/consta
 import { canFireRanged, resolveRanged, canMelee, resolveMelee } from '../game/Combat.js';
 import { hasLineOfSight, withinRange } from '../game/LineOfSight.js';
 import { EVENT } from '../game/events.js';
+import { TILE } from '../game/constants.js';
 
 /**
  * @typedef {{
@@ -44,6 +54,7 @@ import { EVENT } from '../game/events.js';
  *   log: (line: string) => void,
  *   advanceTurn: () => void,
  *   resetInputModes: () => void,
+ *   onPlayerAction: (actionName: string) => void,
  * }} ApplyIntentContext
  */
 
@@ -57,6 +68,16 @@ const KNOWN_INTENT_TYPES = new Set([
   'end-turn',
   'cancel',
 ]);
+
+/*
+  Player actions aren't quite intents, nor are they world events.
+  They are a way to communicate actions from the game loop to the UI layer.
+*/
+export const PLAYER_ACTIONS = Object.freeze({
+  REACHED_EXIT: 'movedToExit',
+  INVENTORY: 'inventory',
+  INTERACT: 'interact',
+});
 
 /**
  * Drive a single player intent against the world. Auto-ends the player's
@@ -137,12 +158,26 @@ export function pickFireTarget(ctx, dx, dy) {
 
 function doMove(intent, ctx) {
   const { world, player, log, advanceTurn } = ctx;
+  const nx = player.x + intent.dx;
+  const ny = player.y + intent.dy;
+  const occupant = world.entityAt(nx, ny);
+  if (occupant) {
+    if (occupant.faction === FACTION.NEUTRAL || occupant.faction === player.faction) {
+      return doInteract(ctx);
+    }
+    return doMelee({ type: 'melee', dx: intent.dx, dy: intent.dy }, ctx);
+  }
   const check = world.canMoveEntity(player, intent.dx, intent.dy);
   if (!check.ok) {
     log(`> MOVE DENIED: ${check.reason}`);
     return;
   }
   world.moveEntity(player, intent.dx, intent.dy);
+  if (world.grid.tileAt(nx, ny) === TILE.EXIT) {
+    log(`> @ moved to (${nx}, ${ny}) — EXIT REACHED.`);
+    ctx.onPlayerAction(PLAYER_ACTIONS.REACHED_EXIT);
+    return;
+  }
   log(`> @ moved to (${player.x}, ${player.y}) — ${player.ap} AP left.`);
   if (player.ap === 0) {
     log('> AP EXHAUSTED — auto-ending turn.');
@@ -314,19 +349,19 @@ function doInteract(ctx) {
   // semantics — it just routes the intent to a shell-supplied handler. Crash
   // rather than silent no-op if the shell forgot to provide one; otherwise an
   // unbound interact key would feel like a dead button instead of a wiring bug.
-  if (typeof ctx.onInteract !== 'function') {
-    throw new Error('applyIntent: interact intent received but ctx.onInteract is missing');
+  if (typeof ctx.onPlayerAction !== 'function') {
+    throw new Error('applyIntent: interact intent received but ctx.onPlayerAction is missing');
   }
-  ctx.onInteract();
+  ctx.onPlayerAction(PLAYER_ACTIONS.INTERACT);
 }
 
 function doInventory(ctx) {
   // Inventory is a UI-layer verb — the shell presents the consumable list
   // and handles the `use-item` event. Same delegation pattern as `interact`.
-  if (typeof ctx.onInventory !== 'function') {
-    throw new Error('applyIntent: inventory intent received but ctx.onInventory is missing');
+  if (typeof ctx.onPlayerAction !== 'function') {
+    throw new Error('applyIntent: inventory intent received but ctx.onPlayerAction is missing');
   }
-  ctx.onInventory();
+  ctx.onPlayerAction(PLAYER_ACTIONS.INVENTORY);
 }
 
 function doFire(intent, ctx) {
