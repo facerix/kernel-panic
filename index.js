@@ -537,8 +537,8 @@ function handleIntent(intent) {
           handleInteract();
           break;
         case PLAYER_ACTIONS.REACHED_EXIT:
-          flash('EXIT REACHED.');
-          //advanceTurn();
+          flash('Curator: Hang tight! Come talk to me to claim a contract.');
+          advanceTurn();
           break;
       }
     },
