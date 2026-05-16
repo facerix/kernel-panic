@@ -179,8 +179,14 @@ function applyIntent(intent) {
     advanceTurn,
     resetInputModes,
     // The harness has no Curator / interactables. Without this, pressing Space
-    // would crash through `applyIntent`'s "interact requires onInteract" guard.
-    onInteract: () => log('> Nothing to interact with here.'),
+    // would crash through `applyIntent`'s "interact requires onPlayerAction" guard.
+    onPlayerAction: actionName => {
+      switch (actionName) {
+        case PLAYER_ACTIONS.INTERACT:
+          log('> Nothing to interact with here.');
+          break;
+      }
+    },
   });
 }
 

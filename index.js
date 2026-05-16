@@ -45,7 +45,7 @@ import {
 } from '/src/render/animations.js';
 import { KeyboardController } from '/src/input/KeyboardController.js';
 import { MODE } from '/src/input/keymap.js';
-import { applyIntent } from '/src/input/applyIntent.js';
+import { applyIntent, PLAYER_ACTIONS } from '/src/input/applyIntent.js';
 
 import { placeSmoke, clearSmoke } from '/src/game/Smoke.js';
 
@@ -519,18 +519,28 @@ function handleIntent(intent) {
     log: line => flash(line),
     advanceTurn,
     resetInputModes,
-    onInteract: handleInteract,
-    onInventory: () => {
-      // Only open inventory during combat when it's the player's turn.
-      if (
-        campaign?.state !== CAMPAIGN_STATE.COMBAT ||
-        run.state !== RUN_STATE.COMBAT ||
-        run.queue.currentFaction !== FACTION.PLAYER
-      ) {
-        flash('Inventory is only available during combat on your turn.');
-        return;
+    onPlayerAction: actionName => {
+      switch (actionName) {
+        case PLAYER_ACTIONS.INVENTORY:
+          // Only open inventory during combat when it's the player's turn.
+          if (
+            campaign?.state !== CAMPAIGN_STATE.COMBAT ||
+            run.state !== RUN_STATE.COMBAT ||
+            run.queue.currentFaction !== FACTION.PLAYER
+          ) {
+            flash('Inventory is only available during combat on your turn.');
+            return;
+          }
+          presentItemInventory();
+          break;
+        case PLAYER_ACTIONS.INTERACT:
+          handleInteract();
+          break;
+        case PLAYER_ACTIONS.REACHED_EXIT:
+          flash('EXIT REACHED.');
+          //advanceTurn();
+          break;
       }
-      presentItemInventory();
     },
   });
 }
@@ -900,6 +910,9 @@ function proximityHint() {
     if (run.terminal && isChebyshevAdjacent(run.player, run.terminal)) {
       return 'TERMINAL — press [Space] for roster.';
     }
+    if (run.exitTile && isChebyshevAdjacent(run.player, run.exitTile)) {
+      return 'EXIT (¤) one step away.';
+    }
     return '';
   }
   if (run.state === RUN_STATE.COMBAT) {
@@ -915,9 +928,8 @@ function proximityHint() {
         }
       }
     }
-    if (run.exitTile) {
-      const d = chebyshevDistance(run.player, run.exitTile);
-      if (d === 1) return 'EXIT (¤) one step away.';
+    if (run.exitTile && isChebyshevAdjacent(run.player, run.exitTile)) {
+      return 'EXIT (¤) one step away.';
     }
   }
   return '';

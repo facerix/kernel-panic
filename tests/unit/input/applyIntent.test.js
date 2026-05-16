@@ -12,7 +12,7 @@ import { Tech } from '../../../src/game/archetypes/Tech.js';
 import { Turret } from '../../../src/game/Turret.js';
 import { CorpDrone } from '../../../src/game/ai/CorpDrone.js';
 import { Rng } from '../../../src/rng.js';
-import { applyIntent, pickFireTarget } from '../../../src/input/applyIntent.js';
+import { applyIntent, pickFireTarget, PLAYER_ACTIONS } from '../../../src/input/applyIntent.js';
 
 function buildCtx({ archetype = 'merc', placeDrone = true } = {}) {
   const grid = new Grid(10, 6);
@@ -50,7 +50,7 @@ function buildCtx({ archetype = 'merc', placeDrone = true } = {}) {
   const rng = new Rng(1);
 
   const log = [];
-  const calls = { advanceTurn: 0, resetInputModes: 0, interact: 0, inventory: 0 };
+  const calls = { advanceTurn: 0, resetInputModes: 0, interact: 0, inventory: 0, reachedExit: 0 };
   const ctx = {
     world,
     player,
@@ -64,11 +64,20 @@ function buildCtx({ archetype = 'merc', placeDrone = true } = {}) {
     resetInputModes: () => {
       calls.resetInputModes++;
     },
-    onInteract: () => {
-      calls.interact++;
-    },
-    onInventory: () => {
-      calls.inventory++;
+    onPlayerAction: actionName => {
+      switch (actionName) {
+        case PLAYER_ACTIONS.REACHED_EXIT:
+          calls.reachedExit++;
+          break;
+        case PLAYER_ACTIONS.INTERACT:
+          calls.interact++;
+          break;
+        case PLAYER_ACTIONS.INVENTORY:
+          calls.inventory++;
+          break;
+        default:
+          throw new Error(`Unknown player action: ${actionName}`);
+      }
     },
   };
   return { ctx, log, calls, drone, world, player, queue };
@@ -171,16 +180,16 @@ test('pickFireTarget finds the hostile drone in LOS', () => {
   assert.equal(target, drone);
 });
 
-test('interact intent fires the shell-supplied onInteract callback once', () => {
+test('interact intent fires the shell-supplied onPlayerAction callback once', () => {
   const { ctx, calls } = buildCtx();
   applyIntent({ type: 'interact' }, ctx);
   assert.equal(calls.interact, 1);
 });
 
-test('interact intent crashes when ctx.onInteract is missing (no silent no-op)', () => {
+test('interact intent crashes when ctx.onPlayerAction is missing (no silent no-op)', () => {
   const { ctx } = buildCtx();
-  delete ctx.onInteract;
-  assert.throws(() => applyIntent({ type: 'interact' }, ctx), /onInteract/);
+  delete ctx.onPlayerAction;
+  assert.throws(() => applyIntent({ type: 'interact' }, ctx), /onPlayerAction is missing/);
 });
 
 test('melee intent still resolves adjacent strikes (for AI / replay, not player keymap)', () => {
@@ -190,7 +199,10 @@ test('melee intent still resolves adjacent strikes (for AI / replay, not player 
   drone.y = 2;
   const hpBefore = drone.hp;
   applyIntent({ type: 'melee', dx: 1, dy: 0 }, ctx);
-  assert.ok(log.some(l => l.includes('slashes')), 'melee intent should log a strike');
+  assert.ok(
+    log.some(l => l.includes('slashes')),
+    'melee intent should log a strike'
+  );
   assert.equal(drone.hp, hpBefore - 2, 'MELEE_DAMAGE');
 });
 
