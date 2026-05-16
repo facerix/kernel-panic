@@ -74,6 +74,7 @@ let canvas, statusEl, renderer, crt;
 let stageEl;
 let briefingEl, crashEl, systemStartEl, resumeModalEl, quitCampaignModalEl, touchPadEl;
 let crewRosterEl, finnShopEl, itemInventoryEl, keyHelpEl;
+let logEl, logHeaderEl, logContentEl;
 let keyboard;
 
 /**
@@ -102,6 +103,15 @@ let activeSmokeOverlays = [];
  * subsequent statusLine() rewrite.
  */
 let lastActionLine = '';
+
+/**
+ * Most recent intent-result log lines ("@ moved to (3,4) — 2 AP left.").
+ * Tracked at module level because `applyIntent`'s `log` callback fires
+ * during intent handling, but the status line is finalised later in
+ * `paint()` — without this, the action line gets clobbered by the
+ * subsequent statusLine() rewrite.
+ */
+let logLines = [];
 
 const seedFromClock = () => Date.now() & 0xffffffff;
 
@@ -135,6 +145,9 @@ async function boot() {
   finnShopEl = document.getElementById('finn-shop');
   itemInventoryEl = document.getElementById('item-inventory');
   keyHelpEl = document.getElementById('key-help');
+  logEl = document.querySelector('.game-log');
+  logHeaderEl = document.querySelector('.game-log h3');
+  logContentEl = logEl.querySelector('pre');
 
   renderer = new AsciiRenderer(canvas);
   crt = new CrtFilter(canvas);
@@ -209,6 +222,12 @@ async function boot() {
       paint(evt.detail.mode);
     });
     touchPadEl.setBlocked(() => animLock.isLocked() || isAnyBlockingModalOpen());
+  }
+
+  if (logHeaderEl) {
+    logHeaderEl.addEventListener('click', () => {
+      logEl.classList.toggle('collapsed');
+    });
   }
 
   // Update-notification wiring kept from the original scaffold.
@@ -938,6 +957,9 @@ function proximityHint() {
 /** Stash a one-shot message that the next paint surfaces in the status bar. */
 function flash(line) {
   lastActionLine = String(line ?? '').replace(/^>\s*/, '');
+  logLines.unshift(`> ${lastActionLine}`);
+  if (logLines.length > 20) logLines.splice(20);
+  logContentEl.textContent = logLines.join('\n');
 }
 
 function stateLabel() {

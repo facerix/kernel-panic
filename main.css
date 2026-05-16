@@ -241,12 +241,74 @@ main {
   display: flex;
   justify-content: center;
   align-items: center;
+  gap: 0.5rem;
   width: 100%;
   max-width: min(960px, 100%);
 }
 
 .game-stage > #game-canvas {
-  width: 100%;
+  flex: 1 1 80%;
+  border-radius: 1rem 0.5rem 0.5rem 2rem;
+  corner-shape: bevel;
+}
+
+.game-stage > .game-log {
+  display: flex;
+  flex-direction: column;
+  flex-basis: 20%;
+  border: 1px solid var(--accent-color);
+  height: 100%;
+  height: -webkit-fill-available;
+  aspect-ratio: 120 / 240;
+  border-radius: 0.5rem 2rem 1rem 0.5rem;
+  corner-shape: bevel;
+  overflow: hidden;
+
+  transition: all 0.2s cubic-bezier(0.83, 0, 0.17, 1);
+
+  h3 {
+    margin: 0;
+    padding: 0.5rem;
+    text-align: center;
+    border-bottom: 1px dashed var(--accent-color);
+    cursor: pointer;
+    transition: transform 0.2s cubic-bezier(0.83, 0, 0.17, 1);
+
+    &:before {
+      content: '◤\00a0';
+    }
+  }
+  pre {
+    margin: 0;
+    height: 100%;
+    height: -webkit-fill-available;
+
+    font-size: 0.7rem;
+    color: var(--accent-color);
+    padding: 0.5rem;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    text-align: left;
+
+    -webkit-mask-image: linear-gradient(to bottom, white, transparent);
+    mask-image: linear-gradient(to bottom, white, transparent);
+  }
+
+  &.collapsed {
+    flex-basis: 1.75rem;
+    border-radius: 0.5rem;
+    h3 {
+      transform: rotate(-90deg) translate(-50%, -60%);
+      width: fit-content;
+      border: none;
+      &:before {
+        content: '◣\00a0';
+      }
+    }
+    pre {
+      display: none;
+    }
+  }
 }
 
 .game-stage > run-briefing,
