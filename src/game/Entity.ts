@@ -1,4 +1,14 @@
-import { DEFAULT_AP, DEFAULT_HP } from './constants.js';
+import { DEFAULT_AP, DEFAULT_HP, type FactionId } from './constants.js';
+
+export interface EntityInit {
+  id: string;
+  x: number;
+  y: number;
+  faction: FactionId;
+  glyph?: string;
+  maxAp?: number;
+  maxHp?: number;
+}
 
 /**
  * A grid-resident actor: player, drone, NPC. Pure data + AP/HP bookkeeping; no
@@ -9,7 +19,19 @@ import { DEFAULT_AP, DEFAULT_HP } from './constants.js';
  * damage, is data corruption we want surfaced early.
  */
 export class Entity {
-  constructor({ id, x, y, faction, glyph, maxAp = DEFAULT_AP, maxHp = DEFAULT_HP }) {
+  id: string;
+  x: number;
+  y: number;
+  faction: FactionId;
+  glyph: string;
+  maxAp: number;
+  ap: number;
+  maxHp: number;
+  hp: number;
+  alive: boolean;
+  stealthed: boolean;
+
+  constructor({ id, x, y, faction, glyph, maxAp = DEFAULT_AP, maxHp = DEFAULT_HP }: EntityInit) {
     if (id === undefined || id === null || id === '') {
       throw new TypeError('Entity requires a non-empty id');
     }
@@ -45,7 +67,7 @@ export class Entity {
     this.stealthed = false;
   }
 
-  canAfford(cost) {
+  canAfford(cost: number): boolean {
     return this.ap >= cost;
   }
 
@@ -56,14 +78,14 @@ export class Entity {
    * call this *after* their LOS+range check, so a peeking sentry still has
    * to physically see the tile, just not the actor on it.
    */
-  isSpottableBy(observer) {
+  isSpottableBy(observer: { x: number; y: number }): boolean {
     if (!this.stealthed) return true;
     const dx = Math.abs(observer.x - this.x);
     const dy = Math.abs(observer.y - this.y);
     return Math.max(dx, dy) <= 1;
   }
 
-  spendAp(cost) {
+  spendAp(cost: number): void {
     if (!Number.isInteger(cost) || cost < 0) {
       throw new RangeError(`AP cost must be a non-negative integer, got ${cost}`);
     }
@@ -73,7 +95,7 @@ export class Entity {
     this.ap -= cost;
   }
 
-  refreshAp() {
+  refreshAp(): void {
     this.ap = this.maxAp;
   }
 
@@ -82,7 +104,7 @@ export class Entity {
    * here would mask combat bugs (e.g. negative damage healing the target).
    * Reaching 0 HP flips `alive` to false; further damage on a corpse throws.
    */
-  damage(amount) {
+  damage(amount: number): void {
     if (!Number.isInteger(amount) || amount < 0) {
       throw new RangeError(`damage amount must be a non-negative integer, got ${amount}`);
     }

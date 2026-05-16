@@ -28,6 +28,12 @@ export const FACTION = Object.freeze({
   NEUTRAL: 'neutral',
 });
 
+/** Numeric tile id — one of the `TILE` values. */
+export type TileId = (typeof TILE)[keyof typeof TILE];
+
+/** Faction string — one of the `FACTION` values. */
+export type FactionId = (typeof FACTION)[keyof typeof FACTION];
+
 /**
  * Action Point costs from the V1 blueprint. Centralised so tuning is one edit.
  */

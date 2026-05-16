@@ -28,26 +28,26 @@ export const EVENT = Object.freeze({
   TURN_ENDED: 'turn:ended',
 });
 
-const KNOWN_TYPES = new Set(Object.values(EVENT));
+const KNOWN_TYPES = new Set<string>(Object.values(EVENT));
 
-function assertKnownType(type) {
+export type EventType = (typeof EVENT)[keyof typeof EVENT];
+export type EventListener = (payload?: unknown) => void;
+
+function assertKnownType(type: string): void {
   if (!KNOWN_TYPES.has(type)) {
     throw new Error(`Unknown event type: ${type}`);
   }
 }
 
 export class EventBus {
-  constructor() {
-    /** @type {Map<string, Set<Function>>} */
-    this.listeners = new Map();
-  }
+  listeners: Map<string, Set<EventListener>> = new Map();
 
   /**
    * Subscribe `fn` to `type`. Returns an unsubscribe function so callers can
    * `const off = bus.on(...)`; the same `fn` reference can also be passed to
    * `off(type, fn)`.
    */
-  on(type, fn) {
+  on(type: string, fn: EventListener): () => void {
     assertKnownType(type);
     if (typeof fn !== 'function') {
       throw new TypeError('EventBus.on requires a function listener');
@@ -61,7 +61,7 @@ export class EventBus {
     return () => this.off(type, fn);
   }
 
-  off(type, fn) {
+  off(type: string, fn: EventListener): void {
     assertKnownType(type);
     const set = this.listeners.get(type);
     if (set) set.delete(fn);
@@ -72,7 +72,7 @@ export class EventBus {
    * in registration order. Snapshots the listener set first so an unsubscribe
    * during dispatch is safe (it takes effect on the next emit, not this one).
    */
-  emit(type, payload) {
+  emit(type: string, payload?: unknown): void {
     assertKnownType(type);
     const set = this.listeners.get(type);
     if (!set || set.size === 0) return;

@@ -18,7 +18,7 @@
  *   class (`Rng`) does coerce-and-store explicitly.
  * @returns {() => number} a function returning a float in [0, 1).
  */
-export function mulberry32(seed) {
+export function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
   return function next() {
     a = (a + 0x6d2b79f5) >>> 0;
@@ -42,7 +42,14 @@ export function mulberry32(seed) {
  * mapgen) so adding a new mechanic doesn't perturb every other roll.
  */
 export class Rng {
-  constructor(seed) {
+  seed: number;
+  state: number;
+
+  // Lazily-rebuilt mulberry closure. Recreated whenever `state` is restored
+  // externally (e.g. on save load), so the stream resumes from the right spot.
+  #advance: () => number;
+
+  constructor(seed: number) {
     if (!Number.isFinite(seed)) {
       throw new TypeError(`Rng requires a finite numeric seed, got ${seed}`);
     }
@@ -50,10 +57,6 @@ export class Rng {
     this.state = this.seed;
     this.#advance = mulberry32(this.state);
   }
-
-  // Lazily-rebuilt mulberry closure. Recreated whenever `state` is restored
-  // externally (e.g. on save load), so the stream resumes from the right spot.
-  #advance;
 
   /**
    * INVARIANT: `this.state` mirrors the closure's internal `a`. mulberry32
@@ -63,7 +66,7 @@ export class Rng {
    * BOTH the closure and this mirror must move together — otherwise saves
    * silently desync from the live stream.
    */
-  next() {
+  next(): number {
     const v = this.#advance();
     this.state = (this.state + 0x6d2b79f5) >>> 0;
     return v;
@@ -74,7 +77,7 @@ export class Rng {
    * range is empty so a bug like `intRange(5, 5)` doesn't silently always
    * return 5 (it would hide off-by-one errors elsewhere).
    */
-  intRange(min, max) {
+  intRange(min: number, max: number): number {
     if (!Number.isInteger(min) || !Number.isInteger(max)) {
       throw new TypeError(`intRange bounds must be integers, got [${min}, ${max})`);
     }
@@ -85,7 +88,7 @@ export class Rng {
   }
 
   /** True with probability `p` ∈ [0, 1]. */
-  chance(p) {
+  chance(p: number): boolean {
     if (!Number.isFinite(p) || p < 0 || p > 1) {
       throw new RangeError(`chance probability must be in [0, 1], got ${p}`);
     }
@@ -93,7 +96,7 @@ export class Rng {
   }
 
   /** Uniform pick from a non-empty array. */
-  pick(arr) {
+  pick<T>(arr: readonly T[]): T {
     if (!Array.isArray(arr) || arr.length === 0) {
       throw new TypeError('pick requires a non-empty array');
     }
@@ -104,7 +107,7 @@ export class Rng {
    * Restore the stream to a previously-captured state. Pair with reading
    * `.state` to checkpoint into DataStore.
    */
-  setState(state) {
+  setState(state: number): void {
     if (!Number.isFinite(state)) {
       throw new TypeError(`setState requires a finite numeric state, got ${state}`);
     }
@@ -117,7 +120,7 @@ export class Rng {
    * stream's current state and the label string. Same (state, label) → same
    * substream, so substreams are still reproducible from the parent seed.
    */
-  fork(label) {
+  fork(label: string): Rng {
     if (typeof label !== 'string' || label.length === 0) {
       throw new TypeError('fork requires a non-empty string label');
     }

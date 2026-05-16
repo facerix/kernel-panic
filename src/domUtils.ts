@@ -1,20 +1,20 @@
 /**
- * Function for consisely creating a chunk of HTML nodes
- * @param {string} tagName
- * @param {Object | Map} attrs
- * @param {HTMLElement[]} children
- * @returns HTMLElement
+ * Function for concisely creating a chunk of HTML nodes.
  */
-export const h = (tagName, attrs, children) => {
+export const h = (
+  tagName: string,
+  attrs?: Record<string, unknown> | null,
+  children?: Node[],
+): HTMLElement => {
   const el = document.createElement(tagName);
   if (attrs) {
     for (const [key, value] of Object.entries(attrs)) {
       if (key === 'dataset' && value && typeof value === 'object') {
-        for (const [dataKey, dataVal] of Object.entries(value)) {
+        for (const [dataKey, dataVal] of Object.entries(value as Record<string, unknown>)) {
           el.dataset[dataKey] = dataVal == null ? '' : String(dataVal);
         }
       } else {
-        el[key] = value;
+        (el as unknown as Record<string, unknown>)[key] = value;
       }
     }
   }
@@ -25,11 +25,8 @@ export const h = (tagName, attrs, children) => {
 /**
  * Useful little template literal tagging function to make template strings behave more like JSX
  * taken almost verbatim from https://blog.jim-nielsen.com/2019/jsx-like-syntax-for-tagged-template-literals/
- * @param {string[]} strings
- * @param {string[]} values
- * @returns string
  */
-export function jsx(strings, ...values) {
+export function jsx(strings: TemplateStringsArray, ...values: unknown[]): string {
   let out = '';
   strings.forEach((string, i) => {
     const value = values[i];
@@ -48,12 +45,9 @@ export function jsx(strings, ...values) {
 }
 
 /**
- * Utility function to wrap an array of things in an HTML list
- * @param {Array(string|object)} arrayOfThings the things to put in the list
- * @param {Boolean} isOrdered should output be an ordered or unordered list
- * @returns string of raw HTML
+ * Utility function to wrap an array of things in an HTML list.
  */
-export const listify = (arrayOfThings, isOrdered) => {
+export const listify = (arrayOfThings: Array<string | object>, isOrdered: boolean): string => {
   return [
     isOrdered ? '<ol>' : '<ul>',
     ...arrayOfThings.map(i => `<li>${i}</li>`),
@@ -61,27 +55,33 @@ export const listify = (arrayOfThings, isOrdered) => {
   ].join('\n');
 };
 
-export const pluralize = (quantity, thing) => {
+export const pluralize = (quantity: number, thing: string): string => {
   return jsx`
 		${quantity} ${thing}${quantity !== 1 && 's'}
 	`;
 };
 
-export const CreateSvg = (body, width, height, classNames = '') => {
+export const CreateSvg = (
+  body: string,
+  width: string | number,
+  height: string | number,
+  classNames = '',
+): SVGSVGElement => {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('width', width);
-  svg.setAttribute('height', height);
+  svg.setAttribute('width', String(width));
+  svg.setAttribute('height', String(height));
   svg.setAttribute('viewBox', '0 0 24 24');
   classNames && svg.setAttribute('class', classNames);
   svg.innerHTML = body;
   return svg;
 };
 
-export const htmlToMarkdown = html => {
+export const htmlToMarkdown = (html: Node): string => {
   let out = '';
   html.childNodes.forEach(nd => {
     if (nd.nodeType === Node.ELEMENT_NODE) {
-      switch (nd.tagName) {
+      const el = nd as Element;
+      switch (el.tagName) {
         case 'P':
           out += `\n${htmlToMarkdown(nd)}\n`;
           break;
@@ -103,20 +103,19 @@ export const htmlToMarkdown = html => {
   return out;
 };
 
-export const queryParams = paramsObject => {
+export const queryParams = (paramsObject: Record<string, unknown>): string => {
   return (
     '?' +
     Object.keys(paramsObject)
-      .map(k => `${encodeURIComponent(k)}=${encodeURIComponent(paramsObject[k])}`)
+      .map(k => `${encodeURIComponent(k)}=${encodeURIComponent(String(paramsObject[k]))}`)
       .join('&')
   );
 };
 
 /**
- * Centralized function to determine if the app is running in development mode
- * @returns {boolean} true if in development mode, false otherwise
+ * Centralized function to determine if the app is running in development mode.
  */
-export const isDevelopmentMode = () => {
+export const isDevelopmentMode = (): boolean => {
   try {
     return (
       location.hostname === 'localhost' ||
