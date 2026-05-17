@@ -1,10 +1,12 @@
 /**
  * Player-facing status copy while the CORP faction is taking its turn.
- * Counts how many live corp units sit on a tile the viewer currently sees.
+ * Counts how many live corp units sit on a tile the viewer currently sees,
+ * and formats per-step log lines for the sidebar game log.
  */
 
 import { FACTION } from './constants.js';
 import type { Entity } from './Entity.js';
+import type { TurnActionStep } from '../types.js';
 
 type IsVisibleFn = (x: number, y: number) => boolean;
 
@@ -66,4 +68,39 @@ export function corpTurnStatusBody(visibleCorpCount: number, turnNumber: number)
     GENERIC_STATUS_MESSAGES[Math.floor(Math.random() * GENERIC_STATUS_MESSAGES.length)];
   corpNoiseForTurn.set(turnNumber, messageForUnseenCorp);
   return messageForUnseenCorp;
+}
+
+/**
+ * Format a single corp-turn step into a player-facing log line.
+ * Returns `null` for steps that don't warrant a log entry (patrol noise, etc.).
+ */
+export function formatCorpTurnStep(entityId: string, step: TurnActionStep): string | null {
+  switch (step.type) {
+    case 'fire': {
+      const r = step.result;
+      return (
+        `${entityId} fires at ${step.target} — ` +
+        `${r.hit ? 'HIT' : 'miss'} (roll ${r.roll.toFixed(2)} vs ${r.threshold.toFixed(2)}` +
+        `${r.inCover ? ', cover' : ''}).` +
+        (r.killed ? ` ${step.target.toUpperCase()} DOWN.` : '')
+      );
+    }
+    case 'fire-blocked':
+      return `${entityId} targets locked — ${step.reason}.`;
+    case 'move-engage':
+      return `${entityId} advances to (${step.to.x}, ${step.to.y}).`;
+    case 'move-investigate':
+      return `${entityId} investigates (${step.to.x}, ${step.to.y}).`;
+    case 'investigate-cleared':
+      return `${entityId} clears lead — resuming patrol.`;
+    case 'investigate-abandoned':
+      return `${entityId} abandons pursuit — resuming patrol.`;
+    // Patrol movement and waypoint chatter are noise; skip them.
+    case 'move-patrol':
+    case 'patrol-arrived':
+    case 'patrol-skipped':
+      return null;
+    default:
+      return null;
+  }
 }

@@ -257,8 +257,7 @@ main {
   flex-direction: column;
   flex-basis: 20%;
   border: 1px solid var(--accent-color);
-  height: 100%;
-  height: -webkit-fill-available;
+  align-self: stretch;
   aspect-ratio: 120 / 240;
   border-radius: 0.5rem 2rem 1rem 0.5rem;
   corner-shape: bevel;
@@ -280,8 +279,8 @@ main {
   }
   pre {
     margin: 0;
-    height: 100%;
-    height: -webkit-fill-available;
+    flex: 1;
+    min-height: 0;
 
     font-size: 0.7rem;
     color: var(--accent-color);
@@ -296,6 +295,7 @@ main {
 
   &.collapsed {
     flex-basis: 1.75rem;
+    aspect-ratio: unset;
     border-radius: 0.5rem;
     h3 {
       transform: rotate(-90deg) translate(-50%, -60%);

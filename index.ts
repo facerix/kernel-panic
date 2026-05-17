@@ -31,7 +31,11 @@ import {
   drivePlayerAftermath,
   formatPlayerAftermathStepLogLines,
 } from '/src/game/combatTurnPipeline.js';
-import { corpTurnStatusBody, countVisibleCorpEntities } from '/src/game/corpTurnStatusCopy.js';
+import {
+  corpTurnStatusBody,
+  countVisibleCorpEntities,
+  formatCorpTurnStep,
+} from '/src/game/corpTurnStatusCopy.js';
 import { EVENT } from '/src/game/events.js';
 import { VisionField } from '/src/game/Vision.js';
 import { AsciiRenderer } from '/src/render/AsciiRenderer.js';
@@ -56,7 +60,7 @@ import type { Run, RunResult, RunTelemetry, Outcome } from '/src/game/Run.js';
 import type { Item } from '/src/game/items.js';
 import type { Intent } from '/src/input/applyIntent.js';
 import type { Mode } from '/src/input/keymap.js';
-import type { Telemetry } from '/src/types.js';
+import type { Telemetry, TurnActionStep } from '/src/types.js';
 
 import '/components/ConfirmationModal.js';
 import '/components/UpdateNotification.js';
@@ -674,7 +678,9 @@ function handleIntent(intent: Intent): void {
           handleInteract();
           break;
         case PLAYER_ACTIONS.REACHED_EXIT:
-          flash('Curator: Hang tight! Come talk to me to claim a contract.');
+          if (campaign?.state === CAMPAIGN_STATE.HUB) {
+            flash('Curator: Hang tight! Come talk to me to claim a contract.');
+          }
           advanceTurn();
           break;
       }
@@ -768,6 +774,10 @@ function runCorpTurn(onFinish: () => void): void {
     actionDelayMs: CORP_ACTION_DELAY_MS,
     lockMarginMs: ANIMATION_DURATIONS.MUZZLE_FLASH,
     onFinish,
+    onStep: (entityId: string, step: TurnActionStep) => {
+      const line = formatCorpTurnStep(entityId, step);
+      if (line) flash(line);
+    },
   });
 }
 

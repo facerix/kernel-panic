@@ -1,4 +1,4 @@
-import type { TurnActionSteps } from '../types.js';
+import type { TurnActionStep, TurnActionSteps } from '../types.js';
 import type { World } from './World.js';
 import type { Rng } from '../rng.js';
 
@@ -14,6 +14,7 @@ export type CorpTurnDriverCtx = {
   actionDelayMs: number;
   lockMarginMs: number;
   onFinish: () => void;
+  onStep?: (entityId: string, step: TurnActionStep) => void;
   schedule?: (fn: () => void, ms: number) => void;
 };
 
@@ -85,6 +86,9 @@ const defaultSchedule = (fn: () => void, ms: number) => setTimeout(fn, ms);
  * @param {() => void} ctx.onFinish
  *   Called when every generator drains. The shell wires this to
  *   `run.queue.endTurn(world); recomputeVision(); paint();`.
+ * @param {(entityId: string, step: TurnActionStep) => void} [ctx.onStep]
+ *   Called on every yielded step with the acting entity's id and the step
+ *   payload. Optional — omit for headless/test contexts that don't need a log.
  * @param {(fn: () => void, ms: number) => void} [ctx.schedule]
  *   Defaults to `setTimeout`. Injectable for tests.
  */
@@ -94,11 +98,11 @@ export function runCorpTurn(ctx: unknown): void {
   const { run, corpFaction, onFinish } = c;
   if (TERMINAL_STATES.has(run.state)) return;
 
-  const steppers: TurnActionSteps[] = [];
+  const steppers: { id: string; gen: TurnActionSteps }[] = [];
   for (const e of run.world.entities.values()) {
     if (!e.alive || e.faction !== corpFaction) continue;
     if (typeof e.takeTurnSteps === 'function') {
-      steppers.push(e.takeTurnSteps(run.world, run.rng));
+      steppers.push({ id: e.id, gen: e.takeTurnSteps(run.world, run.rng) });
     } else if (typeof e.takeTurn === 'function') {
       // Non-step-aware corp entities (none today, but keeps the seam open
       // for future static threats / camera-only AIs). Burn their turn
@@ -113,7 +117,11 @@ export function runCorpTurn(ctx: unknown): void {
   pump(c, steppers, 0);
 }
 
-function pump(ctx: CorpTurnDriverCtx, steppers: TurnActionSteps[], startIdx: number): void {
+function pump(
+  ctx: CorpTurnDriverCtx,
+  steppers: { id: string; gen: TurnActionSteps }[],
+  startIdx: number
+): void {
   const {
     run,
     paint,
@@ -121,16 +129,19 @@ function pump(ctx: CorpTurnDriverCtx, steppers: TurnActionSteps[], startIdx: num
     actionDelayMs,
     lockMarginMs,
     onFinish,
+    onStep,
     schedule = defaultSchedule,
   } = ctx;
   if (TERMINAL_STATES.has(run.state)) return;
   let idx = startIdx;
   while (idx < steppers.length) {
-    const result = steppers[idx].next();
+    const stepper = steppers[idx];
+    const result = stepper.gen.next();
     if (result.done) {
       idx++;
       continue;
     }
+    if (onStep) onStep(stepper.id, result.value);
     paint();
     animLock.push(actionDelayMs + lockMarginMs);
     schedule(() => pump(ctx, steppers, idx), actionDelayMs);
@@ -167,6 +178,9 @@ function validateCtx(ctx: unknown): void {
   }
   if (typeof o.onFinish !== 'function') {
     throw new TypeError('runCorpTurn: ctx.onFinish must be a function');
+  }
+  if (o.onStep !== undefined && typeof o.onStep !== 'function') {
+    throw new TypeError('runCorpTurn: ctx.onStep must be a function when supplied');
   }
   if (o.schedule !== undefined && typeof o.schedule !== 'function') {
     throw new TypeError('runCorpTurn: ctx.schedule must be a function when supplied');
