@@ -174,6 +174,21 @@ Closes the **corpse memorisation** kaizen item (load-bearing for the salvage loo
 - **Crew UI refactor.** `<crew-list>` extracted as a reusable navigable row list. `<crew-roster>` is now a two-pane Terminal readout (crew list left, stats/gear/consumables detail right). `<run-briefing>` is now a single-modal Curator flow: contract details + crew list + JACK IN button. The old two-step deploy flow (pick crew → briefing → jack in) is collapsed to one step.
 - Tests (614 total): HP persistence across jobs, consumable persistence, Vault body-check + knockback legality matrix (8 tests), applyIntent vault rework (4 tests), Finn glyph fix.
 
+### Intermezzo — TypeScript conversion ✅
+
+Full conversion of the codebase from vanilla JavaScript to TypeScript, completed between M4 and M5. No game-logic changes — purely a type-safety and tooling upgrade.
+
+- **Scope:** 110 files renamed `.js` → `.ts` across `src/`, `components/`, `debug/`, `tests/`, and the two entry points (`index.ts`, `about.ts`). Service workers (`sw.js`, `sw-dev.js`, `sw-core.js`) remain classic-worker JS — they use `importScripts` / global scope and are copied as static assets.
+- **Build pipeline (bundler-free):** `tsc` compiles into `dist/`; a `scripts/copy-assets.mjs` script copies static assets (HTML, CSS, manifest, fonts, icons, images, SW scripts) alongside the compiled JS. Dev mode runs `tsc --watch` + chokidar asset copy + live-server via `concurrently`. No bundler — the browser loads ES modules from `dist/` directly, same as before.
+- **tsconfig layout:** Three configs.
+  - `tsconfig.json` — main build. `strict: true`, `ES2022` target, `ESNext` module, `bundler` resolution, `verbatimModuleSyntax`. Covers `src/`, `components/`, `debug/`, and entries.
+  - `tsconfig.tests.json` — extends main, adds `tests/**/*`. Used by `npm run typecheck:tests` (currently has residual type errors — deferred to a future kaizen loop).
+  - `tsconfig.test-build.json` — extends test config with `noCheck: true` + `noEmit: false`. Transpiles tests to JS for `node --test` without blocking on type errors. This is the path `npm test` takes: `typecheck` (main only) → `build:tests` (transpile-only) → `node --test`.
+- **Shared types:** `src/types.ts` — homeless structural contracts (`GridPoint`, `RangedAttackResult`, `CorpDroneTurnStep`, `TurnActionStep`, `Telemetry`, etc.) that don't belong to a single class. Class-backed types stay in their own files; consumers use `import type` to avoid circular runtime imports.
+- **Type annotations added throughout:** `EntityInit` interface, `TileId` / `FactionId` helper types exported from constants, `EventBus` listener map typing, `Glyph` type in palette, full method signatures on `Grid`, `World`, `Combat`, `Campaign`, `Run`, all archetypes, all components. `strict: true` enforced from the start — no `any` escape hatches in production code.
+- **Test suite intact:** 616 tests passing (up from 614 at end of M4 — two new tests added during conversion for `Hostile` and `Crew` edge cases). All tests run via `npm test` (`typecheck` + transpile + `node --test`). `typecheck:tests` still has ~10 residual errors (tests that use intentionally loose stubs, e.g. partial entity shapes) — these are non-blocking and tracked for a future kaizen pass.
+- **Net diff:** +3654 / −1191 lines across 120 files. The bulk is type annotations, interface declarations, and the build scaffolding. No behavioural changes to game logic, rendering, or persistence.
+
 ### M5 — Vouch + NPC taxonomy ⬜
 
 Closes the **NEUTRAL faction shootable** kaizen item.

@@ -27,6 +27,7 @@ When an item lands, gets reclassified, or develops new context, edit it in place
 
 ## ◇ Monitored
 
+- **`typecheck:tests` has residual type errors (~10).** Tests intentionally use partial stubs (e.g. `{ x: 0, y: 0 }` where a full `Entity` is expected) for ergonomics. The main build (`tsconfig.json`) type-checks clean; only `tsconfig.tests.json` fails. The test pipeline works around this with `tsconfig.test-build.json` (`noCheck: true`) so `npm test` passes. Options: (a) create proper test fixtures/factories that satisfy the full type, (b) use `as unknown as Entity` casts in tests, (c) a lighter `Partial<Entity>` helper type for test contexts. Revisit when adding new test files — each new partial stub compounds the error count.
 - **Diagonal movement cost equals orthogonal.** Drone AI didn't expose obvious cheese in M5 (path lengths feel right), but √2 rounding will probably go in alongside Razor's Slide if positional play gets tighter.
 - **`World.entityAt` is O(n) linear scan.** Acceptable for V1; revisit if entity count crosses ~hundreds. M5 hits it from both `findPath` (per neighbour) and `acquireTarget`; M8 still sits at ~5 entities per scene.
 - **CRT vignette uses canvas dimensions directly.** Will look off if the canvas is non-uniformly CSS-stretched. Currently scaled uniformly so it's fine.
