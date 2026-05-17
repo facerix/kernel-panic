@@ -9,7 +9,9 @@
  * short patrol so the player gets a visible LOS check on entry.
  */
 
-export const ASCII = `
+import type { PrefabAscii, PrefabMetadata } from './types.js';
+
+export const ASCII: PrefabAscii = `
 .....
 .+.+.
 .....
@@ -37,4 +39,4 @@ export const METADATA = Object.freeze({
     ],
     exit: [{ x: 4, y: 3 }],
   },
-});
+} satisfies PrefabMetadata);

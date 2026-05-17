@@ -26,6 +26,8 @@
  * which is what makes the flash survive the shell's post-action redraw.
  */
 
+import type { AsciiRenderer } from './AsciiRenderer.js';
+
 export const ANIMATION_DURATIONS = Object.freeze({
   SHAKE: 150,
   DAMAGE_FLASH: 300,
@@ -40,7 +42,7 @@ export const DAMAGE_CLASS = 'kp-damage-flash';
 
 const defaultTimers = Object.freeze({
   now: () => (typeof performance !== 'undefined' ? performance.now() : Date.now()),
-  setTimeout: (fn, ms) => setTimeout(fn, ms),
+  setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
 });
 
 /**
@@ -49,7 +51,12 @@ const defaultTimers = Object.freeze({
  * retrigger when two damage events land back-to-back — without it, the
  * second add is a no-op because the class is already present.
  */
-export function restartCssAnimation(el, className, duration, timers = defaultTimers) {
+export function restartCssAnimation(
+  el: HTMLElement,
+  className: string,
+  duration: number,
+  timers = defaultTimers
+) {
   if (!el || !el.classList || typeof className !== 'string') return false;
   if (!Number.isFinite(duration) || duration < 0) {
     throw new RangeError(`restartCssAnimation: duration ${duration} must be non-negative`);
@@ -68,11 +75,11 @@ export function restartCssAnimation(el, className, duration, timers = defaultTim
   return true;
 }
 
-export function triggerShake(stageEl, timers = defaultTimers) {
+export function triggerShake(stageEl: HTMLElement, timers = defaultTimers) {
   return restartCssAnimation(stageEl, SHAKE_CLASS, ANIMATION_DURATIONS.SHAKE, timers);
 }
 
-export function triggerDamageFlash(stageEl, timers = defaultTimers) {
+export function triggerDamageFlash(stageEl: HTMLElement, timers = defaultTimers) {
   return restartCssAnimation(stageEl, DAMAGE_CLASS, ANIMATION_DURATIONS.DAMAGE_FLASH, timers);
 }
 
@@ -86,7 +93,7 @@ export function triggerDamageFlash(stageEl, timers = defaultTimers) {
 export function createAnimationLock(timers = defaultTimers) {
   let until = 0;
   return {
-    push(durationMs) {
+    push(durationMs: number) {
       if (!Number.isFinite(durationMs) || durationMs < 0) {
         throw new RangeError(
           `animation lock: push duration ${durationMs} must be a non-negative number`
@@ -114,7 +121,21 @@ export function createAnimationLock(timers = defaultTimers) {
  * Returns false when the renderer can't position the flash (no draw has
  * happened yet) so the shell can skip extending the lock.
  */
-export function runMuzzleFlash(renderer, repaint, worldX, worldY, options = {}) {
+type RunMuzzleFlashOptions = {
+  duration?: number;
+  timers?: typeof defaultTimers;
+  flashOpts?: {
+    color?: string;
+    glyph?: string;
+  };
+};
+export function runMuzzleFlash(
+  renderer: AsciiRenderer,
+  repaint: () => void,
+  worldX: number,
+  worldY: number,
+  options: RunMuzzleFlashOptions = {}
+) {
   const {
     duration = ANIMATION_DURATIONS.MUZZLE_FLASH,
     timers = defaultTimers,

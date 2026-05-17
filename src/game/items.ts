@@ -20,6 +20,17 @@
 
 import { SHOP_COST, STIM_HEAL, SMOKE_RADIUS, TARGETING_BONUS } from './constants.js';
 
+export type Item = {
+  id: string;
+  label: string;
+  scope: string;
+  cost: number;
+  description: string;
+  needsTarget: boolean;
+  unique?: boolean;
+  metaGate?: string;
+};
+
 export const ITEM_SCOPE = Object.freeze({
   JOB: 'job',
   CAMPAIGN: 'campaign',
@@ -45,7 +56,7 @@ export const ITEM_ID = Object.freeze({
  *   - `metaGate`    — if set, item only appears when `meta[metaGate]` is truthy
  *   - `unique`      — if true, can only be purchased once (meta-scope items)
  */
-const CATALOG = Object.freeze([
+const CATALOG: readonly Item[] = Object.freeze([
   Object.freeze({
     id: ITEM_ID.STIM,
     label: 'Stim',
@@ -99,11 +110,17 @@ const CATALOG = Object.freeze([
 export function getShopCatalog(meta = {}) {
   return CATALOG.filter(item => {
     // Hide unique meta items that are already purchased.
-    if (item.unique && item.scope === ITEM_SCOPE.META && meta[metaKeyFor(item.id)]) {
+    const metaKey = metaKeyFor(item.id);
+    if (
+      metaKey &&
+      item.unique &&
+      item.scope === ITEM_SCOPE.META &&
+      meta[metaKey as keyof typeof meta]
+    ) {
       return false;
     }
     // Future: items gated behind `metaGate` would check meta[item.metaGate].
-    if (item.metaGate && !meta[item.metaGate]) return false;
+    if (item.metaGate && !meta[item.metaGate as keyof typeof meta]) return false;
     return true;
   });
 }
@@ -112,7 +129,7 @@ export function getShopCatalog(meta = {}) {
  * Look up a single item descriptor by id. Throws on unknown id — no silent
  * fallback for a typo in a purchase call.
  */
-export function getItemById(itemId) {
+export function getItemById(itemId: string) {
   const item = CATALOG.find(i => i.id === itemId);
   if (!item) {
     throw new Error(`getItemById: unknown item "${itemId}"`);
@@ -124,7 +141,7 @@ export function getItemById(itemId) {
  * Map an item ID to its meta-state key. Only meta-scope items have a
  * meaningful key; calling with a non-meta item returns `undefined`.
  */
-export function metaKeyFor(itemId) {
+export function metaKeyFor(itemId: string) {
   switch (itemId) {
     case ITEM_ID.EXPANDED_CATALOG:
       return 'expandedCatalog';

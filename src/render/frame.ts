@@ -9,6 +9,11 @@ import {
   CORPSE_GLYPH_CHAR,
   MEMORY_DIM,
 } from './palette.js';
+import type { World } from '../game/World.js';
+import type { Entity } from '../game/Entity.js';
+import type { VisionField } from '../game/Vision.js';
+import type { Glyph } from './palette.js';
+import type { FactionId, TileId } from '../game/constants.js';
 
 /**
  * Pure frame builder — converts world state + a camera viewport into a flat
@@ -32,12 +37,29 @@ import {
  * onto a corpse tile still win the cell.
  */
 
+export type Viewport = {
+  width: number;
+  height: number;
+};
+export type Camera = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+export type Frame = {
+  width: number;
+  height: number;
+  cells: Glyph[];
+};
+
 /**
  * @param {{ x: number, y: number }} target
  * @param {{ width: number, height: number }} viewport
  * @returns {{ x: number, y: number, width: number, height: number }}
  */
-export function cameraFor(target, viewport) {
+export function cameraFor(target: Entity, viewport: Viewport): Camera {
   if (!Number.isInteger(viewport.width) || viewport.width <= 0) {
     throw new RangeError(`viewport.width must be a positive integer, got ${viewport.width}`);
   }
@@ -52,20 +74,23 @@ export function cameraFor(target, viewport) {
   };
 }
 
+export type BuildFrameOptions = {
+  vision?: VisionField;
+};
 /**
  * @param {import('../game/World.js').World} world
  * @param {{ x: number, y: number, width: number, height: number }} camera
  * @param {{ vision?: import('../game/Vision.js').VisionField }} [options]
  */
-export function buildFrame(world, camera, options = {}) {
+export function buildFrame(world: World, camera: Camera, options: BuildFrameOptions = {}): Frame {
   const { x: cx, y: cy, width, height } = camera;
   const { vision } = options;
-  const cells = Array.from({ length: width * height });
+  const cells: Glyph[] = Array.from({ length: width * height });
 
   // Index entities once so we don't pay an O(n) scan per cell. Two-pass:
   // dead first, then live, so a live entity standing on a corpse's tile
   // overwrites it — the live silhouette is what the player needs to react to.
-  const entityIndex = new Map();
+  const entityIndex: Map<string, Entity> = new Map();
   for (const e of world.entities.values()) {
     if (!e.alive) entityIndex.set(`${e.x},${e.y}`, e);
   }
@@ -91,12 +116,12 @@ export function buildFrame(world, camera, options = {}) {
           // they are). Memorised corpses render at MEMORY_DIM so the player
           // can navigate back to loot them. The corpse glyph uses its faction
           // colour at the memory dim factor.
-          const corpseRec = vision.memorisedCorpses?.get(`${wx},${wy}`);
+          const corpseRec = vision.memorisedCorpses.get(`${wx},${wy}`);
           if (corpseRec) {
-            const fg = factionFgForMemory(corpseRec.faction);
+            const fg = factionFgForMemory(corpseRec.faction as FactionId);
             cells[idx] = { char: CORPSE_GLYPH_CHAR, fg: dimColor(fg, MEMORY_DIM) };
           } else {
-            cells[idx] = dimGlyph(glyphForTile(world.grid.tileAt(wx, wy)));
+            cells[idx] = dimGlyph(glyphForTile(world.grid.tileAt(wx, wy) as TileId));
           }
         } else {
           cells[idx] = UNSEEN_GLYPH;
@@ -115,12 +140,17 @@ export function buildFrame(world, camera, options = {}) {
  * Pick the glyph for a single visible cell, favouring entities over terrain.
  * Live entities render full-bright; corpses render via `glyphForCorpse`.
  */
-function glyphForCell(world, entityIndex, wx, wy) {
+function glyphForCell(
+  world: World,
+  entityIndex: Map<string, Entity>,
+  wx: number,
+  wy: number
+): Glyph {
   const entity = entityIndex.get(`${wx},${wy}`);
   if (entity) {
     return entity.alive ? glyphForEntity(entity) : glyphForCorpse(entity);
   }
-  return glyphForTile(world.grid.tileAt(wx, wy));
+  return glyphForTile(world.grid.tileAt(wx, wy) as TileId);
 }
 
 /**
@@ -129,6 +159,6 @@ function glyphForCell(world, entityIndex, wx, wy) {
  * entity reference. Uses `glyphForEntity` on a minimal shim so the colour
  * mapping has one source of truth in `palette.js`.
  */
-function factionFgForMemory(faction) {
+function factionFgForMemory(faction: FactionId): string {
   return glyphForEntity({ faction, glyph: '?' }).fg;
 }

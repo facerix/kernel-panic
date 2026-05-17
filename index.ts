@@ -48,6 +48,15 @@ import { MODE } from '/src/input/keymap.js';
 import { applyIntent, PLAYER_ACTIONS } from '/src/input/applyIntent.js';
 
 import { placeSmoke, clearSmoke } from '/src/game/Smoke.js';
+import type { CampaignSnapshot } from '/src/game/persistence.js';
+import type { Contract } from '/src/game/hub/Curator.js';
+import type { Crew } from '/src/game/Crew.js';
+import type { Entity } from '/src/game/Entity.js';
+import type { Run, RunResult, RunTelemetry, Outcome } from '/src/game/Run.js';
+import type { Item } from '/src/game/items.js';
+import type { Intent } from '/src/input/applyIntent.js';
+import type { Mode } from '/src/input/keymap.js';
+import type { Telemetry } from '/src/types.js';
 
 import '/components/ConfirmationModal.js';
 import '/components/UpdateNotification.js';
@@ -65,17 +74,89 @@ import '/components/KeyHelp.js';
 // State
 // ---------------------------------------------------------------------------
 
-/** @type {Campaign|null} */
-let campaign = null;
-let vision = new VisionField();
-let visionMoveUnsub = null;
+type ShellScene = Campaign | Run;
+type SmokeOverlay = ReturnType<typeof placeSmoke>[number];
+type HelpScope = 'hub' | 'combat';
+type PointLike = Pick<Entity, 'x' | 'y'> | { x: number; y: number } | null | undefined;
 
-let canvas, statusEl, renderer, crt;
-let stageEl;
-let briefingEl, crashEl, systemStartEl, resumeModalEl, quitCampaignModalEl, touchPadEl;
-let crewRosterEl, finnShopEl, itemInventoryEl, keyHelpEl;
-let logEl, logHeaderEl, logContentEl;
-let keyboard;
+type ModalElement = HTMLElement & {
+  show(): void;
+  hide(): void;
+  readonly isOpen: boolean;
+};
+type RunBriefingElement = ModalElement & {
+  setContract(contract: Contract): void;
+  setCrew(crew: Crew[]): void;
+};
+type CrashDumpElement = ModalElement & {
+  setTelemetry(telemetry: Record<string, unknown>): void;
+};
+type SystemStartElement = ModalElement & {
+  setSession(session: { seed: number }): void;
+};
+type CrewRosterElement = ModalElement & {
+  setCrew(crew: Crew[], opts?: { salvage?: number }): void;
+};
+type FinnShopElement = ModalElement & {
+  setCatalog(catalog: Item[], crew: Crew[], salvage: number): void;
+};
+type ItemInventoryElement = ModalElement & {
+  setItems(consumables: NonNullable<Crew['inventory']>['consumables']): void;
+};
+type KeyHelpElement = ModalElement & {
+  setScope(scope: HelpScope): void;
+};
+type TouchPadElement = HTMLElement & {
+  mode: Mode;
+  setMode(mode: Mode): void;
+  setBlocked(predicate: (() => boolean) | null): void;
+};
+type ConfirmationModalElement = HTMLElement & {
+  showModal(message: string, context?: unknown): void;
+};
+type UpdateNotificationElement = HTMLElement & {
+  show(pendingWorker: ServiceWorker | null): void;
+};
+
+type PendingJobResult = {
+  outcome: Outcome;
+  telemetry: RunTelemetry & { outcome: Outcome };
+};
+
+type EntityDamagedPayload = {
+  target?: Entity;
+  killed?: boolean;
+  source?: string;
+};
+
+type NoisePayload = {
+  kind?: string;
+  origin?: { x: number; y: number };
+};
+
+let campaign: Campaign | null = null;
+let vision = new VisionField();
+let visionMoveUnsub: (() => void) | null = null;
+
+let canvas: HTMLCanvasElement;
+let statusEl: HTMLElement | null = null;
+let renderer: AsciiRenderer;
+let crt: CrtFilter;
+let stageEl: HTMLElement;
+let briefingEl: RunBriefingElement;
+let crashEl: CrashDumpElement;
+let systemStartEl: SystemStartElement;
+let resumeModalEl: ConfirmationModalElement;
+let quitCampaignModalEl: ConfirmationModalElement;
+let touchPadEl: TouchPadElement;
+let crewRosterEl: CrewRosterElement;
+let finnShopEl: FinnShopElement;
+let itemInventoryEl: ItemInventoryElement;
+let keyHelpEl: KeyHelpElement;
+let logEl: HTMLElement;
+let logHeaderEl: HTMLElement;
+let logContentEl: HTMLPreElement;
+let keyboard: KeyboardController;
 
 /**
  * Animation-lock for M0 combat feedback. Listeners on the run bus
@@ -85,15 +166,15 @@ let keyboard;
  */
 const animLock = createAnimationLock();
 /** Unsubscribers for the run-bus animation listeners. Re-bound on every state transition. */
-let animationUnsubs = [];
+let animationUnsubs: (() => void)[] = [];
 
-let pendingJobResult = null;
+let pendingJobResult: PendingJobResult | null = null;
 /**
  * Active smoke overlays from Smoke Charge consumables. Each entry records
  * the tile position and original tile type so `clearSmoke` can restore the
  * grid. Cleared at the start of the player's next turn (`onPlayerTurnReady`).
  */
-let activeSmokeOverlays = [];
+let activeSmokeOverlays: SmokeOverlay[] = [];
 
 /**
  * Most recent intent-result log line ("@ moved to (3,4) — 2 AP left.").
@@ -111,7 +192,7 @@ let lastActionLine = '';
  * `paint()` — without this, the action line gets clobbered by the
  * subsequent statusLine() rewrite.
  */
-let logLines = [];
+let logLines: string[] = [];
 
 const seedFromClock = () => Date.now() & 0xffffffff;
 
@@ -127,37 +208,64 @@ const allComponentsReady = Promise.all([
   customElements.whenDefined('system-start'),
 ]);
 
+function mustGetElement<T extends HTMLElement>(id: string): T {
+  const el = document.getElementById(id);
+  if (!el) {
+    throw new Error(`[shell] required element #${id} is missing`);
+  }
+  return el as T;
+}
+
+function mustQuery<T extends Element>(selector: string, root: ParentNode = document): T {
+  const el = root.querySelector(selector);
+  if (!el) {
+    throw new Error(`[shell] required selector "${selector}" is missing`);
+  }
+  return el as T;
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function isRun(scene: ShellScene): scene is Run {
+  return 'archetype' in scene;
+}
+
 // ---------------------------------------------------------------------------
 // Boot
 // ---------------------------------------------------------------------------
 
 async function boot() {
-  canvas = document.getElementById('game-canvas');
-  stageEl = canvas?.parentElement ?? null;
-  statusEl = document.getElementById('game-status');
-  briefingEl = document.getElementById('briefing');
-  crashEl = document.getElementById('crash');
-  systemStartEl = document.getElementById('system-start');
-  resumeModalEl = document.getElementById('resume-modal');
-  quitCampaignModalEl = document.getElementById('quit-campaign-modal');
-  touchPadEl = document.getElementById('touch-pad');
-  crewRosterEl = document.getElementById('crew-roster');
-  finnShopEl = document.getElementById('finn-shop');
-  itemInventoryEl = document.getElementById('item-inventory');
-  keyHelpEl = document.getElementById('key-help');
-  logEl = document.querySelector('.game-log');
-  logHeaderEl = document.querySelector('.game-log h3');
-  logContentEl = logEl.querySelector('pre');
+  canvas = mustGetElement<HTMLCanvasElement>('game-canvas');
+  if (!canvas.parentElement) {
+    throw new Error('[shell] #game-canvas requires a parent stage element');
+  }
+  stageEl = canvas.parentElement;
+  statusEl = mustGetElement<HTMLElement>('game-status');
+  briefingEl = mustGetElement<RunBriefingElement>('briefing');
+  crashEl = mustGetElement<CrashDumpElement>('crash');
+  systemStartEl = mustGetElement<SystemStartElement>('system-start');
+  resumeModalEl = mustGetElement<ConfirmationModalElement>('resume-modal');
+  quitCampaignModalEl = mustGetElement<ConfirmationModalElement>('quit-campaign-modal');
+  touchPadEl = mustGetElement<TouchPadElement>('touch-pad');
+  crewRosterEl = mustGetElement<CrewRosterElement>('crew-roster');
+  finnShopEl = mustGetElement<FinnShopElement>('finn-shop');
+  itemInventoryEl = mustGetElement<ItemInventoryElement>('item-inventory');
+  keyHelpEl = mustGetElement<KeyHelpElement>('key-help');
+  logEl = mustQuery<HTMLElement>('.game-log');
+  logHeaderEl = mustQuery<HTMLElement>('.game-log h3');
+  logContentEl = mustQuery<HTMLPreElement>('pre', logEl);
 
   renderer = new AsciiRenderer(canvas);
   crt = new CrtFilter(canvas);
 
   keyboard = new KeyboardController({
-    onIntent: intent => {
+    onIntent: (intent: Intent) => {
       handleIntent(intent);
       paint();
     },
-    onModeChange: nextMode => {
+    onModeChange: (nextMode: Mode) => {
       // Keep the keyboard / touchpad in lock-step so the cross-input cancel
       // rule the M7 harness established still holds in the shell.
       paint(nextMode);
@@ -175,28 +283,20 @@ async function boot() {
   briefingEl.addEventListener('deploy', onBriefingDeploy);
   briefingEl.addEventListener('dismiss', () => briefingEl.hide());
   crashEl.addEventListener('new-run', onNewRunRequested);
-  systemStartEl?.addEventListener('hub-enter', onSystemStartHubEnter);
+  systemStartEl.addEventListener('hub-enter', onSystemStartHubEnter);
 
-  if (crewRosterEl) {
-    crewRosterEl.addEventListener('dismiss', () => crewRosterEl.hide());
-  }
+  crewRosterEl.addEventListener('dismiss', () => crewRosterEl.hide());
 
-  if (finnShopEl) {
-    finnShopEl.addEventListener('purchase', onFinnPurchase);
-    finnShopEl.addEventListener('dismiss', () => finnShopEl.hide());
-  }
+  finnShopEl.addEventListener('purchase', onFinnPurchase);
+  finnShopEl.addEventListener('dismiss', () => finnShopEl.hide());
 
-  if (itemInventoryEl) {
-    itemInventoryEl.addEventListener('use-item', onUseItem);
-    itemInventoryEl.addEventListener('dismiss', () => itemInventoryEl.hide());
-  }
+  itemInventoryEl.addEventListener('use-item', onUseItem);
+  itemInventoryEl.addEventListener('dismiss', () => itemInventoryEl.hide());
 
-  if (keyHelpEl) {
-    keyHelpEl.addEventListener('dismiss', () => keyHelpEl.hide());
-  }
+  keyHelpEl.addEventListener('dismiss', () => keyHelpEl.hide());
 
   const keyHelpToggleEl = document.getElementById('key-help-toggle');
-  if (keyHelpToggleEl && keyHelpEl) {
+  if (keyHelpToggleEl) {
     keyHelpToggleEl.addEventListener('click', () => {
       if (keyHelpEl.isOpen) {
         keyHelpEl.hide();
@@ -206,34 +306,30 @@ async function boot() {
     });
   }
 
-  if (quitCampaignModalEl) {
-    quitCampaignModalEl.addEventListener('confirm', evt => {
-      if (evt.detail?.context?.kind !== 'quit-campaign') return;
-      performQuitCampaign();
-    });
-  }
+  quitCampaignModalEl.addEventListener('confirm', evt => {
+    const detail = (evt as CustomEvent<{ context?: { kind?: string } }>).detail;
+    if (detail?.context?.kind !== 'quit-campaign') return;
+    performQuitCampaign();
+  });
 
-  if (touchPadEl) {
-    touchPadEl.addEventListener('intent', evt => {
-      handleIntent(evt.detail);
-      paint();
-    });
-    touchPadEl.addEventListener('mode-change', evt => {
-      paint(evt.detail.mode);
-    });
-    touchPadEl.setBlocked(() => animLock.isLocked() || isAnyBlockingModalOpen());
-  }
+  touchPadEl.addEventListener('intent', evt => {
+    handleIntent((evt as CustomEvent<Intent>).detail);
+    paint();
+  });
+  touchPadEl.addEventListener('mode-change', evt => {
+    paint((evt as CustomEvent<{ mode: Mode }>).detail.mode);
+  });
+  touchPadEl.setBlocked(() => animLock.isLocked() || isAnyBlockingModalOpen());
 
-  if (logHeaderEl) {
-    logHeaderEl.addEventListener('click', () => {
-      logEl.classList.toggle('collapsed');
-    });
-  }
+  logHeaderEl.addEventListener('click', () => {
+    logEl.classList.toggle('collapsed');
+  });
 
   // Update-notification wiring kept from the original scaffold.
-  const updateNotification = document.querySelector('update-notification');
+  const updateNotification = mustQuery<UpdateNotificationElement>('update-notification');
   window.addEventListener('sw-update-available', event => {
-    updateNotification.show(event.detail.pendingWorker);
+    const detail = (event as CustomEvent<{ pendingWorker: ServiceWorker | null }>).detail;
+    updateNotification.show(detail.pendingWorker);
   });
 
   await dataStore.init();
@@ -268,37 +364,35 @@ function startFreshCampaign() {
   attachAnimationListeners();
   recomputeVision();
   renderShell();
-  if (systemStartEl) {
-    systemStartEl.setSession({ seed: campaign.seed });
-    systemStartEl.show();
-  } else {
-    flash('NEW RUN — Curator is in the Hub.');
-  }
+  systemStartEl.setSession({ seed: campaign.seed });
+  systemStartEl.show();
 }
 
 function onSystemStartHubEnter() {
-  systemStartEl?.hide();
+  systemStartEl.hide();
   flash('HUB — Curator has contracts when you are adjacent [Space].');
 }
 
 function presentCrewRoster() {
-  if (!crewRosterEl || !campaign) return;
+  if (!campaign) return;
   crewRosterEl.setCrew(campaign.crew, { salvage: campaign.salvage });
   crewRosterEl.show();
 }
 
-function presentBriefing(contract) {
-  if (!briefingEl || !campaign) return;
+function presentBriefing(contract: Contract) {
+  if (!campaign) return;
   briefingEl.setContract(contract);
   briefingEl.setCrew(campaign.crew);
   briefingEl.show();
 }
 
-function onBriefingDeploy(evt) {
+function onBriefingDeploy(evt: Event) {
   if (!campaign) return;
-  const { memberId, contract } = evt?.detail ?? {};
+  const { memberId, contract } = (evt as CustomEvent<{ memberId?: string; contract?: Contract }>)
+    .detail;
+  if (!memberId || !contract) return;
   const member = campaign.getCrewMember(memberId);
-  if (!member || member.flatlined || !contract) return;
+  if (!member || member.flatlined) return;
   briefingEl.hide();
   campaign.deployCrewMember(member.id, contract);
   flash(`CURATOR: ${member.callsign} takes ${contract.label}. JACKING IN.`);
@@ -319,19 +413,24 @@ function onBriefingDeploy(evt) {
 }
 
 function presentFinnShop() {
-  if (!finnShopEl || !campaign) return;
+  if (!campaign || !campaign.finn) return;
   const catalog = campaign.finn.catalog(campaign.meta);
   finnShopEl.setCatalog(catalog, campaign.crew, campaign.salvage);
   finnShopEl.show();
 }
 
-function onFinnPurchase(evt) {
+function onFinnPurchase(evt: Event) {
   if (!campaign) return;
-  const { itemId, targetMemberId } = evt?.detail ?? {};
+  const { itemId, targetMemberId } = (
+    evt as CustomEvent<{
+      itemId?: string;
+      targetMemberId?: string;
+    }>
+  ).detail;
   try {
     campaign.purchase({ itemId, targetMemberId });
   } catch (err) {
-    flash(`PURCHASE FAILED: ${err.message}`);
+    flash(`PURCHASE FAILED: ${errorMessage(err)}`);
     return;
   }
   flash(`FINN: Purchased ${itemId}. SALVAGE ${campaign.salvage}.`);
@@ -340,18 +439,20 @@ function onFinnPurchase(evt) {
 }
 
 function presentItemInventory() {
-  if (!itemInventoryEl || !campaign) return;
+  if (!campaign) return;
   const run = campaign.activeRun;
   if (!run || !run.player || !run.player.inventory) return;
   itemInventoryEl.setItems(run.player.inventory.consumables);
   itemInventoryEl.show();
 }
 
-function onUseItem(evt) {
+function onUseItem(evt: Event) {
   if (!campaign) return;
   const run = campaign.activeRun;
   if (!run || !run.player) return;
-  const { itemId } = evt?.detail ?? {};
+  if (!run.world) throw new Error('[shell] active combat run has no world');
+  const { itemId } = (evt as CustomEvent<{ itemId?: string }>).detail;
+  if (!itemId) return;
   try {
     const result = run.player.useConsumable(itemId);
     if (result.type === 'stim') {
@@ -359,15 +460,24 @@ function onUseItem(evt) {
         `Used STIM — healed ${result.healed} HP (now ${run.player.hp}/${run.player.maxHp}). ${run.player.ap} AP left.`
       );
     } else if (result.type === 'smoke') {
-      const overlays = placeSmoke(run.world.grid, result.cx, result.cy, result.radius);
+      const { cx, cy, radius } = result;
+      if (
+        typeof cx !== 'number' ||
+        typeof cy !== 'number' ||
+        typeof radius !== 'number' ||
+        !Number.isInteger(cx) ||
+        !Number.isInteger(cy) ||
+        !Number.isInteger(radius)
+      ) {
+        throw new Error('[shell] smoke consumable returned invalid placement data');
+      }
+      const overlays = placeSmoke(run.world.grid, cx, cy, radius);
       activeSmokeOverlays.push(...overlays);
       recomputeVision();
-      flash(
-        `Used SMOKE CHARGE — LOS blocked in radius ${result.radius}. ${run.player.ap} AP left.`
-      );
+      flash(`Used SMOKE CHARGE — LOS blocked in radius ${radius}. ${run.player.ap} AP left.`);
     }
   } catch (err) {
-    flash(`USE FAILED: ${err.message}`);
+    flash(`USE FAILED: ${errorMessage(err)}`);
     return;
   }
   itemInventoryEl.hide();
@@ -383,7 +493,7 @@ function handlePersist() {
   dataStore.setCampaign(snapshotCampaign(campaign));
 }
 
-function crewMemberArchetypeId(member) {
+function crewMemberArchetypeId(member: Crew): string {
   const n = member?.constructor?.name;
   if (n === 'Merc') return 'merc';
   if (n === 'Razor') return 'razor';
@@ -391,7 +501,7 @@ function crewMemberArchetypeId(member) {
   return 'op';
 }
 
-function telemetryForEndedCampaign(c) {
+function telemetryForEndedCampaign(c: Campaign): Telemetry {
   return {
     outcome: 'campaign-over',
     seed: c.seed,
@@ -409,22 +519,26 @@ function telemetryForEndedCampaign(c) {
  * RESULT — both from a live `Run.onResult` callback and from a cold resume
  * (otherwise `renderShell` opens the overlay with no `setTelemetry` call).
  */
-function pushPendingJobResultOverlay(telemetry) {
-  if (!crashEl) return;
+function pushPendingJobResultOverlay(telemetry: Partial<RunTelemetry> & { outcome?: unknown }) {
   const tel = { ...telemetry };
   const outcome = tel.outcome;
   if (outcome !== 'death' && outcome !== 'exit') {
     throw new Error(`[shell] invalid job outcome for debrief overlay: "${outcome}"`);
   }
-  pendingJobResult = { outcome, telemetry: tel };
-  const campaignTerminal = outcome === 'death' && campaign && willEndCampaignOnThisDeath(campaign);
+  pendingJobResult = {
+    outcome,
+    telemetry: { ...tel, outcome } as RunTelemetry & { outcome: Outcome },
+  };
+  const campaignTerminal =
+    outcome === 'death' && campaign ? willEndCampaignOnThisDeath(campaign) : false;
   crashEl.setTelemetry({
     ...tel,
+    outcome,
     campaignTerminal,
   });
 }
 
-function handleResult({ outcome, telemetry }) {
+function handleResult({ outcome, telemetry }: RunResult) {
   pushPendingJobResultOverlay({
     ...telemetry,
     outcome: telemetry?.outcome ?? outcome,
@@ -432,12 +546,12 @@ function handleResult({ outcome, telemetry }) {
   renderShell();
 }
 
-function currentScene() {
+function currentScene(): ShellScene | null {
   if (!campaign) return null;
   return campaign.activeRun ?? campaign;
 }
 
-function resumeCampaign(record) {
+function resumeCampaign(record: CampaignSnapshot | unknown) {
   try {
     campaign = restoreCampaign(record, {
       onPersist: () => handlePersist(),
@@ -476,36 +590,36 @@ function resumeCampaign(record) {
 // Intent handling
 // ---------------------------------------------------------------------------
 
-function isConfirmationDialogOpen(el) {
+function isConfirmationDialogOpen(el: HTMLElement | null | undefined): boolean {
   const dialog = el?.shadowRoot?.querySelector('dialog');
   return Boolean(dialog?.open);
 }
 
 function presentQuitCampaignConfirm() {
-  if (!quitCampaignModalEl || !campaign) return;
+  if (!campaign) return;
   if (isConfirmationDialogOpen(quitCampaignModalEl)) return;
   quitCampaignModalEl.showModal('Delete this campaign and all progress? This cannot be undone.', {
     kind: 'quit-campaign',
   });
 }
 
-function performQuitCampaign() {
+function performQuitCampaign(): void {
   if (!campaign) return;
-  keyHelpEl?.hide();
-  briefingEl?.hide();
-  crashEl?.hide();
-  crewRosterEl?.hide();
-  finnShopEl?.hide();
-  itemInventoryEl?.hide();
+  keyHelpEl.hide();
+  briefingEl.hide();
+  crashEl.hide();
+  crewRosterEl.hide();
+  finnShopEl.hide();
+  itemInventoryEl.hide();
 
   pendingJobResult = null;
   dataStore.deleteCampaign();
   startFreshCampaign();
   flash('Campaign deleted — new campaign.');
-  canvas?.focus();
+  canvas.focus();
 }
 
-function handleIntent(intent) {
+function handleIntent(intent: Intent): void {
   if (intent?.type === 'quit-campaign') {
     resetInputModes();
     if (!campaign) return;
@@ -529,23 +643,27 @@ function handleIntent(intent) {
     return;
   }
 
+  if (!run.world || !run.player || !run.queue) {
+    throw new Error(`[shell] state "${run.state}" is missing playable scene wiring`);
+  }
+
   applyIntent(intent, {
     world: run.world,
-    player: run.player,
+    player: run.player as Parameters<typeof applyIntent>[1]['player'],
     queue: run.queue,
     rng: run.rng,
     // Capture the action line for the next paint(); see lastActionLine docs.
-    log: line => flash(line),
+    log: (line: string) => flash(line),
     advanceTurn,
     resetInputModes,
-    onPlayerAction: actionName => {
+    onPlayerAction: (actionName: string) => {
       switch (actionName) {
         case PLAYER_ACTIONS.INVENTORY:
           // Only open inventory during combat when it's the player's turn.
           if (
             campaign?.state !== CAMPAIGN_STATE.COMBAT ||
             run.state !== RUN_STATE.COMBAT ||
-            run.queue.currentFaction !== FACTION.PLAYER
+            run.queue?.currentFaction !== FACTION.PLAYER
           ) {
             flash('Inventory is only available during combat on your turn.');
             return;
@@ -574,17 +692,22 @@ function handleIntent(intent) {
 const CORP_ACTION_DELAY_MS = 130;
 const PLAYER_AFTERMATH_ACTION_DELAY_MS = 130;
 
-function advanceTurn() {
+function advanceTurn(): void {
   const run = currentScene();
   if (!run) return;
+  if (!run.world || !run.queue) {
+    throw new Error(`[shell] cannot advance turn without world/queue in state "${run.state}"`);
+  }
+  const world = run.world;
+  const queue = run.queue;
   advanceFromPlayerTurn({
-    queue: run.queue,
-    world: run.world,
+    queue,
+    world,
     rng: run.rng,
     isTerminal: () => run?.state === RUN_STATE.RESULT,
     drivePlayerAftermath: ({ onStep, onFinish }) => {
       drivePlayerAftermath({
-        world: run.world,
+        world,
         rng: run.rng,
         onStep,
         onFinish,
@@ -592,6 +715,10 @@ function advanceTurn() {
         stepDelayMs: PLAYER_AFTERMATH_ACTION_DELAY_MS,
         lockMarginMs: ANIMATION_DURATIONS.MUZZLE_FLASH,
       });
+    },
+    onCorpTurnReady: () => {
+      recomputeVision();
+      paint();
     },
     onPlayerAftermathStep: step => {
       for (const line of formatPlayerAftermathStepLogLines(step)) {
@@ -604,8 +731,8 @@ function advanceTurn() {
     },
     onPlayerTurnReady: () => {
       // Clear any smoke from last turn before the player acts.
-      if (activeSmokeOverlays.length > 0 && run.world) {
-        clearSmoke(run.world.grid, activeSmokeOverlays);
+      if (activeSmokeOverlays.length > 0) {
+        clearSmoke(world.grid, activeSmokeOverlays);
         activeSmokeOverlays = [];
       }
       // Stealth & vision may both have changed during the corp turn.
@@ -623,11 +750,18 @@ function advanceTurn() {
  * combat map the player has cleared). The driver lives in `/src/game/` so
  * its state machine is testable under `node --test`.
  */
-function runCorpTurn(onFinish) {
+function runCorpTurn(onFinish: () => void): void {
   const run = currentScene();
   if (!run) return;
+  if (!run.world) {
+    throw new Error(`[shell] cannot drive corp turn without world in state "${run.state}"`);
+  }
   driveCorpTurn({
-    run,
+    run: {
+      state: run.state ?? '',
+      world: run.world,
+      rng: run.rng,
+    },
     corpFaction: FACTION.CORP,
     paint,
     animLock,
@@ -642,7 +776,7 @@ function runCorpTurn(onFinish) {
  * shell callback above only refreshes presentation state after that happens.
  */
 
-function handleInteract() {
+function handleInteract(): void {
   if (!campaign) return;
   // Combat interact: check for adjacent lootable corpses first.
   if (campaign.state === CAMPAIGN_STATE.COMBAT && campaign.activeRun?.state === RUN_STATE.COMBAT) {
@@ -653,17 +787,25 @@ function handleInteract() {
     flash('Nothing to interact with here.');
     return;
   }
-  if (campaign.finn && isChebyshevAdjacent(campaign.player, campaign.finn)) {
+  if (campaign.player && campaign.finn && isChebyshevAdjacent(campaign.player, campaign.finn)) {
     flash('FINN — browse the shop.');
     presentFinnShop();
     return;
   }
-  if (campaign.terminal && isChebyshevAdjacent(campaign.player, campaign.terminal)) {
+  if (
+    campaign.player &&
+    campaign.terminal &&
+    isChebyshevAdjacent(campaign.player, campaign.terminal)
+  ) {
     flash('TERMINAL — crew roster.');
     presentCrewRoster();
     return;
   }
-  if (!campaign.curator || !isChebyshevAdjacent(campaign.player, campaign.curator)) {
+  if (
+    !campaign.player ||
+    !campaign.curator ||
+    !isChebyshevAdjacent(campaign.player, campaign.curator)
+  ) {
     flash('Step adjacent to Finn (shop), Curator (contract), or Terminal (roster).');
     return;
   }
@@ -677,10 +819,13 @@ function handleInteract() {
  * If found: call `player.collectSalvage`, flash result, auto-end turn on AP
  * exhaustion. If not found: show a no-loot hint.
  */
-function handleCombatInteract() {
+function handleCombatInteract(): void {
+  if (!campaign) return;
   const run = campaign.activeRun;
   if (!run || !run.player) return;
+  if (!run.world) throw new Error('[shell] active combat run has no world');
   const player = run.player;
+  if (!player.inventory) throw new Error('[shell] combat player inventory is not initialised');
   // Scan the 8 neighbours plus the player's own tile for lootable corpses.
   for (let dy = -1; dy <= 1; dy++) {
     for (let dx = -1; dx <= 1; dx++) {
@@ -711,13 +856,15 @@ function handleCombatInteract() {
 
 // onJackIn removed — combat entry is handled in onBriefingDeploy.
 
-function onNewRunRequested() {
+function onNewRunRequested(): void {
   if (!campaign) return;
   if (pendingJobResult) {
     const { outcome } = pendingJobResult;
     pendingJobResult = null;
     // M3: extract salvage from the deployed crew member's inventory on exit.
-    const member = campaign.getCrewMember(campaign.deployedMemberId);
+    const member = campaign.deployedMemberId
+      ? campaign.getCrewMember(campaign.deployedMemberId)
+      : null;
     const salvage = member?.inventory?.salvage ?? 0;
     campaign.onJobEnd({ outcome, salvage });
     if (campaign.state === CAMPAIGN_STATE.ENDED) {
@@ -742,7 +889,7 @@ function onNewRunRequested() {
 // Vision (mirrors the M5 harness rule: refresh on every entity move)
 // ---------------------------------------------------------------------------
 
-function attachVisionListener() {
+function attachVisionListener(): void {
   if (visionMoveUnsub) {
     visionMoveUnsub();
     visionMoveUnsub = null;
@@ -764,15 +911,16 @@ function attachVisionListener() {
  * Re-attached on every Run state transition because Run.#tearDownWorld
  * recreates `bus` from scratch — same posture as `attachVisionListener`.
  */
-function attachAnimationListeners() {
+function attachAnimationListeners(): void {
   for (const off of animationUnsubs) off();
   animationUnsubs = [];
   const run = currentScene();
   if (!run?.bus) return;
   animationUnsubs.push(
-    run.bus.on(EVENT.ENTITY_DAMAGED, ({ target, killed, source }) => {
+    run.bus.on(EVENT.ENTITY_DAMAGED, payload => {
+      const { target, killed, source } = (payload ?? {}) as EntityDamagedPayload;
       // Player-side feedback: screen shake + red vignette when *we* get hit.
-      if (run?.player && target === run.player && stageEl) {
+      if (run?.player && target === run.player) {
         triggerShake(stageEl);
         triggerDamageFlash(stageEl);
         animLock.push(ANIMATION_DURATIONS.DAMAGE_FLASH);
@@ -780,7 +928,7 @@ function attachAnimationListeners() {
       // Melee impact: the strike reads as landing on the *target*, not
       // hovering above the attacker. Ranged stays on the NOISE path so
       // misses still get a muzzle flash on the shooter's tile.
-      if (source === 'melee' && target && renderer) {
+      if (source === 'melee' && target) {
         const fired = runMuzzleFlash(renderer, paint, target.x, target.y);
         if (fired) animLock.push(ANIMATION_DURATIONS.MUZZLE_FLASH);
       }
@@ -790,19 +938,20 @@ function attachAnimationListeners() {
       }
     }),
     run.bus.on(EVENT.NOISE, payload => {
+      const noise = (payload ?? {}) as NoisePayload;
       // Muzzle flash on the shooter's tile. Melee is handled via
       // ENTITY_DAMAGED above (so we know the *target* position); NOISE
       // for melee would only know the attacker.
-      if (!payload || payload.kind !== 'ranged') return;
-      const origin = payload.origin;
-      if (!origin || !renderer) return;
+      if (noise.kind !== 'ranged') return;
+      const origin = noise.origin;
+      if (!origin) return;
       const fired = runMuzzleFlash(renderer, paint, origin.x, origin.y);
       if (fired) animLock.push(ANIMATION_DURATIONS.MUZZLE_FLASH);
     })
   );
 }
 
-function recomputeVision() {
+function recomputeVision(): void {
   const run = currentScene();
   if (!run || !run.world || !run.player) return;
   vision.recompute(run.world.grid, run.player, undefined, {
@@ -814,7 +963,7 @@ function recomputeVision() {
 // Presentation
 // ---------------------------------------------------------------------------
 
-function renderShell() {
+function renderShell(): void {
   if (!campaign) return;
   const run = currentScene();
   const state = run?.state;
@@ -831,6 +980,9 @@ function renderShell() {
       // operative.
       canvas.hidden = true;
       if (!briefingEl.isOpen) {
+        if (!campaign.activeRun?.contract) {
+          throw new Error('[shell] briefing state without an active contract');
+        }
         briefingEl.setContract(campaign.activeRun.contract);
         briefingEl.setCrew(campaign.crew);
         briefingEl.show();
@@ -853,7 +1005,7 @@ function renderShell() {
   paint();
 }
 
-function paint(modeHint = activeMode()) {
+function paint(modeHint: Mode = activeMode()): void {
   const run = currentScene();
   if (canvas.hidden) {
     setStatus(statusLine(modeHint));
@@ -868,7 +1020,7 @@ function paint(modeHint = activeMode()) {
   setStatus(statusLine(modeHint));
 }
 
-function statusLine(modeHint) {
+function statusLine(modeHint: Mode): string {
   const run = currentScene();
   if (!run) return '';
   const aim = modeHint && modeHint !== MODE.IDLE ? `  |  AIM: ${modeHint}` : '';
@@ -877,11 +1029,16 @@ function statusLine(modeHint) {
   const stealthTag = player.stealthed ? ' [CLOAKED]' : '';
   let identity;
   if (run.state === RUN_STATE.COMBAT) {
-    const salvageTag = player.inventory ? ` SAL:${player.inventory.salvage}` : '';
-    identity = `${run.player.callsign ?? run.archetype} ${run.archetype.toUpperCase()}${salvageTag}`;
+    if (!isRun(run)) {
+      throw new Error('[shell] combat status requires an active run');
+    }
+    const salvageTag = run.player?.inventory ? ` SAL:${run.player.inventory.salvage}` : '';
+    identity = `${run.player?.callsign ?? run.archetype} ${run.archetype.toUpperCase()}${salvageTag}`;
   } else {
+    if (!campaign) return stateLabel();
     identity = `CREW ${campaign.crew.filter(member => !member.flatlined).length}/${campaign.crew.length} SALVAGE ${campaign.salvage}`;
   }
+  if (!run.queue) return stateLabel();
   const statsInner =
     `${stateLabel()}  |  ${identity} ` +
     `AP ${player.ap}/${player.maxAp} HP ${player.hp}/${player.maxHp}${stealthTag}` +
@@ -894,8 +1051,10 @@ function statusLine(modeHint) {
   const hint = `<span class="game-shell__hint">${proximityHint()}</span>`;
   let action = '';
   if (run.state === RUN_STATE.COMBAT && run.queue.currentFaction === FACTION.CORP) {
-    const visibleCorp = countVisibleCorpEntities(run.world.entities.values(), (x, y) =>
-      vision.isVisible(x, y)
+    if (!run.world) throw new Error('[shell] combat status requires a world');
+    const visibleCorp = countVisibleCorpEntities(
+      run.world.entities.values(),
+      (x: number, y: number) => vision.isVisible(x, y)
     );
     const body = corpTurnStatusBody(visibleCorp, run.queue.turnNumber);
     action = `<span class="game-shell__activity corp"><span class="faction-tag">CORP</span> — ${body}</span>`;
@@ -916,7 +1075,7 @@ function statusLine(modeHint) {
  * adjacency). Both extend naturally — add a case here when new
  * interactables land (terminals, dropped weapons, etc.).
  */
-function proximityHint() {
+function proximityHint(): string {
   const run = currentScene();
   if (!run || !run.player) return '';
   if (run.state === CAMPAIGN_STATE.HUB) {
@@ -955,14 +1114,14 @@ function proximityHint() {
 }
 
 /** Stash a one-shot message that the next paint surfaces in the status bar. */
-function flash(line) {
+function flash(line: unknown): void {
   lastActionLine = String(line ?? '').replace(/^>\s*/, '');
   logLines.unshift(`> ${lastActionLine}`);
   if (logLines.length > 20) logLines.splice(20);
   logContentEl.textContent = logLines.join('\n');
 }
 
-function stateLabel() {
+function stateLabel(): string {
   const run = currentScene();
   if (!run) return 'BOOTING';
   switch (run.state) {
@@ -981,29 +1140,29 @@ function stateLabel() {
   }
 }
 
-function setStatus(richText) {
+function setStatus(richText: string): void {
   if (statusEl) statusEl.innerHTML = richText;
 }
 
-function activeMode() {
+function activeMode(): Mode {
   if (touchPadEl && touchPadEl.mode && touchPadEl.mode !== MODE.IDLE) return touchPadEl.mode;
   return keyboard?.mode ?? MODE.IDLE;
 }
 
-function resetInputModes() {
-  if (touchPadEl) touchPadEl.setMode(MODE.IDLE);
-  if (keyboard) keyboard.mode = MODE.IDLE;
+function resetInputModes(): void {
+  touchPadEl.setMode(MODE.IDLE);
+  keyboard.mode = MODE.IDLE;
 }
 
 // ---------------------------------------------------------------------------
 // Geometry helpers
 // ---------------------------------------------------------------------------
 
-function isChebyshevAdjacent(a, b) {
+function isChebyshevAdjacent(a: PointLike, b: PointLike): boolean {
   return chebyshevDistance(a, b) === 1;
 }
 
-function chebyshevDistance(a, b) {
+function chebyshevDistance(a: PointLike, b: PointLike): number {
   if (!a || !b) return Infinity;
   return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
 }
@@ -1018,8 +1177,7 @@ function chebyshevDistance(a, b) {
  *
  * @returns {'ok'|'blocking'|'no-scope'|'none'}
  */
-function tryShowKeyHelpOverlay() {
-  if (!keyHelpEl) return 'none';
+function tryShowKeyHelpOverlay(): 'ok' | 'blocking' | 'no-scope' | 'none' {
   if (isAnyBlockingModalOpen()) return 'blocking';
   const scope = helpScopeForRunState();
   if (!scope) return 'no-scope';
@@ -1036,8 +1194,7 @@ function tryShowKeyHelpOverlay() {
  * `?` is suppressed while any blocking modal owns the foreground — opening
  * help over a briefing or crew-roster would just stack panels.
  */
-function handleGlobalKey(evt) {
-  if (!keyHelpEl) return;
+function handleGlobalKey(evt: KeyboardEvent): void {
   if (evt.ctrlKey || evt.metaKey || evt.altKey) return;
 
   // While <key-help> is open it owns the foreground entirely: `?` and Esc
@@ -1071,7 +1228,7 @@ function handleGlobalKey(evt) {
   }
 }
 
-function helpScopeForRunState() {
+function helpScopeForRunState(): HelpScope | null {
   const run = currentScene();
   if (!run) return null;
   if (run.state === CAMPAIGN_STATE.HUB) return 'hub';
@@ -1079,7 +1236,7 @@ function helpScopeForRunState() {
   return null;
 }
 
-function isAnyBlockingModalOpen() {
+function isAnyBlockingModalOpen(): boolean {
   if (briefingEl?.isOpen) return true;
   if (crashEl?.isOpen) return true;
   if (systemStartEl?.isOpen) return true;

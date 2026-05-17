@@ -4,11 +4,12 @@ import { isDevelopmentMode } from './domUtils.js';
 
 export class ServiceWorkerManager {
   #isRegistered = false;
-  #registration = null;
+  #registration: ServiceWorkerRegistration | null = null;
   #listenersSetup = false;
   #developmentMode = isDevelopmentMode();
   #swFile = this.#developmentMode ? '/sw-dev.js' : '/sw.js';
   #isUpdating = false;
+  static instance: ServiceWorkerManager | null = null;
 
   constructor() {
     if (ServiceWorkerManager.instance) {
@@ -106,7 +107,7 @@ export class ServiceWorkerManager {
     if (!this.#registration || this.#listenersSetup) return;
 
     setTimeout(async () => {
-      if (this.#registration.waiting && navigator.serviceWorker.controller && !this.#isUpdating) {
+      if (this.#registration?.waiting && navigator.serviceWorker.controller && !this.#isUpdating) {
         const waitingWorker = this.#registration.waiting;
 
         try {
@@ -126,7 +127,7 @@ export class ServiceWorkerManager {
     }, 0);
 
     this.#registration.addEventListener('updatefound', () => {
-      const newWorker = this.#registration.installing;
+      const newWorker = this.#registration?.installing;
       if (!newWorker) return;
 
       console.log(`[KernelPanic] New service worker installing...`);
@@ -135,7 +136,7 @@ export class ServiceWorkerManager {
         console.log(`[KernelPanic] Service worker state changed to: ${newWorker.state}`);
 
         if (
-          (newWorker.state === 'installed' || newWorker.state === 'waiting') &&
+          newWorker.state === 'installed' &&
           navigator.serviceWorker.controller &&
           !this.#isUpdating
         ) {
@@ -176,7 +177,7 @@ export class ServiceWorkerManager {
     this.#listenersSetup = true;
   }
 
-  #dispatchUpdateEvent(pendingWorker) {
+  #dispatchUpdateEvent(pendingWorker?: ServiceWorker | null) {
     if (this.#isUpdating) {
       console.log(`[KernelPanic] Update already in progress, skipping notification`);
       return;
@@ -185,7 +186,7 @@ export class ServiceWorkerManager {
     const event = new CustomEvent('sw-update-available', {
       detail: {
         registration: this.#registration,
-        pendingWorker: pendingWorker || this.#registration.waiting,
+        pendingWorker: pendingWorker || this.#registration?.waiting,
       },
     });
     window.dispatchEvent(event);
@@ -202,7 +203,7 @@ export class ServiceWorkerManager {
       await this.#registration.update();
 
       setTimeout(() => {
-        if (this.#registration.waiting && navigator.serviceWorker.controller) {
+        if (this.#registration?.waiting && navigator.serviceWorker.controller) {
           console.log(`[KernelPanic] Update check found waiting service worker`);
           this.#dispatchUpdateEvent(this.#registration.waiting);
         }
@@ -220,7 +221,7 @@ export class ServiceWorkerManager {
     return this.#isRegistered;
   }
 
-  async getCacheInfo() {
+  async getCacheInfo(): Promise<{ version: string } | null> {
     if (!this.#registration || !this.#registration.active) {
       return null;
     }
@@ -231,7 +232,7 @@ export class ServiceWorkerManager {
         resolve(event.data);
       };
 
-      this.#registration.active.postMessage({ type: 'GET_CACHE_INFO' }, [messageChannel.port2]);
+      this.#registration?.active?.postMessage({ type: 'GET_CACHE_INFO' }, [messageChannel.port2]);
     });
   }
 
@@ -249,7 +250,7 @@ export class ServiceWorkerManager {
     }
   }
 
-  async getLatestVersion() {
+  async getLatestVersion(): Promise<string | null> {
     if (!this.#registration) {
       return null;
     }
@@ -273,12 +274,6 @@ export class ServiceWorkerManager {
           resolve(event.data?.version || null);
         };
 
-        messageChannel.port1.onerror = () => {
-          clearTimeout(timeout);
-          messageChannel.port1.close();
-          resolve(null);
-        };
-
         pendingWorker.postMessage({ type: 'GET_CACHE_INFO' }, [messageChannel.port2]);
       });
     } catch (error) {
@@ -287,14 +282,14 @@ export class ServiceWorkerManager {
     }
   }
 
-  #dispatchUpdateProgress(status) {
+  #dispatchUpdateProgress(status: string): void {
     const event = new CustomEvent('sw-update-progress', {
       detail: { status },
     });
     window.dispatchEvent(event);
   }
 
-  async skipWaiting(worker = null) {
+  async skipWaiting(worker?: ServiceWorker | null): Promise<void> {
     const targetWorker = worker || this.#registration?.waiting;
 
     if (!this.#registration || !targetWorker) {
@@ -315,7 +310,7 @@ export class ServiceWorkerManager {
           this.#dispatchUpdateProgress('New service worker activated...');
           console.log(`[KernelPanic] New service worker is now controlling the page`);
           setTimeout(() => {
-            if (!this.#registration.waiting || this.#registration.waiting !== targetWorker) {
+            if (!this.#registration?.waiting || this.#registration?.waiting !== targetWorker) {
               console.log(`[KernelPanic] Old waiting worker has been terminated`);
               this.#dispatchUpdateProgress('Preparing to reload...');
             } else {
@@ -349,7 +344,7 @@ export class ServiceWorkerManager {
         }
       };
 
-      const handleMessage = event => {
+      const handleMessage = (event: MessageEvent) => {
         if (event.data && event.data.type === 'SW_ACTIVATED') {
           console.log(`[KernelPanic] Service worker confirmed activation: ${event.data.version}`);
           this.#dispatchUpdateProgress('Service worker activated. Reloading...');
@@ -410,7 +405,7 @@ export class ServiceWorkerManager {
     }
   }
 
-  async handleUpdateNow(pendingWorker) {
+  async handleUpdateNow(pendingWorker?: ServiceWorker | null): Promise<void> {
     if (this.#isUpdating) {
       console.log(`[KernelPanic] Update already in progress`);
       return;
@@ -430,7 +425,7 @@ export class ServiceWorkerManager {
         await new Promise(resolve => setTimeout(resolve, 500));
       }
 
-      if (this.#registration.waiting && this.#registration.waiting === pendingWorker) {
+      if (this.#registration?.waiting && this.#registration?.waiting === pendingWorker) {
         this.#dispatchUpdateProgress('Waiting for old worker to terminate...');
         console.warn(
           `[KernelPanic] Warning: Waiting worker still exists after skipWaiting. Waiting longer...`
@@ -457,5 +452,11 @@ export class ServiceWorkerManager {
 }
 
 export const serviceWorkerManager = new ServiceWorkerManager();
+
+declare global {
+  interface Window {
+    serviceWorkerManager: ServiceWorkerManager;
+  }
+}
 
 window.serviceWorkerManager = serviceWorkerManager;

@@ -15,11 +15,17 @@
 import { Entity } from '../Entity.js';
 import { FACTION } from '../constants.js';
 import { getShopCatalog } from '../items.js';
+import type { EntityInit } from '../Entity.js';
 
 const FINN_GLYPH = '¥';
 
+type FinnInit = Omit<EntityInit, 'faction' | 'glyph' | 'maxAp' | 'maxHp' | 'id' | 'x' | 'y'> & {
+  id?: string;
+  x?: number;
+  y?: number;
+};
 export class Finn extends Entity {
-  constructor(props = {}) {
+  constructor(props: FinnInit = {}) {
     super({
       id: props.id ?? 'finn',
       x: props.x ?? 0,

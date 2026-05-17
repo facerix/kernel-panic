@@ -1,6 +1,8 @@
 import { Crew } from '../Crew.js';
-import { TILE, FACTION, AP_COST } from '../constants.js';
+import { TILE, AP_COST } from '../constants.js';
 import { EVENT } from '../events.js';
+import type { CrewInit } from '../Crew.js';
+import type { World } from '../World.js';
 
 /**
  * Curated callsign pool for the Merc archetype. `buildCrewMember` in
@@ -49,11 +51,11 @@ export const CALLSIGNS = Object.freeze([
  * If the landing tile is empty, vault is pure repositioning (no damage).
  */
 export class Merc extends Crew {
-  constructor(props) {
-    super({ faction: FACTION.PLAYER, glyph: '@', ...props });
+  constructor(props: CrewInit) {
+    super({ ...props, glyph: '@' });
   }
 
-  canVault(world, dx, dy) {
+  canVault(world: World, dx: number, dy: number) {
     if (dx === 0 && dy === 0) {
       return { ok: false, reason: 'no-op' };
     }
@@ -118,7 +120,7 @@ export class Merc extends Crew {
    * Returns `{ occupant }` — the entity that was knocked back, or null.
    * The caller uses this to apply VAULT_DAMAGE via the damage system.
    */
-  vault(world, dx, dy) {
+  vault(world: World, dx: number, dy: number) {
     const check = this.canVault(world, dx, dy);
     if (!check.ok) {
       throw new Error(`Illegal vault for ${this.id}: ${check.reason}`);

@@ -44,19 +44,30 @@ import { canFireRanged, resolveRanged, canMelee, resolveMelee } from '../game/Co
 import { hasLineOfSight, withinRange } from '../game/LineOfSight.js';
 import { EVENT } from '../game/events.js';
 import { TILE } from '../game/constants.js';
+import type { Archetype } from '../game/archetypes/index.js';
+import type { World } from '../game/World.js';
+import type { TurnQueue } from '../game/TurnQueue.js';
+import type { Rng } from '../rng.js';
+import type { Tech } from '../game/archetypes/Tech.js';
+import type { Merc } from '../game/archetypes/Merc.js';
+import type { Razor } from '../game/archetypes/Razor.js';
 
-/**
- * @typedef {{
- *   world: import('../game/World.js').World,
- *   player: import('../game/Entity.js').Entity,
- *   queue: import('../game/TurnQueue.js').TurnQueue,
- *   rng: import('../rng.js').Rng,
- *   log: (line: string) => void,
- *   advanceTurn: () => void,
- *   resetInputModes: () => void,
- *   onPlayerAction: (actionName: string) => void,
- * }} ApplyIntentContext
- */
+export type Intent = {
+  type: string;
+  dx?: number;
+  dy?: number;
+};
+
+export type ApplyIntentContext = {
+  world: World;
+  player: Archetype;
+  queue: TurnQueue;
+  rng: Rng;
+  log: (line: string) => void;
+  advanceTurn: () => void;
+  resetInputModes: () => void;
+  onPlayerAction: (actionName: string) => void;
+};
 
 const KNOWN_INTENT_TYPES = new Set([
   'move',
@@ -82,11 +93,8 @@ export const PLAYER_ACTIONS = Object.freeze({
 /**
  * Drive a single player intent against the world. Auto-ends the player's
  * turn when their AP hits zero — consistent with the M3 harness behaviour.
- *
- * @param {{ type: string, dx?: number, dy?: number }} intent
- * @param {ApplyIntentContext} ctx
  */
-export function applyIntent(intent, ctx) {
+export function applyIntent(intent: Intent, ctx: ApplyIntentContext) {
   if (!intent || typeof intent !== 'object' || !KNOWN_INTENT_TYPES.has(intent.type)) {
     throw new Error(`applyIntent: unknown intent type "${intent?.type}"`);
   }
@@ -134,12 +142,8 @@ export function applyIntent(intent, ctx) {
  * Walk along (dx, dy) from the player and return the first hostile that's
  * inside the Combat-enforced range and visible — same geometry Combat uses,
  * so the picker can never offer a target the resolver would later reject.
- *
- * @param {ApplyIntentContext} ctx
- * @param {number} dx
- * @param {number} dy
  */
-export function pickFireTarget(ctx, dx, dy) {
+export function pickFireTarget(ctx: ApplyIntentContext, dx: number, dy: number) {
   const { world, player } = ctx;
   const blockers = world.blockerKeys();
   for (let step = 1; step <= SIGHT_RANGE; step++) {
@@ -156,10 +160,10 @@ export function pickFireTarget(ctx, dx, dy) {
 
 // ---------------------------------------------------------------------------
 
-function doMove(intent, ctx) {
+function doMove(intent: Intent, ctx: ApplyIntentContext) {
   const { world, player, log, advanceTurn } = ctx;
-  const nx = player.x + intent.dx;
-  const ny = player.y + intent.dy;
+  const nx = player.x + (intent?.dx ?? 0);
+  const ny = player.y + (intent?.dy ?? 0);
   const occupant = world.entityAt(nx, ny);
   if (occupant) {
     if (occupant.faction === FACTION.NEUTRAL || occupant.faction === player.faction) {
@@ -167,12 +171,12 @@ function doMove(intent, ctx) {
     }
     return doMelee({ type: 'melee', dx: intent.dx, dy: intent.dy }, ctx);
   }
-  const check = world.canMoveEntity(player, intent.dx, intent.dy);
+  const check = world.canMoveEntity(player, intent.dx!, intent.dy!);
   if (!check.ok) {
     log(`> MOVE DENIED: ${check.reason}`);
     return;
   }
-  world.moveEntity(player, intent.dx, intent.dy);
+  world.moveEntity(player, intent.dx!, intent.dy!);
   if (world.grid.tileAt(nx, ny) === TILE.EXIT) {
     log(`> @ moved to (${nx}, ${ny}) — EXIT REACHED.`);
     ctx.onPlayerAction(PLAYER_ACTIONS.REACHED_EXIT);
@@ -202,29 +206,30 @@ function doMove(intent, ctx) {
  * than silently dropping the press; same shape as the old "only the Merc can
  * vault" guard.
  */
-function doSpecial(intent, ctx) {
+function doSpecial(intent: Intent, ctx: ApplyIntentContext) {
   const { player, log } = ctx;
   // The dispatch order is fixed (deploy before vault before slide) so an
   // archetype mix-up surfaces here rather than silently picking the wrong
   // perk. Only Tech exposes canDeploy in M1; only Merc exposes canVault;
   // only Razor exposes canSlide.
-  if (typeof player.canDeploy === 'function') {
+  if (typeof (player as Tech).canDeploy === 'function') {
     return doDeploy(intent, ctx);
   }
-  if (typeof player.canVault === 'function') {
+  if (typeof (player as Merc).canVault === 'function') {
     return doVault(intent, ctx);
   }
-  if (typeof player.canSlide === 'function') {
+  if (typeof (player as Razor).canSlide === 'function') {
     return doSlide(intent, ctx);
   }
   log('> SPECIAL: this archetype has no perk action.');
 }
 
-function doDeploy(intent, ctx) {
+function doDeploy(intent: Intent, ctx: ApplyIntentContext) {
   const { world, player, log, advanceTurn } = ctx;
-  const check = player.canDeploy(world, intent.dx, intent.dy);
-  if (check.ok) {
-    const turret = player.deployTurret(world, intent.dx, intent.dy);
+  const tech = player as Tech;
+  const check = tech.canDeploy(world, intent.dx!, intent.dy!);
+  if (check?.ok) {
+    const turret = tech.deployTurret(world, intent.dx!, intent.dy!);
     log(`> @ deploys turret ${turret.id} at (${turret.x}, ${turret.y}) — ${player.ap} AP left.`);
     if (player.ap === 0) {
       log('> AP EXHAUSTED — auto-ending turn.');
@@ -233,13 +238,13 @@ function doDeploy(intent, ctx) {
     return;
   }
   // M3: if the pre-built turret is spent, try an improvised turret from salvage.
-  if (check.reason === 'no-turret' && typeof player.canImproviseTurret === 'function') {
-    const impCheck = player.canImproviseTurret(world, intent.dx, intent.dy);
+  if (check.reason === 'no-turret' && typeof tech.canImproviseTurret === 'function') {
+    const impCheck = tech.canImproviseTurret(world, intent.dx!, intent.dy!);
     if (impCheck.ok) {
-      const turret = player.improviseTurret(world, intent.dx, intent.dy);
+      const turret = tech.improviseTurret(world, intent.dx!, intent.dy!);
       log(
         `> @ improvises turret ${turret.id} at (${turret.x}, ${turret.y}) — ` +
-          `${player.inventory.salvage} salvage left, ${player.ap} AP left.`
+          `${player.inventory!.salvage} salvage left, ${player.ap} AP left.`
       );
       if (player.ap === 0) {
         log('> AP EXHAUSTED — auto-ending turn.');
@@ -254,18 +259,19 @@ function doDeploy(intent, ctx) {
   log(`> DEPLOY DENIED: ${check.reason}`);
 }
 
-function doVault(intent, ctx) {
+function doVault(intent: Intent, ctx: ApplyIntentContext) {
   const { world, player, log, advanceTurn } = ctx;
-  const check = player.canVault(world, intent.dx, intent.dy);
-  if (!check.ok) {
-    log(`> VAULT DENIED: ${check.reason}`);
+  const merc = player as Merc;
+  const check = merc.canVault(world, intent.dx!, intent.dy!);
+  if (!check?.ok) {
+    log(`> VAULT DENIED: ${check?.reason}`);
     return;
   }
 
   // vault() handles the hop, knockback displacement, and AP debit.
   // It returns the occupant (if any) so we can apply damage here — keeping
   // Combat event wiring in the intent layer, not inside the archetype.
-  const { occupant } = player.vault(world, intent.dx, intent.dy);
+  const { occupant } = merc.vault(world, intent.dx!, intent.dy!);
 
   if (occupant) {
     // Body-check: guaranteed hit, VAULT_DAMAGE, no RNG roll.
@@ -300,16 +306,17 @@ function doVault(intent, ctx) {
   }
 }
 
-function doSlide(intent, ctx) {
+function doSlide(intent: Intent, ctx: ApplyIntentContext) {
   const { world, player, log, advanceTurn } = ctx;
+  const razor = player as Razor;
   // `doSpecial` already gated this on `canSlide`, so the method must exist;
   // we go straight into the legality check.
-  const check = player.canSlide(world, intent.dx, intent.dy);
+  const check = razor.canSlide(world, intent.dx!, intent.dy!);
   if (!check.ok) {
     log(`> SLIDE DENIED: ${check.reason}`);
     return;
   }
-  player.slide(world, intent.dx, intent.dy);
+  razor.slide(world, intent.dx!, intent.dy!);
   log(
     `> @ slid to (${player.x}, ${player.y}) — CLOAKED until next turn (` + `${player.ap} AP left).`
   );
@@ -319,9 +326,9 @@ function doSlide(intent, ctx) {
   }
 }
 
-function doMelee(intent, ctx) {
+function doMelee(intent: Intent, ctx: ApplyIntentContext) {
   const { world, player, log, advanceTurn } = ctx;
-  const target = world.entityAt(player.x + intent.dx, player.y + intent.dy);
+  const target = world.entityAt(player.x + intent.dx!, player.y + intent.dy!);
   if (!target) {
     log('> MELEE: no target on that tile.');
     return;
@@ -342,7 +349,7 @@ function doMelee(intent, ctx) {
   }
 }
 
-function doInteract(ctx) {
+function doInteract(ctx: ApplyIntentContext) {
   // Interact is the universal "use the thing in front of me" verb. The shape
   // of "the thing" depends on Run.state (Hub: Curator → briefing; future
   // combat terminals → unlock doors / hack), so applyIntent doesn't know the
@@ -355,7 +362,7 @@ function doInteract(ctx) {
   ctx.onPlayerAction(PLAYER_ACTIONS.INTERACT);
 }
 
-function doInventory(ctx) {
+function doInventory(ctx: ApplyIntentContext) {
   // Inventory is a UI-layer verb — the shell presents the consumable list
   // and handles the `use-item` event. Same delegation pattern as `interact`.
   if (typeof ctx.onPlayerAction !== 'function') {
@@ -364,9 +371,9 @@ function doInventory(ctx) {
   ctx.onPlayerAction(PLAYER_ACTIONS.INVENTORY);
 }
 
-function doFire(intent, ctx) {
+function doFire(intent: Intent, ctx: ApplyIntentContext) {
   const { world, player, rng, log, advanceTurn } = ctx;
-  const target = pickFireTarget(ctx, intent.dx, intent.dy);
+  const target = pickFireTarget(ctx, intent.dx!, intent.dy!);
   if (!target) {
     log('> FIRE: no hostile in that direction.');
     return;

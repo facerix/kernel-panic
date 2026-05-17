@@ -1,4 +1,6 @@
 import { dispatch, MODE } from './keymap.js';
+import type { Intent } from './applyIntent.js';
+import type { Mode } from './keymap.js';
 
 /**
  * DOM-side input wrapper. Listens for keydown on a target element (defaults
@@ -17,8 +19,21 @@ import { dispatch, MODE } from './keymap.js';
  * `evt.key` is forwarded case-sensitively into `dispatch` — only lower-case
  * letter bindings in the keymap produce gameplay intents.
  */
+type KeyboardControllerInit = {
+  target?: Document;
+  onIntent: (intent: Intent) => void;
+  onModeChange: (mode: Mode) => void;
+  isBlocked?: () => boolean;
+};
 export class KeyboardController {
-  constructor({ target = document, onIntent, onModeChange, isBlocked } = {}) {
+  target: Document;
+  onIntent: (intent: Intent) => void;
+  onModeChange: (mode: Mode) => void;
+  isBlocked: () => boolean;
+  mode: Mode;
+  attached: boolean;
+
+  constructor({ target = document, onIntent, onModeChange, isBlocked }: KeyboardControllerInit) {
     if (typeof onIntent !== 'function') {
       throw new TypeError('KeyboardController requires an onIntent callback');
     }
@@ -46,7 +61,7 @@ export class KeyboardController {
     this.attached = false;
   }
 
-  handleKeyDown(evt) {
+  handleKeyDown(evt: KeyboardEvent) {
     if (evt.ctrlKey || evt.metaKey || evt.altKey) return;
     // Input lockout — see class docstring. Checked *before* the keymap so
     // a key pressed mid-animation can't sneak a mode transition through.
@@ -55,8 +70,8 @@ export class KeyboardController {
     const { intent, nextMode } = dispatch(evt.key, this.mode);
     if (intent || nextMode !== previousMode) evt.preventDefault();
     if (nextMode !== previousMode) {
-      this.mode = nextMode;
-      this.onModeChange(nextMode, previousMode);
+      this.mode = nextMode as Mode;
+      this.onModeChange(nextMode as Mode);
     }
     if (intent) this.onIntent(intent);
   }

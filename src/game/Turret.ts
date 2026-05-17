@@ -1,6 +1,9 @@
 import { Entity } from './Entity.js';
 import { FACTION, TURRET_MAX_HP, TURRET_RANGE, TURRET_DAMAGE } from './constants.js';
 import { resolveRanged, canFireRanged } from './Combat.js';
+import type { EntityInit } from './Entity.js';
+import type { World } from './World.js';
+import type { Rng } from '../rng.js';
 
 /**
  * Turret — a placed grid entity that automatically fires on the nearest
@@ -25,20 +28,38 @@ import { resolveRanged, canFireRanged } from './Combat.js';
  * Glyph is `'T'`. M3's improvised turrets share this class — Tech can deploy
  * more than one once the salvage loop lands.
  */
+
+type TurretAutoFireFireResult = {
+  type: 'fire';
+  target: Entity;
+  result: ReturnType<typeof resolveRanged>;
+};
+type TurretAutoFireIdleResult = {
+  type: 'idle';
+  reason: 'no-target' | 'destroyed';
+};
+export type TurretAutoFireResult = TurretAutoFireFireResult | TurretAutoFireIdleResult;
+export type TurretAnnotatedResult = { turret: Turret; action: TurretAutoFireResult };
+
+export interface TurretInit extends EntityInit {
+  range?: number;
+  attackDamage?: number;
+  ownerId?: string | null;
+}
 export class Turret extends Entity {
+  range: number;
+  attackDamage: number;
+  ownerId: string | null;
+
   constructor({
-    id,
-    x,
-    y,
     maxHp = TURRET_MAX_HP,
     range = TURRET_RANGE,
     attackDamage = TURRET_DAMAGE,
     ownerId = null,
-  } = {}) {
+    ...rest
+  }: TurretInit) {
     super({
-      id,
-      x,
-      y,
+      ...rest,
       faction: FACTION.PLAYER,
       glyph: 'T',
       maxAp: 0, // turrets don't take turns
@@ -68,7 +89,7 @@ export class Turret extends Entity {
    * `null` if no candidate exists — the caller logs an idle line instead of
    * resolving a shot. Pure scan; no mutation.
    */
-  findTarget(world) {
+  findTarget(world: World) {
     if (!this.alive) return null;
     let best = null;
     let bestDist = Infinity;
@@ -104,7 +125,7 @@ export class Turret extends Entity {
    *
    * Destroyed turrets are silent (they're a corpse — nothing to fire).
    */
-  autoFire(world, rng) {
+  autoFire(world: World, rng: Rng): TurretAutoFireResult {
     if (!this.alive) return { type: 'idle', reason: 'destroyed' };
     if (!rng || typeof rng.next !== 'function') {
       throw new TypeError('Turret.autoFire requires an Rng with a next() method');
@@ -131,8 +152,8 @@ export class Turret extends Entity {
  * during their own turn and then immediately eat the turret's fire on the
  * same tick — the player wouldn't see the engagement build.
  */
-export function runTurretAutoFire(world, rng) {
-  const results = [];
+export function runTurretAutoFire(world: World, rng: Rng): TurretAnnotatedResult[] {
+  const results: TurretAnnotatedResult[] = [];
   for (const entity of world.entities.values()) {
     if (!(entity instanceof Turret)) continue;
     if (!entity.alive) continue;

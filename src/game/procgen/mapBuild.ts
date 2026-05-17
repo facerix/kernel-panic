@@ -30,6 +30,10 @@ import { Grid } from '../Grid.js';
 import { TILE } from '../constants.js';
 import { BSP_TUNABLES, splitRegion, leaves, internalNodes } from './bsp.js';
 import { fittingPrefabs } from './prefabs/index.js';
+import type { Rng } from '../../rng.js';
+import type { GridPoint } from '../../types.js';
+import type { BspNode } from './bsp.js';
+import type { ParsedPrefab } from './prefabs/types.js';
 
 const DEFAULT_THREAT_COUNT = 2;
 
@@ -43,6 +47,34 @@ const DEFAULT_THREAT_COUNT = 2;
  */
 const EDGE_INSET = 1;
 
+type EntityAnchor = {
+  x: number;
+  y: number;
+  waypoints: { x: number; y: number }[];
+};
+export type Map = {
+  grid: Grid;
+  spawns: { player: GridPoint };
+  drones: EntityAnchor[];
+  exitTile: GridPoint;
+};
+
+type StampedLeaf = {
+  leaf: BspNode;
+  prefab: ParsedPrefab;
+  originX: number;
+  originY: number;
+  center: GridPoint;
+  droneWorld: EntityAnchor[];
+  exitWorld: GridPoint[];
+};
+type BuildMapOptions = {
+  rng: Rng;
+  width: number;
+  height: number;
+  threatCount?: number;
+};
+
 /**
  * @param {{ rng: import('../../rng.js').Rng, width: number, height: number,
  *           threatCount?: number }} options
@@ -50,7 +82,12 @@ const EDGE_INSET = 1;
  *             drones: Array<{x:number,y:number,waypoints:{x:number,y:number}[]}>,
  *             exitTile: { x: number, y: number } }}
  */
-export function buildMap({ rng, width, height, threatCount = DEFAULT_THREAT_COUNT }) {
+export function buildMap({
+  rng,
+  width,
+  height,
+  threatCount = DEFAULT_THREAT_COUNT,
+}: BuildMapOptions): Map {
   if (!rng || typeof rng.fork !== 'function') {
     throw new TypeError('buildMap requires an Rng with fork() (use src/rng.js)');
   }
@@ -88,7 +125,7 @@ export function buildMap({ rng, width, height, threatCount = DEFAULT_THREAT_COUN
   });
 
   // Stamp prefabs in DFS-leaf order (same order `leaves()` returns).
-  const stamped = [];
+  const stamped: StampedLeaf[] = [];
   for (const leaf of leaves(root)) {
     stamped.push(stampPrefab(grid, mapRng, leaf));
   }
@@ -96,8 +133,8 @@ export function buildMap({ rng, width, height, threatCount = DEFAULT_THREAT_COUN
   // Connect every internal split. For each split node, pick a representative
   // stamped leaf in each subtree (the first-seen in DFS order) and carve.
   for (const node of internalNodes(root)) {
-    const a = representativeCenter(stamped, node.left);
-    const b = representativeCenter(stamped, node.right);
+    const a = representativeCenter(stamped, node.left!);
+    const b = representativeCenter(stamped, node.right!);
     carveCorridor(grid, a, b);
   }
 
@@ -133,8 +170,8 @@ export function buildMap({ rng, width, height, threatCount = DEFAULT_THREAT_COUN
   //      anchors — `hallway` is intentionally one), fall back to picking
   //      FLOOR tiles inside non-spawn leaves with a single-tile "stand
   //      still" waypoint. Better than refusing to spawn the run.
-  const droneAnchors = [];
-  const isAlreadyTaken = (x, y) =>
+  const droneAnchors: EntityAnchor[] = [];
+  const isAlreadyTaken = (x: number, y: number): boolean =>
     (x === playerSpawn.x && y === playerSpawn.y) ||
     (x === exitTile.x && y === exitTile.y) ||
     droneAnchors.some(a => a.x === x && a.y === y);
@@ -173,7 +210,7 @@ export function buildMap({ rng, width, height, threatCount = DEFAULT_THREAT_COUN
   };
 }
 
-function stampPrefab(grid, rng, leaf) {
+function stampPrefab(grid: Grid, rng: Rng, leaf: BspNode): StampedLeaf {
   const candidates = fittingPrefabs(leaf.region.width, leaf.region.height);
   if (candidates.length === 0) {
     throw new Error(
@@ -225,7 +262,7 @@ function stampPrefab(grid, rng, leaf) {
  * subtree. Throws if the subtree has no stamped leaves — that would mean the
  * tree shape and the stamp pass disagreed, which is a bug we want loud.
  */
-function representativeCenter(stamped, node) {
+function representativeCenter(stamped: StampedLeaf[], node: BspNode): GridPoint {
   if (!node) throw new Error('representativeCenter: null subtree');
   const subtreeLeaves = new Set(leaves(node));
   for (const s of stamped) {
@@ -239,7 +276,7 @@ function representativeCenter(stamped, node) {
  * between two world-space points. Only WALL tiles are overwritten — cover
  * that's already on the path stays cover, and floor tiles are no-ops.
  */
-function carveCorridor(grid, a, b) {
+function carveCorridor(grid: Grid, a: GridPoint, b: GridPoint): void {
   const stepX = a.x === b.x ? 0 : a.x < b.x ? 1 : -1;
   let x = a.x;
   while (x !== b.x) {

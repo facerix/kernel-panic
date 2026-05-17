@@ -9,6 +9,11 @@
  */
 
 import { h } from '/src/domUtils.js';
+import type { Item } from '/src/game/items.js';
+
+type ItemInventoryItem = Omit<Item, 'scope' | 'cost' | 'description' | 'needsTarget'> & {
+  count: number;
+};
 
 const CSS = `
 :host {
@@ -135,16 +140,16 @@ const ITEM_LABELS = {
 };
 
 class ItemInventory extends HTMLElement {
-  #items = []; // [{ id, label, count }]
+  #items: ItemInventoryItem[] = [];
   #ready = false;
-  #rowsEl = null;
-  #titleEl = null;
-  #panelEl = null;
-  #hintEl = null;
-  #buttons = [];
+  #rowsEl: HTMLElement | null = null;
+  #titleEl: HTMLElement | null = null;
+  #panelEl: HTMLElement | null = null;
+  #hintEl: HTMLElement | null = null;
+  #buttons: HTMLButtonElement[] = [];
   #selectedIndex = 0;
-  #onKeyDown = null;
-  #onBackdrop = null;
+  #onKeyDown: ((this: HTMLElement, ev: KeyboardEvent) => void) | null = null;
+  #onBackdrop: ((this: HTMLElement, ev: PointerEvent) => void) | null = null;
 
   connectedCallback() {
     if (this.#ready) return;
@@ -157,13 +162,17 @@ class ItemInventory extends HTMLElement {
     this.#titleEl = h('h2', { className: 'title' });
     this.#rowsEl = h('div', { className: 'rows' });
     this.#hintEl = h('p', { className: 'hint' });
-    this.#panelEl = h('section', { className: 'panel' }, [this.#titleEl, this.#rowsEl, this.#hintEl]);
+    this.#panelEl = h('section', { className: 'panel' }, [
+      this.#titleEl,
+      this.#rowsEl,
+      this.#hintEl,
+    ]);
     shadow.appendChild(this.#panelEl);
 
     this.#onKeyDown = this.#handleKey.bind(this);
     this.addEventListener('keydown', this.#onKeyDown);
     this.#onBackdrop = evt => {
-      if (!evt.composedPath().includes(this.#panelEl)) this.#emit('dismiss');
+      if (!evt.composedPath().includes(this.#panelEl as EventTarget)) this.#emit('dismiss');
     };
     this.addEventListener('click', this.#onBackdrop);
 
@@ -174,15 +183,15 @@ class ItemInventory extends HTMLElement {
   /**
    * @param {Array<{ id: string }>} consumables — crew inventory consumables
    */
-  setItems(consumables) {
+  setItems(consumables: Item[]) {
     // Aggregate by id so duplicates show as "Stim x2".
-    const counts = new Map();
+    const counts = new Map<string, number>();
     for (const c of consumables) {
       counts.set(c.id, (counts.get(c.id) ?? 0) + 1);
     }
     this.#items = [];
     for (const [id, count] of counts) {
-      this.#items.push({ id, label: ITEM_LABELS[id] ?? id, count });
+      this.#items.push({ id, label: ITEM_LABELS[id as keyof typeof ITEM_LABELS] ?? id, count });
     }
     this.#selectedIndex = 0;
     if (this.#ready) this.#render();
@@ -212,14 +221,14 @@ class ItemInventory extends HTMLElement {
 
   #render() {
     if (!this.#ready) return;
-    this.#titleEl.textContent = '── INVENTORY ──';
+    this.#titleEl!.textContent = '── INVENTORY ──';
 
-    while (this.#rowsEl.firstChild) this.#rowsEl.removeChild(this.#rowsEl.firstChild);
+    while (this.#rowsEl!.firstChild) this.#rowsEl!.removeChild(this.#rowsEl!.firstChild);
     this.#buttons = [];
 
     if (this.#items.length === 0) {
-      this.#rowsEl.appendChild(h('p', { className: 'empty', textContent: 'No consumables.' }));
-      this.#hintEl.textContent = '[ Esc close ]';
+      this.#rowsEl!.appendChild(h('p', { className: 'empty', textContent: 'No consumables.' }));
+      this.#hintEl!.textContent = '[ Esc close ]';
       return;
     }
 
@@ -229,7 +238,7 @@ class ItemInventory extends HTMLElement {
         type: 'button',
         className: 'row',
         ariaCurrent: i === this.#selectedIndex ? 'true' : 'false',
-      });
+      }) as HTMLButtonElement;
       btn.dataset.index = String(i);
       btn.addEventListener('click', () => this.#activate(i));
       btn.append(
@@ -237,14 +246,14 @@ class ItemInventory extends HTMLElement {
         h('span', { className: 'item-name', textContent: item.label }),
         h('span', { className: 'item-count', textContent: item.count > 1 ? `x${item.count}` : '' })
       );
-      this.#rowsEl.appendChild(btn);
+      this.#rowsEl!.appendChild(btn);
       this.#buttons.push(btn);
     }
 
-    this.#hintEl.textContent = '[ ENTER use  ·  Esc close ]';
+    this.#hintEl!.textContent = '[ ENTER use  ·  Esc close ]';
   }
 
-  #handleKey(evt) {
+  #handleKey(evt: KeyboardEvent) {
     if (!this.isOpen) return;
     evt.stopPropagation();
     if (evt.key === 'Escape') {
@@ -268,7 +277,7 @@ class ItemInventory extends HTMLElement {
     }
   }
 
-  #move(delta) {
+  #move(delta: number) {
     if (this.#items.length === 0) return;
     this.#selectedIndex = (this.#selectedIndex + delta + this.#items.length) % this.#items.length;
     for (let i = 0; i < this.#buttons.length; i++) {
@@ -278,13 +287,13 @@ class ItemInventory extends HTMLElement {
     if (btn) btn.focus();
   }
 
-  #activate(index) {
+  #activate(index: number) {
     const item = this.#items[index];
     if (!item) return;
     this.#emit('use-item', { itemId: item.id });
   }
 
-  #emit(eventName, detail) {
+  #emit(eventName: string, detail = {}) {
     this.dispatchEvent(new CustomEvent(eventName, { detail }));
   }
 }

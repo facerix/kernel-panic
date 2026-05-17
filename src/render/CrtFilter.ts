@@ -7,19 +7,28 @@
  * cheap screens. Crank `scanlineAlpha` / `vignetteAlpha` through options if we
  * want a heavier look later.
  */
+
+type CrtFilterOptions = {
+  scanlineAlpha?: number;
+  scanlineSpacing?: number;
+  vignetteAlpha?: number;
+};
+
 export class CrtFilter {
-  constructor(canvas, options = {}) {
-    if (!canvas || typeof canvas.getContext !== 'function') {
-      throw new TypeError('CrtFilter requires a canvas element');
-    }
+  canvas: HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D;
+  scanlineAlpha: number;
+  scanlineSpacing: number;
+  vignetteAlpha: number;
+
+  constructor(canvas: HTMLCanvasElement, options: CrtFilterOptions = {}) {
     this.canvas = canvas;
-    this.ctx = canvas.getContext('2d');
+    this.ctx = canvas.getContext('2d')!;
     this.scanlineAlpha = options.scanlineAlpha ?? 0.18;
     this.scanlineSpacing = options.scanlineSpacing ?? 2;
     this.vignetteAlpha = options.vignetteAlpha ?? 0.45;
   }
-
-  apply() {
+  apply(): void {
     this.#drawScanlines();
     this.#drawVignette();
   }

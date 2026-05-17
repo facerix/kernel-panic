@@ -17,16 +17,16 @@
  */
 
 import { TILE } from './constants.js';
+import type { Grid } from './Grid.js';
+import type { GridPoint } from '../types.js';
 
 /**
  * Intermediate tiles along the Bresenham line from (x0,y0) to (x1,y1),
  * exclusive of both endpoints. Returns an empty array for adjacent or
  * identical points.
- *
- * @returns {Array<{x: number, y: number}>}
  */
-export function tilesBetween(x0, y0, x1, y1) {
-  const tiles = [];
+export function tilesBetween(x0: number, y0: number, x1: number, y1: number): GridPoint[] {
+  const tiles: GridPoint[] = [];
   let x = x0;
   let y = y0;
   const dx = Math.abs(x1 - x0);
@@ -59,7 +59,13 @@ export function tilesBetween(x0, y0, x1, y1) {
  * the M4 harness was walking Chebyshev steps while Combat enforced
  * Euclidean — produced "phantom" out-of-range denials on diagonals.
  */
-export function withinRange(x0, y0, x1, y1, range) {
+export function withinRange(
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  range: number
+): boolean {
   if (!Number.isFinite(range) || range < 0) {
     throw new RangeError(`withinRange: range must be ≥ 0, got ${range}`);
   }
@@ -79,7 +85,14 @@ export function withinRange(x0, y0, x1, y1, range) {
  * keep this opt-in (instead of always taking a `World`) so the geometry
  * tests can drive the function with a bare `Grid`.
  */
-export function hasLineOfSight(grid, x0, y0, x1, y1, options = {}) {
+export function hasLineOfSight(
+  grid: Grid,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  options: { blockers?: Set<string> | null } = {}
+): boolean {
   if (x0 === x1 && y0 === y1) return true;
   const blockers = options.blockers ?? null;
   return (
@@ -93,7 +106,13 @@ export function hasLineOfSight(grid, x0, y0, x1, y1, options = {}) {
  * Combat to apply the cover hit-penalty. Independent of LOS — cover doesn't
  * block sightlines, only modifies fire resolution.
  */
-export function hasCoverBetween(grid, x0, y0, x1, y1) {
+export function hasCoverBetween(
+  grid: Grid,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number
+): boolean {
   if (x0 === x1 && y0 === y1) return false;
   for (const { x, y } of tilesBetween(x0, y0, x1, y1)) {
     if (!grid.inBounds(x, y)) continue;
@@ -102,7 +121,7 @@ export function hasCoverBetween(grid, x0, y0, x1, y1) {
   return false;
 }
 
-function clearsTrace(grid, tiles, blockers) {
+function clearsTrace(grid: Grid, tiles: GridPoint[], blockers: Set<string> | null): boolean {
   for (const { x, y } of tiles) {
     if (grid.blocksLineOfSight(x, y)) return false;
     if (blockers && blockers.has(`${x},${y}`)) return false;

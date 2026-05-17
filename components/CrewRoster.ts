@@ -12,7 +12,9 @@
  */
 
 import { h } from '/src/domUtils.js';
-import '/components/CrewList.js';
+import CrewList from '/components/CrewList.js';
+import type { Crew as CrewMember, Gear } from '/src/game/Crew.js';
+import type { Item } from '/src/game/items.js';
 
 /** Human-readable labels for item IDs (mirrors ItemInventory). */
 const ITEM_LABELS = {
@@ -21,7 +23,7 @@ const ITEM_LABELS = {
 };
 
 /** Human-readable labels for gear bonuses. */
-function gearLines(gear) {
+function gearLines(gear: Gear) {
   if (!gear) return [];
   const lines = [];
   if (gear.maxHpBonus > 0) lines.push(`Armour Plating  +${gear.maxHpBonus} HP`);
@@ -30,7 +32,7 @@ function gearLines(gear) {
 }
 
 /** Aggregate consumables into "Label x2" lines. */
-function consumableLines(consumables) {
+function consumableLines(consumables: Item[]) {
   if (!consumables || consumables.length === 0) return [];
   const counts = new Map();
   for (const c of consumables) {
@@ -38,7 +40,7 @@ function consumableLines(consumables) {
   }
   const lines = [];
   for (const [id, count] of counts) {
-    const label = ITEM_LABELS[id] ?? id;
+    const label = ITEM_LABELS[id as keyof typeof ITEM_LABELS] ?? id;
     lines.push(count > 1 ? `${label} x${count}` : label);
   }
   return lines;
@@ -180,17 +182,17 @@ crew-list {
 `;
 
 class CrewRoster extends HTMLElement {
-  #crewRaw = []; // original crew references (for detail data)
+  #crewRaw: CrewMember[] = []; // original crew references (for detail data)
   #salvage = 0;
   #ready = false;
-  #listEl = null;
-  #detailEl = null;
-  #titleEl = null;
-  #balanceEl = null;
-  #hintEl = null;
-  #panelEl = null;
-  #onKeyDown = null;
-  #onBackdrop = null;
+  #listEl: CrewList | null = null;
+  #detailEl: HTMLElement | null = null;
+  #titleEl: HTMLElement | null = null;
+  #balanceEl: HTMLElement | null = null;
+  #hintEl: HTMLElement | null = null;
+  #panelEl: HTMLElement | null = null;
+  #onKeyDown: ((this: HTMLElement, ev: KeyboardEvent) => void) | null = null;
+  #onBackdrop: ((this: HTMLElement, ev: PointerEvent) => void) | null = null;
 
   connectedCallback() {
     if (this.#ready) return;
@@ -203,8 +205,10 @@ class CrewRoster extends HTMLElement {
     this.#titleEl = h('h2', { className: 'title', textContent: '── CREW ROSTER ──' });
     this.#balanceEl = h('p', { className: 'balance' });
 
-    this.#listEl = document.createElement('crew-list');
-    this.#listEl.addEventListener('select', evt => this.#onSelect(evt.detail.member));
+    this.#listEl = document.createElement('crew-list') as CrewList;
+    this.#listEl.addEventListener('select', evt =>
+      this.#onSelect((evt as CustomEvent<{ member: CrewMember }>).detail.member)
+    );
 
     this.#detailEl = h('div', { className: 'detail' });
 
@@ -224,7 +228,7 @@ class CrewRoster extends HTMLElement {
       // Clicks inside nested shadow trees (e.g. <crew-list> rows) retarget
       // `event.target` to this host, so `target === this` is not a safe
       // backdrop test — use the real event path instead.
-      if (evt.composedPath().includes(this.#panelEl)) return;
+      if (evt.composedPath().includes(this.#panelEl as EventTarget)) return;
       this.dispatchEvent(new CustomEvent('dismiss'));
     };
     this.addEventListener('click', this.#onBackdrop);
@@ -236,22 +240,22 @@ class CrewRoster extends HTMLElement {
    * @param {Array} crew — array of Crew instances (or snapshot objects).
    * @param {{ salvage?: number }} options
    */
-  setCrew(crew, { salvage = 0 } = {}) {
+  setCrew(crew: CrewMember[], { salvage = 0 } = {}) {
     if (!Array.isArray(crew)) {
       throw new TypeError('<crew-roster>.setCrew requires an array');
     }
     this.#crewRaw = crew;
     this.#salvage = salvage;
-    this.#balanceEl.textContent = `SALVAGE ${this.#salvage}`;
+    this.#balanceEl!.textContent = `SALVAGE ${this.#salvage}`;
     // Crew list handles its own rendering; selection triggers detail update.
-    this.#listEl.setCrew(crew);
+    this.#listEl!.setCrew(crew);
   }
 
   show() {
     this.setAttribute('open', '');
     queueMicrotask(() => {
       // Focus the list so arrow keys work immediately.
-      if (!this.#listEl.focusSelected()) this.focus();
+      if (!this.#listEl!.focusSelected()) this.focus();
     });
   }
 
@@ -268,7 +272,7 @@ class CrewRoster extends HTMLElement {
     if (this.#onBackdrop) this.removeEventListener('click', this.#onBackdrop);
   }
 
-  #handleKey(evt) {
+  #handleKey(evt: KeyboardEvent) {
     if (!this.isOpen) return;
     if (evt.key === 'Escape') {
       evt.preventDefault();
@@ -282,14 +286,14 @@ class CrewRoster extends HTMLElement {
    * Update the detail pane when the crew list selection changes.
    * @param {{ id: string, callsign: string, archetype: string, hp: number, maxHp: number, flatlined: boolean }} member
    */
-  #onSelect(member) {
+  #onSelect(member: CrewMember) {
     // Find the full crew object to read gear/inventory.
     const full = this.#crewRaw.find(m => (m.id ?? m.callsign) === member.id) ?? member;
 
-    while (this.#detailEl.firstChild) this.#detailEl.removeChild(this.#detailEl.firstChild);
+    while (this.#detailEl!.firstChild) this.#detailEl!.removeChild(this.#detailEl!.firstChild);
 
     // Name + class header
-    this.#detailEl.appendChild(
+    this.#detailEl!.appendChild(
       h('p', { className: 'detail-header' }, [
         h('span', { className: 'detail-name', textContent: member.callsign }),
         h('span', {
@@ -300,7 +304,7 @@ class CrewRoster extends HTMLElement {
     );
 
     if (member.flatlined) {
-      this.#detailEl.appendChild(
+      this.#detailEl!.appendChild(
         h('p', { className: 'flatlined-label', textContent: '[ FLATLINED ]' })
       );
       return;
@@ -312,18 +316,19 @@ class CrewRoster extends HTMLElement {
     statsSection.appendChild(
       h('p', { className: 'detail-stat', textContent: `HP  ${member.hp}/${member.maxHp}` })
     );
-    if (full.gear?.hitBonus > 0) {
+    const hitBonus = full.gear?.hitBonus ?? 0;
+    if (hitBonus > 0) {
       statsSection.appendChild(
         h('p', {
           className: 'detail-stat',
-          textContent: `HIT  +${(full.gear.hitBonus * 100).toFixed(0)}%`,
+          textContent: `HIT  +${(hitBonus * 100).toFixed(0)}%`,
         })
       );
     }
-    this.#detailEl.appendChild(statsSection);
+    this.#detailEl!.appendChild(statsSection);
 
     // Gear
-    const gLines = gearLines(full.gear);
+    const gLines = gearLines(full.gear ?? ({} as Gear));
     const gearSection = h('div', { className: 'detail-section' });
     gearSection.appendChild(h('p', { className: 'detail-section-title', textContent: 'GEAR' }));
     if (gLines.length === 0) {
@@ -333,10 +338,10 @@ class CrewRoster extends HTMLElement {
         gearSection.appendChild(h('p', { className: 'detail-stat', textContent: line }));
       }
     }
-    this.#detailEl.appendChild(gearSection);
+    this.#detailEl!.appendChild(gearSection);
 
     // Consumables
-    const consumables = full.inventory?.consumables ?? [];
+    const consumables = full.inventory?.consumables ?? ([] as Item[]);
     const cLines = consumableLines(consumables);
     const consSection = h('div', { className: 'detail-section' });
     consSection.appendChild(
@@ -349,7 +354,7 @@ class CrewRoster extends HTMLElement {
         consSection.appendChild(h('p', { className: 'detail-stat', textContent: line }));
       }
     }
-    this.#detailEl.appendChild(consSection);
+    this.#detailEl!.appendChild(consSection);
   }
 }
 

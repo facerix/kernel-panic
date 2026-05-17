@@ -19,6 +19,9 @@
  * destination (none in M5; reserved for movement commands).
  */
 
+import type { World } from './World.js';
+import type { GridPoint } from '../types.js';
+
 const NEIGHBOURS = Object.freeze([
   Object.freeze([-1, -1]),
   Object.freeze([0, -1]),
@@ -30,29 +33,33 @@ const NEIGHBOURS = Object.freeze([
   Object.freeze([1, 1]),
 ]);
 
-const keyOf = (x, y) => `${x},${y}`;
+const keyOf = (x: number, y: number): string => `${x},${y}`;
 
 /**
  * Chebyshev (king-move) distance — the heuristic we use, exposed so callers
  * (drone AI, debug overlays) can share the geometry instead of re-rolling
  * `Math.max(Math.abs(...), Math.abs(...))` inline.
  */
-export function chebyshev(ax, ay, bx, by) {
+export function chebyshev(ax: number, ay: number, bx: number, by: number): number {
   return Math.max(Math.abs(ax - bx), Math.abs(ay - by));
 }
+type FindPathOptions = {
+  allowOccupiedGoal?: boolean;
+  maxSteps?: number;
+};
 
 /**
  * Find a shortest path from `start` to `goal`. Returns an array of step
  * coordinates from `start` (exclusive) to `goal` (inclusive); `[]` when
  * `start` already equals `goal`; `null` when unreachable under the current
  * grid / occupation state or when `maxSteps` is exceeded.
- *
- * @param {{ grid: import('./Grid.js').Grid, entityAt: (x:number, y:number) => unknown }} world
- * @param {{ x: number, y: number }} start
- * @param {{ x: number, y: number }} goal
- * @param {{ allowOccupiedGoal?: boolean, maxSteps?: number }} [options]
  */
-export function findPath(world, start, goal, options = {}) {
+export function findPath(
+  world: World,
+  start: GridPoint,
+  goal: GridPoint,
+  options: FindPathOptions = {}
+): GridPoint[] | null {
   if (!world || !world.grid) {
     throw new TypeError('findPath requires a world with a grid');
   }
@@ -89,7 +96,7 @@ export function findPath(world, start, goal, options = {}) {
   open.push({ x: start.x, y: start.y }, chebyshev(start.x, start.y, goal.x, goal.y));
 
   while (!open.isEmpty()) {
-    const cur = open.pop();
+    const cur = open.pop() as GridPoint;
     const ck = keyOf(cur.x, cur.y);
     if (ck === goalKey) {
       return reconstruct(cameFrom, ck);
@@ -123,23 +130,23 @@ export function findPath(world, start, goal, options = {}) {
   return null;
 }
 
-function validatePoint(label, p) {
+function validatePoint(label: string, p: GridPoint) {
   if (!p || !Number.isInteger(p.x) || !Number.isInteger(p.y)) {
     throw new TypeError(`findPath: ${label} requires integer x,y; got ${JSON.stringify(p)}`);
   }
 }
 
-function reconstruct(cameFrom, endKey) {
+function reconstruct(cameFrom: Map<string, GridPoint>, endKey: string): GridPoint[] {
   // Build the path backward from goal, then reverse. The start tile is *not*
   // included — callers (like the drone AI) want the next step, not their own
   // square.
-  const path = [];
+  const path: GridPoint[] = [];
   let key = endKey;
   while (cameFrom.has(key)) {
     const [xs, ys] = key.split(',');
     path.push({ x: Number(xs), y: Number(ys) });
     const prev = cameFrom.get(key);
-    key = keyOf(prev.x, prev.y);
+    key = keyOf(prev!.x, prev!.y);
   }
   path.reverse();
   return path;
@@ -151,10 +158,11 @@ function reconstruct(cameFrom, endKey) {
  * swap in a bucket queue (uniform-cost grids benefit).
  */
 class MinHeap {
+  items: unknown[];
+  priorities: number[];
+
   constructor() {
-    /** @type {Array<unknown>} */
     this.items = [];
-    /** @type {number[]} */
     this.priorities = [];
   }
 
@@ -162,7 +170,7 @@ class MinHeap {
     return this.items.length === 0;
   }
 
-  push(item, priority) {
+  push(item: unknown, priority: number) {
     if (!Number.isFinite(priority)) {
       throw new RangeError(`MinHeap priority must be finite, got ${priority}`);
     }
@@ -171,7 +179,7 @@ class MinHeap {
     this.#bubbleUp(this.items.length - 1);
   }
 
-  pop() {
+  pop(): unknown {
     if (this.items.length === 0) {
       throw new Error('MinHeap.pop called on empty heap');
     }
@@ -180,13 +188,13 @@ class MinHeap {
     const lastP = this.priorities.pop();
     if (this.items.length > 0) {
       this.items[0] = last;
-      this.priorities[0] = lastP;
+      this.priorities[0] = lastP!;
       this.#bubbleDown(0);
     }
     return top;
   }
 
-  #bubbleUp(i) {
+  #bubbleUp(i: number) {
     while (i > 0) {
       const parent = (i - 1) >> 1;
       if (this.priorities[i] >= this.priorities[parent]) break;
@@ -195,7 +203,7 @@ class MinHeap {
     }
   }
 
-  #bubbleDown(i) {
+  #bubbleDown(i: number) {
     const n = this.items.length;
     for (;;) {
       const left = i * 2 + 1;
@@ -209,7 +217,7 @@ class MinHeap {
     }
   }
 
-  #swap(a, b) {
+  #swap(a: number, b: number) {
     [this.items[a], this.items[b]] = [this.items[b], this.items[a]];
     [this.priorities[a], this.priorities[b]] = [this.priorities[b], this.priorities[a]];
   }

@@ -4,6 +4,9 @@
  */
 
 import { FACTION } from './constants.js';
+import type { Entity } from './Entity.js';
+
+type IsVisibleFn = (x: number, y: number) => boolean;
 
 const GENERIC_STATUS_MESSAGES = [
   'You hear movement nearby.',
@@ -25,7 +28,10 @@ const GENERIC_STATUS_MESSAGES = [
  * @param {(x: number, y: number) => boolean} isTileVisible
  * @returns {number}
  */
-export function countVisibleCorpEntities(entities, isTileVisible) {
+export function countVisibleCorpEntities(
+  entities: Iterable<Entity>,
+  isTileVisible: IsVisibleFn
+): number {
   let n = 0;
   for (const e of entities) {
     if (!e?.alive || e.faction !== FACTION.CORP) continue;
@@ -44,7 +50,7 @@ const corpNoiseForTurn = new Map();
  * @param {number} turnNumber
  * @returns {string}
  */
-export function corpTurnStatusBody(visibleCorpCount, turnNumber) {
+export function corpTurnStatusBody(visibleCorpCount: number, turnNumber: number): string {
   if (visibleCorpCount >= 2) {
     return 'Multiple hostiles in sight — units repositioning.';
   }

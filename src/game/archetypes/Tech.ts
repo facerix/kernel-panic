@@ -1,6 +1,8 @@
 import { Crew } from '../Crew.js';
 import { FACTION, AP_COST, SALVAGE_PER_IMPROVISED_TURRET } from '../constants.js';
 import { Turret } from '../Turret.js';
+import type { CrewInit } from '../Crew.js';
+import type { World } from '../World.js';
 
 /**
  * Curated callsign pool for the Tech archetype. See `Merc.js` CALLSIGNS for
@@ -42,8 +44,11 @@ export const CALLSIGNS = Object.freeze([
  * breaking the deployTurret contract.
  */
 export class Tech extends Crew {
-  constructor(props = {}) {
-    super({ faction: FACTION.PLAYER, glyph: '@', ...props });
+  turretReady: boolean;
+  private _improvisedTurretCount: number;
+
+  constructor(props: CrewInit) {
+    super({ ...props, glyph: '@' });
     /**
      * The pre-built turret token. Refilled at job start by `Campaign`
      * (M2); for now the debug harness re-instantiates Tech on each scenario
@@ -69,7 +74,7 @@ export class Tech extends Crew {
    * a separate `improviseTurret(world, dx, dy)` verb that shares the tile
    * checks but gates on `Crew.inventory.salvage` instead of `turretReady`.
    */
-  canDeploy(world, dx, dy) {
+  canDeploy(world: World, dx: number, dy: number) {
     if (!Number.isInteger(dx) || !Number.isInteger(dy)) {
       throw new TypeError(`canDeploy requires integer offsets, got (${dx}, ${dy})`);
     }
@@ -113,7 +118,7 @@ export class Tech extends Crew {
    * (World.addEntity already does so) rather than silently overwriting an
    * existing turret — that would be a bug, not a feature.
    */
-  deployTurret(world, dx, dy) {
+  deployTurret(world: World, dx: number, dy: number) {
     const check = this.canDeploy(world, dx, dy);
     if (!check.ok) {
       throw new Error(`Illegal deploy for ${this.id}: ${check.reason}`);
@@ -126,6 +131,7 @@ export class Tech extends Crew {
       id: `${this.id}-turret`,
       x: tx,
       y: ty,
+      faction: FACTION.PLAYER,
       ownerId: this.id,
     });
     world.addEntity(turret);
@@ -137,7 +143,7 @@ export class Tech extends Crew {
    * `canDeploy`, but gates on `inventory.salvage >= SALVAGE_PER_IMPROVISED_TURRET`
    * instead of the `turretReady` flag.
    */
-  canImproviseTurret(world, dx, dy) {
+  canImproviseTurret(world: World, dx: number, dy: number) {
     if (!Number.isInteger(dx) || !Number.isInteger(dy)) {
       throw new TypeError(`canImproviseTurret requires integer offsets, got (${dx}, ${dy})`);
     }
@@ -178,7 +184,7 @@ export class Tech extends Crew {
    * `SALVAGE_PER_IMPROVISED_TURRET` salvage from inventory. Throws on all
    * illegal preconditions before mutating state.
    */
-  improviseTurret(world, dx, dy) {
+  improviseTurret(world: World, dx: number, dy: number) {
     const check = this.canImproviseTurret(world, dx, dy);
     if (!check.ok) {
       throw new Error(`Illegal improvise for ${this.id}: ${check.reason}`);
@@ -186,12 +192,13 @@ export class Tech extends Crew {
     const tx = this.x + dx;
     const ty = this.y + dy;
     this.spendAp(AP_COST.DEPLOY);
-    this.inventory.salvage -= SALVAGE_PER_IMPROVISED_TURRET;
+    this.inventory!.salvage -= SALVAGE_PER_IMPROVISED_TURRET;
     this._improvisedTurretCount++;
     const turret = new Turret({
       id: `${this.id}-imp-turret-${this._improvisedTurretCount}`,
       x: tx,
       y: ty,
+      faction: FACTION.PLAYER,
       ownerId: this.id,
     });
     world.addEntity(turret);

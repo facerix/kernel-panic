@@ -32,6 +32,16 @@ import { TILE } from '../../constants.js';
 import { ASCII as OFFICE_ASCII, METADATA as OFFICE_METADATA } from './office.js';
 import { ASCII as SERVER_ROOM_ASCII, METADATA as SERVER_ROOM_METADATA } from './server-room.js';
 import { ASCII as HALLWAY_ASCII, METADATA as HALLWAY_METADATA } from './hallway.js';
+import type { ParsedPrefab, PrefabAscii, PrefabAnchor, PrefabMetadata } from './types.js';
+
+export type {
+  ParsedPrefab,
+  PrefabAnchor,
+  PrefabAnchorsSpec,
+  PrefabAscii,
+  PrefabDroneAnchor,
+  PrefabMetadata,
+} from './types.js';
 
 const GLYPH_TO_TILE = Object.freeze({
   '.': TILE.FLOOR,
@@ -44,12 +54,9 @@ const GLYPH_TO_TILE = Object.freeze({
  * body uses '\n' separators with leading/trailing newlines stripped. Every
  * row must be the same length.
  *
- * @returns {{ id: string, w: number, h: number, tiles: Uint8Array,
- *             anchors: { drones: Array<{x:number,y:number,waypoints?:{x:number,y:number}[]}>,
- *                        cover: Array<{x:number,y:number}>,
- *                        exit: Array<{x:number,y:number}> } }}
+ * @returns Parsed prefab: tile bytes plus validated anchors.
  */
-export function parsePrefab(ascii, metadata) {
+export function parsePrefab(ascii: PrefabAscii, metadata: PrefabMetadata): ParsedPrefab {
   if (typeof ascii !== 'string' || ascii.length === 0) {
     throw new TypeError('parsePrefab requires a non-empty ASCII string');
   }
@@ -85,7 +92,8 @@ export function parsePrefab(ascii, metadata) {
       if (!Object.hasOwn(GLYPH_TO_TILE, ch)) {
         throw new Error(`parsePrefab(${metadata.id}): unknown glyph "${ch}" at (${x}, ${y})`);
       }
-      tiles[y * w + x] = GLYPH_TO_TILE[ch];
+      const glyph = ch as keyof typeof GLYPH_TO_TILE;
+      tiles[y * w + x] = GLYPH_TO_TILE[glyph];
     }
   }
 
@@ -98,7 +106,13 @@ export function parsePrefab(ascii, metadata) {
   return { id: metadata.id, w, h, tiles, anchors };
 }
 
-function validateAnchors(list, w, h, prefabId, kind) {
+function validateAnchors<T extends PrefabAnchor>(
+  list: T[],
+  w: number,
+  h: number,
+  prefabId: string,
+  kind: 'drones' | 'cover' | 'exit'
+): T[] {
   if (!Array.isArray(list)) {
     throw new TypeError(`prefab ${prefabId}: anchors.${kind} must be an array`);
   }
@@ -113,7 +127,7 @@ function validateAnchors(list, w, h, prefabId, kind) {
         `prefab ${prefabId}: ${kind} anchor (${a.x},${a.y}) out of ${w}x${h} bounds`
       );
     }
-    if (kind === 'drones' && a.waypoints) {
+    if (kind === 'drones' && 'waypoints' in a && a.waypoints) {
       if (!Array.isArray(a.waypoints)) {
         throw new TypeError(
           `prefab ${prefabId}: drone waypoints must be an array, got ${typeof a.waypoints}`
@@ -146,6 +160,6 @@ export const PREFABS = Object.freeze({
  * Look up a prefab whose footprint fits inside `(maxW, maxH)`. Returns null
  * when nothing fits — caller decides whether that's a hard error.
  */
-export function fittingPrefabs(maxW, maxH) {
+export function fittingPrefabs(maxW: number, maxH: number): ParsedPrefab[] {
   return Object.values(PREFABS).filter(p => p.w <= maxW && p.h <= maxH);
 }

@@ -12,11 +12,17 @@
 
 import { Entity } from '../Entity.js';
 import { FACTION } from '../constants.js';
+import type { EntityInit } from '../Entity.js';
 
 const TERMINAL_GLYPH = '‡';
 
+type TerminalInit = Omit<EntityInit, 'faction' | 'glyph' | 'maxAp' | 'maxHp' | 'id' | 'x' | 'y'> & {
+  id?: string;
+  x?: number;
+  y?: number;
+};
 export class Terminal extends Entity {
-  constructor(props = {}) {
+  constructor(props: TerminalInit = {}) {
     super({
       id: props.id ?? 'terminal',
       x: props.x ?? 0,

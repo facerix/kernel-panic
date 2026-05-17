@@ -28,9 +28,12 @@
 import { h } from '/src/domUtils.js';
 import { MODE } from '/src/input/keymap.js';
 import { dispatchTouchAction } from '/src/input/touchpad.js';
+import type { Mode } from '/src/input/keymap.js';
 
 const FORCE_SHOW_PARAM = 'touch';
 const FORCE_SHOW_VALUE = 'force';
+
+type IsBlockedPredicate = () => boolean;
 
 /** Same object for `addEventListener` / `removeEventListener` parity. */
 const POINTER_DOWN_OPTS = { capture: true };
@@ -234,10 +237,10 @@ button:focus-visible {
 `;
 
 class TouchPad extends HTMLElement {
-  #mode = MODE.IDLE;
+  #mode: Mode = MODE.IDLE;
   #buttonsById = new Map();
-  #banner = null;
-  #boundOnPointerDown = null;
+  #banner: HTMLElement | null = null;
+  #boundOnPointerDown: ((evt: PointerEvent) => void) | null = null;
   #ready = false;
   /**
    * Optional input lockout. The M0 combat-feedback animations set this to
@@ -245,7 +248,7 @@ class TouchPad extends HTMLElement {
    * it returns true so a held thumb can't queue actions mid-shake. Defaults
    * to a no-op so unit tests and non-animating callers don't have to wire it.
    */
-  #isBlocked = () => false;
+  #isBlocked: IsBlockedPredicate = () => false;
 
   static get observedAttributes() {
     return ['force-show'];
@@ -285,7 +288,7 @@ class TouchPad extends HTMLElement {
    * Sync the touch pad's mode externally — useful when the harness rebuilds
    * the scenario (reset) and wants aim state cleared.
    */
-  setMode(mode) {
+  setMode(mode: Mode) {
     if (!Object.values(MODE).includes(mode)) {
       throw new Error(`<touch-pad>: unknown mode "${mode}"`);
     }
@@ -305,7 +308,7 @@ class TouchPad extends HTMLElement {
    * See `#isBlocked` for the motivation. Validated so a typo'd assignment
    * crashes loudly instead of silently bypassing the lock.
    */
-  setBlocked(predicate) {
+  setBlocked(predicate: IsBlockedPredicate | null): void {
     if (predicate === null || predicate === undefined) {
       this.#isBlocked = () => false;
       return;
@@ -342,7 +345,7 @@ class TouchPad extends HTMLElement {
         ariaLabel: `Direction ${slot}`,
       });
       btn.dataset.button = slot;
-      btn.textContent = DIRECTION_LABELS[slot] ?? slot;
+      btn.textContent = DIRECTION_LABELS[slot as keyof typeof DIRECTION_LABELS] ?? slot;
       this.#buttonsById.set(slot, btn);
       return btn;
     });
@@ -391,17 +394,17 @@ class TouchPad extends HTMLElement {
     return h('div', { className: 'actions', role: 'group', ariaLabel: 'Actions' }, buttons);
   }
 
-  #findDataButton(evt) {
+  #findDataButton(evt: PointerEvent) {
     const root = this.shadowRoot;
     if (!root) return null;
     for (const node of evt.composedPath()) {
       if (node === root) break;
-      if (node instanceof Element && root.contains(node) && node.dataset?.button) return node;
+      if (node instanceof HTMLElement && root.contains(node) && node.dataset?.button) return node;
     }
     return null;
   }
 
-  #onPointerDown(evt) {
+  #onPointerDown(evt: PointerEvent) {
     const btn = this.#findDataButton(evt);
     if (!btn) return;
     const buttonId = btn.dataset.button;
@@ -418,7 +421,7 @@ class TouchPad extends HTMLElement {
     const { intent, nextMode } = dispatchTouchAction(buttonId, this.#mode);
 
     if (nextMode !== previousMode) {
-      this.#mode = nextMode;
+      this.#mode = nextMode as Mode;
       this.#renderMode();
       this.#emit('mode-change', { mode: nextMode, previousMode });
     }
@@ -430,7 +433,7 @@ class TouchPad extends HTMLElement {
     if (this.#banner) {
       this.#banner.textContent = AIM_MODE_LABEL[this.#mode] ?? '';
     }
-    const activeAction = AIM_MODE_ACTION[this.#mode] ?? null;
+    const activeAction = AIM_MODE_ACTION[this.#mode as keyof typeof AIM_MODE_ACTION] ?? null;
     for (const [id, btn] of this.#buttonsById) {
       if (!btn) continue;
       const isActive = id === activeAction;
@@ -439,7 +442,7 @@ class TouchPad extends HTMLElement {
     }
   }
 
-  #emit(eventName, detail) {
+  #emit(eventName: string, detail: unknown) {
     this.dispatchEvent(new CustomEvent(eventName, { detail, bubbles: true }));
   }
 }

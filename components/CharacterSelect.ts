@@ -33,6 +33,9 @@
  */
 
 import { h } from '/src/domUtils.js';
+import type { ArchetypeInfo } from '/src/game/archetypes/index.js';
+
+type ArchetypeStub = Omit<ArchetypeInfo, 'perks' | 'perkKey'>;
 
 const CSS = `
 :host {
@@ -161,14 +164,14 @@ button.option[aria-current='true'] .cursor {
 `;
 
 class CharacterSelect extends HTMLElement {
-  #archetypes = [];
-  #current = null;
+  #archetypes: ArchetypeStub[] = [];
+  #current: string | null = null;
   #ready = false;
-  #optionsEl = null;
-  #panelEl = null;
-  #buttons = new Map();
-  #onKeyDown = null;
-  #onBackdrop = null;
+  #optionsEl: HTMLElement | null = null;
+  #panelEl: HTMLElement | null = null;
+  #buttons: Map<string, HTMLElement> = new Map();
+  #onKeyDown: ((this: HTMLElement, ev: KeyboardEvent) => void) | null = null;
+  #onBackdrop: ((this: HTMLElement, ev: PointerEvent) => void) | null = null;
 
   connectedCallback() {
     if (this.#ready) return;
@@ -183,7 +186,7 @@ class CharacterSelect extends HTMLElement {
       h('h2', { className: 'title', textContent: '── SELECT OPERATOR ──' }),
       this.#optionsEl,
       h('p', { className: 'hint', textContent: '[ ENTER confirm  ·  Esc dismiss ]' }),
-    ]);
+    ]) as HTMLElement;
     shadow.appendChild(this.#panelEl);
 
     // The keydown listener lives on the host so arrow nav works even when the
@@ -193,7 +196,7 @@ class CharacterSelect extends HTMLElement {
     this.addEventListener('keydown', this.#onKeyDown);
 
     this.#onBackdrop = evt => {
-      if (!evt.composedPath().includes(this.#panelEl)) this.#emit('dismiss');
+      if (!evt.composedPath().includes(this.#panelEl as EventTarget)) this.#emit('dismiss');
     };
     this.addEventListener('click', this.#onBackdrop);
 
@@ -206,13 +209,13 @@ class CharacterSelect extends HTMLElement {
    * blurb, perkLabel }. Stored even when disconnected so the shell can call
    * setArchetypes + setCurrent in any order pre-show().
    */
-  setArchetypes(list) {
+  setArchetypes(list: ArchetypeInfo[]) {
     if (!Array.isArray(list) || list.length === 0) {
       throw new TypeError('<character-select>.setArchetypes requires a non-empty array');
     }
     this.#archetypes = list.map(a => ({
       id: a.id,
-      name: a.name ?? a.id?.toUpperCase() ?? '???',
+      name: a.name ?? '???',
       blurb: a.blurb ?? '',
       perkLabel: a.perkLabel ?? '',
     }));
@@ -223,7 +226,7 @@ class CharacterSelect extends HTMLElement {
    * Mark `id` as the highlighted/default archetype. The first show() after a
    * setCurrent will move focus to that button; on Enter it becomes the pick.
    */
-  setCurrent(id) {
+  setCurrent(id: string | null) {
     this.#current = id ?? null;
     if (this.#ready) this.#syncCurrent();
   }
@@ -284,7 +287,7 @@ class CharacterSelect extends HTMLElement {
     }
   }
 
-  #handleKey(evt) {
+  #handleKey(evt: KeyboardEvent) {
     if (!this.isOpen) return;
     const key = evt.key;
     if (key === 'Escape') {
@@ -295,7 +298,7 @@ class CharacterSelect extends HTMLElement {
     }
     if (key === 'Enter' || key === ' ') {
       const focused = this.shadowRoot?.activeElement;
-      const id = focused?.dataset?.archetypeId;
+      const id = (focused as HTMLElement)?.dataset?.archetypeId;
       if (id) {
         evt.preventDefault();
         evt.stopPropagation();
@@ -317,11 +320,11 @@ class CharacterSelect extends HTMLElement {
     }
   }
 
-  #moveFocus(delta) {
-    const ids = this.#archetypes.map(a => a.id);
+  #moveFocus(delta: number) {
+    const ids: string[] = this.#archetypes.map(a => a.id);
     if (ids.length === 0) return;
-    const focused = this.shadowRoot?.activeElement?.dataset?.archetypeId;
-    const idx = focused ? ids.indexOf(focused) : ids.indexOf(this.#current);
+    const focused = (this.shadowRoot?.activeElement as HTMLElement)?.dataset?.archetypeId;
+    const idx = focused ? ids.indexOf(focused) : ids.indexOf(this.#current ?? '');
     const safeIdx = idx === -1 ? 0 : idx;
     const next = (safeIdx + delta + ids.length) % ids.length;
     this.#buttons.get(ids[next])?.focus();
@@ -332,14 +335,14 @@ class CharacterSelect extends HTMLElement {
     return first ? this.#buttons.get(first.id) : null;
   }
 
-  #confirm(archetypeId) {
+  #confirm(archetypeId: string) {
     this.#emit('pick', { archetypeId });
   }
 
-  #emit(eventName, detail) {
+  #emit(eventName: string, detail: Record<string, unknown> = {}) {
     this.dispatchEvent(
       new CustomEvent(eventName, {
-        detail: detail ?? {},
+        detail: { ...detail },
         bubbles: true,
         composed: true,
       })

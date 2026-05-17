@@ -21,6 +21,8 @@
  * mask a `mapBuild` bug calling us with a degenerate viewport.
  */
 
+import type { Rng } from '../../rng.js';
+
 export const BSP_TUNABLES = Object.freeze({
   MIN_LEAF: 6,
   MAX_LEAF: 12,
@@ -30,12 +32,21 @@ export const BSP_TUNABLES = Object.freeze({
   SPLIT_RATIO_MIN: 0.35,
   SPLIT_RATIO_MAX: 0.65,
 });
+type BspTunables = typeof BSP_TUNABLES;
 
 /**
  * @typedef {{ x: number, y: number, width: number, height: number }} Region
  * @typedef {{ region: Region, left: BspNode | null, right: BspNode | null,
  *             axis: 'h' | 'v' | null }} BspNode
  */
+
+export type Region = { x: number; y: number; width: number; height: number };
+export type BspNode = {
+  region: Region;
+  left: BspNode | null;
+  right: BspNode | null;
+  axis: 'h' | 'v' | null;
+};
 
 /**
  * Recursively split `region` until every leaf is between MIN_LEAF and
@@ -44,7 +55,11 @@ export const BSP_TUNABLES = Object.freeze({
  *
  * `opts` overrides any tunable (used by tests to pin behaviour).
  */
-export function splitRegion(rng, region, opts = {}) {
+export function splitRegion(
+  rng: Rng,
+  region: Region,
+  opts: { [key: string]: unknown } = {}
+): BspNode {
   if (!rng || typeof rng.next !== 'function') {
     throw new TypeError('splitRegion requires an Rng with a next() method');
   }
@@ -62,10 +77,10 @@ export function splitRegion(rng, region, opts = {}) {
  * Walk the BSP tree and collect every leaf (in DFS left-first order). The
  * order is stable for a given tree, so tests can index leaves predictably.
  */
-export function leaves(node) {
+export function leaves(node: BspNode): BspNode[] {
   if (!node) return [];
   if (!node.left && !node.right) return [node];
-  return [...leaves(node.left), ...leaves(node.right)];
+  return [...leaves(node.left!), ...leaves(node.right!)];
 }
 
 /**
@@ -73,7 +88,7 @@ export function leaves(node) {
  * carving: you connect every internal split's two children, working from the
  * deepest splits outward.
  */
-export function internalNodes(node) {
+export function internalNodes(node: BspNode): BspNode[] {
   if (!node || (!node.left && !node.right)) return [];
   const out = [];
   if (node.left) out.push(...internalNodes(node.left));
@@ -82,7 +97,7 @@ export function internalNodes(node) {
   return out;
 }
 
-function split(rng, region, tunables) {
+function split(rng: Rng, region: Region, tunables: BspTunables): BspNode {
   const node = { region, left: null, right: null, axis: null };
 
   // Stop condition: small enough on both axes. We *force* further splits
@@ -120,7 +135,15 @@ function split(rng, region, tunables) {
   return splitOnAxis(rng, region, axis, tunables, node, minPos, maxPos);
 }
 
-function splitOnAxis(rng, region, axis, tunables, node, minPos = null, maxPos = null) {
+function splitOnAxis(
+  rng: Rng,
+  region: Region,
+  axis: 'h' | 'v',
+  tunables: BspTunables,
+  node: BspNode,
+  minPos: number | null = null,
+  maxPos: number | null = null
+): BspNode {
   const length = axis === 'v' ? region.width : region.height;
   const lo = minPos ?? Math.max(tunables.MIN_LEAF, Math.floor(length * tunables.SPLIT_RATIO_MIN));
   const hi =
@@ -149,7 +172,7 @@ function splitOnAxis(rng, region, axis, tunables, node, minPos = null, maxPos = 
   return node;
 }
 
-function pickAxis(rng, region, tunables) {
+function pickAxis(rng: Rng, region: Region, tunables: BspTunables): 'h' | 'v' | null {
   // Long side wins when there's a clear difference (>1.2×); otherwise toss.
   const wMin = region.width >= tunables.MIN_LEAF * 2;
   const hMin = region.height >= tunables.MIN_LEAF * 2;
@@ -161,7 +184,7 @@ function pickAxis(rng, region, tunables) {
   return rng.chance(0.5) ? 'v' : 'h';
 }
 
-function validateRegion(region) {
+function validateRegion(region: Region): void {
   if (
     !region ||
     !Number.isInteger(region.x) ||
@@ -176,6 +199,6 @@ function validateRegion(region) {
   }
 }
 
-function regionLabel(r) {
+function regionLabel(r: Region): string {
   return `${r.width}x${r.height}@(${r.x},${r.y})`;
 }

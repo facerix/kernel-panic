@@ -4,7 +4,9 @@
  * player legitimate firing positions when bridging two combat rooms.
  */
 
-export const ASCII = `
+import type { PrefabAscii, PrefabMetadata } from './types.js';
+
+export const ASCII: PrefabAscii = `
 ......
 .+..+.
 ......
@@ -22,4 +24,4 @@ export const METADATA = Object.freeze({
     ],
     exit: [{ x: 5, y: 1 }],
   },
-});
+} satisfies PrefabMetadata);

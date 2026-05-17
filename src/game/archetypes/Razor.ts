@@ -1,6 +1,8 @@
 import { Crew } from '../Crew.js';
-import { FACTION, AP_COST } from '../constants.js';
+import { AP_COST } from '../constants.js';
 import { EVENT } from '../events.js';
+import type { CrewInit } from '../Crew.js';
+import type { World } from '../World.js';
 
 /**
  * Curated callsign pool for the Razor archetype. See `Merc.js` CALLSIGNS for
@@ -50,15 +52,15 @@ export const CALLSIGNS = Object.freeze([
  * clear at refreshAp anyway). Not a bug, just a lifecycle to be aware of.
  */
 export class Razor extends Crew {
-  constructor(props = {}) {
-    super({ faction: FACTION.PLAYER, glyph: '@', ...props });
+  constructor(props: CrewInit) {
+    super({ ...props, glyph: '@' });
   }
 
   /**
    * Pre-flight check. Returns `{ ok, reason }`. Crashes on non-integer
    * offsets (data-corruption guard, mirrors `World.canMoveEntity`).
    */
-  canSlide(world, dx, dy) {
+  canSlide(world: World, dx: number, dy: number) {
     if (!Number.isInteger(dx) || !Number.isInteger(dy)) {
       throw new TypeError(`canSlide requires integer offsets, got (${dx}, ${dy})`);
     }
@@ -104,7 +106,7 @@ export class Razor extends Crew {
    * `stealthed = true`, and emits `entity:moved` so vision/AI listeners see
    * the post-slide state. **Does not** emit `noise` — the perk is silent.
    */
-  slide(world, dx, dy) {
+  slide(world: World, dx: number, dy: number) {
     const check = this.canSlide(world, dx, dy);
     if (!check.ok) {
       throw new Error(`Illegal slide for ${this.id}: ${check.reason}`);
@@ -127,7 +129,7 @@ export class Razor extends Crew {
    * on the player's turn N persists through the corp turn between N and N+1
    * and clears as turn N+1 begins.
    */
-  refreshAp() {
+  override refreshAp() {
     super.refreshAp();
     this.stealthed = false;
   }

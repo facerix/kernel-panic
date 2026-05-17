@@ -21,6 +21,10 @@
  * an illegal call it throws *before* mutating state.
  */
 
+import type { RangedAttackResult } from '../types.js';
+import type { Entity } from './Entity.js';
+import type { World } from './World.js';
+import type { Rng } from '../rng.js';
 import {
   AP_COST,
   BASE_HIT_CHANCE,
@@ -33,10 +37,30 @@ import {
 import { hasLineOfSight, hasCoverBetween, withinRange } from './LineOfSight.js';
 import { EVENT } from './events.js';
 
+export type CanFireRangedOptions = {
+  freeShot?: boolean;
+  range?: number;
+};
+
+export type ResolveRangedOptions = CanFireRangedOptions & {
+  baseHit?: number;
+  coverPenalty?: number;
+  damage?: number;
+};
+
+export type ResolveMeleeOptions = {
+  damage?: number;
+};
+
 /**
  * Pure pre-flight check. Doesn't mutate, doesn't roll.
  */
-export function canFireRanged(world, attacker, target, options = {}) {
+export function canFireRanged(
+  world: World,
+  attacker: Entity,
+  target: Entity,
+  options: CanFireRangedOptions = {}
+) {
   if (!attacker || !attacker.alive) return { ok: false, reason: 'attacker-dead' };
   if (!target || !target.alive) return { ok: false, reason: 'invalid-target' };
   if (target === attacker) return { ok: false, reason: 'self-target' };
@@ -67,10 +91,14 @@ export function canFireRanged(world, attacker, target, options = {}) {
  * silently steal AP with no shot fired). Returns a result object the caller
  * can log / animate.
  *
- * @returns {{ hit: boolean, roll: number, threshold: number, inCover: boolean,
- *             damage: number, killed: boolean }}
  */
-export function resolveRanged(world, attacker, target, rng, options = {}) {
+export function resolveRanged(
+  world: World,
+  attacker: Entity,
+  target: Entity,
+  rng: Rng,
+  options: ResolveRangedOptions = {}
+): RangedAttackResult {
   const check = canFireRanged(world, attacker, target, options);
   if (!check.ok) {
     throw new Error(`Illegal ranged attack from ${attacker.id} → ${target.id}: ${check.reason}`);
@@ -85,7 +113,7 @@ export function resolveRanged(world, attacker, target, rng, options = {}) {
   // rule. 0 and 1 are valid (always-miss / always-hit).
   const inCover = hasCoverBetween(world.grid, attacker.x, attacker.y, target.x, target.y);
   // M4: crew gear's targeting chip adds hitBonus to the base chance.
-  const gearBonus = attacker.gear?.hitBonus ?? 0;
+  const gearBonus = (attacker as Entity & { gear?: { hitBonus?: number } }).gear?.hitBonus ?? 0;
   const baseHit = options.baseHit ?? BASE_HIT_CHANCE + gearBonus;
   const coverPenalty = options.coverPenalty ?? COVER_HIT_PENALTY;
   const threshold = inCover ? baseHit - coverPenalty : baseHit;
@@ -142,7 +170,7 @@ export function resolveRanged(world, attacker, target, rng, options = {}) {
  * `{ ok, reason }` shape. Adjacency is Chebyshev (the same 8-neighbourhood
  * movement uses) so a diagonal lunge is legal — no orthogonal-only carve-out.
  */
-export function canMelee(world, attacker, target) {
+export function canMelee(world: World, attacker: Entity, target: Entity) {
   if (!attacker || !attacker.alive) return { ok: false, reason: 'attacker-dead' };
   if (!target || !target.alive) return { ok: false, reason: 'invalid-target' };
   if (target === attacker) return { ok: false, reason: 'self-target' };
@@ -170,7 +198,12 @@ export function canMelee(world, attacker, target) {
  *
  * @returns {{ hit: boolean, damage: number, killed: boolean }}
  */
-export function resolveMelee(world, attacker, target, options = {}) {
+export function resolveMelee(
+  world: World,
+  attacker: Entity,
+  target: Entity,
+  options: ResolveMeleeOptions = {}
+) {
   const check = canMelee(world, attacker, target);
   if (!check.ok) {
     throw new Error(`Illegal melee from ${attacker.id} → ${target.id}: ${check.reason}`);

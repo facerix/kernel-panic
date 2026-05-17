@@ -1,4 +1,6 @@
 import { EVENT } from './events.js';
+import type { FactionId } from './constants.js';
+import type { World } from './World.js';
 
 /**
  * Faction-based turn queue. The blueprint specifies "purely turn-based" —
@@ -12,7 +14,11 @@ import { EVENT } from './events.js';
  * `turn:ended` *after* the AP refresh so subscribers see the post-state.
  */
 export class TurnQueue {
-  constructor(factionOrder) {
+  factionOrder: FactionId[];
+  index: number;
+  turnNumber: number;
+
+  constructor(factionOrder: FactionId[]) {
     if (!Array.isArray(factionOrder) || factionOrder.length === 0) {
       throw new TypeError('TurnQueue requires a non-empty factionOrder array');
     }
@@ -25,7 +31,7 @@ export class TurnQueue {
     return this.factionOrder[this.index];
   }
 
-  endTurn(world) {
+  endTurn(world: World) {
     const previous = this.currentFaction;
     this.index = (this.index + 1) % this.factionOrder.length;
     if (this.index === 0) {

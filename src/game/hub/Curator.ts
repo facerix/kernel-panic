@@ -18,12 +18,15 @@
 
 import { Entity } from '../Entity.js';
 import { FACTION } from '../constants.js';
+import type { Rng } from '../../rng.js';
+import type { EntityInit } from '../Entity.js';
 
 export const OBJECTIVES = Object.freeze({
   REACH_EXIT: 'reach-exit',
 });
 
 const KNOWN_OBJECTIVES = new Set(Object.values(OBJECTIVES));
+type Objective = (typeof OBJECTIVES)[keyof typeof OBJECTIVES];
 
 const CONTRACT_LABELS = Object.freeze([
   'Sublevel 3 cache',
@@ -35,8 +38,20 @@ const CONTRACT_LABELS = Object.freeze([
 
 const CURATOR_GLYPH = 'C';
 
+export type Contract = {
+  seed: number;
+  objective: Objective;
+  threatCount: number;
+  label: string;
+};
+
+type CuratorInit = Omit<EntityInit, 'faction' | 'glyph' | 'maxAp' | 'maxHp' | 'id' | 'x' | 'y'> & {
+  id?: string;
+  x?: number;
+  y?: number;
+};
 export class Curator extends Entity {
-  constructor(props = {}) {
+  constructor(props: CuratorInit = {}) {
     super({
       id: props.id ?? 'curator',
       x: props.x ?? 0,
@@ -57,7 +72,7 @@ export class Curator extends Entity {
    * Threat count is fixed at 2 in M8 (per the milestone plan). Future
    * objectives can override.
    */
-  generateContract(rng) {
+  generateContract(rng: Rng): Contract {
     if (!rng || typeof rng.next !== 'function') {
       throw new TypeError('Curator.generateContract requires an Rng');
     }
@@ -72,6 +87,6 @@ export class Curator extends Entity {
   }
 }
 
-export function isObjective(value) {
-  return KNOWN_OBJECTIVES.has(value);
+export function isObjective(value: string): value is Objective {
+  return KNOWN_OBJECTIVES.has(value as Objective);
 }

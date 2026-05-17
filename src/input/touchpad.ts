@@ -19,6 +19,7 @@
  */
 
 import { dispatch } from './keymap.js';
+import type { Mode } from './keymap.js';
 
 const DIRECTION_KEYS = Object.freeze({
   N: 'ArrowUp',
@@ -53,10 +54,13 @@ export const TOUCHPAD_SHELL_ACTIONS = Object.freeze(Object.keys(SHELL_KEYS));
  * Exported so the component can label buttons consistently with the keyboard
  * shortcut shown in the debug harness ("FIRE (f)" etc.).
  */
-export function syntheticKeyFor(buttonId) {
-  if (Object.hasOwn(DIRECTION_KEYS, buttonId)) return DIRECTION_KEYS[buttonId];
-  if (Object.hasOwn(ACTION_KEYS, buttonId)) return ACTION_KEYS[buttonId];
-  if (Object.hasOwn(SHELL_KEYS, buttonId)) return SHELL_KEYS[buttonId];
+export function syntheticKeyFor(buttonId: string): string {
+  if (Object.hasOwn(DIRECTION_KEYS, buttonId as keyof typeof DIRECTION_KEYS))
+    return DIRECTION_KEYS[buttonId as keyof typeof DIRECTION_KEYS];
+  if (Object.hasOwn(ACTION_KEYS, buttonId as keyof typeof ACTION_KEYS))
+    return ACTION_KEYS[buttonId as keyof typeof ACTION_KEYS];
+  if (Object.hasOwn(SHELL_KEYS, buttonId as keyof typeof SHELL_KEYS))
+    return SHELL_KEYS[buttonId as keyof typeof SHELL_KEYS];
   throw new Error(`touchpad: unknown button "${buttonId}"`);
 }
 
@@ -65,6 +69,6 @@ export function syntheticKeyFor(buttonId) {
  * Returns the same `{ intent, nextMode }` shape `dispatch` returns, so the
  * harness can reuse its existing applyIntent/onModeChange paths verbatim.
  */
-export function dispatchTouchAction(buttonId, mode) {
+export function dispatchTouchAction(buttonId: string, mode: Mode) {
   return dispatch(syntheticKeyFor(buttonId), mode);
 }

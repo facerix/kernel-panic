@@ -11,6 +11,10 @@ import { Finn } from './hub/Finn.js';
 import { buildHub } from './hub/SafeSpace.js';
 import { getItemById, ITEM_SCOPE, metaKeyFor } from './items.js';
 import { OUTCOME, Run } from './Run.js';
+import type { Contract } from './hub/Curator.js';
+import type { Crew } from './Crew.js';
+import type { GridPoint } from '../types.js';
+import type { RunResult, Outcome } from './Run.js';
 
 export const CAMPAIGN_STATE = Object.freeze({
   HUB: 'HUB',
@@ -20,6 +24,26 @@ export const CAMPAIGN_STATE = Object.freeze({
 
 const STARTER_ARCHETYPES = Object.freeze(['merc', 'razor', 'tech']);
 
+export type CampaignState = (typeof CAMPAIGN_STATE)[keyof typeof CAMPAIGN_STATE];
+export type CampaignMeta = Record<string, unknown> & {
+  expandedCatalog?: boolean;
+};
+
+export type CampaignOptions = {
+  id?: string;
+  seed?: unknown;
+  crew?: unknown;
+  salvage?: unknown;
+  vouch?: unknown;
+  meta?: unknown;
+  onPersist?: unknown;
+  onResult?: unknown;
+};
+
+type CampaignLike = {
+  crew: { flatlined: boolean }[];
+};
+
 /**
  * True when exactly one crew member is not yet `flatlined` — the operator
  * currently on a job. A `DEATH` outcome on `Campaign.onJobEnd` would flatline
@@ -28,40 +52,70 @@ const STARTER_ARCHETYPES = Object.freeze(['merc', 'razor', 'tech']);
  *
  * @param {{ crew: { flatlined: boolean }[] }} campaign
  */
-export function willEndCampaignOnThisDeath(campaign) {
+export function willEndCampaignOnThisDeath(campaign: CampaignLike): boolean {
   if (!campaign || typeof campaign !== 'object' || !Array.isArray(campaign.crew)) {
     throw new TypeError('willEndCampaignOnThisDeath requires a Campaign-like object with crew[]');
   }
   return campaign.crew.filter(member => !member.flatlined).length === 1;
 }
 
-export function buildCrew(rng) {
+export function buildCrew(rng: Rng): Crew[] {
   if (!rng || typeof rng.pick !== 'function') {
     throw new TypeError('buildCrew requires an Rng');
   }
-  const usedCallsigns = new Set();
+  const usedCallsigns = new Set<string>();
   return STARTER_ARCHETYPES.map(archetypeId => {
     const member = buildCrewMember(archetypeId, { x: 0, y: 0 }, rng, {
       id: `crew-${archetypeId}`,
       excludeCallsigns: usedCallsigns,
     });
-    usedCallsigns.add(member.callsign);
+    if (member.callsign) usedCallsigns.add(member.callsign);
     return member;
   });
 }
 
 export class Campaign {
-  constructor({ id, seed, crew, salvage = 0, vouch = 50, meta = {}, onPersist, onResult } = {}) {
-    if (!Number.isFinite(seed)) {
+  id: string;
+  seed: number;
+  rng: Rng;
+  crew: Crew[];
+  salvage: number;
+  vouch: number;
+  meta: CampaignMeta;
+  state: CampaignState;
+  activeRun: Run | null;
+  deployedMemberId: string | null;
+  onPersist: ((campaign: Campaign) => void) | null;
+  onResult: ((result: RunResult) => void) | null;
+  world: World | null;
+  queue: TurnQueue | null;
+  bus: EventBus | null;
+  player: Entity | null;
+  curator: Curator | null;
+  finn: Finn | null;
+  terminal: Terminal | null;
+  exitTile: GridPoint | null;
+
+  constructor({
+    id,
+    seed,
+    crew,
+    salvage = 0,
+    vouch = 50,
+    meta = {},
+    onPersist,
+    onResult,
+  }: CampaignOptions = {}) {
+    if (typeof seed !== 'number' || !Number.isFinite(seed)) {
       throw new TypeError(`Campaign requires a finite numeric seed, got ${seed}`);
     }
     if (crew !== undefined && !Array.isArray(crew)) {
       throw new TypeError('Campaign: crew must be an array when supplied');
     }
-    if (!Number.isInteger(salvage) || salvage < 0) {
+    if (typeof salvage !== 'number' || !Number.isInteger(salvage) || salvage < 0) {
       throw new RangeError(`Campaign salvage must be a non-negative integer, got ${salvage}`);
     }
-    if (!Number.isInteger(vouch) || vouch < 0 || vouch > 100) {
+    if (typeof vouch !== 'number' || !Number.isInteger(vouch) || vouch < 0 || vouch > 100) {
       throw new RangeError(`Campaign vouch must be an integer in [0, 100], got ${vouch}`);
     }
     if (meta === null || typeof meta !== 'object' || Array.isArray(meta)) {
@@ -77,15 +131,15 @@ export class Campaign {
     this.id = id ?? makeCampaignId(seed);
     this.seed = seed >>> 0;
     this.rng = new Rng(this.seed);
-    this.crew = crew ?? buildCrew(this.rng);
+    this.crew = (crew as Crew[] | undefined) ?? buildCrew(this.rng);
     this.salvage = salvage;
     this.vouch = vouch;
-    this.meta = { ...meta };
+    this.meta = { ...(meta as CampaignMeta) };
     this.state = CAMPAIGN_STATE.HUB;
     this.activeRun = null;
     this.deployedMemberId = null;
-    this.onPersist = onPersist ?? null;
-    this.onResult = onResult ?? null;
+    this.onPersist = (onPersist as ((campaign: Campaign) => void) | undefined) ?? null;
+    this.onResult = (onResult as ((result: RunResult) => void) | undefined) ?? null;
 
     this.world = null;
     this.queue = null;
@@ -99,7 +153,7 @@ export class Campaign {
     this.enterHub();
   }
 
-  enterHub() {
+  enterHub(): void {
     if (this.state !== CAMPAIGN_STATE.HUB && this.state !== CAMPAIGN_STATE.COMBAT) {
       throw new Error(`Campaign.enterHub: illegal transition from ${this.state}`);
     }
@@ -139,7 +193,10 @@ export class Campaign {
     this.#persist();
   }
 
-  deployCrewMember(memberId, contract) {
+  deployCrewMember(
+    memberId: string,
+    contract: Pick<Contract, 'seed'> & Record<string, unknown>
+  ): Run {
     if (this.state !== CAMPAIGN_STATE.HUB) {
       throw new Error(`Campaign.deployCrewMember: illegal from ${this.state}`);
     }
@@ -156,7 +213,7 @@ export class Campaign {
       crewMember: member,
       seed: contract.seed,
       onPersist: () => this.#persist(),
-      onResult: result => {
+      onResult: (result: RunResult) => {
         this.onResult?.(result);
       },
     });
@@ -166,11 +223,11 @@ export class Campaign {
     return this.activeRun;
   }
 
-  onJobEnd({ outcome, salvage = 0 } = {}) {
+  onJobEnd({ outcome, salvage = 0 }: { outcome?: Outcome; salvage?: number } = {}): void {
     if (this.state !== CAMPAIGN_STATE.COMBAT || !this.activeRun || !this.deployedMemberId) {
       throw new Error(`Campaign.onJobEnd: no active job from ${this.state}`);
     }
-    if (!Object.values(OUTCOME).includes(outcome)) {
+    if (outcome !== OUTCOME.DEATH && outcome !== OUTCOME.EXIT) {
       throw new Error(`Campaign.onJobEnd: unknown outcome "${outcome}"`);
     }
     if (!Number.isInteger(salvage) || salvage < 0) {
@@ -204,7 +261,7 @@ export class Campaign {
     this.enterHub();
   }
 
-  flatlineMember(memberId) {
+  flatlineMember(memberId: string): void {
     const member = this.getCrewMember(memberId);
     if (!member) {
       throw new Error(`Campaign.flatlineMember: unknown crew member "${memberId}"`);
@@ -220,9 +277,12 @@ export class Campaign {
    *
    * @param {{ itemId: string, targetMemberId?: string }} opts
    */
-  purchase({ itemId, targetMemberId } = {}) {
+  purchase({ itemId, targetMemberId }: { itemId?: string; targetMemberId?: string } = {}): void {
     if (this.state !== CAMPAIGN_STATE.HUB) {
       throw new Error(`Campaign.purchase: illegal from ${this.state}`);
+    }
+    if (typeof itemId !== 'string' || itemId.length === 0) {
+      throw new TypeError('Campaign.purchase: itemId must be a non-empty string');
     }
     const item = getItemById(itemId);
     if (this.salvage < item.cost) {
@@ -231,7 +291,7 @@ export class Campaign {
       );
     }
     // Validate target for items that need one.
-    let target = null;
+    let target: Crew | null = null;
     if (item.needsTarget) {
       if (!targetMemberId) {
         throw new Error(`Campaign.purchase: "${itemId}" requires a target crew member`);
@@ -259,10 +319,14 @@ export class Campaign {
       case ITEM_SCOPE.JOB:
         // Consumables go into the crew member's inventory and persist until
         // used (not cleared on job end despite the JOB scope label).
+        if (!target)
+          throw new Error(`Campaign.purchase: "${itemId}" requires a target crew member`);
         target.addConsumable(itemId);
         break;
       case ITEM_SCOPE.CAMPAIGN:
         // Campaign-scoped gear applies a permanent bonus to the crew member.
+        if (!target)
+          throw new Error(`Campaign.purchase: "${itemId}" requires a target crew member`);
         target.applyGear(itemId);
         break;
       case ITEM_SCOPE.META: {
@@ -278,18 +342,19 @@ export class Campaign {
     this.#persist();
   }
 
-  getCrewMember(memberId) {
+  getCrewMember(memberId: string): Crew | null {
     return this.crew.find(member => member.id === memberId) ?? null;
   }
 
-  #persist() {
+  #persist(): void {
     this.onPersist?.(this);
   }
 
-  #tearDownHubWorld() {
+  #tearDownHubWorld(): void {
     if (this.world) {
       for (const e of this.world.entities.values()) {
-        if (typeof e.unbind === 'function') e.unbind();
+        const maybeBound = e as Entity & { unbind?: () => void };
+        if (typeof maybeBound.unbind === 'function') maybeBound.unbind();
       }
     }
     this.world = null;
@@ -303,6 +368,6 @@ export class Campaign {
   }
 }
 
-function makeCampaignId(seed) {
+function makeCampaignId(seed: number): string {
   return `campaign-${(seed >>> 0).toString(16)}-${Date.now().toString(36)}`;
 }

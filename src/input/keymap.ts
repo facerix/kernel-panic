@@ -40,6 +40,8 @@ export const MODE = Object.freeze({
   SPECIAL_AIM: 'SPECIAL_AIM',
 });
 
+export type Mode = (typeof MODE)[keyof typeof MODE];
+
 const DIRECTION_KEYS = {
   ArrowUp: [0, -1],
   ArrowDown: [0, 1],
@@ -56,11 +58,11 @@ const DIRECTION_KEYS = {
   d: [1, 0],
 };
 
-const directionFor = key => DIRECTION_KEYS[key] ?? null;
+const directionFor = (key: string) => DIRECTION_KEYS[key as keyof typeof DIRECTION_KEYS] ?? null;
 
-const noChange = mode => ({ intent: null, nextMode: mode });
+const noChange = (mode: string) => ({ intent: null, nextMode: mode });
 
-function dispatchIdle(key) {
+function dispatchIdle(key: string) {
   const dir = directionFor(key);
   if (dir) {
     return { intent: { type: 'move', dx: dir[0], dy: dir[1] }, nextMode: MODE.IDLE };
@@ -95,7 +97,7 @@ function dispatchIdle(key) {
   }
 }
 
-function dispatchFireAim(key) {
+function dispatchFireAim(key: string) {
   if (key === 'Escape') {
     return { intent: { type: 'cancel' }, nextMode: MODE.IDLE };
   }
@@ -106,7 +108,7 @@ function dispatchFireAim(key) {
   return noChange(MODE.FIRE_AIM);
 }
 
-function dispatchSpecialAim(key) {
+function dispatchSpecialAim(key: string) {
   if (key === 'Escape') {
     return { intent: { type: 'cancel' }, nextMode: MODE.IDLE };
   }
@@ -117,7 +119,7 @@ function dispatchSpecialAim(key) {
   return noChange(MODE.SPECIAL_AIM);
 }
 
-export function dispatch(key, mode) {
+export function dispatch(key: string, mode: string) {
   switch (mode) {
     case MODE.IDLE:
       return dispatchIdle(key);

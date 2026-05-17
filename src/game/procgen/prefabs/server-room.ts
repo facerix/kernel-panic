@@ -5,7 +5,9 @@
  * racks so spotting it costs you positioning either way.
  */
 
-export const ASCII = `
+import type { PrefabAscii, PrefabMetadata } from './types.js';
+
+export const ASCII: PrefabAscii = `
 .....
 .+.+.
 .....
@@ -36,4 +38,4 @@ export const METADATA = Object.freeze({
     ],
     exit: [{ x: 0, y: 2 }],
   },
-});
+} satisfies PrefabMetadata);

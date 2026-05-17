@@ -12,6 +12,17 @@
 
 import { h } from '/src/domUtils.js';
 import { ITEM_SCOPE } from '/src/game/items.js';
+import type { Item } from '/src/game/items.js';
+import type { Crew as CrewMember } from '/src/game/Crew.js';
+
+type CrewMemberSnapshot = {
+  id: string;
+  callsign: string;
+  archetype: string;
+  hp: number;
+  maxHp: number;
+  flatlined: boolean;
+};
 
 const CSS = `
 :host {
@@ -224,26 +235,26 @@ const SCOPE_LABELS = {
 const SCOPE_ORDER = [ITEM_SCOPE.JOB, ITEM_SCOPE.CAMPAIGN, ITEM_SCOPE.META];
 
 class FinnShop extends HTMLElement {
-  #catalog = [];
-  #crew = [];
+  #catalog: Item[] = [];
+  #crew: CrewMemberSnapshot[] = [];
   #salvage = 0;
   #ready = false;
-  #panelEl = null;
-  #titleEl = null;
-  #balanceEl = null;
-  #bodyEl = null;
-  #hintEl = null;
+  #panelEl: HTMLElement | null = null;
+  #titleEl: HTMLElement | null = null;
+  #balanceEl: HTMLElement | null = null;
+  #bodyEl: HTMLElement | null = null;
+  #hintEl: HTMLElement | null = null;
 
   // Navigation state
   #phase = 'browse'; // 'browse' | 'target'
-  #flatItems = []; // flattened list of purchasable items (for browse nav)
+  #flatItems: { el: HTMLButtonElement; item: Item }[] = []; // flattened list of purchasable items (for browse nav)
   #selectedIndex = 0;
-  #pendingItem = null;
-  #targetButtons = [];
+  #pendingItem: Item | null = null;
+  #targetButtons: HTMLButtonElement[] = [];
   #targetIndex = 0;
 
-  #onKeyDown = null;
-  #onBackdrop = null;
+  #onKeyDown: ((this: HTMLElement, ev: KeyboardEvent) => void) | null = null;
+  #onBackdrop: ((this: HTMLElement, ev: PointerEvent) => void) | null = null;
 
   connectedCallback() {
     if (this.#ready) return;
@@ -270,7 +281,7 @@ class FinnShop extends HTMLElement {
     // Clicks inside the shadow tree retarget `evt.target` to the host, so
     // `evt.target === this` would dismiss on every panel click. Use composedPath.
     this.#onBackdrop = evt => {
-      if (!evt.composedPath().includes(this.#panelEl)) this.#emit('dismiss');
+      if (!evt.composedPath().includes(this.#panelEl as EventTarget)) this.#emit('dismiss');
     };
     this.addEventListener('click', this.#onBackdrop);
 
@@ -283,7 +294,7 @@ class FinnShop extends HTMLElement {
    * @param {Array} crew — crew member snapshots `{ id, callsign, archetype, hp, maxHp, flatlined }`
    * @param {number} salvage — campaign salvage balance
    */
-  setCatalog(catalog, crew, salvage) {
+  setCatalog(catalog: Item[], crew: CrewMember[], salvage: number) {
     this.#catalog = catalog;
     this.#crew = crew.map(member => ({
       id: member.id,
@@ -324,10 +335,10 @@ class FinnShop extends HTMLElement {
 
   #render() {
     if (!this.#ready) return;
-    this.#titleEl.textContent = "── FINN'S SHOP ──";
-    this.#balanceEl.textContent = `SALVAGE ${this.#salvage}`;
+    this.#titleEl!.textContent = "── FINN'S SHOP ──";
+    this.#balanceEl!.textContent = `SALVAGE ${this.#salvage}`;
 
-    while (this.#bodyEl.firstChild) this.#bodyEl.removeChild(this.#bodyEl.firstChild);
+    while (this.#bodyEl!.firstChild) this.#bodyEl!.removeChild(this.#bodyEl!.firstChild);
     this.#flatItems = [];
 
     if (this.#phase === 'target') {
@@ -361,14 +372,14 @@ class FinnShop extends HTMLElement {
           h('span', { className: 'item-desc', textContent: item.description })
         );
         rows.appendChild(btn);
-        this.#flatItems.push({ el: btn, item });
+        this.#flatItems.push({ el: btn as HTMLButtonElement, item });
       }
-      this.#bodyEl.appendChild(label);
-      this.#bodyEl.appendChild(rows);
+      this.#bodyEl!.appendChild(label);
+      this.#bodyEl!.appendChild(rows);
     }
 
     if (this.#flatItems.length === 0) {
-      this.#bodyEl.appendChild(
+      this.#bodyEl!.appendChild(
         h('p', {
           className: 'section-label',
           textContent: 'No items available.',
@@ -377,7 +388,7 @@ class FinnShop extends HTMLElement {
       );
     }
 
-    this.#hintEl.textContent = '[ ENTER buy  ·  Esc close ]';
+    this.#hintEl!.textContent = '[ ENTER buy  ·  Esc close ]';
   }
 
   #renderTargetSelection() {
@@ -388,8 +399,8 @@ class FinnShop extends HTMLElement {
       className: 'target-label',
       textContent: `${item.label} — choose crew member:`,
     });
-    this.#bodyEl.appendChild(label);
-    this.#targetButtons = [];
+    this.#bodyEl!.appendChild(label);
+    this.#targetButtons = [] as HTMLButtonElement[];
     this.#targetIndex = Math.max(
       0,
       this.#crew.findIndex(m => !m.flatlined)
@@ -403,7 +414,7 @@ class FinnShop extends HTMLElement {
         className: 'target-row',
         disabled: member.flatlined,
         ariaCurrent: i === this.#targetIndex ? 'true' : 'false',
-      });
+      }) as HTMLButtonElement;
       btn.dataset.targetIndex = String(i);
       btn.addEventListener('click', () => this.#confirmTarget(i));
       btn.append(
@@ -420,11 +431,11 @@ class FinnShop extends HTMLElement {
       rows.appendChild(btn);
       this.#targetButtons.push(btn);
     }
-    this.#bodyEl.appendChild(rows);
-    this.#hintEl.textContent = '[ ENTER confirm  ·  Esc back ]';
+    this.#bodyEl!.appendChild(rows);
+    this.#hintEl!.textContent = '[ ENTER confirm  ·  Esc back ]';
   }
 
-  #handleKey(evt) {
+  #handleKey(evt: KeyboardEvent) {
     if (!this.isOpen) return;
     evt.stopPropagation();
 
@@ -462,7 +473,7 @@ class FinnShop extends HTMLElement {
     }
   }
 
-  #move(delta) {
+  #move(delta: number) {
     if (this.#phase === 'target') {
       this.#moveTarget(delta);
       return;
@@ -478,7 +489,7 @@ class FinnShop extends HTMLElement {
     this.#focusSelected();
   }
 
-  #moveTarget(delta) {
+  #moveTarget(delta: number) {
     if (this.#targetButtons.length === 0) return;
     let next = this.#targetIndex;
     for (let i = 0; i < this.#crew.length; i++) {
@@ -496,7 +507,7 @@ class FinnShop extends HTMLElement {
     if (btn && !btn.disabled) btn.focus();
   }
 
-  #selectItem(index) {
+  #selectItem(index: number) {
     const entry = this.#flatItems[index];
     if (!entry || entry.el.disabled) return;
     const item = entry.item;
@@ -517,7 +528,7 @@ class FinnShop extends HTMLElement {
     this.#emit('purchase', { itemId: item.id });
   }
 
-  #confirmTarget(index) {
+  #confirmTarget(index: number) {
     const member = this.#crew[index];
     if (!member || member.flatlined || !this.#pendingItem) return;
     this.#emit('purchase', {
@@ -553,7 +564,7 @@ class FinnShop extends HTMLElement {
     return false;
   }
 
-  #emit(eventName, detail) {
+  #emit(eventName: string, detail: Record<string, unknown> = {}) {
     this.dispatchEvent(new CustomEvent(eventName, { detail }));
   }
 }

@@ -235,8 +235,8 @@ const CSS = `
 class ConfirmationModal extends HTMLElement {
   #ready = false;
   #message = '';
-  #context = null;
-  #modal = null;
+  #context: unknown | null = null;
+  #modal: HTMLDialogElement | null = null;
 
   constructor() {
     super();
@@ -262,11 +262,11 @@ class ConfirmationModal extends HTMLElement {
           h('input', { type: 'submit', id: 'btnOk', value: 'OK' }),
         ]),
       ]),
-    ]);
+    ]) as HTMLDialogElement;
     shadow.appendChild(this.#modal);
   }
 
-  #onClose(evt) {
+  #onClose(evt: Event) {
     evt.preventDefault();
     this.#emit('cancel');
     this.#modal?.close();
@@ -274,13 +274,16 @@ class ConfirmationModal extends HTMLElement {
 
   #init() {
     const closeHandler = this.#onClose.bind(this);
-    this.shadowRoot.querySelector('#close-modal').addEventListener('click', closeHandler);
-    this.shadowRoot.querySelector('#btnCancel').addEventListener('click', closeHandler);
+    this.shadowRoot?.querySelector('#close-modal')?.addEventListener('click', closeHandler);
+    this.shadowRoot?.querySelector('#btnCancel')?.addEventListener('click', closeHandler);
 
-    this.shadowRoot.querySelector('dialog form').addEventListener('submit', evt => {
+    const form = this.shadowRoot?.querySelector('dialog form') as HTMLFormElement;
+    form?.addEventListener('submit', (evt: SubmitEvent) => {
       evt.preventDefault();
-      const implicitOk =
-        evt.submitter == null && evt.target.querySelector('input[type="submit"]#btnOk') != null;
+      const btnOk = (evt?.target as HTMLFormElement)?.querySelector(
+        'input[type="submit"]#btnOk'
+      ) as HTMLButtonElement;
+      const implicitOk = evt.submitter == null && btnOk != null;
       if (evt.submitter?.id === 'btnOk' || implicitOk) {
         this.#emit('confirm');
       }
@@ -289,7 +292,7 @@ class ConfirmationModal extends HTMLElement {
     this.#ready = true;
   }
 
-  #emit(eventName, detail = {}) {
+  #emit(eventName: string, detail: Record<string, unknown> = {}) {
     const payload = { ...detail };
     if (this.#context !== null) {
       payload.context = this.#context;
@@ -299,7 +302,8 @@ class ConfirmationModal extends HTMLElement {
 
   render() {
     if (this.#ready) {
-      this.shadowRoot.querySelector('#message').innerText = this.#message;
+      const message = this.shadowRoot?.querySelector('#message') as HTMLParagraphElement;
+      message && (message.innerText = this.#message);
     }
   }
 
@@ -308,7 +312,7 @@ class ConfirmationModal extends HTMLElement {
    * @param {string} message - The confirmation message to display
    * @param {*} [context] - Optional context passed to confirm/cancel event detail
    */
-  showModal(message, context) {
+  showModal(message: string, context: unknown | null = null) {
     this.#message = message;
     this.#context = context ?? null;
     if (!this.#ready) {
@@ -318,7 +322,8 @@ class ConfirmationModal extends HTMLElement {
     this.#modal?.showModal();
     // Native dialog focus lands on the first focusable (the header close control), so Enter
     // would cancel. Primary action is OK — focus it so Enter submits the form as confirm.
-    this.shadowRoot.querySelector('#btnOk')?.focus();
+    const btnOk = this.shadowRoot?.querySelector('#btnOk') as HTMLButtonElement;
+    btnOk?.focus();
   }
 }
 

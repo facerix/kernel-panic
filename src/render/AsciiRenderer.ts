@@ -1,4 +1,5 @@
 import { buildFrame, cameraFor } from './frame.js';
+import type { Viewport, Camera, BuildFrameOptions, Frame } from './frame.js';
 
 /**
  * Canvas glyph painter. Owns *only* drawing — no game logic, no input. Pairs
@@ -9,8 +10,52 @@ import { buildFrame, cameraFor } from './frame.js';
  * a 32x20 viewport. Override via the constructor for the debug harness or
  * future zoom levels.
  */
+import type { World } from '../game/World.js';
+import type { Entity } from '../game/Entity.js';
+
+type NowFn = () => number;
+type AsciiRendererOptions = {
+  cellSize?: number;
+  fontSize?: number;
+  fontFamily?: string;
+  bg?: string;
+  glow?: number;
+  now?: NowFn;
+};
+
+type DrawOptions = BuildFrameOptions & {
+  camera?: Camera;
+};
+type FlashCellOptions = {
+  duration?: number;
+  char?: string;
+  color?: string;
+  fontScale?: number;
+};
+
+type Flash = {
+  worldX: number;
+  worldY: number;
+  expiresAt: number;
+  char: string;
+  color: string;
+  fontScale: number;
+};
+
 export class AsciiRenderer {
-  constructor(canvas, options = {}) {
+  canvas: HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D | null;
+  cellSize: number;
+  fontSize: number;
+  fontFamily: string;
+  bg: string;
+  glow: number;
+  lastCamera: Camera | null;
+  activeFlashes: Flash[] = [];
+  viewport: Viewport | null = null;
+  now: NowFn = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+
+  constructor(canvas: HTMLCanvasElement, options: AsciiRendererOptions = {}) {
     if (!canvas || typeof canvas.getContext !== 'function') {
       throw new TypeError('AsciiRenderer requires a canvas element');
     }
@@ -41,8 +86,9 @@ export class AsciiRenderer {
     this.activeFlashes = [];
 
     /** Time source — injectable so unit tests can pin a deterministic clock. */
-    this.now =
-      options.now ?? (() => (typeof performance !== 'undefined' ? performance.now() : Date.now()));
+    if (typeof options.now === 'function') {
+      this.now = options.now;
+    }
 
     this.#syncViewport();
   }
@@ -60,10 +106,10 @@ export class AsciiRenderer {
    * in full, which sizes the visible tile count (use for whole-map debug views).
    * Pass `options.vision` (a `VisionField`) for fog-of-war fading.
    */
-  draw(world, followTarget, options = {}) {
+  draw(world: World, followTarget: Entity, options: DrawOptions = {}) {
     this.#syncViewport();
     const { camera: cameraOverride, ...frameOpts } = options;
-    const camera = cameraOverride ?? cameraFor(followTarget, this.viewport);
+    const camera = cameraOverride ?? cameraFor(followTarget, this.viewport!);
     const frame = buildFrame(world, camera, frameOpts);
     this.#drawFrame(frame);
     this.lastCamera = camera;
@@ -84,7 +130,7 @@ export class AsciiRenderer {
    * Returns `true` so callers can keep the `flashCell()` → `runMuzzleFlash`
    * contract uniform; throws on malformed coords (no silent fallback).
    */
-  flashCell(worldX, worldY, options = {}) {
+  flashCell(worldX: number, worldY: number, options: FlashCellOptions = {}) {
     if (!Number.isInteger(worldX) || !Number.isInteger(worldY)) {
       throw new TypeError(`flashCell: world coords must be integers, got (${worldX}, ${worldY})`);
     }
@@ -116,9 +162,9 @@ export class AsciiRenderer {
 
     const { x: cx, y: cy, width, height } = this.lastCamera;
     const { ctx, cellSize, fontSize, fontFamily, glow } = this;
-    ctx.save();
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
+    ctx!.save();
+    ctx!.textAlign = 'center';
+    ctx!.textBaseline = 'middle';
     for (const flash of this.activeFlashes) {
       const dx = flash.worldX - cx;
       const dy = flash.worldY - cy;
@@ -127,24 +173,24 @@ export class AsciiRenderer {
       const py = dy * cellSize + cellSize / 2;
       // Larger glyph + heavier glow than a normal cell so the flash reads
       // as an explosive burst even when the shooter's own @ sits underneath.
-      ctx.font = `${Math.round(fontSize * flash.fontScale)}px ${fontFamily}`;
-      ctx.shadowBlur = glow * 3;
-      ctx.shadowColor = flash.color;
-      ctx.fillStyle = flash.color;
-      ctx.fillText(flash.char, px, py);
+      ctx!.font = `${Math.round(fontSize * flash.fontScale)}px ${fontFamily}`;
+      ctx!.shadowBlur = glow * 3;
+      ctx!.shadowColor = flash.color;
+      ctx!.fillStyle = flash.color;
+      ctx!.fillText(flash.char, px, py);
     }
-    ctx.restore();
+    ctx!.restore();
   }
 
-  #drawFrame(frame) {
+  #drawFrame(frame: Frame) {
     const { ctx, cellSize, fontSize, fontFamily, bg, glow } = this;
 
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    ctx!.fillStyle = bg;
+    ctx!.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
-    ctx.font = `${fontSize}px ${fontFamily}`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
+    ctx!.font = `${fontSize}px ${fontFamily}`;
+    ctx!.textAlign = 'center';
+    ctx!.textBaseline = 'middle';
 
     for (let y = 0; y < frame.height; y++) {
       for (let x = 0; x < frame.width; x++) {
@@ -153,12 +199,12 @@ export class AsciiRenderer {
         const px = x * cellSize + cellSize / 2;
         const py = y * cellSize + cellSize / 2;
         // Two-pass glow: a soft shadow pass for bloom, then crisp glyph.
-        ctx.shadowBlur = glow;
-        ctx.shadowColor = cell.fg;
-        ctx.fillStyle = cell.fg;
-        ctx.fillText(cell.char, px, py);
+        ctx!.shadowBlur = glow;
+        ctx!.shadowColor = cell.fg;
+        ctx!.fillStyle = cell.fg;
+        ctx!.fillText(cell.char, px, py);
       }
     }
-    ctx.shadowBlur = 0;
+    ctx!.shadowBlur = 0;
   }
 }

@@ -1,6 +1,29 @@
 import { Entity } from './Entity.js';
-import { AP_COST, STIM_HEAL, SMOKE_RADIUS, TARGETING_BONUS } from './constants.js';
+import {
+  AP_COST,
+  FACTION,
+  STIM_HEAL,
+  SMOKE_RADIUS,
+  TARGETING_BONUS,
+  type FactionId,
+} from './constants.js';
 import { ITEM_ID } from './items.js';
+import type { Item } from './items.js';
+import type { World } from './World.js';
+import type { EntityInit, LootableEntity } from './Entity.js';
+
+export type Inventory = {
+  salvage: number;
+  consumables: Item[];
+};
+
+export type Gear = {
+  maxHpBonus: number;
+  hitBonus: number;
+};
+
+const DEFAULT_INVENTORY: Inventory = { salvage: 0, consumables: [] };
+const DEFAULT_GEAR: Gear = { maxHpBonus: 0, hitBonus: 0 };
 
 /**
  * Crew — the base class for every player-controlled archetype.
@@ -38,9 +61,34 @@ import { ITEM_ID } from './items.js';
  * onto `Entity`. Drones, civilians, turrets, and Hub NPCs stay on `Entity`
  * and never see crew fields.
  */
+
+/** Player crew omit `faction` — it defaults to {@link FACTION.PLAYER} in `Crew`. */
+export interface CrewInit extends Omit<EntityInit, 'faction'> {
+  faction?: FactionId;
+  callsign?: string | null;
+  flatlined?: boolean;
+  inventory?: Inventory | null;
+  gear?: Gear | null;
+}
+
 export class Crew extends Entity {
-  constructor({ callsign = null, flatlined = false, inventory = null, gear = null, ...rest } = {}) {
-    super(rest);
+  callsign: string | null;
+  flatlined: boolean;
+  inventory: Inventory | null;
+  gear: Gear | null;
+  archetype: string = 'CrewMember';
+
+  constructor({
+    callsign = null,
+    flatlined = false,
+    inventory = null,
+    gear = null,
+    ...rest
+  }: CrewInit) {
+    super({
+      ...rest,
+      faction: rest.faction ?? FACTION.PLAYER,
+    });
     if (callsign !== null && (typeof callsign !== 'string' || callsign.length === 0)) {
       throw new TypeError(`Crew callsign must be a non-empty string or null, got ${callsign}`);
     }
@@ -72,7 +120,7 @@ export class Crew extends Entity {
    */
   initInventory() {
     if (this.inventory !== null) return;
-    this.inventory = { salvage: 0, consumables: [] };
+    this.inventory = DEFAULT_INVENTORY;
   }
 
   /**
@@ -82,7 +130,7 @@ export class Crew extends Entity {
    */
   initGear() {
     if (this.gear !== null) return;
-    this.gear = { maxHpBonus: 0, hitBonus: 0 };
+    this.gear = DEFAULT_GEAR;
   }
 
   /**
@@ -90,16 +138,16 @@ export class Crew extends Entity {
    * and the underlying stat (`maxHp`, etc.) so the bonus is immediately
    * effective. Throws on unknown gear items — crash over silent fallback.
    */
-  applyGear(itemId) {
+  applyGear(itemId: string) {
     this.initGear();
     switch (itemId) {
       case ITEM_ID.ARMOUR_PLATING:
-        this.gear.maxHpBonus += 1;
+        this.gear!.maxHpBonus += 1;
         this.maxHp += 1;
         this.hp += 1; // immediate benefit — no need to heal it
         break;
       case ITEM_ID.TARGETING_CHIP:
-        this.gear.hitBonus += TARGETING_BONUS;
+        this.gear!.hitBonus += TARGETING_BONUS;
         break;
       default:
         throw new Error(`Crew.applyGear: unknown gear item "${itemId}"`);
@@ -111,9 +159,16 @@ export class Crew extends Entity {
    * null (purchase can happen before deploy). The consumable is a plain
    * `{ id }` record — enough for `useConsumable` to dispatch on.
    */
-  addConsumable(itemId) {
+  addConsumable(itemId: string) {
     this.initInventory();
-    this.inventory.consumables.push({ id: itemId });
+    this.inventory!.consumables.push({
+      id: itemId,
+      label: '',
+      scope: '',
+      cost: 0,
+      description: '',
+      needsTarget: false,
+    });
   }
 
   /**
@@ -129,7 +184,7 @@ export class Crew extends Entity {
    * immediate effects (Stim heals HP). Smoke placement is returned as a
    * result for the shell to apply to the grid (keeping Crew pure of World).
    */
-  useConsumable(itemId) {
+  useConsumable(itemId: string) {
     if (!this.inventory) {
       throw new Error(`useConsumable: inventory not initialised for ${this.id}`);
     }
@@ -172,7 +227,7 @@ export class Crew extends Entity {
    * On commit: debits AP, transfers loot.salvage to `this.inventory.salvage`,
    * zeroes `targetEntity.loot.salvage`.
    */
-  collectSalvage(world, targetEntity) {
+  collectSalvage(world: World, targetEntity: LootableEntity) {
     if (!this.inventory) {
       throw new Error(`collectSalvage: inventory not initialised for ${this.id}`);
     }

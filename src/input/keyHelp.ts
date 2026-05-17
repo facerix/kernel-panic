@@ -100,7 +100,7 @@ const KNOWN_SCOPES = new Set(['hub', 'combat']);
  * with `'both'`. Throws on unknown scope — the help panel feeds in
  * `Run.state`, and a typo there should crash rather than render a blank list.
  */
-export function describeKeymap(scope) {
+export function describeKeymap(scope: string) {
   if (!KNOWN_SCOPES.has(scope)) {
     throw new Error(`describeKeymap: unknown scope "${scope}"`);
   }

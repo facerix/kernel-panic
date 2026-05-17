@@ -33,7 +33,7 @@ const GROUPS = Object.freeze([
   { id: 'system', title: 'SYSTEM' },
 ]);
 
-const GROUP_NOTES = Object.freeze({
+const GROUP_NOTES: Record<string, string> = Object.freeze({
   move: 'Move into a hostile = melee, into an ally or neutral = interact',
   action: '',
   system: '',
@@ -201,20 +201,20 @@ dl.rows dd {
 }
 `;
 
-function labelForKey(key) {
-  return KEY_LABEL[key] ?? key;
+function labelForKey(key: string) {
+  return KEY_LABEL[key as keyof typeof KEY_LABEL] ?? key;
 }
 
-function joinKeys(keys) {
+function joinKeys(keys: string[]) {
   return keys.map(labelForKey).join(' ');
 }
 
 class KeyHelp extends HTMLElement {
   #scope = 'combat';
   #ready = false;
-  #body = null;
-  #panelEl = null;
-  #onBackdrop = null;
+  #body: HTMLDivElement | null = null;
+  #panelEl: HTMLDivElement | null = null;
+  #onBackdrop: EventListener | null = null;
 
   connectedCallback() {
     if (this.#ready) return;
@@ -223,17 +223,17 @@ class KeyHelp extends HTMLElement {
     style.textContent = CSS;
     shadow.appendChild(style);
 
-    this.#body = h('div');
+    this.#body = h('div') as HTMLDivElement;
     this.#panelEl = h('section', { className: 'panel' }, [
-      h('h2', { className: 'title', textContent: '── HELP ──' }),
+      h('h2', { className: 'title', textContent: '── HELP ──' }) as HTMLHeadingElement,
       this.#body,
-      h('p', { className: 'hint', textContent: '[ ? or Esc to close ]' }),
-    ]);
+      h('p', { className: 'hint', textContent: '[ ? or Esc to close ]' }) as HTMLParagraphElement,
+    ]) as HTMLDivElement;
     shadow.appendChild(this.#panelEl);
 
     // Backdrop click closes — matches <character-select>'s affordance.
     this.#onBackdrop = evt => {
-      if (!evt.composedPath().includes(this.#panelEl)) this.#emit('dismiss');
+      if (!evt.composedPath().includes(this.#panelEl as EventTarget)) this.#emit('dismiss');
     };
     this.addEventListener('click', this.#onBackdrop);
 
@@ -246,7 +246,7 @@ class KeyHelp extends HTMLElement {
    * unknown scope to match the crash-over-silent-fallback rule (a typo
    * elsewhere would otherwise render an empty help panel).
    */
-  setScope(scope) {
+  setScope(scope: string) {
     this.#scope = scope;
     if (this.#ready) this.#render();
   }
@@ -293,7 +293,7 @@ class KeyHelp extends HTMLElement {
       }
       const dl = h('dl', { className: 'rows' });
       for (const r of groupRows) {
-        dl.appendChild(h('dt', { textContent: joinKeys(r.keys) }));
+        dl.appendChild(h('dt', { textContent: joinKeys(r.keys as string[]) }));
         dl.appendChild(h('dd', { textContent: r.label }));
       }
       bodyChildren.push(dl);
@@ -377,11 +377,11 @@ class KeyHelp extends HTMLElement {
 
     return h('section', { className: 'tile-hints' }, [
       h('h3', { className: 'section-label', textContent: 'KEY TO MAP SYMBOLS' }),
-      h('div', { className: 'tile-hints-content' }, children),
+      h('div', { className: 'tile-hints-content' }, children as HTMLElement[]),
     ]);
   }
 
-  #emit(eventName, detail) {
+  #emit(eventName: string, detail: unknown | null = null) {
     this.dispatchEvent(
       new CustomEvent(eventName, {
         detail: detail ?? {},

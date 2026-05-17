@@ -10,6 +10,16 @@
  */
 
 import { h } from '/src/domUtils.js';
+import type { Crew as CrewMember } from '/src/game/Crew.js';
+
+type CrewSummary = {
+  id: string;
+  callsign: string;
+  archetype: string;
+  hp: number;
+  maxHp: number;
+  flatlined: boolean;
+};
 
 const CSS = `
 :host {
@@ -90,12 +100,12 @@ button.row[aria-current='true'] .cursor {
 `;
 
 class CrewList extends HTMLElement {
-  #crew = [];
+  #crew: CrewSummary[] = [];
   #ready = false;
-  #rowsEl = null;
-  #buttons = [];
+  #rowsEl: HTMLElement | null = null;
+  #buttons: HTMLButtonElement[] = [];
   #selectedIndex = 0;
-  #onKeyDown = null;
+  #onKeyDown: ((this: HTMLElement, ev: KeyboardEvent) => void) | null = null;
 
   connectedCallback() {
     if (this.#ready) return;
@@ -118,7 +128,7 @@ class CrewList extends HTMLElement {
   /**
    * @param {Array} crew — array of crew member objects (or snapshots).
    */
-  setCrew(crew) {
+  setCrew(crew: CrewMember[]) {
     if (!Array.isArray(crew)) {
       throw new TypeError('<crew-list>.setCrew requires an array');
     }
@@ -160,7 +170,7 @@ class CrewList extends HTMLElement {
   #render() {
     if (!this.#ready) return;
 
-    while (this.#rowsEl.firstChild) this.#rowsEl.removeChild(this.#rowsEl.firstChild);
+    while (this.#rowsEl!.firstChild) this.#rowsEl!.removeChild(this.#rowsEl!.firstChild);
     this.#buttons = [];
 
     for (let i = 0; i < this.#crew.length; i++) {
@@ -173,7 +183,7 @@ class CrewList extends HTMLElement {
         className: 'row',
         disabled,
         ariaCurrent: i === this.#selectedIndex ? 'true' : 'false',
-      });
+      }) as HTMLButtonElement;
       row.dataset.index = String(i);
       row.addEventListener('click', () => this.#onRowClick(i));
       row.append(
@@ -188,12 +198,12 @@ class CrewList extends HTMLElement {
           textContent: `${member.archetype.toUpperCase()}  HP ${member.hp}/${member.maxHp}`,
         })
       );
-      this.#rowsEl.appendChild(row);
+      this.#rowsEl!.appendChild(row);
       this.#buttons.push(row);
     }
   }
 
-  #handleKey(evt) {
+  #handleKey(evt: KeyboardEvent) {
     if (evt.key === 'ArrowDown' || evt.key.toLowerCase() === 's') {
       evt.preventDefault();
       evt.stopPropagation();
@@ -208,7 +218,7 @@ class CrewList extends HTMLElement {
     }
   }
 
-  #move(delta) {
+  #move(delta: number) {
     if (this.#crew.length === 0) return;
     let next = this.#selectedIndex;
     for (let i = 0; i < this.#crew.length; i++) {
@@ -221,7 +231,7 @@ class CrewList extends HTMLElement {
     this.#emitSelect();
   }
 
-  #onRowClick(index) {
+  #onRowClick(index: number) {
     const member = this.#crew[index];
     if (!member || member.flatlined) return;
     // Update selection to clicked row.

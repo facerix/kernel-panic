@@ -18,11 +18,21 @@
  */
 
 import { h } from '/src/domUtils.js';
-import '/components/CrewList.js';
+import CrewList from '/components/CrewList.js';
+import type { Crew as CrewMember } from '/src/game/Crew.js';
+import type { Contract } from '/src/game/hub/Curator.js';
 
 const OBJECTIVE_COPY = Object.freeze({
   'reach-exit': 'Reach exit (¤) with stolen data.',
 });
+
+type Objective = keyof typeof OBJECTIVE_COPY;
+type BriefingCells = {
+  target: HTMLElement;
+  seed: HTMLElement;
+  threat: HTMLElement;
+  objective: HTMLElement;
+};
 
 const CSS = `
 :host {
@@ -173,32 +183,32 @@ button.jack-in:disabled:hover {
 }
 `;
 
-function hexSeed(seed) {
+function hexSeed(seed: number) {
   if (!Number.isFinite(seed)) return '?';
   const n = (seed >>> 0).toString(16).toUpperCase().padStart(8, '0');
   return `0x${n}`;
 }
 
-function objectiveCopy(objective) {
+function objectiveCopy(objective: Objective) {
   return OBJECTIVE_COPY[objective] ?? objective ?? '?';
 }
 
-function threatCopy(count) {
+function threatCopy(count: number) {
   if (!Number.isInteger(count)) return '?';
   if (count === 0) return 'No hostiles detected';
   return `${count} ${count === 1 ? 'drone' : 'drones'}`;
 }
 
 class RunBriefing extends HTMLElement {
-  #contract = null;
-  #selectedMember = null;
+  #contract: Contract | null = null;
+  #selectedMember: CrewMember | null = null;
   #ready = false;
-  #cells = null;
-  #listEl = null;
-  #jackInBtn = null;
-  #panelEl = null;
-  #onKeyDown = null;
-  #onBackdrop = null;
+  #cells: BriefingCells | null = null;
+  #listEl: CrewList | null = null;
+  #jackInBtn: HTMLButtonElement | null = null;
+  #panelEl: HTMLElement | null = null;
+  #onKeyDown: ((this: HTMLElement, ev: KeyboardEvent) => void) | null = null;
+  #onBackdrop: ((this: HTMLElement, ev: PointerEvent) => void) | null = null;
 
   connectedCallback() {
     if (this.#ready) return;
@@ -229,9 +239,9 @@ class RunBriefing extends HTMLElement {
     ]);
 
     // Crew list pane — select highlights, JACK IN commits.
-    this.#listEl = document.createElement('crew-list');
-    this.#listEl.addEventListener('select', evt => {
-      this.#selectedMember = evt.detail.member;
+    this.#listEl = document.createElement('crew-list') as CrewList;
+    this.#listEl?.addEventListener('select', evt => {
+      this.#selectedMember = (evt as CustomEvent<{ member: CrewMember }>).detail.member;
       if (this.#jackInBtn) {
         this.#jackInBtn.disabled = !this.#selectedMember || this.#selectedMember.flatlined;
       }
@@ -242,7 +252,7 @@ class RunBriefing extends HTMLElement {
       className: 'jack-in',
       textContent: '[ JACK IN ]',
       disabled: true,
-    });
+    }) as HTMLButtonElement;
     this.#jackInBtn.addEventListener('click', () => this.#commit());
 
     const deployPane = h('div', { className: 'deploy-section' }, [
@@ -270,7 +280,7 @@ class RunBriefing extends HTMLElement {
     this.addEventListener('keydown', this.#onKeyDown, { capture: true });
     this.#onBackdrop = evt => {
       // Nested shadow (crew-list rows) retargets `target` to this host.
-      if (evt.composedPath().includes(this.#panelEl)) return;
+      if (evt.composedPath().includes(this.#panelEl as EventTarget)) return;
       this.dispatchEvent(new CustomEvent('dismiss'));
     };
     this.addEventListener('click', this.#onBackdrop);
@@ -282,7 +292,7 @@ class RunBriefing extends HTMLElement {
   /**
    * Set the contract to display.
    */
-  setContract(contract) {
+  setContract(contract: Contract) {
     if (!contract || typeof contract !== 'object') {
       throw new TypeError('<run-briefing>.setContract requires a contract object');
     }
@@ -294,19 +304,19 @@ class RunBriefing extends HTMLElement {
    * Set the crew for the operative selection pane.
    * @param {Array} crew
    */
-  setCrew(crew) {
+  setCrew(crew: CrewMember[]) {
     if (!Array.isArray(crew)) {
       throw new TypeError('<run-briefing>.setCrew requires an array');
     }
     this.#selectedMember = null;
     if (this.#jackInBtn) this.#jackInBtn.disabled = true;
-    this.#listEl.setCrew(crew);
+    this.#listEl?.setCrew(crew);
   }
 
   show() {
     this.setAttribute('open', '');
     queueMicrotask(() => {
-      if (!this.#listEl.focusSelected()) this.focus();
+      if (!this.#listEl?.focusSelected()) this.focus();
     });
   }
 
@@ -325,14 +335,14 @@ class RunBriefing extends HTMLElement {
 
   #renderContract() {
     if (!this.#cells) return;
-    const c = this.#contract ?? {};
+    const c = this.#contract ?? ({} as Contract);
     this.#cells.target.textContent = c.label ?? '?';
     this.#cells.seed.textContent = hexSeed(c.seed);
     this.#cells.threat.textContent = threatCopy(c.threatCount);
     this.#cells.objective.textContent = objectiveCopy(c.objective);
   }
 
-  #handleKey(evt) {
+  #handleKey(evt: KeyboardEvent) {
     if (!this.isOpen) return;
     if (evt.key === 'Escape') {
       evt.preventDefault();
@@ -345,7 +355,7 @@ class RunBriefing extends HTMLElement {
     if (
       evt.key === 'Enter' &&
       !this.#jackInBtn?.disabled &&
-      evt.composedPath().includes(this.#listEl)
+      evt.composedPath().includes(this.#listEl as EventTarget)
     ) {
       evt.preventDefault();
       evt.stopPropagation();

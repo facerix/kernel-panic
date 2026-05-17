@@ -35,21 +35,29 @@ import { MODE } from '/src/input/keymap.js';
 import { applyIntent as applyPlayerIntent, PLAYER_ACTIONS } from '/src/input/applyIntent.js';
 import { VisionField } from '/src/game/Vision.js';
 import { Rng } from '/src/rng.js';
+import type { Crew } from '/src/game/Crew';
+import type { Intent } from '/src/input/applyIntent.js';
+import type { Archetype } from '/src/game/archetypes';
+import type { Entity } from '/src/game/Entity.js';
+import type { CorpDroneTurnStep, TurnActionStep } from '/src/types.js';
+import type { Mode } from '/src/input/keymap.js';
+import type TouchPad from '/components/TouchPad';
+import type { PlayerAftermathStep } from '/src/game/combatTurnPipeline.js';
 
 const GRID_W = 24;
 const GRID_H = 16;
 
-let world;
-let queue;
-let player;
-let drone;
-let renderer;
-let crt;
-let input;
-let touchPad;
-let vision;
-let rng;
-let bus;
+let world: World;
+let queue: TurnQueue;
+let player: Crew;
+let drone: CorpDrone;
+let renderer: AsciiRenderer;
+let crt: CrtFilter;
+let input: KeyboardController;
+let touchPad: TouchPad | null = null;
+let vision: VisionField;
+let rng: Rng;
+let bus: EventBus;
 let archetype = (() => {
   // URL override at first load. Reset keys toggle this in `bindUI`.
   const params = new URLSearchParams(globalThis.location?.search || '');
@@ -58,7 +66,7 @@ let archetype = (() => {
   if (a === 'tech') return 'tech';
   return 'razor';
 })();
-const logLines = [];
+const logLines: string[] = [];
 
 function buildScenario() {
   const grid = new Grid(GRID_W, GRID_H);
@@ -134,7 +142,7 @@ function recomputeVision() {
   vision.recompute(world.grid, player, undefined, { blockers: world.blockerKeys() });
 }
 
-function log(line) {
+function log(line: string) {
   logLines.push(line);
   if (logLines.length > 200) logLines.splice(0, logLines.length - 200);
 }
@@ -151,16 +159,16 @@ function rerender(modeHint = '') {
   // turret is alive on the grid.
   let turretTag = '';
   if (archetype === 'tech') {
-    turretTag = player.turretReady ? ' [TURRET READY]' : ' [TURRET DEPLOYED]';
+    turretTag = (player as Tech).turretReady ? ' [TURRET READY]' : ' [TURRET DEPLOYED]';
     if (player.inventory) {
       turretTag += ` SALVAGE:${player.inventory.salvage}`;
     }
   }
-  document.getElementById('status').textContent =
+  document.getElementById('status')!.textContent =
     `TURN ${queue.turnNumber}  |  ACTING: ${queue.currentFaction.toUpperCase()}  |  ` +
     `${archetype.toUpperCase()} AP ${player.ap}/${player.maxAp} HP ${player.hp}/${player.maxHp}${stealthTag}${turretTag}  |  ` +
     `${droneStatus}${aim}`;
-  document.getElementById('log').textContent = logLines.slice(-12).join('\n');
+  document.getElementById('log')!.textContent = logLines.slice(-12).join('\n');
 }
 
 /**
@@ -169,10 +177,10 @@ function rerender(modeHint = '') {
  * with this harness. The closure here wraps that shared helper with the
  * harness's logger / advanceTurn / resetInputModes hooks.
  */
-function applyIntent(intent) {
+function applyIntent(intent: Intent) {
   applyPlayerIntent(intent, {
     world,
-    player,
+    player: player as Archetype,
     queue,
     rng,
     log,
@@ -198,17 +206,24 @@ function advanceTurn() {
     onCorpTurnReady: () => {
       log(`> ${queue.currentFaction.toUpperCase()} acts (turn ${queue.turnNumber}).`);
     },
-    onPlayerAftermathStep: step => {
+    onPlayerAftermathStep: (step: PlayerAftermathStep) => {
       for (const line of formatPlayerAftermathStepLogLines(step)) {
         log(`> ${line}`);
       }
     },
-    driveCorpTurn: ({ onFinish }) => {
+    driveCorpTurn: ({ onFinish }: { onFinish: () => void }) => {
       runCorpTurn();
       onFinish();
     },
     onPlayerTurnReady: () => {
       log(`> PLAYER acts (turn ${queue.turnNumber}).`);
+    },
+    drivePlayerAftermath: () => {
+      // debug isn't going to worry about turret autofire right now; just a placeholder so the type checker is happy
+      return;
+    },
+    isTerminal: () => {
+      return false;
     },
   });
 }
@@ -222,14 +237,14 @@ function runCorpTurn() {
   for (const e of world.entities.values()) {
     if (!e.alive || e.faction !== FACTION.CORP) continue;
     if (typeof e.takeTurn !== 'function') continue; // plain Entity → idle
-    const actions = e.takeTurn(world, rng);
+    const actions = e.takeTurn(world, rng) ?? [];
     for (const action of actions) {
       log(formatCorpAction(e, action));
     }
   }
 }
 
-function formatCorpAction(actor, action) {
+function formatCorpAction(actor: Entity, action: TurnActionStep) {
   switch (action.type) {
     case 'fire': {
       const r = action.result;
@@ -257,11 +272,11 @@ function formatCorpAction(actor, action) {
     case 'investigate-abandoned':
       return `> ${actor.id} lost the trail.`;
     default:
-      return `> ${actor.id} ${action.type}`;
+      return `> ${actor.id} ${(action as CorpDroneTurnStep).type}`;
   }
 }
 
-function logModeChange(nextMode) {
+function logModeChange(nextMode: Mode) {
   if (nextMode === MODE.FIRE_AIM) log('> FIRE — pick a direction (Esc to cancel).');
   if (nextMode === MODE.SPECIAL_AIM) {
     // Surface the archetype-specific verb so the banner still reads naturally
@@ -282,7 +297,7 @@ function activeMode() {
   // Show whichever input is currently aiming. Touch wins ties so the banner
   // matches the visible highlight on the pad.
   if (touchPad && touchPad.mode !== MODE.IDLE) return touchPad.mode;
-  return input?.mode ?? MODE.IDLE;
+  return input.mode ?? MODE.IDLE;
 }
 
 function resetInputModes() {
@@ -291,7 +306,7 @@ function resetInputModes() {
 }
 
 function bindUI() {
-  const canvas = document.getElementById('game-canvas');
+  const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
   renderer = new AsciiRenderer(canvas);
   crt = new CrtFilter(canvas);
 
@@ -306,17 +321,17 @@ function bindUI() {
       applyIntent(intent);
       rerender(activeMode());
     },
-    onModeChange: nextMode => {
+    onModeChange: (nextMode: Mode) => {
       logModeChange(nextMode);
       rerender(activeMode());
     },
   });
   input.attach();
 
-  touchPad = document.getElementById('touch-pad');
+  touchPad = document.getElementById('touch-pad') as unknown as TouchPad;
   if (touchPad) {
     touchPad.addEventListener('intent', evt => {
-      const intent = evt.detail;
+      const intent = (evt as CustomEvent<Intent>).detail;
       if (intent?.type === 'quit-campaign') {
         log('> QUIT CAMPAIGN is only wired in the M8 shell (no-op in harness).');
         resetInputModes();
@@ -327,7 +342,7 @@ function bindUI() {
       rerender(activeMode());
     });
     touchPad.addEventListener('mode-change', evt => {
-      logModeChange(evt.detail.mode);
+      logModeChange((evt as CustomEvent<{ mode: Mode }>).detail!.mode);
       rerender(activeMode());
     });
   }
@@ -365,4 +380,6 @@ function bindUI() {
 bindUI();
 buildScenario();
 rerender();
-document.getElementById('game-canvas').focus();
+
+const gameCanvas = document.getElementById('game-canvas') as HTMLCanvasElement;
+if (gameCanvas) gameCanvas.focus();

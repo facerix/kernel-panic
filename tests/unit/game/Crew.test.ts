@@ -18,12 +18,29 @@ import { Razor } from '../../../src/game/archetypes/Razor.js';
 import { Grid } from '../../../src/game/Grid.js';
 import { World } from '../../../src/game/World.js';
 import { FACTION, AP_COST } from '../../../src/game/constants.js';
+import type { EntityInit, LootableEntity } from '../../../src/game/Entity.js';
 
-const baseProps = { id: 'c', x: 0, y: 0, faction: FACTION.PLAYER };
+const baseProps = { id: 'c', x: 0, y: 0 };
+
+const createMockLootableEntity = (props: EntityInit): LootableEntity => {
+  const entity = new Entity(props);
+  (entity as LootableEntity).loot = { salvage: 0 };
+  return entity as LootableEntity;
+};
 
 test('Crew extends Entity', () => {
   const c = new Crew({ ...baseProps });
   assert.ok(c instanceof Entity);
+});
+
+test('Crew defaults faction to PLAYER when omitted', () => {
+  const c = new Crew({ id: 'solo', x: 1, y: 2 });
+  assert.equal(c.faction, FACTION.PLAYER);
+});
+
+test('Crew accepts explicit faction override', () => {
+  const c = new Crew({ id: 'spy', x: 0, y: 0, faction: FACTION.CORP });
+  assert.equal(c.faction, FACTION.CORP);
 });
 
 test('Crew defaults: callsign null, flatlined false, inventory null, gear null', () => {
@@ -44,13 +61,16 @@ test('Crew rejects an empty-string callsign (crash > silent fallback)', () => {
 });
 
 test('Crew rejects a non-string, non-null callsign', () => {
-  assert.throws(() => new Crew({ ...baseProps, callsign: 42 }), /callsign/i);
-  assert.throws(() => new Crew({ ...baseProps, callsign: {} }), /callsign/i);
+  assert.throws(() => new Crew({ ...baseProps, callsign: 42 as unknown as string }), /callsign/i);
+  assert.throws(() => new Crew({ ...baseProps, callsign: {} as unknown as string }), /callsign/i);
 });
 
 test('Crew rejects a non-boolean flatlined', () => {
-  assert.throws(() => new Crew({ ...baseProps, flatlined: 'no' }), /flatlined/i);
-  assert.throws(() => new Crew({ ...baseProps, flatlined: 1 }), /flatlined/i);
+  assert.throws(
+    () => new Crew({ ...baseProps, flatlined: 'no' as unknown as boolean }),
+    /flatlined/i
+  );
+  assert.throws(() => new Crew({ ...baseProps, flatlined: 1 as unknown as boolean }), /flatlined/i);
 });
 
 test('Crew passes through Entity validation (e.g. integer x,y)', () => {
@@ -95,9 +115,9 @@ test('Crew.initInventory sets inventory to { salvage: 0, consumables: [] }', () 
 test('Crew.initInventory is idempotent (no-op if already initialized)', () => {
   const c = new Crew({ ...baseProps });
   c.initInventory();
-  c.inventory.salvage = 5;
+  c.inventory!.salvage = 5;
   c.initInventory();
-  assert.equal(c.inventory.salvage, 5, 'should not reset an already-init inventory');
+  assert.equal(c.inventory!.salvage, 5, 'should not reset an already-init inventory');
 });
 
 test('Crew.collectSalvage transfers loot from adjacent corpse', () => {
@@ -107,21 +127,33 @@ test('Crew.collectSalvage transfers loot from adjacent corpse', () => {
   crew.initInventory();
   w.addEntity(crew);
 
-  const corpse = new Entity({ id: 'drone-0', x: 4, y: 3, faction: FACTION.CORP, glyph: 'd' });
+  const corpse = createMockLootableEntity({
+    id: 'drone-0',
+    x: 4,
+    y: 3,
+    faction: FACTION.CORP,
+    glyph: 'd',
+  });
   corpse.damage(corpse.maxHp); // kill it
   corpse.loot = { salvage: 2 };
   w.addEntity(corpse);
 
   crew.collectSalvage(w, corpse);
-  assert.equal(crew.inventory.salvage, 2);
-  assert.equal(corpse.loot.salvage, 0, 'corpse loot zeroed after collection');
+  assert.equal(crew.inventory!.salvage, 2);
+  assert.equal(corpse.loot!.salvage, 0, 'corpse loot zeroed after collection');
   assert.equal(crew.ap, crew.maxAp - AP_COST.INTERACT, 'INTERACT AP cost applied');
 });
 
 test('Crew.collectSalvage allows corpse on the same tile (Chebyshev 0)', () => {
   const g = new Grid(8, 8);
   const w = new World(g);
-  const corpse = new Entity({ id: 'drone-0', x: 3, y: 3, faction: FACTION.CORP, glyph: 'd' });
+  const corpse = createMockLootableEntity({
+    id: 'drone-0',
+    x: 3,
+    y: 3,
+    faction: FACTION.CORP,
+    glyph: 'd',
+  });
   w.addEntity(corpse);
   corpse.damage(corpse.maxHp);
   corpse.loot = { salvage: 3 };
@@ -134,8 +166,8 @@ test('Crew.collectSalvage allows corpse on the same tile (Chebyshev 0)', () => {
   assert.equal(crew.x, 3);
   assert.equal(crew.y, 3);
   crew.collectSalvage(w, corpse);
-  assert.equal(crew.inventory.salvage, 3);
-  assert.equal(corpse.loot.salvage, 0);
+  assert.equal(crew.inventory!.salvage, 3);
+  assert.equal(corpse.loot!.salvage, 0);
 });
 
 test('Crew.collectSalvage throws when corpse is not adjacent (Chebyshev > 1)', () => {
@@ -145,7 +177,13 @@ test('Crew.collectSalvage throws when corpse is not adjacent (Chebyshev > 1)', (
   crew.initInventory();
   w.addEntity(crew);
 
-  const corpse = new Entity({ id: 'drone-0', x: 6, y: 3, faction: FACTION.CORP, glyph: 'd' });
+  const corpse = createMockLootableEntity({
+    id: 'drone-0',
+    x: 6,
+    y: 3,
+    faction: FACTION.CORP,
+    glyph: 'd',
+  });
   corpse.damage(corpse.maxHp);
   corpse.loot = { salvage: 1 };
   w.addEntity(corpse);
@@ -160,7 +198,13 @@ test('Crew.collectSalvage throws when target is still alive', () => {
   crew.initInventory();
   w.addEntity(crew);
 
-  const alive = new Entity({ id: 'drone-0', x: 4, y: 3, faction: FACTION.CORP, glyph: 'd' });
+  const alive = createMockLootableEntity({
+    id: 'drone-0',
+    x: 4,
+    y: 3,
+    faction: FACTION.CORP,
+    glyph: 'd',
+  });
   alive.loot = { salvage: 1 };
   w.addEntity(alive);
 
@@ -174,7 +218,13 @@ test('Crew.collectSalvage throws when target has no loot', () => {
   crew.initInventory();
   w.addEntity(crew);
 
-  const corpse = new Entity({ id: 'drone-0', x: 4, y: 3, faction: FACTION.CORP, glyph: 'd' });
+  const corpse = createMockLootableEntity({
+    id: 'drone-0',
+    x: 4,
+    y: 3,
+    faction: FACTION.CORP,
+    glyph: 'd',
+  });
   corpse.damage(corpse.maxHp);
   w.addEntity(corpse);
 
@@ -188,7 +238,13 @@ test('Crew.collectSalvage throws when target loot.salvage is 0', () => {
   crew.initInventory();
   w.addEntity(crew);
 
-  const corpse = new Entity({ id: 'drone-0', x: 4, y: 3, faction: FACTION.CORP, glyph: 'd' });
+  const corpse = createMockLootableEntity({
+    id: 'drone-0',
+    x: 4,
+    y: 3,
+    faction: FACTION.CORP,
+    glyph: 'd',
+  });
   corpse.damage(corpse.maxHp);
   corpse.loot = { salvage: 0 };
   w.addEntity(corpse);
@@ -204,7 +260,13 @@ test('Crew.collectSalvage throws when crew lacks AP for INTERACT', () => {
   crew.ap = 0;
   w.addEntity(crew);
 
-  const corpse = new Entity({ id: 'drone-0', x: 4, y: 3, faction: FACTION.CORP, glyph: 'd' });
+  const corpse = createMockLootableEntity({
+    id: 'drone-0',
+    x: 4,
+    y: 3,
+    faction: FACTION.CORP,
+    glyph: 'd',
+  });
   corpse.damage(corpse.maxHp);
   corpse.loot = { salvage: 2 };
   w.addEntity(corpse);
@@ -219,7 +281,13 @@ test('Crew.collectSalvage throws when inventory not initialized', () => {
   // no initInventory — inventory is null
   w.addEntity(crew);
 
-  const corpse = new Entity({ id: 'drone-0', x: 4, y: 3, faction: FACTION.CORP, glyph: 'd' });
+  const corpse = createMockLootableEntity({
+    id: 'drone-0',
+    x: 4,
+    y: 3,
+    faction: FACTION.CORP,
+    glyph: 'd',
+  });
   corpse.damage(corpse.maxHp);
   corpse.loot = { salvage: 1 };
   w.addEntity(corpse);
@@ -234,17 +302,17 @@ test('Crew.collectSalvage accumulates across multiple corpses', () => {
   crew.initInventory();
   w.addEntity(crew);
 
-  const c1 = new Entity({ id: 'd1', x: 4, y: 3, faction: FACTION.CORP, glyph: 'd' });
+  const c1 = createMockLootableEntity({ id: 'd1', x: 4, y: 3, faction: FACTION.CORP, glyph: 'd' });
   c1.damage(c1.maxHp);
   c1.loot = { salvage: 2 };
   w.addEntity(c1);
 
-  const c2 = new Entity({ id: 'd2', x: 3, y: 4, faction: FACTION.CORP, glyph: 'd' });
+  const c2 = createMockLootableEntity({ id: 'd2', x: 3, y: 4, faction: FACTION.CORP, glyph: 'd' });
   c2.damage(c2.maxHp);
   c2.loot = { salvage: 3 };
   w.addEntity(c2);
 
   crew.collectSalvage(w, c1);
   crew.collectSalvage(w, c2);
-  assert.equal(crew.inventory.salvage, 5);
+  assert.equal(crew.inventory!.salvage, 5);
 });

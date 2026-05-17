@@ -28,6 +28,10 @@
  */
 
 import { h } from '/src/domUtils.js';
+import type { Crew as CrewMember } from '/src/game/Crew.js';
+import type { Telemetry } from '/src/types.js';
+
+type CrewMemberStub = { callsign: string; archetype: string; flatlined: boolean };
 
 const CSS = `
 :host {
@@ -149,7 +153,7 @@ button.new-run:focus-visible {
 button.new-run:active { transform: scale(0.98); }
 `;
 
-function hexSeed(seed) {
+function hexSeed(seed: number) {
   if (!Number.isFinite(seed)) return '?';
   return `0x${(seed >>> 0).toString(16).toUpperCase().padStart(8, '0')}`;
 }
@@ -193,7 +197,7 @@ function campaignTerminalFault() {
   ].join('\n');
 }
 
-function buildCampaignOverTraceLines(crewRoster) {
+function buildCampaignOverTraceLines(crewRoster: CrewMemberStub[]) {
   return crewRoster.map((op, i) => {
     const idx = (i + 1).toString(16).padStart(2, '0');
     const tag = op.flatlined ? '<flatlined>' : '';
@@ -204,7 +208,7 @@ function buildCampaignOverTraceLines(crewRoster) {
   });
 }
 
-function buildTraceLines(telemetry) {
+function buildTraceLines(telemetry: Telemetry) {
   if (telemetry.outcome === 'campaign-over') {
     return buildCampaignOverTraceLines(telemetry.crewRoster ?? []);
   }
@@ -234,7 +238,7 @@ function buildTraceLines(telemetry) {
     // EXIT: walk the player off the exit tile. Friendlier trace.
     lines.push({ text: `  0x01  ${archetype}::reach_exit()`, tag: '<ok>' });
     lines.push({ text: `  0x02  world::move_entity(${archetype})`, tag: '' });
-    if (Number.isInteger(telemetry.kills) && telemetry.kills > 0) {
+    if (Number.isInteger(telemetry.kills) && Number(telemetry.kills) > 0) {
       lines.push({ text: `  0x03  combat::resolve_kills(${telemetry.kills})`, tag: '' });
     }
   }
@@ -242,9 +246,18 @@ function buildTraceLines(telemetry) {
 }
 
 class CrashDump extends HTMLElement {
-  #telemetry = null;
+  #telemetry: Telemetry | null = null;
   #ready = false;
-  #els = null;
+  #els: {
+    title: HTMLElement;
+    fault: HTMLElement;
+    trace: HTMLElement;
+    seedDd: HTMLElement;
+    turnDd: HTMLElement;
+    killsDd: HTMLElement;
+    causeDd: HTMLElement;
+    newRunBtn: HTMLButtonElement;
+  } | null = null;
 
   connectedCallback() {
     if (this.#ready) return;
@@ -265,7 +278,7 @@ class CrashDump extends HTMLElement {
       type: 'button',
       className: 'new-run',
       textContent: '[ RETURN TO HUB ]',
-    });
+    }) as HTMLButtonElement;
     newRunBtn.addEventListener('click', () => this.#emit('new-run'));
 
     const panel = h('section', { className: 'panel' }, [
@@ -307,7 +320,7 @@ class CrashDump extends HTMLElement {
    *   lastAttacker?: string | null,
    * }} telemetry
    */
-  setTelemetry(telemetry) {
+  setTelemetry(telemetry: Telemetry) {
     if (!telemetry || typeof telemetry !== 'object') {
       throw new TypeError('<crash-dump>.setTelemetry requires a telemetry object');
     }
@@ -329,7 +342,7 @@ class CrashDump extends HTMLElement {
   show() {
     this.setAttribute('open', '');
     queueMicrotask(() => {
-      this.shadowRoot?.querySelector('button.new-run')?.focus();
+      (this.shadowRoot?.querySelector('button.new-run') as HTMLButtonElement)?.focus();
     });
   }
 
@@ -367,26 +380,26 @@ class CrashDump extends HTMLElement {
     const lines = buildTraceLines(t);
     this.#els.trace.replaceChildren();
     lines.forEach((line, i) => {
-      this.#els.trace.appendChild(document.createTextNode(line.text));
+      this.#els!.trace.appendChild(document.createTextNode(line.text));
       if (line.tag) {
-        this.#els.trace.appendChild(document.createTextNode('   '));
+        this.#els!.trace.appendChild(document.createTextNode('   '));
         const span = h('span', {
           className: line.tag.includes('killed') ? 'killed' : '',
           textContent: line.tag,
         });
-        this.#els.trace.appendChild(span);
+        this.#els!.trace.appendChild(span);
       }
       if (i < lines.length - 1) {
-        this.#els.trace.appendChild(document.createTextNode('\n'));
+        this.#els!.trace.appendChild(document.createTextNode('\n'));
       }
     });
 
-    this.#els.seedDd.textContent = hexSeed(t.seed);
+    this.#els.seedDd.textContent = hexSeed(t.seed ?? 0);
     if (isCampaignOver) {
       this.#els.turnDd.textContent = '—';
       this.#els.killsDd.textContent = '—';
       this.#els.causeDd.textContent =
-        Number.isInteger(t.salvage) && t.salvage >= 0
+        Number.isInteger(t.salvage) && Number(t.salvage) >= 0
           ? `pool salvage ${t.salvage} (lost with run)`
           : 'no-surviving-crew';
     } else {
@@ -396,7 +409,7 @@ class CrashDump extends HTMLElement {
     }
   }
 
-  #emit(eventName, detail = {}) {
+  #emit(eventName: string, detail: Record<string, unknown> = {}) {
     this.dispatchEvent(
       new CustomEvent(eventName, { detail: { ...detail, telemetry: { ...this.#telemetry } } })
     );

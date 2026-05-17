@@ -1,3 +1,22 @@
+import type { TurnActionSteps } from '../types.js';
+import type { World } from './World.js';
+import type { Rng } from '../rng.js';
+
+export type CorpTurnDriverCtx = {
+  run: {
+    state: string;
+    world: World;
+    rng: Rng;
+  };
+  corpFaction: string;
+  paint: () => void;
+  animLock: { push: (ms: number) => void };
+  actionDelayMs: number;
+  lockMarginMs: number;
+  onFinish: () => void;
+  schedule?: (fn: () => void, ms: number) => void;
+};
+
 /**
  * Animated corp-turn driver.
  *
@@ -30,21 +49,20 @@
  *     enterResult transition runs synchronously inside the yield, so by
  *     the next pump tick we can detect it and stop pumping rather than
  *     racing the result screen.
+ *
+ * Run states in `TERMINAL_STATES` mean "the run is over" — the driver bails on
+ * those without firing `onFinish`. The set is module-internal so a
+ * misbehaving caller can't mutate it; the exported predicate is the only
+ * public surface.
  */
 
-/**
- * Run states that mean "the run is over" — the driver bails on these
- * without firing `onFinish`. Module-internal so a misbehaving caller can't
- * mutate the set out from under the driver (and have every COMBAT corp turn
- * silently skip). The exported predicate is the only public surface.
- */
 const TERMINAL_STATES = Object.freeze(new Set(['RESULT']));
 
-export function isCorpTurnTerminal(state) {
+export function isCorpTurnTerminal(state: string): boolean {
   return TERMINAL_STATES.has(state);
 }
 
-const defaultSchedule = (fn, ms) => setTimeout(fn, ms);
+const defaultSchedule = (fn: () => void, ms: number) => setTimeout(fn, ms);
 
 /**
  * Kick off a corp turn. See the module docstring for the lifecycle.
@@ -70,13 +88,13 @@ const defaultSchedule = (fn, ms) => setTimeout(fn, ms);
  * @param {(fn: () => void, ms: number) => void} [ctx.schedule]
  *   Defaults to `setTimeout`. Injectable for tests.
  */
-export function runCorpTurn(ctx) {
+export function runCorpTurn(ctx: unknown): void {
   validateCtx(ctx);
-  const { run, corpFaction, onFinish } = ctx;
+  const c = ctx as CorpTurnDriverCtx;
+  const { run, corpFaction, onFinish } = c;
   if (TERMINAL_STATES.has(run.state)) return;
 
-  /** @type {Generator<object>[]} */
-  const steppers = [];
+  const steppers: TurnActionSteps[] = [];
   for (const e of run.world.entities.values()) {
     if (!e.alive || e.faction !== corpFaction) continue;
     if (typeof e.takeTurnSteps === 'function') {
@@ -92,10 +110,10 @@ export function runCorpTurn(ctx) {
     onFinish();
     return;
   }
-  pump(ctx, steppers, 0);
+  pump(c, steppers, 0);
 }
 
-function pump(ctx, steppers, startIdx) {
+function pump(ctx: CorpTurnDriverCtx, steppers: TurnActionSteps[], startIdx: number): void {
   const {
     run,
     paint,
@@ -121,35 +139,36 @@ function pump(ctx, steppers, startIdx) {
   onFinish();
 }
 
-function validateCtx(ctx) {
+function validateCtx(ctx: unknown): void {
   if (!ctx || typeof ctx !== 'object') {
     throw new TypeError('runCorpTurn: ctx must be an object');
   }
-  if (!ctx.run || typeof ctx.run.state !== 'string') {
+  const o = ctx as CorpTurnDriverCtx;
+  if (!o.run || typeof o.run.state !== 'string') {
     throw new TypeError('runCorpTurn: ctx.run.state must be a string');
   }
-  if (!ctx.run.world || typeof ctx.run.world.entities?.values !== 'function') {
+  if (!o.run.world || typeof o.run.world.entities?.values !== 'function') {
     throw new TypeError('runCorpTurn: ctx.run.world.entities must be iterable via .values()');
   }
-  if (typeof ctx.corpFaction !== 'string' || ctx.corpFaction.length === 0) {
+  if (typeof o.corpFaction !== 'string' || o.corpFaction.length === 0) {
     throw new TypeError('runCorpTurn: ctx.corpFaction must be a non-empty string');
   }
-  if (typeof ctx.paint !== 'function') {
+  if (typeof o.paint !== 'function') {
     throw new TypeError('runCorpTurn: ctx.paint must be a function');
   }
-  if (!ctx.animLock || typeof ctx.animLock.push !== 'function') {
+  if (!o.animLock || typeof o.animLock.push !== 'function') {
     throw new TypeError('runCorpTurn: ctx.animLock must expose push(ms)');
   }
-  if (!Number.isFinite(ctx.actionDelayMs) || ctx.actionDelayMs < 0) {
+  if (!Number.isFinite(o.actionDelayMs) || o.actionDelayMs < 0) {
     throw new RangeError('runCorpTurn: ctx.actionDelayMs must be a non-negative number');
   }
-  if (!Number.isFinite(ctx.lockMarginMs) || ctx.lockMarginMs < 0) {
+  if (!Number.isFinite(o.lockMarginMs) || o.lockMarginMs < 0) {
     throw new RangeError('runCorpTurn: ctx.lockMarginMs must be a non-negative number');
   }
-  if (typeof ctx.onFinish !== 'function') {
+  if (typeof o.onFinish !== 'function') {
     throw new TypeError('runCorpTurn: ctx.onFinish must be a function');
   }
-  if (ctx.schedule !== undefined && typeof ctx.schedule !== 'function') {
+  if (o.schedule !== undefined && typeof o.schedule !== 'function') {
     throw new TypeError('runCorpTurn: ctx.schedule must be a function when supplied');
   }
 }

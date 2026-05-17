@@ -37,7 +37,8 @@ import { World } from './World.js';
 import { TurnQueue } from './TurnQueue.js';
 import { EventBus, EVENT } from './events.js';
 import { FACTION, SALVAGE_DROP_MIN, SALVAGE_DROP_MAX } from './constants.js';
-import { Entity } from './Entity.js';
+import { Entity, type LootableEntity } from './Entity.js';
+import { Hostile } from './Hostile.js';
 import { Crew } from './Crew.js';
 import { Merc } from './archetypes/Merc.js';
 import { Razor } from './archetypes/Razor.js';
@@ -46,6 +47,10 @@ import { Turret } from './Turret.js';
 import { CorpDrone } from './ai/CorpDrone.js';
 import { isObjective } from './hub/Curator.js';
 import { buildMap } from './procgen/mapBuild.js';
+import type { Contract } from './hub/Curator.js';
+import type { FactionId } from './constants.js';
+import type { GridPoint } from '../types.js';
+import type { Inventory, Gear } from './Crew.js';
 
 export const RUN_STATE = Object.freeze({
   BRIEFING: 'BRIEFING',
@@ -63,9 +68,118 @@ const KNOWN_OUTCOMES = new Set(Object.values(OUTCOME));
 const COMBAT_MAP_WIDTH = 24;
 const COMBAT_MAP_HEIGHT = 16;
 
+export type RunState = (typeof RUN_STATE)[keyof typeof RUN_STATE];
+export type Outcome = (typeof OUTCOME)[keyof typeof OUTCOME];
+export type CrewArchetypeId = 'merc' | 'razor' | 'tech';
+export type EntityArchetypeId = CrewArchetypeId | 'turret' | 'drone' | 'entity';
+
+export type RunTelemetry = {
+  archetype: CrewArchetypeId;
+  seed: number;
+  turn: number;
+  kills: number;
+  lastDamageSource: string | null;
+  lastAttacker: string | null;
+  hpAtDeath: number | null;
+  hpAtDamage?: number;
+  cause: string | null;
+  outcome: Outcome | null;
+  [key: string]: unknown;
+};
+
+export type RunEntitySnapshot = {
+  archetype: EntityArchetypeId;
+  id: string;
+  x: number;
+  y: number;
+  faction: FactionId;
+  glyph: string;
+  hp: number;
+  maxHp: number;
+  ap: number;
+  maxAp: number;
+  alive: boolean;
+  stealthed: boolean;
+  drone?: {
+    state: string;
+    lastKnownTarget: GridPoint | null;
+    patrolWaypoints: GridPoint[];
+    patrolIndex: number;
+  };
+  tech?: { turretReady: boolean };
+  callsign?: string | null;
+  flatlined?: boolean;
+  inventory?: Inventory | null;
+  gear?: Gear | null;
+  turret?: {
+    range: number;
+    attackDamage: number;
+    ownerId: string | null;
+  };
+};
+
+export type RunSnapshot = {
+  id: string;
+  type: 'run';
+  state: RunState;
+  archetype: CrewArchetypeId;
+  seed: number;
+  turnNumber: number;
+  currentFaction: FactionId;
+  rng: { seed: number; state: number };
+  contract: Contract | null;
+  exitTile: GridPoint | null;
+  grid: { w: number; h: number; tiles: number[] };
+  entities: RunEntitySnapshot[];
+  telemetry: RunTelemetry;
+};
+
+export type RunResult = {
+  outcome: Outcome;
+  telemetry: RunTelemetry;
+};
+
+export type RunOptions = {
+  id?: string;
+  crewMember?: unknown;
+  seed?: unknown;
+  onPersist?: unknown;
+  onResult?: unknown;
+};
+
+type EntityDamagedPayload = {
+  attacker?: Entity | null;
+  target: Entity;
+  damage: number;
+  killed: boolean;
+  source?: string;
+};
+
+type EntityMovedPayload = {
+  entity: Entity;
+  to: GridPoint;
+};
+
 export class Run {
-  constructor({ id, crewMember, seed, onPersist, onResult } = {}) {
-    if (!Number.isFinite(seed)) {
+  id: string;
+  crewMember: Crew;
+  archetype: CrewArchetypeId;
+  seed: number;
+  rng: Rng;
+  state: RunState | null;
+  world: World | null;
+  queue: TurnQueue | null;
+  bus: EventBus | null;
+  player: Crew | null;
+  contract: Contract | null;
+  exitTile: GridPoint | null;
+  telemetry: RunTelemetry;
+  onPersist: ((record: RunSnapshot) => void) | null;
+  onResult: ((result: RunResult) => void) | null;
+  _busUnsubs: (() => void)[];
+
+  constructor({ id, crewMember, seed, onPersist, onResult }: RunOptions = {}) {
+    if (typeof seed !== 'number' || !Number.isFinite(seed)) {
       throw new TypeError(`Run requires a finite numeric seed, got ${seed}`);
     }
     if (!(crewMember instanceof Crew)) {
@@ -94,15 +208,15 @@ export class Run {
     this.contract = null;
     this.exitTile = null;
     this.telemetry = freshTelemetry(this.archetype, this.seed);
-    this.onPersist = onPersist ?? null;
-    this.onResult = onResult ?? null;
+    this.onPersist = (onPersist as ((record: RunSnapshot) => void) | undefined) ?? null;
+    this.onResult = (onResult as ((result: RunResult) => void) | undefined) ?? null;
 
     /** @type {Array<() => void>} active bus subscriptions */
     this._busUnsubs = [];
   }
 
   /** Permitted from a fresh Run only. Caches the contract for `enterCombat`. */
-  enterBriefing(contract) {
+  enterBriefing(contract: unknown): void {
     if (this.state !== null) {
       throw new Error(`Run.enterBriefing: illegal transition from ${this.state}`);
     }
@@ -139,7 +253,7 @@ export class Run {
     this.player = this.#makePlayer(map.spawns.player);
     this.world.addEntity(this.player);
     for (let i = 0; i < map.drones.length; i++) {
-      const a = map.drones[i];
+      const a = map.drones[i]!;
       const drone = new CorpDrone({
         id: `drone-${i}`,
         x: a.x,
@@ -157,7 +271,13 @@ export class Run {
   }
 
   /** Permitted from COMBAT only. Notifies the shell via `onResult`. */
-  enterResult({ outcome, telemetry } = {}) {
+  enterResult({
+    outcome,
+    telemetry,
+  }: {
+    outcome: Outcome;
+    telemetry?: Partial<RunTelemetry>;
+  }): void {
     if (this.state !== RUN_STATE.COMBAT) {
       throw new Error(`Run.enterResult: illegal transition from ${this.state}`);
     }
@@ -178,27 +298,32 @@ export class Run {
   }
 
   /** JSON-safe snapshot of the live run. See class docstring. */
-  snapshot() {
+  snapshot(): RunSnapshot {
     if (!this.world || !this.queue) {
       throw new Error('Run.snapshot: no live world to capture');
     }
+    if (!this.state) {
+      throw new Error('Run.snapshot: no run state to capture');
+    }
+    const world = this.world;
+    const queue = this.queue;
     return {
       id: this.id,
       type: 'run',
       state: this.state,
       archetype: this.archetype,
       seed: this.seed,
-      turnNumber: this.queue.turnNumber,
-      currentFaction: this.queue.currentFaction,
+      turnNumber: queue.turnNumber,
+      currentFaction: queue.currentFaction,
       rng: { seed: this.rng.seed, state: this.rng.state },
       contract: this.contract ? { ...this.contract } : null,
       exitTile: this.exitTile ? { ...this.exitTile } : null,
       grid: {
-        w: this.world.grid.width,
-        h: this.world.grid.height,
-        tiles: Array.from(this.world.grid.tiles),
+        w: world.grid.width,
+        h: world.grid.height,
+        tiles: Array.from(world.grid.tiles),
       },
-      entities: Array.from(this.world.entities.values()).map(snapshotEntity),
+      entities: Array.from(world.entities.values()).map(snapshotEntity),
       telemetry: { ...this.telemetry },
     };
   }
@@ -208,12 +333,18 @@ export class Run {
    * re-attach the COMBAT-state bus subscriptions. Underscored rather than
    * `#`-private because cross-module restore needs to call it.
    */
-  _reattachCombatListeners() {
+  _reattachCombatListeners(): void {
+    if (!this.bus) {
+      throw new Error('Run._reattachCombatListeners: no EventBus attached');
+    }
     this.#unwireCombatListeners();
+    const bus = this.bus;
     this._busUnsubs.push(
-      this.bus.on(EVENT.TURN_ENDED, () => this.#onTurnEnded()),
-      this.bus.on(EVENT.ENTITY_DAMAGED, payload => this.#onEntityDamaged(payload)),
-      this.bus.on(EVENT.ENTITY_MOVED, payload => this.#onEntityMoved(payload))
+      bus.on(EVENT.TURN_ENDED, () => this.#onTurnEnded()),
+      bus.on(EVENT.ENTITY_DAMAGED, payload =>
+        this.#onEntityDamaged(payload as EntityDamagedPayload)
+      ),
+      bus.on(EVENT.ENTITY_MOVED, payload => this.#onEntityMoved(payload as EntityMovedPayload))
     );
   }
 
@@ -221,7 +352,7 @@ export class Run {
   // Private helpers
   // ------------------------------------------------------------------
 
-  #makePlayer(spawn) {
+  #makePlayer(spawn: GridPoint): Crew {
     this.crewMember.x = spawn.x;
     this.crewMember.y = spawn.y;
     this.crewMember.maxAp = 4;
@@ -237,27 +368,33 @@ export class Run {
     return this.crewMember;
   }
 
-  #unwireCombatListeners() {
+  #unwireCombatListeners(): void {
     for (const off of this._busUnsubs) off();
     this._busUnsubs = [];
   }
 
-  #onTurnEnded() {
+  #onTurnEnded(): void {
     if (this.state !== RUN_STATE.COMBAT) return;
+    if (!this.queue) {
+      throw new Error('Run.#onTurnEnded: COMBAT state without a TurnQueue');
+    }
     this.telemetry.turn = this.queue.turnNumber;
     if (!this.onPersist) return;
     this.onPersist(this.snapshot());
   }
 
-  #onEntityDamaged({ attacker, target, damage, killed, source }) {
+  #onEntityDamaged({ attacker, target, damage, killed, source }: EntityDamagedPayload): void {
     if (this.state !== RUN_STATE.COMBAT) return;
+    if (!this.player) {
+      throw new Error('Run.#onEntityDamaged: COMBAT state without a player');
+    }
     if (target === this.player) {
-      this.telemetry.lastDamageSource = source;
+      this.telemetry.lastDamageSource = source ?? null;
       this.telemetry.lastAttacker = attacker?.id ?? null;
       this.telemetry.hpAtDamage = this.player.hp;
       if (killed) {
         this.telemetry.hpAtDeath = 0;
-        this.telemetry.cause = `${attacker?.id ?? 'unknown'}::${source}(${damage})`;
+        this.telemetry.cause = `${attacker?.id ?? 'unknown'}::${source ?? 'unknown'}(${damage})`;
         this.enterResult({ outcome: OUTCOME.DEATH });
       }
       return;
@@ -267,16 +404,17 @@ export class Run {
     } else if (killed && attacker instanceof Turret && attacker.ownerId === this.player.id) {
       this.telemetry.kills = (this.telemetry.kills ?? 0) + 1;
     }
-    // M3: assign loot to killed corp entities. The loot roll uses the Run's
-    // own Rng so it's deterministic on the contract seed.
-    if (killed && target.faction === FACTION.CORP && !target.loot) {
-      target.loot = {
+    // M3: assign loot to killed hostiles. The loot roll uses the Run's own
+    // Rng so it's deterministic on the contract seed.
+    const lootTarget = target as Partial<LootableEntity>;
+    if (killed && target instanceof Hostile && !lootTarget.loot) {
+      lootTarget.loot = {
         salvage: this.rng.intRange(SALVAGE_DROP_MIN, SALVAGE_DROP_MAX + 1),
       };
     }
   }
 
-  #onEntityMoved({ entity, to }) {
+  #onEntityMoved({ entity, to }: EntityMovedPayload): void {
     if (this.state !== RUN_STATE.COMBAT) return;
     if (entity !== this.player || !this.exitTile) return;
     if (to.x === this.exitTile.x && to.y === this.exitTile.y) {
@@ -285,11 +423,12 @@ export class Run {
     }
   }
 
-  #tearDownWorld() {
+  #tearDownWorld(): void {
     this.#unwireCombatListeners();
     if (this.world) {
       for (const e of this.world.entities.values()) {
-        if (typeof e.unbind === 'function') e.unbind();
+        const maybeBound = e as Entity & { unbind?: () => void };
+        if (typeof maybeBound.unbind === 'function') maybeBound.unbind();
       }
     }
     this.world = null;
@@ -305,9 +444,9 @@ export class Run {
 // persistence module can stay symmetric (restore lives there, snapshot here).
 // ---------------------------------------------------------------------------
 
-function snapshotEntity(entity) {
+function snapshotEntity(entity: Entity): RunEntitySnapshot {
   const archetype = archetypeOf(entity);
-  const base = {
+  const base: RunEntitySnapshot = {
     archetype,
     id: entity.id,
     x: entity.x,
@@ -352,24 +491,26 @@ function snapshotEntity(entity) {
   return base;
 }
 
-function archetypeOf(entity) {
+function archetypeOf(entity: Entity): EntityArchetypeId {
   if (entity instanceof Merc) return 'merc';
   if (entity instanceof Razor) return 'razor';
   if (entity instanceof Tech) return 'tech';
   if (entity instanceof Turret) return 'turret';
   if (entity instanceof CorpDrone) return 'drone';
   if (entity instanceof Entity) return 'entity';
-  throw new Error(`archetypeOf: cannot classify entity ${entity?.id}`);
+  throw new Error(`archetypeOf: cannot classify entity ${(entity as Entity | undefined)?.id}`);
 }
 
-function archetypeOfCrew(entity) {
+function archetypeOfCrew(entity: Entity): CrewArchetypeId {
   if (entity instanceof Merc) return 'merc';
   if (entity instanceof Razor) return 'razor';
   if (entity instanceof Tech) return 'tech';
-  throw new Error(`archetypeOfCrew: cannot classify crew member ${entity?.id}`);
+  throw new Error(
+    `archetypeOfCrew: cannot classify crew member ${(entity as Entity | undefined)?.id}`
+  );
 }
 
-function freshTelemetry(archetype, seed) {
+function freshTelemetry(archetype: CrewArchetypeId, seed: number): RunTelemetry {
   return {
     archetype,
     seed,
@@ -383,27 +524,28 @@ function freshTelemetry(archetype, seed) {
   };
 }
 
-function validateContract(contract) {
+function validateContract(contract: unknown): asserts contract is Contract {
   if (!contract || typeof contract !== 'object') {
     throw new TypeError('contract must be an object');
   }
-  if (!Number.isInteger(contract.seed) || contract.seed < 0) {
-    throw new TypeError(`contract.seed must be a non-negative integer, got ${contract.seed}`);
+  const candidate = contract as Partial<Contract>;
+  const seed = candidate.seed;
+  const threatCount = candidate.threatCount;
+  if (!Number.isInteger(seed) || seed === undefined || seed < 0) {
+    throw new TypeError(`contract.seed must be a non-negative integer, got ${seed}`);
   }
-  if (!isObjective(contract.objective)) {
-    throw new Error(`contract.objective "${contract.objective}" is not a known objective`);
+  if (!isObjective(candidate.objective ?? '')) {
+    throw new Error(`contract.objective "${candidate.objective}" is not a known objective`);
   }
-  if (!Number.isInteger(contract.threatCount) || contract.threatCount < 0) {
-    throw new TypeError(
-      `contract.threatCount must be a non-negative integer, got ${contract.threatCount}`
-    );
+  if (!Number.isInteger(threatCount) || threatCount === undefined || threatCount < 0) {
+    throw new TypeError(`contract.threatCount must be a non-negative integer, got ${threatCount}`);
   }
-  if (typeof contract.label !== 'string' || contract.label.length === 0) {
+  if (typeof candidate.label !== 'string' || candidate.label.length === 0) {
     throw new TypeError('contract.label must be a non-empty string');
   }
 }
 
-function makeRunId(seed) {
+function makeRunId(seed: number): string {
   // Browser-friendly id without crypto: seed + millisecond. Persistence
   // stores it verbatim inside the surrounding campaign snapshot.
   return `run-${(seed >>> 0).toString(16)}-${Date.now().toString(36)}`;

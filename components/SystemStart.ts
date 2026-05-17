@@ -11,6 +11,10 @@
 
 import { h } from '/src/domUtils.js';
 
+type Session = {
+  seed: number;
+};
+
 const CSS = `
 :host {
   --start-bg: rgba(7, 18, 16, 0.96);
@@ -138,7 +142,7 @@ const CURATOR_COPY =
   'when you want work, find me adjacent and open a contract. No heroics on ' +
   'the carpet.';
 
-function hexSeed(seed) {
+function hexSeed(seed: number) {
   if (!Number.isFinite(seed)) return '?';
   const n = (seed >>> 0).toString(16).toUpperCase().padStart(8, '0');
   return `0x${n}`;
@@ -146,8 +150,8 @@ function hexSeed(seed) {
 
 class SystemStart extends HTMLElement {
   #ready = false;
-  #seedCell = null;
-  #session = null;
+  #seedCell: HTMLElement | null = null;
+  #session: Session | null = null;
 
   connectedCallback() {
     if (this.#ready) return;
@@ -183,7 +187,7 @@ class SystemStart extends HTMLElement {
   /**
    * @param {{ seed: number }} session
    */
-  setSession(session) {
+  setSession(session: Session) {
     if (!session || typeof session !== 'object' || !Number.isFinite(session.seed)) {
       throw new TypeError('<system-start>.setSession requires { seed: number }');
     }
@@ -194,7 +198,7 @@ class SystemStart extends HTMLElement {
   show() {
     this.setAttribute('open', '');
     queueMicrotask(() => {
-      this.shadowRoot?.querySelector('button.enter-hub')?.focus();
+      (this.shadowRoot?.querySelector('button.enter-hub') as HTMLButtonElement | null)?.focus();
     });
   }
 

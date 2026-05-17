@@ -1,5 +1,8 @@
 import { AP_COST, NOISE_RADIUS } from './constants.js';
 import { EVENT } from './events.js';
+import type { Grid } from './Grid.js';
+import type { Entity, LootableEntity } from './Entity.js';
+import type { EventBus } from './events.js';
 
 /**
  * Owns the grid and the live entity set. Validates and applies actions and,
@@ -12,15 +15,23 @@ import { EVENT } from './events.js';
  * The event bus is **optional**: tests that don't care about emissions can
  * omit it entirely. Wiring tests pass one in and assert the payload shape.
  */
+
+export type WorldOptions = {
+  events?: EventBus | null;
+};
 export class World {
-  constructor(grid, options = {}) {
+  grid: Grid;
+  entities: Map<string, Entity>;
+  events: EventBus | null;
+
+  constructor(grid: Grid, options: WorldOptions = {}) {
     if (!grid) throw new TypeError('World requires a grid');
     this.grid = grid;
     this.entities = new Map();
     this.events = options.events ?? null;
   }
 
-  addEntity(entity) {
+  addEntity(entity: Entity) {
     if (this.entities.has(entity.id)) {
       throw new Error(`Duplicate entity id: ${entity.id}`);
     }
@@ -35,7 +46,7 @@ export class World {
     this.entities.set(entity.id, entity);
   }
 
-  removeEntity(id) {
+  removeEntity(id: string) {
     if (!this.entities.has(id)) {
       throw new Error(`Unknown entity: ${id}`);
     }
@@ -52,7 +63,7 @@ export class World {
    * `alive`, or {@link lootableCorpseAt} for salvage targets (including when a
    * live actor shares the tile).
    */
-  entityAt(x, y) {
+  entityAt(x: number, y: number): Entity | null {
     for (const e of this.entities.values()) {
       if (e.alive && e.x === x && e.y === y) return e;
     }
@@ -64,7 +75,7 @@ export class World {
    * undefined — prefer {@link lootableCorpseAt} when you need a corpse on a
    * tile that may also hold a live actor (e.g. player standing on salvage).
    */
-  anyEntityAt(x, y) {
+  anyEntityAt(x: number, y: number): Entity | null {
     for (const e of this.entities.values()) {
       if (e.x === x && e.y === y) return e;
     }
@@ -76,10 +87,11 @@ export class World {
    * occupant so co-located live + corpse (legal after moving onto a body)
    * still resolves the lootable target.
    */
-  lootableCorpseAt(x, y) {
+  lootableCorpseAt(x: number, y: number): LootableEntity | null {
     for (const e of this.entities.values()) {
       if (e.x !== x || e.y !== y) continue;
-      if (!e.alive && e.loot && e.loot.salvage > 0) return e;
+      if (!e.alive && (e as LootableEntity).loot && (e as LootableEntity).loot.salvage > 0)
+        return e as LootableEntity;
     }
     return null;
   }
@@ -92,7 +104,7 @@ export class World {
    * Crashes on non-integer offsets (data-corruption guard — `Math.abs(0.5)`
    * would otherwise quietly slide an entity onto a fractional tile).
    */
-  canMoveEntity(entity, dx, dy) {
+  canMoveEntity(entity: Entity, dx: number, dy: number): { ok: boolean; reason?: string } {
     if (!Number.isInteger(dx) || !Number.isInteger(dy)) {
       throw new TypeError(`canMoveEntity requires integer offsets, got (${dx}, ${dy})`);
     }
@@ -128,8 +140,8 @@ export class World {
    * dozens of actors we'll cache it and invalidate on move/death. Used by
    * `LineOfSight.hasLineOfSight` to enforce entity occlusion.
    */
-  blockerKeys() {
-    const set = new Set();
+  blockerKeys(): Set<string> {
+    const set = new Set<string>();
     for (const e of this.entities.values()) {
       if (!e.alive) continue;
       set.add(`${e.x},${e.y}`);
@@ -143,7 +155,7 @@ export class World {
    * inaudible). Listeners on `entity:moved` always fire either way; vision
    * recompute and AI hooks can't be opted out of by mistake.
    */
-  moveEntity(entity, dx, dy, options = {}) {
+  moveEntity(entity: Entity, dx: number, dy: number, options: { silent?: boolean } = {}) {
     const check = this.canMoveEntity(entity, dx, dy);
     if (!check.ok) {
       throw new Error(`Illegal move for ${entity.id}: ${check.reason}`);

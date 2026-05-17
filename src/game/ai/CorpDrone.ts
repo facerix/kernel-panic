@@ -29,12 +29,23 @@
  * branch (no path, no AP, dead) so a stuck drone returns rather than spinning.
  */
 
-import { Entity } from '../Entity.js';
+import { Hostile } from '../Hostile.js';
 import { FACTION, AP_COST, SIGHT_RANGE } from '../constants.js';
 import { findPath } from '../Pathfinding.js';
-import { hasLineOfSight, withinRange } from '../LineOfSight.js';
+import { withinRange } from '../LineOfSight.js';
 import { canFireRanged, resolveRanged } from '../Combat.js';
 import { EVENT } from '../events.js';
+import type { EventBus } from '../events.js';
+import type { Entity } from '../Entity.js';
+import type { HostileInit } from '../Hostile.js';
+import type {
+  CorpDroneMoveKind,
+  CorpDroneMoveStep,
+  TurnActionStep,
+  TurnActionSteps,
+} from '../../types.js';
+import type { World } from '../World.js';
+import type { Rng } from '../../rng.js';
 
 export const DRONE_STATE = Object.freeze({
   PATROL: 'patrol',
@@ -42,9 +53,25 @@ export const DRONE_STATE = Object.freeze({
   ENGAGE: 'engage',
 });
 
-export class CorpDrone extends Entity {
-  constructor(props = {}) {
-    super({ faction: FACTION.CORP, glyph: 'd', ...props });
+type NoiseEventPayload = {
+  origin?: { x: number; y: number };
+  radius?: number;
+  source?: Entity;
+};
+
+export interface CorpDroneProps extends Omit<HostileInit, 'faction' | 'glyph'> {
+  patrolWaypoints?: { x: number; y: number }[];
+}
+
+export class CorpDrone extends Hostile {
+  patrolWaypoints: { x: number; y: number }[];
+  patrolIndex: number;
+  state: (typeof DRONE_STATE)[keyof typeof DRONE_STATE];
+  lastKnownTarget: { x: number; y: number } | null;
+  #unsubs: (() => void)[];
+
+  constructor(props: CorpDroneProps) {
+    super({ ...props, faction: FACTION.CORP, glyph: 'd' });
     const waypoints = props.patrolWaypoints ?? [];
     if (!Array.isArray(waypoints)) {
       throw new TypeError('CorpDrone patrolWaypoints must be an array');
@@ -63,19 +90,18 @@ export class CorpDrone extends Entity {
     this.#unsubs = [];
   }
 
-  /** @type {Array<() => void>} */
-  #unsubs;
-
   /**
    * Subscribe the drone to an `EventBus`. Returns an unbind function so the
    * harness can detach a drone (e.g. on death, scenario reset) and free the
    * listener. Idempotent — calling twice subscribes twice; pair with `unbind`.
    */
-  bindToBus(events) {
+  bindToBus(events: EventBus) {
     if (!events || typeof events.on !== 'function') {
       throw new TypeError('CorpDrone.bindToBus requires an EventBus');
     }
-    const off = events.on(EVENT.NOISE, payload => this.#onNoise(payload));
+    const off = events.on(EVENT.NOISE, (payload: unknown) =>
+      this.#onNoise(payload as NoiseEventPayload)
+    );
     this.#unsubs.push(off);
     return () => this.unbind();
   }
@@ -85,7 +111,7 @@ export class CorpDrone extends Entity {
     this.#unsubs = [];
   }
 
-  #onNoise({ origin, radius, source } = {}) {
+  #onNoise({ origin, radius, source }: NoiseEventPayload = {}) {
     if (!this.alive) return;
     if (!origin || !Number.isInteger(origin.x) || !Number.isInteger(origin.y)) return;
     // Engaging drones are already firing — don't let a clatter pull them off
@@ -100,37 +126,9 @@ export class CorpDrone extends Entity {
     // only react if we're inside it. Default to SIGHT_RANGE for legacy emits
     // that don't carry a radius, so older callers keep working.
     const r = Number.isFinite(radius) ? radius : SIGHT_RANGE;
-    if (!withinRange(this.x, this.y, origin.x, origin.y, r)) return;
+    if (!withinRange(this.x, this.y, origin.x, origin.y, r!)) return;
     this.lastKnownTarget = { x: origin.x, y: origin.y };
     this.state = DRONE_STATE.INVESTIGATE;
-  }
-
-  /**
-   * Acquire the closest visible hostile (different faction). Squared-distance
-   * comparison — no `Math.sqrt` needed. Returns `null` if nothing visible.
-   */
-  acquireTarget(world) {
-    const blockers = world.blockerKeys();
-    let best = null;
-    let bestD2 = Infinity;
-    for (const e of world.entities.values()) {
-      if (!e.alive || e.faction === this.faction) continue;
-      if (!withinRange(this.x, this.y, e.x, e.y, SIGHT_RANGE)) continue;
-      if (!hasLineOfSight(world.grid, this.x, this.y, e.x, e.y, { blockers })) continue;
-      // Stealth gate (M6 Razor Slide). The Razor's perk sets `stealthed=true`
-      // for the duration of the corp turn following her slide; while it's set
-      // she requires Chebyshev adjacency to be acquired. Generic on Entity so
-      // future cyberware can flip the same flag.
-      if (typeof e.isSpottableBy === 'function' && !e.isSpottableBy(this)) continue;
-      const dx = e.x - this.x;
-      const dy = e.y - this.y;
-      const d2 = dx * dx + dy * dy;
-      if (d2 < bestD2) {
-        bestD2 = d2;
-        best = e;
-      }
-    }
-    return best;
   }
 
   /**
@@ -142,13 +140,8 @@ export class CorpDrone extends Entity {
    * interleaving (tests, the debug harness, anything synchronous) get the
    * familiar batched-log shape unchanged.
    */
-  takeTurn(world, rng) {
-    /** @type {Array<object>} */
-    const log = [];
-    for (const step of this.takeTurnSteps(world, rng)) {
-      log.push(step);
-    }
-    return log;
+  override takeTurn(world: World, rng: Rng): TurnActionStep[] {
+    return [...this.takeTurnSteps(world, rng)];
   }
 
   /**
@@ -158,7 +151,7 @@ export class CorpDrone extends Entity {
    * advanced); state transitions that don't mutate the world (e.g. ENGAGE
    * → INVESTIGATE on losing LOS) are folded into the next yielded action.
    */
-  *takeTurnSteps(world, rng) {
+  override *takeTurnSteps(world: World, rng: Rng): TurnActionSteps {
     if (!this.alive) return;
 
     // Bound the loop independently of AP — a logic bug that fails to spend
@@ -194,7 +187,7 @@ export class CorpDrone extends Entity {
           // Some other reason (out-of-range from a different `range` option,
           // same-faction edge case) — should be rare at this layer. Stop
           // rather than thrash; surfacing the state in the log helps debug.
-          yield { type: 'fire-blocked', reason: fireCheck.reason };
+          yield { type: 'fire-blocked', reason: fireCheck.reason ?? 'unknown' };
           break;
         }
         // We have AP but not enough to fire — try to step toward to set up
@@ -278,7 +271,12 @@ export class CorpDrone extends Entity {
     }
   }
 
-  #stepToward(world, gx, gy, kind) {
+  #stepToward(
+    world: World,
+    gx: number,
+    gy: number,
+    kind: CorpDroneMoveKind
+  ): CorpDroneMoveStep | null {
     const path = findPath(world, { x: this.x, y: this.y }, { x: gx, y: gy });
     if (!path || path.length === 0) return null;
     const next = path[0];
@@ -287,6 +285,6 @@ export class CorpDrone extends Entity {
     const check = world.canMoveEntity(this, dx, dy);
     if (!check.ok) return null;
     world.moveEntity(this, dx, dy);
-    return { type: `move-${kind}`, to: { x: this.x, y: this.y } };
+    return { type: `move-${kind}`, to: { x: this.x, y: this.y } } satisfies CorpDroneMoveStep;
   }
 }

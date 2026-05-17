@@ -1,4 +1,7 @@
 import { DEFAULT_AP, DEFAULT_HP, type FactionId } from './constants.js';
+import type { TurnActionStep, TurnActionSteps } from '../types.js';
+import type { Rng } from '../rng.js';
+import type { World } from './World.js';
 
 export interface EntityInit {
   id: string;
@@ -18,6 +21,10 @@ export interface EntityInit {
  * silently — a bug that spends 3 AP from a 1-AP pool, or rolls negative
  * damage, is data corruption we want surfaced early.
  */
+export interface LootableEntity extends Entity {
+  loot: { salvage: number };
+}
+
 export class Entity {
   id: string;
   x: number;
@@ -117,4 +124,12 @@ export class Entity {
       this.alive = false;
     }
   }
+}
+
+// Class + interface merge is the usual TS pattern for optional hooks on a
+// base class; oxlint flags it — the runtime class has no duplicate fields.
+// oxlint-disable-next-line typescript-eslint(no-unsafe-declaration-merging)
+export interface Entity {
+  takeTurn?(world: World, rng: Rng): void | TurnActionStep[];
+  takeTurnSteps?(world: World, rng: Rng): TurnActionSteps;
 }

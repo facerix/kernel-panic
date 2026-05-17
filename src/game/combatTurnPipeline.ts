@@ -1,4 +1,6 @@
-import { Turret } from './Turret.js';
+import { Turret, type TurretAutoFireResult } from './Turret.js';
+import type { World } from './World.js';
+import type { Rng } from '../rng.js';
 
 /**
  * Combat turn pipeline.
@@ -16,36 +18,45 @@ import { Turret } from './Turret.js';
  * them as ordered steps inside `runPlayerAftermathSteps` and append any
  * human-readable lines from `formatPlayerAftermathLogLines`.
  *
- * @typedef {object} PlayerAftermath
- * @property {PlayerAftermathStep[]} steps
- * @property {{ turret: Turret, action: object }[]} turretAutoFire
- *
- * @typedef {object} PlayerAftermathStep
- * @property {'turret-autofire'} type
- * @property {Turret} turret
- * @property {object} action
  */
+export type PlayerAftermathStep = {
+  type: 'turret-autofire';
+  turret: Turret;
+  action: TurretAutoFireResult;
+};
 
-const defaultSchedule = (fn, ms) => setTimeout(fn, ms);
+export type PlayerAftermath = {
+  steps: PlayerAftermathStep[];
+  turretAutoFire: { turret: Turret; action: TurretAutoFireResult }[];
+};
+
+type DrivePlayerAftermathOpts = {
+  onStep: (step: PlayerAftermathStep) => void;
+  onFinish: () => void;
+};
+type DriveCorpTurnOpts = {
+  onFinish: () => void;
+};
+export type PlayerTurnContext = {
+  queue: { endTurn: (world: World) => void };
+  world: World;
+  rng: Rng;
+  drivePlayerAftermath: (opts: DrivePlayerAftermathOpts) => void;
+  driveCorpTurn: (opts: DriveCorpTurnOpts) => void;
+  isTerminal: () => boolean;
+  onCorpTurnReady: () => void;
+  onPlayerAftermathStep: (step: PlayerAftermathStep) => void;
+  onPlayerTurnReady: () => void;
+};
+
+const defaultSchedule = (fn: () => void, ms: number) => setTimeout(fn, ms);
 
 /**
  * Advance from the end of a player-controlled turn through aftermath and
  * corp action. The corp driver may be synchronous (debug harness) or async
  * (main shell); it must call `onFinish` when corp action is fully resolved.
- *
- * @param {object} ctx
- * @param {{ endTurn: (world: import('./World.js').World) => void }} ctx.queue
- * @param {import('./World.js').World} ctx.world
- * @param {import('../rng.js').Rng} ctx.rng
- * @param {(opts: { onStep: (step: PlayerAftermathStep) => void,
- *   onFinish: () => void }) => void} [ctx.drivePlayerAftermath]
- * @param {(opts: { onFinish: () => void }) => void} ctx.driveCorpTurn
- * @param {() => boolean} [ctx.isTerminal]
- * @param {() => void} [ctx.onCorpTurnReady]
- * @param {(step: PlayerAftermathStep) => void} [ctx.onPlayerAftermathStep]
- * @param {() => void} [ctx.onPlayerTurnReady]
  */
-export function advanceFromPlayerTurn(ctx) {
+export function advanceFromPlayerTurn(ctx: PlayerTurnContext) {
   validateAdvanceCtx(ctx);
   const {
     queue,
@@ -78,22 +89,33 @@ export function advanceFromPlayerTurn(ctx) {
   });
 }
 
+type DrivePlayerAftermathCtx = {
+  world: World;
+  rng: Rng;
+  onStep: (step: PlayerAftermathStep) => void;
+  onFinish: () => void;
+  animLock?: { push: (ms: number) => void } | null;
+  stepDelayMs?: number;
+  lockMarginMs?: number;
+  schedule?: (fn: () => void, ms: number) => void;
+};
+
+/** Subset of {@link DrivePlayerAftermathCtx} passed into the paced aftermath pump. */
+type PumpPlayerAftermathCtx = {
+  onStep: (step: PlayerAftermathStep) => void;
+  onFinish: () => void;
+  animLock: { push: (ms: number) => void } | null;
+  stepDelayMs: number;
+  lockMarginMs: number;
+  schedule: (fn: () => void, ms: number) => void;
+};
+
 /**
  * Drive aftermath steps with optional pacing. The default scheduler is
  * `setTimeout`, but tests and debug harnesses can inject a deterministic
  * scheduler or use `drivePlayerAftermathSync`.
- *
- * @param {object} ctx
- * @param {import('./World.js').World} ctx.world
- * @param {import('../rng.js').Rng} ctx.rng
- * @param {(step: PlayerAftermathStep) => void} ctx.onStep
- * @param {() => void} ctx.onFinish
- * @param {{ push: (ms: number) => void }} [ctx.animLock]
- * @param {number} [ctx.stepDelayMs]
- * @param {number} [ctx.lockMarginMs]
- * @param {(fn: () => void, ms: number) => void} [ctx.schedule]
  */
-export function drivePlayerAftermath(ctx) {
+export function drivePlayerAftermath(ctx: DrivePlayerAftermathCtx) {
   validatePlayerAftermathDriverCtx(ctx);
   const {
     world,
@@ -112,14 +134,8 @@ export function drivePlayerAftermath(ctx) {
 /**
  * Synchronous aftermath driver. Useful for tests and the debug harness, where
  * a single repaint at the end is deliberate.
- *
- * @param {object} ctx
- * @param {import('./World.js').World} ctx.world
- * @param {import('../rng.js').Rng} ctx.rng
- * @param {(step: PlayerAftermathStep) => void} ctx.onStep
- * @param {() => void} ctx.onFinish
  */
-export function drivePlayerAftermathSync(ctx) {
+export function drivePlayerAftermathSync(ctx: DrivePlayerAftermathCtx) {
   validatePlayerAftermathDriverCtx(ctx, { allowTiming: false });
   for (const step of runPlayerAftermathSteps(ctx.world, ctx.rng)) {
     ctx.onStep(step);
@@ -137,7 +153,7 @@ export function drivePlayerAftermathSync(ctx) {
  * @param {import('../rng.js').Rng} rng
  * @returns {PlayerAftermath}
  */
-export function runPlayerAftermath(world, rng) {
+export function runPlayerAftermath(world: World, rng: Rng) {
   const steps = [...runPlayerAftermathSteps(world, rng)];
   const turretAutoFire = steps
     .filter(step => step.type === 'turret-autofire')
@@ -154,7 +170,10 @@ export function runPlayerAftermath(world, rng) {
  * @param {import('../rng.js').Rng} rng
  * @returns {Generator<PlayerAftermathStep>}
  */
-export function* runPlayerAftermathSteps(world, rng) {
+export function* runPlayerAftermathSteps(
+  world: World,
+  rng: Rng
+): Generator<PlayerAftermathStep, void, undefined> {
   for (const entity of world.entities.values()) {
     if (!(entity instanceof Turret)) continue;
     if (!entity.alive) continue;
@@ -173,7 +192,7 @@ export function* runPlayerAftermathSteps(world, rng) {
  * @param {PlayerAftermath} aftermath
  * @returns {string[]}
  */
-export function formatPlayerAftermathLogLines(aftermath) {
+export function formatPlayerAftermathLogLines(aftermath: PlayerAftermath) {
   const lines = [];
   for (const step of aftermath.steps) {
     lines.push(...formatPlayerAftermathStepLogLines(step));
@@ -187,7 +206,7 @@ export function formatPlayerAftermathLogLines(aftermath) {
  * @param {PlayerAftermathStep} step
  * @returns {string[]}
  */
-export function formatPlayerAftermathStepLogLines(step) {
+export function formatPlayerAftermathStepLogLines(step: PlayerAftermathStep) {
   if (step.type === 'turret-autofire') {
     const line = formatTurretAutofireLine(step.turret, step.action);
     return line ? [line] : [];
@@ -195,7 +214,7 @@ export function formatPlayerAftermathStepLogLines(step) {
   return [];
 }
 
-function validateAdvanceCtx(ctx) {
+function validateAdvanceCtx(ctx: PlayerTurnContext) {
   if (!ctx || typeof ctx !== 'object') {
     throw new TypeError('advanceFromPlayerTurn: ctx must be an object');
   }
@@ -236,26 +255,32 @@ function validateAdvanceCtx(ctx) {
   }
 }
 
-function pumpPlayerAftermath(steps, ctx) {
+function pumpPlayerAftermath(
+  steps: Generator<PlayerAftermathStep, void, undefined>,
+  ctx: PumpPlayerAftermathCtx
+) {
   const result = steps.next();
   if (result.done) {
     ctx.onFinish();
     return;
   }
   ctx.onStep(result.value);
-  ctx.animLock?.push(ctx.stepDelayMs + ctx.lockMarginMs);
+  ctx.animLock?.push(Number(ctx.stepDelayMs) + Number(ctx.lockMarginMs));
   scheduleNextAftermathStep(() => pumpPlayerAftermath(steps, ctx), ctx);
 }
 
-function scheduleNextAftermathStep(fn, ctx) {
+function scheduleNextAftermathStep(fn: () => void, ctx: PumpPlayerAftermathCtx) {
   if (ctx.stepDelayMs === 0) {
     fn();
     return;
   }
-  ctx.schedule(fn, ctx.stepDelayMs);
+  ctx.schedule(fn, Number(ctx.stepDelayMs));
 }
 
-function validatePlayerAftermathDriverCtx(ctx, { allowTiming = true } = {}) {
+function validatePlayerAftermathDriverCtx(
+  ctx: DrivePlayerAftermathCtx,
+  { allowTiming = true } = {}
+) {
   if (!ctx || typeof ctx !== 'object') {
     throw new TypeError('drivePlayerAftermath: ctx must be an object');
   }
@@ -293,8 +318,7 @@ function validatePlayerAftermathDriverCtx(ctx, { allowTiming = true } = {}) {
   }
 }
 
-/** @param {import('./Turret.js').Turret} turret @param {object} action */
-function formatTurretAutofireLine(turret, action) {
+function formatTurretAutofireLine(turret: Turret, action: TurretAutoFireResult) {
   if (action.type === 'fire') {
     const r = action.result;
     return (

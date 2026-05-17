@@ -13,6 +13,9 @@
  */
 
 import { TILE } from './constants.js';
+import type { Grid } from './Grid.js';
+
+type SmokeOverlay = { x: number; y: number; originalTile: number };
 
 /**
  * Place a smoke cloud centered on (cx, cy) with the given Chebyshev radius.
@@ -20,14 +23,10 @@ import { TILE } from './constants.js';
  * unaffected (smoke doesn't fill solid objects). Out-of-bounds tiles are
  * silently skipped.
  *
- * @param {import('./Grid.js').Grid} grid
- * @param {number} cx
- * @param {number} cy
- * @param {number} radius — Chebyshev distance
- * @returns {Array<{ x: number, y: number, originalTile: number }>}
+ * @returns {Array<SmokeOverlay>}
  *   Records for each tile converted, used by `clearSmoke` to restore.
  */
-export function placeSmoke(grid, cx, cy, radius) {
+export function placeSmoke(grid: Grid, cx: number, cy: number, radius: number): SmokeOverlay[] {
   const overlays = [];
   for (let dy = -radius; dy <= radius; dy++) {
     for (let dx = -radius; dx <= radius; dx++) {
@@ -48,11 +47,8 @@ export function placeSmoke(grid, cx, cy, radius) {
 /**
  * Remove smoke by restoring each overlay's original tile type. Idempotent —
  * calling with an empty array is a no-op.
- *
- * @param {import('./Grid.js').Grid} grid
- * @param {Array<{ x: number, y: number, originalTile: number }>} overlays
  */
-export function clearSmoke(grid, overlays) {
+export function clearSmoke(grid: Grid, overlays: SmokeOverlay[]) {
   for (const { x, y, originalTile } of overlays) {
     if (grid.inBounds(x, y) && grid.tileAt(x, y) === TILE.SMOKE) {
       grid.setTile(x, y, originalTile);

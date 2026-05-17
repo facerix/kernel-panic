@@ -5,6 +5,13 @@
  */
 
 class UpdateNotification extends HTMLElement {
+  pendingWorker: ServiceWorker | null = null;
+  isVisible: boolean = false;
+  isUpdating: boolean = false;
+  boundHandleUpdateNow: EventListener;
+  boundHandleUpdateLater: EventListener;
+  _updateProgressHandler: EventListener | null = null;
+
   constructor() {
     super();
     this.pendingWorker = null;
@@ -30,7 +37,9 @@ class UpdateNotification extends HTMLElement {
   }
 
   render() {
-    this.shadowRoot.innerHTML = `
+    const root = this.shadowRoot;
+    if (!root) return;
+    root.innerHTML = `
       <style>
         :host {
           font-family: inherit;
@@ -177,8 +186,8 @@ class UpdateNotification extends HTMLElement {
   }
 
   setupEventListeners() {
-    const updateNowBtn = this.shadowRoot.querySelector('.update-now');
-    const updateLaterBtn = this.shadowRoot.querySelector('.update-later');
+    const updateNowBtn = this.shadowRoot?.querySelector('.update-now') as HTMLButtonElement;
+    const updateLaterBtn = this.shadowRoot?.querySelector('.update-later') as HTMLButtonElement;
 
     if (updateNowBtn) {
       updateNowBtn.addEventListener('click', this.boundHandleUpdateNow);
@@ -190,8 +199,8 @@ class UpdateNotification extends HTMLElement {
   }
 
   cleanupEventListeners() {
-    const updateNowBtn = this.shadowRoot.querySelector('.update-now');
-    const updateLaterBtn = this.shadowRoot.querySelector('.update-later');
+    const updateNowBtn = this.shadowRoot?.querySelector('.update-now') as HTMLButtonElement;
+    const updateLaterBtn = this.shadowRoot?.querySelector('.update-later') as HTMLButtonElement;
 
     if (updateNowBtn) {
       updateNowBtn.removeEventListener('click', this.boundHandleUpdateNow);
@@ -202,9 +211,9 @@ class UpdateNotification extends HTMLElement {
     }
   }
 
-  show(pendingWorker) {
+  show(pendingWorker: ServiceWorker | null) {
     this.pendingWorker = pendingWorker;
-    const notification = this.shadowRoot.querySelector('.update-notification');
+    const notification = this.shadowRoot?.querySelector('.update-notification') as HTMLDivElement;
 
     if (notification) {
       this.style.display = 'block';
@@ -224,7 +233,7 @@ class UpdateNotification extends HTMLElement {
   }
 
   hide() {
-    const notification = this.shadowRoot.querySelector('.update-notification');
+    const notification = this.shadowRoot?.querySelector('.update-notification') as HTMLDivElement;
 
     if (notification) {
       this.style.display = 'none';
@@ -242,12 +251,12 @@ class UpdateNotification extends HTMLElement {
 
   showUpdating(status = 'Please wait while we install the update.') {
     this.isUpdating = true;
-    const notification = this.shadowRoot.querySelector('.update-notification');
-    const actions = this.shadowRoot.querySelector('.update-actions');
-    const updatingState = this.shadowRoot.querySelector('.updating-state');
-    const statusText = this.shadowRoot.querySelector('.update-status');
-    const title = this.shadowRoot.querySelector('.title');
-    const message = this.shadowRoot.querySelector('.message');
+    const notification = this.shadowRoot?.querySelector('.update-notification') as HTMLDivElement;
+    const actions = this.shadowRoot?.querySelector('.update-actions') as HTMLDivElement;
+    const updatingState = this.shadowRoot?.querySelector('.updating-state') as HTMLDivElement;
+    const statusText = this.shadowRoot?.querySelector('.update-status') as HTMLParagraphElement;
+    const title = this.shadowRoot?.querySelector('.title') as HTMLHeadingElement;
+    const message = this.shadowRoot?.querySelector('.message') as HTMLParagraphElement;
 
     if (notification && actions && updatingState) {
       actions.classList.add('hidden');
@@ -262,7 +271,7 @@ class UpdateNotification extends HTMLElement {
         message.style.display = 'none';
       }
 
-      const buttons = this.shadowRoot.querySelectorAll('button');
+      const buttons = this.shadowRoot?.querySelectorAll('button') as NodeListOf<HTMLButtonElement>;
       buttons.forEach(btn => {
         btn.disabled = true;
       });
@@ -281,20 +290,22 @@ class UpdateNotification extends HTMLElement {
     );
 
     if (window.serviceWorkerManager) {
-      const handleUpdateProgress = event => {
+      const handleUpdateProgress = (event: CustomEvent<{ status: string }>) => {
         if (event.detail && event.detail.status) {
           this.showUpdating(event.detail.status);
         }
       };
 
-      this._updateProgressHandler = handleUpdateProgress;
-      window.addEventListener('sw-update-progress', handleUpdateProgress);
+      this._updateProgressHandler = handleUpdateProgress as EventListener;
+      window.addEventListener('sw-update-progress', this._updateProgressHandler);
 
       window.serviceWorkerManager.handleUpdateNow(this.pendingWorker).catch(error => {
         console.error('[UpdateNotification] Update failed:', error);
         this.showUpdating('Update failed. Please try again.');
         this.isUpdating = false;
-        const buttons = this.shadowRoot.querySelectorAll('button');
+        const buttons = this.shadowRoot?.querySelectorAll(
+          'button'
+        ) as NodeListOf<HTMLButtonElement>;
         buttons.forEach(btn => {
           btn.disabled = false;
         });

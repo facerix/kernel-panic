@@ -1,4 +1,5 @@
-import { TILE, FACTION, type TileId, type FactionId } from '../game/constants.js';
+import { TILE, FACTION } from '../game/constants.js';
+import type { TileId, FactionId } from '../game/constants.js';
 
 /** A renderable glyph: a single character plus a foreground colour. */
 export type Glyph = { char: string; fg: string };

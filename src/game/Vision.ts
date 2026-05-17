@@ -15,10 +15,20 @@
 
 import { hasLineOfSight } from './LineOfSight.js';
 import { SIGHT_RANGE } from './constants.js';
+import type { Entity } from './Entity.js';
+import type { Grid } from './Grid.js';
 
-const keyOf = (x, y) => `${x},${y}`;
+type RecomputeOptions = {
+  blockers?: Set<string> | null;
+};
+
+const keyOf = (x: number, y: number): string => `${x},${y}`;
 
 export class VisionField {
+  visible: Set<string>;
+  seen: Set<string>;
+  memorisedCorpses: Map<string, { x: number; y: number; faction: string }>;
+
   constructor() {
     this.visible = new Set();
     this.seen = new Set();
@@ -40,7 +50,7 @@ export class VisionField {
    * listener when `killed` is true and the corpse tile is currently visible.
    * Cleared with {@link resetFogState} when a new combat episode starts.
    */
-  memoriseCorpse(entity) {
+  memoriseCorpse(entity: Entity) {
     const k = keyOf(entity.x, entity.y);
     this.memorisedCorpses.set(k, {
       x: entity.x,
@@ -82,7 +92,7 @@ export class VisionField {
    * player factions, so a drone walking into LOS becomes visible without
    * waiting for the player to step.
    */
-  recompute(grid, viewer, range = SIGHT_RANGE, options = {}) {
+  recompute(grid: Grid, viewer: Entity, range = SIGHT_RANGE, options: RecomputeOptions = {}) {
     if (!Number.isInteger(range) || range < 0) {
       throw new RangeError(`vision range must be a non-negative integer, got ${range}`);
     }
@@ -111,11 +121,11 @@ export class VisionField {
     }
   }
 
-  isVisible(x, y) {
+  isVisible(x: number, y: number): boolean {
     return this.visible.has(keyOf(x, y));
   }
 
-  hasSeen(x, y) {
+  hasSeen(x: number, y: number): boolean {
     return this.seen.has(keyOf(x, y));
   }
 }

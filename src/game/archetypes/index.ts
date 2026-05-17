@@ -22,6 +22,11 @@
 import { Merc, CALLSIGNS as MERC_CALLSIGNS } from './Merc.js';
 import { Razor, CALLSIGNS as RAZOR_CALLSIGNS } from './Razor.js';
 import { Tech, CALLSIGNS as TECH_CALLSIGNS } from './Tech.js';
+import type { Rng } from '../../rng.js';
+import type { FactionId } from '../constants.js';
+import type { CrewInit } from '../Crew.js';
+
+export type Archetype = Merc | Razor | Tech;
 
 /**
  * Display order is also the starter crew order in `Campaign.buildCrew`.
@@ -64,6 +69,8 @@ export const ARCHETYPES = Object.freeze({
   }),
 });
 
+export type ArchetypeInfo = (typeof ARCHETYPES)[keyof typeof ARCHETYPES];
+
 const BUILDERS = Object.freeze({
   merc: Merc,
   razor: Razor,
@@ -82,7 +89,7 @@ export const CALLSIGNS_BY_ARCHETYPE = Object.freeze({
   tech: TECH_CALLSIGNS,
 });
 
-export function isArchetypeId(value) {
+export function isArchetypeId(value: string) {
   return typeof value === 'string' && Object.prototype.hasOwnProperty.call(BUILDERS, value);
 }
 
@@ -93,7 +100,7 @@ export function isArchetypeId(value) {
  * Pure helper so M2's `Campaign.buildCrew` can call it directly when seeding
  * the starter trio.
  */
-export function pickCallsign(archetypeId, rng, excludeCallsigns = new Set()) {
+export function pickCallsign(archetypeId: string, rng: Rng, excludeCallsigns = new Set()) {
   if (!isArchetypeId(archetypeId)) {
     throw new Error(`pickCallsign: unknown archetype "${archetypeId}"`);
   }
@@ -103,7 +110,7 @@ export function pickCallsign(archetypeId, rng, excludeCallsigns = new Set()) {
   if (!(excludeCallsigns instanceof Set)) {
     throw new TypeError('pickCallsign: excludeCallsigns must be a Set');
   }
-  const pool = CALLSIGNS_BY_ARCHETYPE[archetypeId];
+  const pool = CALLSIGNS_BY_ARCHETYPE[archetypeId as keyof typeof CALLSIGNS_BY_ARCHETYPE];
   const available = pool.filter(name => !excludeCallsigns.has(name));
   if (available.length === 0) {
     throw new Error(
@@ -120,7 +127,26 @@ export function pickCallsign(archetypeId, rng, excludeCallsigns = new Set()) {
  * Set so callers (`Campaign.buildCrew`, future recruitment in M6) can dedupe
  * against campaign history.
  */
-export function buildCrewMember(archetypeId, spawn, rng, options = {}) {
+type BuildCrewMemberOptions = {
+  excludeCallsigns?: Set<string>;
+  id?: string;
+  maxAp?: number;
+  maxHp?: number;
+  faction?: FactionId;
+};
+type BuildCrewMemberSpawn = {
+  x: number;
+  y: number;
+  maxAp?: number;
+  maxHp?: number;
+  faction?: FactionId;
+};
+export function buildCrewMember(
+  archetypeId: string,
+  spawn: BuildCrewMemberSpawn,
+  rng: Rng,
+  options: BuildCrewMemberOptions = { excludeCallsigns: new Set() }
+) {
   if (!isArchetypeId(archetypeId)) {
     throw new Error(`buildCrewMember: unknown archetype "${archetypeId}"`);
   }
@@ -137,8 +163,8 @@ export function buildCrewMember(archetypeId, spawn, rng, options = {}) {
   }
   const exclude = options.excludeCallsigns ?? new Set();
   const callsign = pickCallsign(archetypeId, rng, exclude);
-  const Ctor = BUILDERS[archetypeId];
-  const props = {
+  const Ctor = BUILDERS[archetypeId as keyof typeof BUILDERS];
+  const props: CrewInit = {
     id: options.id ?? archetypeId,
     x: spawn.x,
     y: spawn.y,
