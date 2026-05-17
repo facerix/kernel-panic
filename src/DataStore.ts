@@ -29,6 +29,7 @@ class DataStore extends EventTarget {
     }
     super();
 
+    // oxlint-disable-next-line typescript-eslint(no-this-alias): Singleton guard stores the constructed instance.
     instance = this;
   }
 

@@ -22,8 +22,8 @@ export type Gear = {
   hitBonus: number;
 };
 
-const DEFAULT_INVENTORY: Inventory = { salvage: 0, consumables: [] };
-const DEFAULT_GEAR: Gear = { maxHpBonus: 0, hitBonus: 0 };
+const createDefaultInventory = (): Inventory => ({ salvage: 0, consumables: [] });
+const createDefaultGear = (): Gear => ({ maxHpBonus: 0, hitBonus: 0 });
 
 /**
  * Crew — the base class for every player-controlled archetype.
@@ -120,7 +120,7 @@ export class Crew extends Entity {
    */
   initInventory() {
     if (this.inventory !== null) return;
-    this.inventory = DEFAULT_INVENTORY;
+    this.inventory = createDefaultInventory();
   }
 
   /**
@@ -130,7 +130,7 @@ export class Crew extends Entity {
    */
   initGear() {
     if (this.gear !== null) return;
-    this.gear = DEFAULT_GEAR;
+    this.gear = createDefaultGear();
   }
 
   /**

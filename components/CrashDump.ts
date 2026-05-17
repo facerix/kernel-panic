@@ -28,7 +28,6 @@
  */
 
 import { h } from '/src/domUtils.js';
-import type { Crew as CrewMember } from '/src/game/Crew.js';
 import type { Telemetry } from '/src/types.js';
 
 type CrewMemberStub = { callsign: string; archetype: string; flatlined: boolean };

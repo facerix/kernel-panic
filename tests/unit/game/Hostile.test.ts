@@ -39,7 +39,7 @@ test('Hostile.acquireTarget selects the nearest visible different-faction entity
   const hostile = makeHostile({ x: 1, y: 1 });
   const farTarget = new Entity({ id: 'far', x: 8, y: 1, faction: FACTION.PLAYER, glyph: '@' });
   const nearTarget = new Entity({ id: 'near', x: 3, y: 1, faction: FACTION.PLAYER, glyph: '@' });
-  const teammate = new Entity({ id: 'ally', x: 2, y: 1, faction: FACTION.CORP, glyph: 'a' });
+  const teammate = new Entity({ id: 'ally', x: 2, y: 2, faction: FACTION.CORP, glyph: 'a' });
 
   world.addEntity(hostile);
   world.addEntity(farTarget);
@@ -47,6 +47,19 @@ test('Hostile.acquireTarget selects the nearest visible different-faction entity
   world.addEntity(teammate);
 
   assert.equal(hostile.acquireTarget(world), nearTarget);
+});
+
+test('Hostile.acquireTarget treats live entities as LOS blockers', () => {
+  const world = new World(new Grid(12, 6));
+  const hostile = makeHostile({ x: 1, y: 1 });
+  const target = new Entity({ id: 'target', x: 3, y: 1, faction: FACTION.PLAYER, glyph: '@' });
+  const blocker = new Entity({ id: 'blocker', x: 2, y: 1, faction: FACTION.CORP, glyph: 'a' });
+
+  world.addEntity(hostile);
+  world.addEntity(target);
+  world.addEntity(blocker);
+
+  assert.equal(hostile.acquireTarget(world), null);
 });
 
 test('Hostile.acquireTarget honours stealth spotting rules', () => {

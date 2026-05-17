@@ -8,6 +8,7 @@
  */
 import { cp, mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -52,7 +53,7 @@ async function run() {
   console.log(`[copy-assets] copied ${files.length} files + ${dirs.length} dirs to dist/`);
 }
 
-run().catch((err) => {
+run().catch(err => {
   console.error('[copy-assets] failed:', err);
   process.exit(1);
 });
