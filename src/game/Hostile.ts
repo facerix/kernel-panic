@@ -1,0 +1,68 @@
+import { Entity, type EntityInit } from './Entity.js';
+import { SIGHT_RANGE } from './constants.js';
+import { hasLineOfSight, withinRange } from './LineOfSight.js';
+import type { Rng } from '../rng.js';
+import type { TurnActionStep } from '../types.js';
+import type { World } from './World.js';
+
+export interface HostileInit extends EntityInit {
+  sightRange?: number;
+}
+
+/**
+ * Abstract base for enemies that actively oppose another faction.
+ *
+ * This class deliberately does not mean "corp": future hostiles can carry
+ * their own faction while sharing the same visibility and stealth-aware target
+ * acquisition rules.
+ */
+export abstract class Hostile extends Entity {
+  sightRange: number;
+
+  constructor({ sightRange = SIGHT_RANGE, ...props }: HostileInit) {
+    if (!Number.isInteger(sightRange) || sightRange < 0) {
+      throw new RangeError(`Hostile sightRange must be a non-negative integer, got ${sightRange}`);
+    }
+    super(props);
+    this.sightRange = sightRange;
+  }
+
+  abstract override takeTurn(world: World, rng: Rng): void | TurnActionStep[];
+
+  isHostileTo(entity: Entity): boolean {
+    return entity.faction !== this.faction;
+  }
+
+  canAcquireTarget(world: World, target: Entity): boolean {
+    if (!target.alive || !this.isHostileTo(target)) return false;
+    if (!withinRange(this.x, this.y, target.x, target.y, this.sightRange)) return false;
+    if (
+      !hasLineOfSight(world.grid, this.x, this.y, target.x, target.y, {
+        blockers: world.blockerKeys(),
+      })
+    ) {
+      return false;
+    }
+    return target.isSpottableBy(this);
+  }
+
+  /**
+   * Acquire the closest visible hostile (different faction). Squared-distance
+   * comparison avoids `Math.sqrt`; exact distance is irrelevant.
+   */
+  acquireTarget(world: World): Entity | null {
+    let best: Entity | null = null;
+    let bestD2 = Infinity;
+    for (const entity of world.entities.values()) {
+      if (!this.canAcquireTarget(world, entity)) continue;
+      const dx = entity.x - this.x;
+      const dy = entity.y - this.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < bestD2) {
+        bestD2 = d2;
+        best = entity;
+      }
+    }
+    return best;
+  }
+}

@@ -5,8 +5,16 @@
   "main": "index.html",
   "type": "module",
   "scripts": {
-    "start": "live-server --no-browser --port=8099",
-    "test": "node --test",
+    "start": "npm run dev",
+    "dev": "concurrently -k -n ts,assets,serve -c blue,magenta,green \"npm:dev:ts\" \"npm:dev:assets\" \"npm:dev:serve\"",
+    "dev:ts": "tsc -p tsconfig.json --watch --preserveWatchOutput",
+    "dev:assets": "chokidar \"*.html\" \"main.css\" \"manifest.json\" \"icon.svg\" \"sw*.js\" \"icons/**\" \"images/**\" \"fonts/**\" \"debug/*.html\" -c \"node scripts/copy-assets.mjs\" --initial",
+    "dev:serve": "live-server dist --no-browser --port=8099",
+    "build": "tsc -p tsconfig.json && node scripts/copy-assets.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck:tests": "tsc -p tsconfig.tests.json",
+    "build:tests": "tsc -p tsconfig.test-build.json",
+    "test": "npm run typecheck && npm run build:tests && node --test \"dist/tests/**/*.test.js\"",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
     "format": "prettier --write .",
@@ -15,8 +23,12 @@
   "author": "Rylee Corradini",
   "license": "GPL-3.0",
   "devDependencies": {
+    "@types/node": "^25.8.0",
+    "chokidar-cli": "^3.0.0",
+    "concurrently": "^9.2.1",
     "live-server": "^1.2.2",
     "oxlint": "^0.15.0",
-    "prettier": "^3.0.0"
+    "prettier": "^3.0.0",
+    "typescript": "^6.0.3"
   }
 }
