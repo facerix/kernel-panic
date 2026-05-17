@@ -4,7 +4,7 @@
 export const h = (
   tagName: string,
   attrs?: Record<string, unknown> | null,
-  children?: Node[],
+  children?: Node[]
 ): HTMLElement => {
   const el = document.createElement(tagName);
   if (attrs) {
@@ -65,7 +65,7 @@ export const CreateSvg = (
   body: string,
   width: string | number,
   height: string | number,
-  classNames = '',
+  classNames = ''
 ): SVGSVGElement => {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('width', String(width));
