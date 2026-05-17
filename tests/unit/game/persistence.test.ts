@@ -208,3 +208,33 @@ test('restoreCampaign throws on corrupt campaign records', () => {
   assert.throws(() => restoreCampaign({ ...rec, salvage: -1 }), /salvage/);
   assert.throws(() => restoreCampaign({ ...rec, vouch: 101 }), /vouch/);
 });
+
+test('restoreCampaign normalizes over-capped hitBonus in crew gear', () => {
+  const campaign = new Campaign({ seed: 0xfade });
+  const rec = snapshotCampaign(campaign);
+  // Inject corrupted gear — 0.5 hitBonus exceeds any archetype's cap.
+  rec.crew[0].gear = { maxHpBonus: 0, hitBonus: 0.5 };
+  const restored = restoreCampaign(rec);
+  const member = restored.crew[0];
+  assert.ok(member.gear!.hitBonus <= member.maxHitBonus,
+    `hitBonus ${member.gear!.hitBonus} should be ≤ maxHitBonus ${member.maxHitBonus}`);
+  assert.equal(member.gear!.hitBonus, member.maxHitBonus);
+});
+
+test('restoreCampaign preserves valid hitBonus below cap', () => {
+  const campaign = new Campaign({ seed: 0xfade });
+  const rec = snapshotCampaign(campaign);
+  rec.crew[0].gear = { maxHpBonus: 0, hitBonus: 0.1 };
+  const restored = restoreCampaign(rec);
+  assert.equal(restored.crew[0].gear!.hitBonus, 0.1);
+});
+
+test('restore normalizes over-capped hitBonus in run entity gear', () => {
+  const run = freshCombatRun(0xc0de, 'merc');
+  run.player.initGear();
+  run.player.gear!.hitBonus = 0.5; // corrupt: exceeds Merc's 0.2 cap
+  const rec = snapshot(run);
+  const { player } = restore(rec);
+  assert.ok(player.gear!.hitBonus <= player.maxHitBonus,
+    `hitBonus ${player.gear!.hitBonus} should be ≤ maxHitBonus ${player.maxHitBonus}`);
+});

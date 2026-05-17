@@ -393,6 +393,12 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
   entity.stealthed = !!rec.stealthed;
   if (rec.glyph) entity.glyph = rec.glyph;
 
+  // Repair latent hitBonus overflow on crew entities (same migration as
+  // restoreCrewMember, but for mid-combat run snapshots).
+  if (entity instanceof Crew && entity.gear && entity.gear.hitBonus > entity.maxHitBonus) {
+    entity.gear.hitBonus = entity.maxHitBonus;
+  }
+
   if (rec.archetype === 'tech' && rec.tech) {
     if (!(entity instanceof Tech)) {
       throw new Error(`restore: tech entity ${rec.id} did not restore as Tech`);
@@ -519,6 +525,13 @@ function restoreCrewMember(rec: CampaignCrewSnapshot): Crew {
   if (Number.isInteger(rec.hp)) member.hp = rec.hp;
   if (Number.isInteger(rec.ap)) member.ap = rec.ap;
   member.alive = rec.alive ?? member.hp > 0;
+
+  // Repair latent data corruption: a previous bug allowed hitBonus to
+  // accumulate past the archetype's cap, causing resolveRanged to throw.
+  if (member.gear && member.gear.hitBonus > member.maxHitBonus) {
+    member.gear.hitBonus = member.maxHitBonus;
+  }
+
   return member;
 }
 

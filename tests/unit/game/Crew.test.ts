@@ -15,9 +15,11 @@ import { Crew } from '../../../src/game/Crew.js';
 import { Entity } from '../../../src/game/Entity.js';
 import { Merc } from '../../../src/game/archetypes/Merc.js';
 import { Razor } from '../../../src/game/archetypes/Razor.js';
+import { Tech } from '../../../src/game/archetypes/Tech.js';
 import { Grid } from '../../../src/game/Grid.js';
 import { World } from '../../../src/game/World.js';
-import { FACTION, AP_COST } from '../../../src/game/constants.js';
+import { FACTION, AP_COST, BASE_HIT_CHANCE, TARGETING_BONUS } from '../../../src/game/constants.js';
+import { ITEM_ID } from '../../../src/game/items.js';
 import type { EntityInit, LootableEntity } from '../../../src/game/Entity.js';
 
 const baseProps = { id: 'c', x: 0, y: 0 };
@@ -315,4 +317,64 @@ test('Crew.collectSalvage accumulates across multiple corpses', () => {
   crew.collectSalvage(w, c1);
   crew.collectSalvage(w, c2);
   assert.equal(crew.inventory!.salvage, 5);
+});
+
+// --- Archetype base hit chance -------------------------------------------
+
+test('Crew.baseHitChance defaults to BASE_HIT_CHANCE', () => {
+  const c = new Crew({ ...baseProps });
+  assert.equal(c.baseHitChance, BASE_HIT_CHANCE);
+});
+
+test('Merc.baseHitChance is 0.8', () => {
+  const m = new Merc({ id: 'm', x: 0, y: 0 });
+  assert.equal(m.baseHitChance, 0.8);
+});
+
+test('Razor.baseHitChance is 0.7', () => {
+  const r = new Razor({ id: 'r', x: 0, y: 0 });
+  assert.equal(r.baseHitChance, 0.7);
+});
+
+test('Tech.baseHitChance is 0.75', () => {
+  const t = new Tech({ id: 't', x: 0, y: 0 });
+  assert.equal(t.baseHitChance, 0.75);
+});
+
+test('Crew.maxHitBonus is 1 − baseHitChance', () => {
+  const m = new Merc({ id: 'm', x: 0, y: 0 });
+  assert.equal(m.maxHitBonus, 1 - 0.8); // 0.2
+  const r = new Razor({ id: 'r', x: 0, y: 0 });
+  assert.equal(r.maxHitBonus, 1 - 0.7); // 0.3
+});
+
+// --- applyGear targeting chip cap ----------------------------------------
+
+test('applyGear caps hitBonus so base + bonus cannot exceed 1.0 (Merc)', () => {
+  // Merc base 0.8, max bonus 0.2 — two chips (0.2) fills the cap, third is clamped.
+  const m = new Merc({ id: 'm', x: 0, y: 0 });
+  m.applyGear(ITEM_ID.TARGETING_CHIP); // 0.1
+  m.applyGear(ITEM_ID.TARGETING_CHIP); // 0.2 (cap)
+  m.applyGear(ITEM_ID.TARGETING_CHIP); // clamped to 0.2
+  assert.equal(m.gear!.hitBonus, m.maxHitBonus);
+  assert.ok(m.baseHitChance + m.gear!.hitBonus <= 1, 'total must not exceed 1.0');
+});
+
+test('applyGear caps hitBonus so base + bonus cannot exceed 1.0 (Razor)', () => {
+  // Razor base 0.7, max bonus 0.3 — three chips fill the cap, fourth is clamped.
+  const r = new Razor({ id: 'r', x: 0, y: 0 });
+  r.applyGear(ITEM_ID.TARGETING_CHIP); // 0.1
+  r.applyGear(ITEM_ID.TARGETING_CHIP); // 0.2
+  r.applyGear(ITEM_ID.TARGETING_CHIP); // 0.3 (cap)
+  r.applyGear(ITEM_ID.TARGETING_CHIP); // clamped to 0.3
+  assert.equal(r.gear!.hitBonus, r.maxHitBonus);
+  assert.ok(r.baseHitChance + r.gear!.hitBonus <= 1, 'total must not exceed 1.0');
+});
+
+test('applyGear applies full bonus when below cap', () => {
+  const r = new Razor({ id: 'r', x: 0, y: 0 });
+  r.applyGear(ITEM_ID.TARGETING_CHIP);
+  assert.equal(r.gear!.hitBonus, TARGETING_BONUS);
+  r.applyGear(ITEM_ID.TARGETING_CHIP);
+  assert.equal(r.gear!.hitBonus, TARGETING_BONUS * 2);
 });

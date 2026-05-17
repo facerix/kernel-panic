@@ -1,6 +1,7 @@
 import { Entity } from './Entity.js';
 import {
   AP_COST,
+  BASE_HIT_CHANCE,
   FACTION,
   STIM_HEAL,
   SMOKE_RADIUS,
@@ -78,6 +79,21 @@ export class Crew extends Entity {
   gear: Gear | null;
   archetype: string = 'CrewMember';
 
+  /**
+   * Base ranged hit probability for this crew member, before gear bonuses.
+   * Overridden per archetype: Merc 0.8, Tech 0.75, Razor 0.7. Falls back to
+   * `BASE_HIT_CHANCE` (the universal drone/turret default) so a bare `Crew`
+   * in tests behaves sensibly.
+   */
+  get baseHitChance(): number {
+    return BASE_HIT_CHANCE;
+  }
+
+  /** Maximum gear hit bonus this crew member can accumulate (= 1 − baseHitChance). */
+  get maxHitBonus(): number {
+    return 1 - this.baseHitChance;
+  }
+
   constructor({
     callsign = null,
     flatlined = false,
@@ -147,7 +163,10 @@ export class Crew extends Entity {
         this.hp += 1; // immediate benefit — no need to heal it
         break;
       case ITEM_ID.TARGETING_CHIP:
-        this.gear!.hitBonus += TARGETING_BONUS;
+        this.gear!.hitBonus = Math.min(
+          this.gear!.hitBonus + TARGETING_BONUS,
+          this.maxHitBonus
+        );
         break;
       default:
         throw new Error(`Crew.applyGear: unknown gear item "${itemId}"`);

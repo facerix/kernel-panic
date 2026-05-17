@@ -44,6 +44,10 @@ export const CALLSIGNS = Object.freeze([
  * breaking the deployTurret contract.
  */
 export class Tech extends Crew {
+  override get baseHitChance(): number {
+    return 0.75;
+  }
+
   turretReady: boolean;
   private _improvisedTurretCount: number;
 

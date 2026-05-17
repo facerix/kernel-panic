@@ -25,7 +25,7 @@ const ITEM_LABELS = {
 /** Human-readable labels for gear bonuses. */
 function gearLines(gear: Gear) {
   if (!gear) return [];
-  const lines = [];
+  const lines: string[] = [];
   if (gear.maxHpBonus > 0) lines.push(`Armour Plating  +${gear.maxHpBonus} HP`);
   if (gear.hitBonus > 0) lines.push(`Targeting Chip  +${(gear.hitBonus * 100).toFixed(0)}%`);
   return lines;
@@ -164,6 +164,7 @@ crew-list {
 .detail-none {
   color: var(--roster-dim);
   font-style: italic;
+  margin: 0.1rem;
 }
 
 .flatlined-label {
@@ -317,14 +318,13 @@ class CrewRoster extends HTMLElement {
       h('p', { className: 'detail-stat', textContent: `HP  ${member.hp}/${member.maxHp}` })
     );
     const hitBonus = full.gear?.hitBonus ?? 0;
-    if (hitBonus > 0) {
-      statsSection.appendChild(
-        h('p', {
-          className: 'detail-stat',
-          textContent: `HIT  +${(hitBonus * 100).toFixed(0)}%`,
-        })
-      );
-    }
+    const actualHit = Math.min(full.baseHitChance + hitBonus, 1);
+    statsSection.appendChild(
+      h('p', {
+        className: 'detail-stat',
+        textContent: `HIT  ${(actualHit * 100).toFixed(0)}%`,
+      })
+    );
     this.#detailEl!.appendChild(statsSection);
 
     // Gear
@@ -332,7 +332,7 @@ class CrewRoster extends HTMLElement {
     const gearSection = h('div', { className: 'detail-section' });
     gearSection.appendChild(h('p', { className: 'detail-section-title', textContent: 'GEAR' }));
     if (gLines.length === 0) {
-      gearSection.appendChild(h('p', { className: 'detail-none', textContent: 'None' }));
+      gearSection.appendChild(h('p', { className: 'detail-none', textContent: '-None-' }));
     } else {
       for (const line of gLines) {
         gearSection.appendChild(h('p', { className: 'detail-stat', textContent: line }));
@@ -348,7 +348,7 @@ class CrewRoster extends HTMLElement {
       h('p', { className: 'detail-section-title', textContent: 'CONSUMABLES' })
     );
     if (cLines.length === 0) {
-      consSection.appendChild(h('p', { className: 'detail-none', textContent: 'None' }));
+      consSection.appendChild(h('p', { className: 'detail-none', textContent: '-None-' }));
     } else {
       for (const line of cLines) {
         consSection.appendChild(h('p', { className: 'detail-stat', textContent: line }));

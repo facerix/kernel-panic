@@ -112,9 +112,13 @@ export function resolveRanged(
   // gameplay quirk — surface it loudly per the project's no-silent-fallback
   // rule. 0 and 1 are valid (always-miss / always-hit).
   const inCover = hasCoverBetween(world.grid, attacker.x, attacker.y, target.x, target.y);
+  // Crew archetypes override baseHitChance (Merc 0.8, Tech 0.75, Razor 0.7);
+  // non-crew entities (drones, turrets) fall back to BASE_HIT_CHANCE.
+  const entityBaseHit =
+    'baseHitChance' in attacker ? (attacker as { baseHitChance: number }).baseHitChance : BASE_HIT_CHANCE;
   // M4: crew gear's targeting chip adds hitBonus to the base chance.
   const gearBonus = (attacker as Entity & { gear?: { hitBonus?: number } }).gear?.hitBonus ?? 0;
-  const baseHit = options.baseHit ?? BASE_HIT_CHANCE + gearBonus;
+  const baseHit = options.baseHit ?? entityBaseHit + gearBonus;
   const coverPenalty = options.coverPenalty ?? COVER_HIT_PENALTY;
   const threshold = inCover ? baseHit - coverPenalty : baseHit;
   if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1) {

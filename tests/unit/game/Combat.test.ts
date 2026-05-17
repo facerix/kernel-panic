@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import { Grid } from '../../../src/game/Grid.js';
 import { World } from '../../../src/game/World.js';
 import { Entity } from '../../../src/game/Entity.js';
+import { Merc } from '../../../src/game/archetypes/Merc.js';
+import { Razor } from '../../../src/game/archetypes/Razor.js';
 import {
   TILE,
   FACTION,
@@ -441,4 +443,40 @@ test('resolveMelee emits a noise event (MELEE radius)', async () => {
   assert.equal(noises[0].radius, NOISE_RADIUS.MELEE);
   assert.equal(noises[0].source, attacker);
   assert.deepEqual(noises[0].origin, { x: 3, y: 3 });
+});
+
+// --- Archetype-specific base hit chance -----------------------------------
+
+test('resolveRanged uses Merc.baseHitChance (0.8) instead of BASE_HIT_CHANCE', () => {
+  const g = new Grid(8, 8);
+  const w = new World(g);
+  const merc = new Merc({ id: 'a', x: 1, y: 1 });
+  const target = new Entity({ id: 't', x: 4, y: 1, faction: FACTION.CORP, glyph: 'd' });
+  w.addEntity(merc);
+  w.addEntity(target);
+  // Roll between BASE_HIT_CHANCE and Merc's 0.8 — hit only if Merc's higher rate is used.
+  const roll = 0.76;
+  const result = resolveRanged(w, merc, target, new StubRng([roll]));
+  assert.equal(result.threshold, 0.8, 'threshold should reflect Merc baseHitChance');
+  assert.equal(result.hit, true, 'roll 0.76 < 0.8 should hit for a Merc');
+});
+
+test('resolveRanged uses Razor.baseHitChance (0.7) instead of BASE_HIT_CHANCE', () => {
+  const g = new Grid(8, 8);
+  const w = new World(g);
+  const razor = new Razor({ id: 'a', x: 1, y: 1 });
+  const target = new Entity({ id: 't', x: 4, y: 1, faction: FACTION.CORP, glyph: 'd' });
+  w.addEntity(razor);
+  w.addEntity(target);
+  // Roll between Razor's 0.7 and BASE_HIT_CHANCE — miss only if Razor's lower rate is used.
+  const roll = 0.72;
+  const result = resolveRanged(w, razor, target, new StubRng([roll]));
+  assert.equal(result.threshold, 0.7, 'threshold should reflect Razor baseHitChance');
+  assert.equal(result.hit, false, 'roll 0.72 ≥ 0.7 should miss for a Razor');
+});
+
+test('resolveRanged falls back to BASE_HIT_CHANCE for non-crew entities', () => {
+  const { world, attacker, target } = makeFight();
+  const result = resolveRanged(world, attacker, target, new StubRng([0]));
+  assert.equal(result.threshold, BASE_HIT_CHANCE);
 });

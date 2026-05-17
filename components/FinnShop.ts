@@ -11,7 +11,7 @@
  */
 
 import { h } from '/src/domUtils.js';
-import { ITEM_SCOPE } from '/src/game/items.js';
+import { ITEM_ID, ITEM_SCOPE } from '/src/game/items.js';
 import type { Item } from '/src/game/items.js';
 import type { Crew as CrewMember } from '/src/game/Crew.js';
 
@@ -22,6 +22,7 @@ type CrewMemberSnapshot = {
   hp: number;
   maxHp: number;
   flatlined: boolean;
+  atMaxHit: boolean;
 };
 
 const CSS = `
@@ -303,6 +304,7 @@ class FinnShop extends HTMLElement {
       hp: member.hp,
       maxHp: member.maxHp,
       flatlined: !!member.flatlined,
+      atMaxHit: (member.gear?.hitBonus ?? 0) >= member.maxHitBonus,
     }));
     this.#salvage = salvage;
     this.#phase = 'browse';
@@ -406,17 +408,20 @@ class FinnShop extends HTMLElement {
       this.#crew.findIndex(m => !m.flatlined)
     );
 
+    const isTargetingChip = item.id === ITEM_ID.TARGETING_CHIP;
     const rows = h('div', { className: 'rows' });
     for (let i = 0; i < this.#crew.length; i++) {
       const member = this.#crew[i];
+      const atCap = isTargetingChip && member.atMaxHit;
       const btn = h('button', {
         type: 'button',
         className: 'target-row',
-        disabled: member.flatlined,
+        disabled: member.flatlined || atCap,
         ariaCurrent: i === this.#targetIndex ? 'true' : 'false',
       }) as HTMLButtonElement;
       btn.dataset.targetIndex = String(i);
       btn.addEventListener('click', () => this.#confirmTarget(i));
+      const suffix = member.flatlined ? ' FLATLINED' : atCap ? ' MAX HIT' : '';
       btn.append(
         h('span', { className: 'cursor', textContent: '>' }),
         h('span', {
@@ -425,7 +430,7 @@ class FinnShop extends HTMLElement {
         }),
         h('span', {
           className: 'item-desc',
-          textContent: `${member.archetype.toUpperCase()} HP ${member.hp}/${member.maxHp}${member.flatlined ? ' FLATLINED' : ''}`,
+          textContent: `${member.archetype.toUpperCase()} HP ${member.hp}/${member.maxHp}${suffix}`,
         })
       );
       rows.appendChild(btn);

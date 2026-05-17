@@ -51,6 +51,10 @@ export const CALLSIGNS = Object.freeze([
  * If the landing tile is empty, vault is pure repositioning (no damage).
  */
 export class Merc extends Crew {
+  override get baseHitChance(): number {
+    return 0.8;
+  }
+
   constructor(props: CrewInit) {
     super({ ...props, glyph: '@' });
   }

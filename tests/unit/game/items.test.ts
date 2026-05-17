@@ -9,7 +9,6 @@ import {
   STIM_HEAL,
   SMOKE_RADIUS,
   TARGETING_BONUS,
-  BASE_HIT_CHANCE,
   DEFAULT_HP,
 } from '../../../src/game/constants.js';
 import { Merc } from '../../../src/game/archetypes/Merc.js';
@@ -69,13 +68,10 @@ test('resolveRanged incorporates gear hitBonus into threshold', () => {
   const target = new CorpDrone({ id: 'drone', x: 5, y: 2 });
   world.addEntity(attacker);
   world.addEntity(target);
-  // Use a deterministic rng with a roll that lands between BASE_HIT_CHANCE
-  // and BASE_HIT_CHANCE + TARGETING_BONUS — a hit only if the bonus applies.
-  // We cheat by overriding baseHit/gear to control the scenario.
   const rng = new Rng(42);
   const result = resolveRanged(world, attacker, target, rng);
-  // The threshold should be BASE_HIT_CHANCE + TARGETING_BONUS (no cover).
-  assert.equal(result.threshold, BASE_HIT_CHANCE + TARGETING_BONUS);
+  // Merc baseHitChance is 0.8; one targeting chip adds TARGETING_BONUS.
+  assert.equal(result.threshold, attacker.baseHitChance + TARGETING_BONUS);
 });
 
 // ---------------------------------------------------------------------------
