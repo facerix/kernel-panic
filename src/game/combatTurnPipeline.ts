@@ -375,7 +375,10 @@ function validatePlayerAftermathDriverCtx(
   }
 }
 
-function formatNeutralCivilianLine(entity: NeutralCivilian, step: NeutralCivilianTurnStep): string[] {
+function formatNeutralCivilianLine(
+  entity: NeutralCivilian,
+  step: NeutralCivilianTurnStep
+): string[] {
   const label = entityLabel(entity);
   switch (step.type) {
     case 'neutral-flee':

@@ -171,7 +171,11 @@ function factionTag(faction: string): string {
  * `[Faction]Kind` for everyone else (e.g. `[Corp]Drone`, `[Neutral]Civilian`,
  * `Turret`).
  */
-export function entityLabel(entity: { id: string; faction: string; callsign?: string | null }): string {
+export function entityLabel(entity: {
+  id: string;
+  faction: string;
+  callsign?: string | null;
+}): string {
   if (entity.callsign) return entity.callsign;
   return `${factionTag(entity.faction)}${kindFromId(entity.id)}`;
 }
@@ -180,7 +184,10 @@ export function entityLabel(entity: { id: string; faction: string; callsign?: st
  * Resolve a string entity ID to a display label using a World's entity map.
  * Falls back to `kindFromId` if the entity isn't found (e.g. already removed).
  */
-export function resolveEntityLabel(id: string, entities: { get(id: string): Entity | undefined }): string {
+export function resolveEntityLabel(
+  id: string,
+  entities: { get(id: string): Entity | undefined }
+): string {
   const e = entities.get(id);
   if (e) return entityLabel(e as Entity & { callsign?: string | null });
   // Entity gone (dead + removed) — best-effort from the ID pattern.

@@ -149,5 +149,8 @@ test('CorpCivilian does nothing when dead', () => {
 
 test('CorpCivilian constructor validates sightRange', () => {
   assert.throws(() => new CorpCivilian({ id: 'x', x: 0, y: 0, sightRange: -1 }), /sightRange/);
-  assert.throws(() => new CorpCivilian({ id: 'x', x: 0, y: 0, sightRange: 2.5 as unknown as number }), /sightRange/);
+  assert.throws(
+    () => new CorpCivilian({ id: 'x', x: 0, y: 0, sightRange: 2.5 as unknown as number }),
+    /sightRange/
+  );
 });

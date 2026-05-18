@@ -293,7 +293,16 @@ test('civilian:harmed emitted when player damages a NEUTRAL entity', () => {
   const player = run.player!;
   let nx = -1;
   let ny = -1;
-  for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,-1],[1,-1],[-1,1]]) {
+  for (const [dx, dy] of [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+    [1, 1],
+    [-1, -1],
+    [1, -1],
+    [-1, 1],
+  ]) {
     const cx = player.x + dx;
     const cy = player.y + dy;
     if (world.grid.isPassable(cx, cy) && !world.entityAt(cx, cy)) {
@@ -330,7 +339,7 @@ test('civilian:harmed emitted when player damages a NEUTRAL entity', () => {
   const payload = harmed[0] as Record<string, unknown>;
   assert.equal(payload.killed, false);
   assert.equal(payload.target, neutral);
-  assert.equal((run.telemetry.civilianHarms as number), 1);
+  assert.equal(run.telemetry.civilianHarms as number, 1);
 });
 
 test('civilian:harmed does NOT fire when a CORP entity is killed', () => {

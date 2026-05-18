@@ -66,7 +66,9 @@ import type { CampaignMeta, CampaignState } from './Campaign.js';
 
 const ARCHETYPE_KEY = Symbol.for('kernel-panic.archetype');
 
-type RestoreEntityProps = Partial<CrewInit & TurretInit & CorpDroneProps & CorpCivilianInit & NeutralCivilianInit & EntityInit> & {
+type RestoreEntityProps = Partial<
+  CrewInit & TurretInit & CorpDroneProps & CorpCivilianInit & NeutralCivilianInit & EntityInit
+> & {
   id: string;
   x: number;
   y: number;
@@ -83,8 +85,7 @@ const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) =
     tech: (props: RestoreEntityProps) => new Tech(props as CrewInit),
     turret: (props: RestoreEntityProps) => new Turret(props as TurretInit),
     drone: (props: RestoreEntityProps) => new CorpDrone(props as CorpDroneProps),
-    'corp-civilian': (props: RestoreEntityProps) =>
-      new CorpCivilian(props as CorpCivilianInit),
+    'corp-civilian': (props: RestoreEntityProps) => new CorpCivilian(props as CorpCivilianInit),
     'neutral-civilian': (props: RestoreEntityProps) =>
       new NeutralCivilian(props as NeutralCivilianInit),
     // Generic fallback so a future `Entity` subclass (NPCs, items) doesn't break

@@ -163,10 +163,7 @@ export class Crew extends Entity {
         this.hp += 1; // immediate benefit — no need to heal it
         break;
       case ITEM_ID.TARGETING_CHIP:
-        this.gear!.hitBonus = Math.min(
-          this.gear!.hitBonus + TARGETING_BONUS,
-          this.maxHitBonus
-        );
+        this.gear!.hitBonus = Math.min(this.gear!.hitBonus + TARGETING_BONUS, this.maxHitBonus);
         break;
       default:
         throw new Error(`Crew.applyGear: unknown gear item "${itemId}"`);

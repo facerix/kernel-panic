@@ -244,7 +244,9 @@ test('runPlayerAftermathSteps: high rep → neutral-idle (no log line)', () => {
   world.addEntity(player);
   world.addEntity(civ);
 
-  const steps = [...runPlayerAftermathSteps(world, new Rng(1), { rep: REP.NEUTRAL_IDLE_THRESHOLD })];
+  const steps = [
+    ...runPlayerAftermathSteps(world, new Rng(1), { rep: REP.NEUTRAL_IDLE_THRESHOLD }),
+  ];
   const civSteps = steps.filter(s => s.type === 'neutral-civilian');
   assert.equal(civSteps.length, 1);
   assert.equal(civSteps[0].step.type, 'neutral-idle');
@@ -334,7 +336,10 @@ test('isPlayerAftermathStepLogVisible: turret shot on player is logged even when
       },
     },
   };
-  assert.equal(isPlayerAftermathStepLogVisible(step, () => false, 'merc'), true);
+  assert.equal(
+    isPlayerAftermathStepLogVisible(step, () => false, 'merc'),
+    true
+  );
 });
 
 test('isPlayerAftermathStepLogVisible: turret idle from unseen tile is suppressed', () => {
@@ -344,7 +349,10 @@ test('isPlayerAftermathStepLogVisible: turret idle from unseen tile is suppresse
     turret,
     action: { type: 'idle' as const, reason: 'no-target' as const },
   };
-  assert.equal(isPlayerAftermathStepLogVisible(step, () => false, 'merc'), false);
+  assert.equal(
+    isPlayerAftermathStepLogVisible(step, () => false, 'merc'),
+    false
+  );
 });
 
 test('isPlayerAftermathStepLogVisible: neutral civilian uses civilian tile', () => {
@@ -354,6 +362,12 @@ test('isPlayerAftermathStepLogVisible: neutral civilian uses civilian tile', () 
     entity: civ,
     step: { type: 'neutral-panic' as const },
   };
-  assert.equal(isPlayerAftermathStepLogVisible(step, (x, y) => x === 5 && y === 5, 'merc'), true);
-  assert.equal(isPlayerAftermathStepLogVisible(step, () => false, 'merc'), false);
+  assert.equal(
+    isPlayerAftermathStepLogVisible(step, (x, y) => x === 5 && y === 5, 'merc'),
+    true
+  );
+  assert.equal(
+    isPlayerAftermathStepLogVisible(step, () => false, 'merc'),
+    false
+  );
 });

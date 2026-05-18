@@ -115,7 +115,7 @@ export function isCorpTurnStepLogVisibleToPlayer(
 export function formatCorpTurnStep(
   actorLabel: string,
   step: TurnActionStep,
-  resolve: (id: string) => string = (id) => id,
+  resolve: (id: string) => string = id => id
 ): string | null {
   switch (step.type) {
     case 'fire': {

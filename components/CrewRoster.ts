@@ -376,11 +376,7 @@ class CrewRoster extends HTMLElement {
    */
   setCrew(
     crew: CrewMember[],
-    {
-      salvage = 0,
-      availableRecruits = [] as CrewMember[],
-      recruitedThisVisit = false,
-    } = {}
+    { salvage = 0, availableRecruits = [] as CrewMember[], recruitedThisVisit = false } = {}
   ) {
     if (!Array.isArray(crew)) {
       throw new TypeError('<crew-roster>.setCrew requires an array');
@@ -668,9 +664,7 @@ class CrewRoster extends HTMLElement {
     if (this.#selectedRecruitIndex < 0) return;
     const recruit = this.#recruitsRaw[this.#selectedRecruitIndex];
     if (!recruit) return;
-    this.dispatchEvent(
-      new CustomEvent('recruit', { detail: { recruitId: recruit.id } })
-    );
+    this.dispatchEvent(new CustomEvent('recruit', { detail: { recruitId: recruit.id } }));
   }
 }
 

@@ -73,7 +73,13 @@ const COMBAT_MAP_HEIGHT = 16;
 export type RunState = (typeof RUN_STATE)[keyof typeof RUN_STATE];
 export type Outcome = (typeof OUTCOME)[keyof typeof OUTCOME];
 export type CrewArchetypeId = 'merc' | 'razor' | 'tech';
-export type EntityArchetypeId = CrewArchetypeId | 'turret' | 'drone' | 'corp-civilian' | 'neutral-civilian' | 'entity';
+export type EntityArchetypeId =
+  | CrewArchetypeId
+  | 'turret'
+  | 'drone'
+  | 'corp-civilian'
+  | 'neutral-civilian'
+  | 'entity';
 
 export type RunTelemetry = {
   archetype: CrewArchetypeId;

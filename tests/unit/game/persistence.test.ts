@@ -227,8 +227,10 @@ test('restoreCampaign normalizes over-capped hitBonus in crew gear', () => {
   rec.crew[0].gear = { maxHpBonus: 0, hitBonus: 0.5 };
   const restored = restoreCampaign(rec);
   const member = restored.crew[0];
-  assert.ok(member.gear!.hitBonus <= member.maxHitBonus,
-    `hitBonus ${member.gear!.hitBonus} should be ≤ maxHitBonus ${member.maxHitBonus}`);
+  assert.ok(
+    member.gear!.hitBonus <= member.maxHitBonus,
+    `hitBonus ${member.gear!.hitBonus} should be ≤ maxHitBonus ${member.maxHitBonus}`
+  );
   assert.equal(member.gear!.hitBonus, member.maxHitBonus);
 });
 
@@ -246,6 +248,8 @@ test('restore normalizes over-capped hitBonus in run entity gear', () => {
   run.player.gear!.hitBonus = 0.5; // corrupt: exceeds Merc's 0.2 cap
   const rec = snapshot(run);
   const { player } = restore(rec);
-  assert.ok(player.gear!.hitBonus <= player.maxHitBonus,
-    `hitBonus ${player.gear!.hitBonus} should be ≤ maxHitBonus ${player.maxHitBonus}`);
+  assert.ok(
+    player.gear!.hitBonus <= player.maxHitBonus,
+    `hitBonus ${player.gear!.hitBonus} should be ≤ maxHitBonus ${player.maxHitBonus}`
+  );
 });

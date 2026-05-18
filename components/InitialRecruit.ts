@@ -243,8 +243,7 @@ class InitialRecruit extends HTMLElement {
       h('p', {
         className: 'subtitle',
         textContent:
-          'CURATOR — Pick two operatives for your crew. ' +
-          'Choose wisely; the third walks.',
+          'CURATOR — Pick two operatives for your crew. ' + 'Choose wisely; the third walks.',
       }),
       this.#candidatesEl,
       this.#counterEl,
@@ -314,7 +313,7 @@ class InitialRecruit extends HTMLElement {
         h('span', { className: 'card-callsign', textContent: c.callsign ?? c.id }),
         h('span', {
           className: 'card-archetype',
-          textContent: (info?.name ?? archetypeName.toUpperCase()),
+          textContent: info?.name ?? archetypeName.toUpperCase(),
         }),
         h('span', {
           className: 'card-stats',
@@ -385,10 +384,7 @@ class InitialRecruit extends HTMLElement {
     if (key === 'Enter' || key === ' ') {
       evt.preventDefault();
       // If confirm button is focused and enabled, commit.
-      if (
-        this.shadowRoot?.activeElement === this.#confirmBtn &&
-        !this.#confirmBtn!.disabled
-      ) {
+      if (this.shadowRoot?.activeElement === this.#confirmBtn && !this.#confirmBtn!.disabled) {
         this.#commit();
         return;
       }

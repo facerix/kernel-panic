@@ -363,9 +363,7 @@ export class Campaign {
       throw new Error('Campaign.recruit: already recruited this visit');
     }
     if (this.rep < REP.RECRUIT_THRESHOLD) {
-      throw new Error(
-        `Campaign.recruit: rep ${this.rep} below threshold ${REP.RECRUIT_THRESHOLD}`
-      );
+      throw new Error(`Campaign.recruit: rep ${this.rep} below threshold ${REP.RECRUIT_THRESHOLD}`);
     }
     const idx = this.availableRecruits.findIndex(r => r.id === recruitId);
     if (idx === -1) {
