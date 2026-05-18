@@ -215,6 +215,8 @@ Closes the **NEUTRAL faction shootable** kaizen item.
 - **Unlock conditions** checked in `generateRecruits`: Rep ≥ 65 (at least one recruit appears) OR a completed contract carried a `reward.recruit: true` flag (M8 adds this to high-tier contracts).
 - `Campaign.recruit(recruitId)` — validates unlock condition still holds; pushes recruit onto `campaign.crew`; updates DataStore. Crew can exceed 3 members after recruitment.
 - Hub UI: `<crew-roster>` extended with a "Available Recruits" section (visible when `availableRecruits.length > 0`). Confirm button triggers `recruit` event on Campaign.
+- You can only recruit one new crew member each time you visit the hub, with one exception (see next bullet).
+- New campaigns no longer default to 3 fixed crew members. Instead, player is directed to go to the terminal and recruit their first 2 crew members. `<crew-roster>` in this mode will direct player to choose two from 3 randomly-generated candidates.
 - Tests: recruit generation (archetype weights over many seeds, callsign deduplication), Rep gate enforcement (below threshold → no recruits), recruit persistence in campaign snapshot.
 
 ### M7 — Combat depth + procgen ⬜
