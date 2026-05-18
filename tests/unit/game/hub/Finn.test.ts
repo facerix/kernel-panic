@@ -32,12 +32,13 @@ test('Finn.catalog returns the filtered shop catalog', () => {
   const items = f.catalog({});
   assert.ok(Array.isArray(items));
   assert.ok(items.length > 0);
-  // All five items visible without any meta upgrades.
+  // All six items visible without any meta upgrades.
   const ids = items.map(i => i.id);
   assert.ok(ids.includes(ITEM_ID.STIM));
   assert.ok(ids.includes(ITEM_ID.SMOKE_CHARGE));
   assert.ok(ids.includes(ITEM_ID.ARMOUR_PLATING));
   assert.ok(ids.includes(ITEM_ID.TARGETING_CHIP));
+  assert.ok(ids.includes(ITEM_ID.REFLEX_WEAVE));
   assert.ok(ids.includes(ITEM_ID.EXPANDED_CATALOG));
 });
 
@@ -57,7 +58,7 @@ test('catalog hides Expanded Catalog once purchased (unique meta)', () => {
 
 test('getShopCatalog returns all items when meta is empty', () => {
   const items = getShopCatalog({});
-  assert.equal(items.length, 5);
+  assert.equal(items.length, 6);
 });
 
 test('getItemById returns the item for a valid id', () => {

@@ -34,6 +34,8 @@ function gearLines(gear: Gear) {
   const lines: string[] = [];
   if (gear.maxHpBonus > 0) lines.push(`Armour Plating  +${gear.maxHpBonus} HP`);
   if (gear.hitBonus > 0) lines.push(`Targeting Chip  +${(gear.hitBonus * 100).toFixed(0)}%`);
+  if ((gear.dodgeBonus ?? 0) > 0)
+    lines.push(`Reflex Weave  +${((gear.dodgeBonus ?? 0) * 100).toFixed(0)}%`);
   return lines;
 }
 
@@ -509,6 +511,14 @@ class CrewRoster extends HTMLElement {
         textContent: `AIM  ${(actualHit * 100).toFixed(0)}%`,
       })
     );
+    const dodgeBonus = full.gear?.dodgeBonus ?? 0;
+    const actualDodge = Math.min(full.baseDodgeChance + dodgeBonus, 1);
+    statsSection.appendChild(
+      h('p', {
+        className: 'detail-stat',
+        textContent: `DODGE  ${(actualDodge * 100).toFixed(0)}%`,
+      })
+    );
     this.#detailEl!.appendChild(statsSection);
 
     // Gear
@@ -624,10 +634,17 @@ class CrewRoster extends HTMLElement {
       h('p', { className: 'detail-stat', textContent: `HP  ${recruit.hp}/${recruit.maxHp}` })
     );
     const hitChance = recruit.baseHitChance ?? 0.65;
+    const dodgeChance = recruit.baseDodgeChance ?? 0.2;
     statsSection.appendChild(
       h('p', {
         className: 'detail-stat',
         textContent: `AIM  ${(hitChance * 100).toFixed(0)}%`,
+      })
+    );
+    statsSection.appendChild(
+      h('p', {
+        className: 'detail-stat',
+        textContent: `DODGE  ${(dodgeChance * 100).toFixed(0)}%`,
       })
     );
     this.#detailEl!.appendChild(statsSection);

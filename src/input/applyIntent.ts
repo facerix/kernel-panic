@@ -169,7 +169,7 @@ export function pickFireTarget(ctx: ApplyIntentContext, dx: number, dy: number) 
 // ---------------------------------------------------------------------------
 
 function doMove(intent: Intent, ctx: ApplyIntentContext) {
-  const { world, player, log, advanceTurn } = ctx;
+  const { world, player, log } = ctx;
   const nx = player.x + (intent?.dx ?? 0);
   const ny = player.y + (intent?.dy ?? 0);
   const occupant = world.entityAt(nx, ny);
@@ -233,7 +233,7 @@ function doSpecial(intent: Intent, ctx: ApplyIntentContext) {
 }
 
 function doDeploy(intent: Intent, ctx: ApplyIntentContext) {
-  const { world, player, log, advanceTurn } = ctx;
+  const { world, player, log } = ctx;
   const tech = player as Tech;
   const playerLabel = entityLabel(player);
   const check = tech.canDeploy(world, intent.dx!, intent.dy!);
@@ -265,7 +265,7 @@ function doDeploy(intent: Intent, ctx: ApplyIntentContext) {
 }
 
 function doVault(intent: Intent, ctx: ApplyIntentContext) {
-  const { world, player, log, advanceTurn } = ctx;
+  const { world, player, log } = ctx;
   const merc = player as Merc;
   const playerLabel = entityLabel(player);
   const check = merc.canVault(world, intent.dx!, intent.dy!);
@@ -310,7 +310,7 @@ function doVault(intent: Intent, ctx: ApplyIntentContext) {
 }
 
 function doSlide(intent: Intent, ctx: ApplyIntentContext) {
-  const { world, player, log, advanceTurn } = ctx;
+  const { world, player, log } = ctx;
   const razor = player as Razor;
   const playerLabel = entityLabel(player);
   // `doSpecial` already gated this on `canSlide`, so the method must exist;
@@ -329,7 +329,7 @@ function doSlide(intent: Intent, ctx: ApplyIntentContext) {
 }
 
 function doMelee(intent: Intent, ctx: ApplyIntentContext) {
-  const { world, player, log, advanceTurn } = ctx;
+  const { world, player, log } = ctx;
   const target = world.entityAt(player.x + intent.dx!, player.y + intent.dy!);
   if (!target) {
     log('> MELEE: no target on that tile.');
@@ -340,11 +340,19 @@ function doMelee(intent: Intent, ctx: ApplyIntentContext) {
     log(`> MELEE DENIED: ${check.reason}`);
     return;
   }
-  const result = resolveMelee(world, player, target);
-  log(
-    `> ${entityLabel(player)} slashes ${entityLabel(target)} for ${result.damage}` +
-      (result.killed ? ` — ${entityLabel(target).toUpperCase()} DOWN.` : '.')
-  );
+  const result = resolveMelee(world, player, target, ctx.rng);
+  if (result.dodged) {
+    log(
+      `> ${entityLabel(player)} slashes at ${entityLabel(target)} — DODGED ` +
+        `(roll ${result.roll.toFixed(2)} vs ${result.dodgeThreshold.toFixed(2)}` +
+        `${result.inCover ? ', cover' : ''}).`
+    );
+  } else {
+    log(
+      `> ${entityLabel(player)} slashes ${entityLabel(target)} for ${result.damage}` +
+        (result.killed ? ` — ${entityLabel(target).toUpperCase()} DOWN.` : '.')
+    );
+  }
   gateOnApExhausted(ctx);
 }
 
@@ -371,7 +379,7 @@ function doInventory(ctx: ApplyIntentContext) {
 }
 
 function doFire(intent: Intent, ctx: ApplyIntentContext) {
-  const { world, player, rng, log, advanceTurn } = ctx;
+  const { world, player, rng, log } = ctx;
   const target = pickFireTarget(ctx, intent.dx!, intent.dy!);
   if (!target) {
     log('> FIRE: no hostile in that direction.');

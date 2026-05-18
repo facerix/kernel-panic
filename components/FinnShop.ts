@@ -23,6 +23,7 @@ type CrewMemberSnapshot = {
   maxHp: number;
   flatlined: boolean;
   atMaxHit: boolean;
+  atMaxDodge: boolean;
 };
 
 const CSS = `
@@ -305,6 +306,7 @@ class FinnShop extends HTMLElement {
       maxHp: member.maxHp,
       flatlined: !!member.flatlined,
       atMaxHit: (member.gear?.hitBonus ?? 0) >= member.maxHitBonus,
+      atMaxDodge: (member.gear?.dodgeBonus ?? 0) >= member.maxDodgeBonus,
     }));
     this.#salvage = salvage;
     this.#phase = 'browse';
@@ -409,10 +411,12 @@ class FinnShop extends HTMLElement {
     );
 
     const isTargetingChip = item.id === ITEM_ID.TARGETING_CHIP;
+    const isReflexWeave = item.id === ITEM_ID.REFLEX_WEAVE;
     const rows = h('div', { className: 'rows' });
     for (let i = 0; i < this.#crew.length; i++) {
       const member = this.#crew[i];
-      const atCap = isTargetingChip && member.atMaxHit;
+      const atCap =
+        (isTargetingChip && member.atMaxHit) || (isReflexWeave && member.atMaxDodge);
       const btn = h('button', {
         type: 'button',
         className: 'target-row',
@@ -421,7 +425,8 @@ class FinnShop extends HTMLElement {
       }) as HTMLButtonElement;
       btn.dataset.targetIndex = String(i);
       btn.addEventListener('click', () => this.#confirmTarget(i));
-      const suffix = member.flatlined ? ' FLATLINED' : atCap ? ' MAX HIT' : '';
+      const capLabel = isTargetingChip ? 'MAX HIT' : isReflexWeave ? 'MAX DODGE' : '';
+      const suffix = member.flatlined ? ' FLATLINED' : atCap ? ` ${capLabel}` : '';
       btn.append(
         h('span', { className: 'cursor', textContent: '>' }),
         h('span', {

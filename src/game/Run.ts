@@ -163,6 +163,7 @@ type EntityDamagedPayload = {
   damage: number;
   killed: boolean;
   source?: string;
+  dodged?: boolean;
 };
 
 type EntityMovedPayload = {
@@ -409,6 +410,7 @@ export class Run {
     if (!this.player) {
       throw new Error('Run.#onEntityDamaged: COMBAT state without a player');
     }
+    if (damage <= 0 && !killed) return;
     if (target === this.player) {
       this.telemetry.lastDamageSource = source ?? null;
       this.telemetry.lastAttacker = attacker?.id ?? null;

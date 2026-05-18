@@ -107,6 +107,29 @@ test('drone anchors are unique tiles (no two drones on the same square)', () => 
   }
 });
 
+test('every drone receives a moving patrol path', () => {
+  for (const seed of [0xc0ffee, 0xfeedface, 0xdeadbeef, 0x12345678]) {
+    const map = buildMap({ rng: new Rng(seed), width: W, height: H, threatCount: 5 });
+    for (const drone of map.drones) {
+      assert.ok(
+        drone.waypoints.length >= 2,
+        `seed ${seed.toString(16)} drone at (${drone.x},${drone.y}) has too few waypoints`
+      );
+      assert.ok(
+        drone.waypoints.some(wp => wp.x !== drone.x || wp.y !== drone.y),
+        `seed ${seed.toString(16)} drone at (${drone.x},${drone.y}) patrols in place`
+      );
+      for (const wp of drone.waypoints) {
+        assert.equal(
+          map.grid.tileAt(wp.x, wp.y),
+          TILE.FLOOR,
+          `seed ${seed.toString(16)} waypoint (${wp.x},${wp.y}) is not FLOOR`
+        );
+      }
+    }
+  }
+});
+
 test('threatCount=0 returns no drones', () => {
   const map = buildMap({ rng: new Rng(2), width: W, height: H, threatCount: 0 });
   assert.equal(map.drones.length, 0);
@@ -168,11 +191,18 @@ test('buildMap returns civilian anchor arrays (may be empty for some seeds)', ()
   for (const seed of SEEDS) {
     const map = buildMap({ rng: new Rng(seed), width: 24, height: 16, threatCount: 2 });
     assert.ok(Array.isArray(map.corpCivilians), `seed ${seed}: corpCivilians must be an array`);
-    assert.ok(Array.isArray(map.neutralCivilians), `seed ${seed}: neutralCivilians must be an array`);
+    assert.ok(
+      Array.isArray(map.neutralCivilians),
+      `seed ${seed}: neutralCivilians must be an array`
+    );
     // Civilians should be on valid, passable tiles.
     for (const c of [...map.corpCivilians, ...map.neutralCivilians]) {
       assert.ok(map.grid.inBounds(c.x, c.y), `civilian at (${c.x},${c.y}) must be in bounds`);
-      assert.equal(map.grid.tileAt(c.x, c.y), TILE.FLOOR, `civilian at (${c.x},${c.y}) must be on FLOOR`);
+      assert.equal(
+        map.grid.tileAt(c.x, c.y),
+        TILE.FLOOR,
+        `civilian at (${c.x},${c.y}) must be on FLOOR`
+      );
     }
   }
 });
@@ -181,8 +211,14 @@ test('civilian counts respect maxCorpCivilians / maxNeutralCivilians caps', () =
   // Default caps are 1 each — verify no seed exceeds that.
   for (const seed of [0xface, 0xdead, 0xbeef, 0xc0de, 0xcafe, 0xfeedface, 0xdeadbeef]) {
     const map = buildMap({ rng: new Rng(seed), width: 24, height: 16, threatCount: 2 });
-    assert.ok(map.corpCivilians.length <= 1, `seed ${seed.toString(16)}: corpCivilians ${map.corpCivilians.length} > default cap 1`);
-    assert.ok(map.neutralCivilians.length <= 1, `seed ${seed.toString(16)}: neutralCivilians ${map.neutralCivilians.length} > default cap 1`);
+    assert.ok(
+      map.corpCivilians.length <= 1,
+      `seed ${seed.toString(16)}: corpCivilians ${map.corpCivilians.length} > default cap 1`
+    );
+    assert.ok(
+      map.neutralCivilians.length <= 1,
+      `seed ${seed.toString(16)}: neutralCivilians ${map.neutralCivilians.length} > default cap 1`
+    );
   }
 });
 
@@ -201,11 +237,13 @@ test('maxCorpCivilians=0 / maxNeutralCivilians=0 produces no civilians', () => {
 
 test('negative maxCorpCivilians / maxNeutralCivilians throw', () => {
   assert.throws(
-    () => buildMap({ rng: new Rng(1), width: 24, height: 16, threatCount: 1, maxCorpCivilians: -1 }),
+    () =>
+      buildMap({ rng: new Rng(1), width: 24, height: 16, threatCount: 1, maxCorpCivilians: -1 }),
     /maxCorpCivilians/
   );
   assert.throws(
-    () => buildMap({ rng: new Rng(1), width: 24, height: 16, threatCount: 1, maxNeutralCivilians: -1 }),
+    () =>
+      buildMap({ rng: new Rng(1), width: 24, height: 16, threatCount: 1, maxNeutralCivilians: -1 }),
     /maxNeutralCivilians/
   );
 });

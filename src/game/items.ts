@@ -18,7 +18,13 @@
  * is pure data — no mutations, no DOM.
  */
 
-import { SHOP_COST, STIM_HEAL, SMOKE_RADIUS, TARGETING_BONUS } from './constants.js';
+import {
+  SHOP_COST,
+  STIM_HEAL,
+  SMOKE_RADIUS,
+  TARGETING_BONUS,
+  DODGE_BONUS,
+} from './constants.js';
 
 export type Item = {
   id: string;
@@ -42,6 +48,7 @@ export const ITEM_ID = Object.freeze({
   SMOKE_CHARGE: 'smoke-charge',
   ARMOUR_PLATING: 'armour-plating',
   TARGETING_CHIP: 'targeting-chip',
+  REFLEX_WEAVE: 'reflex-weave',
   EXPANDED_CATALOG: 'expanded-catalog',
 });
 
@@ -87,6 +94,14 @@ const CATALOG: readonly Item[] = Object.freeze([
     scope: ITEM_SCOPE.CAMPAIGN,
     cost: SHOP_COST.TARGETING_CHIP,
     description: `+${(TARGETING_BONUS * 100).toFixed(0)}% ranged hit chance for target crew member.`,
+    needsTarget: true,
+  }),
+  Object.freeze({
+    id: ITEM_ID.REFLEX_WEAVE,
+    label: 'Reflex Weave',
+    scope: ITEM_SCOPE.CAMPAIGN,
+    cost: SHOP_COST.REFLEX_WEAVE,
+    description: `+${(DODGE_BONUS * 100).toFixed(0)}% melee dodge chance for target crew member.`,
     needsTarget: true,
   }),
   Object.freeze({

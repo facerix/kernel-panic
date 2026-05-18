@@ -180,6 +180,13 @@ test('purchase applies targeting chip gear bonus', () => {
   assert.equal(member.gear.hitBonus, 0.1);
 });
 
+test('purchase applies reflex weave gear bonus', () => {
+  const campaign = new Campaign({ seed: 42, salvage: 20 });
+  const member = campaign.crew[0];
+  campaign.purchase({ itemId: 'reflex-weave', targetMemberId: member.id });
+  assert.equal(member.gear.dodgeBonus, 0.1);
+});
+
 test('purchase sets meta flag for Expanded Catalog', () => {
   const campaign = new Campaign({ seed: 42, salvage: 20 });
   campaign.purchase({ itemId: 'expanded-catalog' });
@@ -269,7 +276,7 @@ test('crew gear survives campaign snapshot/restore round-trip', () => {
   const snap = snapshotCampaign(campaign);
   const restored = restoreCampaign(snap);
   const restoredMember = restored.crew[0];
-  assert.deepEqual(restoredMember.gear, { maxHpBonus: 1, hitBonus: 0.1 });
+  assert.deepEqual(restoredMember.gear, { maxHpBonus: 1, hitBonus: 0.1, dodgeBonus: 0 });
   assert.equal(restoredMember.maxHp, member.maxHp);
 });
 
@@ -362,12 +369,12 @@ test('generateRecruits archetype weights approximate 40/40/20 over many seeds', 
   }
   const sum = counts.Merc + counts.Razor + counts.Tech;
   // Merc and Razor should each be ~40%, Tech ~20%. Allow ±8% tolerance.
-  assert.ok(counts.Merc / sum > 0.32, `Merc ${(counts.Merc / sum * 100).toFixed(1)}% < 32%`);
-  assert.ok(counts.Merc / sum < 0.48, `Merc ${(counts.Merc / sum * 100).toFixed(1)}% > 48%`);
-  assert.ok(counts.Razor / sum > 0.32, `Razor ${(counts.Razor / sum * 100).toFixed(1)}% < 32%`);
-  assert.ok(counts.Razor / sum < 0.48, `Razor ${(counts.Razor / sum * 100).toFixed(1)}% > 48%`);
-  assert.ok(counts.Tech / sum > 0.12, `Tech ${(counts.Tech / sum * 100).toFixed(1)}% < 12%`);
-  assert.ok(counts.Tech / sum < 0.28, `Tech ${(counts.Tech / sum * 100).toFixed(1)}% > 28%`);
+  assert.ok(counts.Merc / sum > 0.32, `Merc ${((counts.Merc / sum) * 100).toFixed(1)}% < 32%`);
+  assert.ok(counts.Merc / sum < 0.48, `Merc ${((counts.Merc / sum) * 100).toFixed(1)}% > 48%`);
+  assert.ok(counts.Razor / sum > 0.32, `Razor ${((counts.Razor / sum) * 100).toFixed(1)}% < 32%`);
+  assert.ok(counts.Razor / sum < 0.48, `Razor ${((counts.Razor / sum) * 100).toFixed(1)}% > 48%`);
+  assert.ok(counts.Tech / sum > 0.12, `Tech ${((counts.Tech / sum) * 100).toFixed(1)}% < 12%`);
+  assert.ok(counts.Tech / sum < 0.28, `Tech ${((counts.Tech / sum) * 100).toFixed(1)}% > 28%`);
 });
 
 test('generateRecruits deduplicates callsigns against flatlined crew members', () => {
@@ -424,10 +431,7 @@ test('recruit() sets recruitedThisVisit and prevents second recruitment', () => 
   assert.equal(campaign.recruitedThisVisit, true);
   // If there's a second recruit available, trying to recruit them should throw
   if (campaign.availableRecruits.length > 0) {
-    assert.throws(
-      () => campaign.recruit(campaign.availableRecruits[0].id),
-      /already recruited/i
-    );
+    assert.throws(() => campaign.recruit(campaign.availableRecruits[0].id), /already recruited/i);
   }
 });
 
@@ -539,10 +543,10 @@ test('generateInitialCandidates uses weighted archetype pool', () => {
   }
   const sum = counts.Merc + counts.Razor + counts.Tech;
   // Merc and Razor should each be ~40%, Tech ~20%. Allow ±10% tolerance.
-  assert.ok(counts.Merc / sum > 0.30, `Merc ${(counts.Merc / sum * 100).toFixed(1)}% < 30%`);
-  assert.ok(counts.Merc / sum < 0.50, `Merc ${(counts.Merc / sum * 100).toFixed(1)}% > 50%`);
-  assert.ok(counts.Tech / sum > 0.10, `Tech ${(counts.Tech / sum * 100).toFixed(1)}% < 10%`);
-  assert.ok(counts.Tech / sum < 0.30, `Tech ${(counts.Tech / sum * 100).toFixed(1)}% > 30%`);
+  assert.ok(counts.Merc / sum > 0.3, `Merc ${((counts.Merc / sum) * 100).toFixed(1)}% < 30%`);
+  assert.ok(counts.Merc / sum < 0.5, `Merc ${((counts.Merc / sum) * 100).toFixed(1)}% > 50%`);
+  assert.ok(counts.Tech / sum > 0.1, `Tech ${((counts.Tech / sum) * 100).toFixed(1)}% < 10%`);
+  assert.ok(counts.Tech / sum < 0.3, `Tech ${((counts.Tech / sum) * 100).toFixed(1)}% > 30%`);
 });
 
 test('recruitInitial validates exactly RECRUIT.INITIAL_PICKS (2) IDs', () => {
@@ -577,10 +581,7 @@ test('recruitInitial throws for unknown candidate IDs', () => {
   campaign.generateInitialCandidates();
   const validId = campaign.initialCandidates[0].id;
 
-  assert.throws(
-    () => campaign.recruitInitial([validId, 'nonexistent']),
-    /unknown candidate/i
-  );
+  assert.throws(() => campaign.recruitInitial([validId, 'nonexistent']), /unknown candidate/i);
 });
 
 test('recruitInitial does not require Rep gate', () => {

@@ -84,12 +84,13 @@ export const COVER_HIT_PENALTY = 0.3;
 export const RANGED_DAMAGE = 1;
 
 /**
- * Melee combat. V1 keeps it deterministic — adjacency + AP buys a guaranteed
- * hit. Hit-chance can grow back when archetype kits (parry, dodge) land.
- * Damage is flat; bumped above ranged because melee requires standing on the
- * target's tile (a real positional cost).
+ * Melee combat. M7 adds a defender dodge roll so point-blank attacks keep
+ * tension without becoming mushy. Damage is bumped above the old V1 value to
+ * compensate for misses: when the blade connects, it should matter.
  */
-export const MELEE_DAMAGE = 2;
+export const DODGE_CHANCE = 0.2;
+export const COVER_DODGE_BONUS = 0.1;
+export const MELEE_DAMAGE = 3;
 
 /**
  * Vault (Merc perk). Breach-and-clear slam: hop over cover, body-check a
@@ -135,12 +136,14 @@ export const STIM_HEAL = 2;
 export const SMOKE_RADIUS = 2;
 export const SMOKE_DURATION_TURNS = 1;
 export const TARGETING_BONUS = 0.1;
+export const DODGE_BONUS = 0.1;
 
 export const SHOP_COST = Object.freeze({
   STIM: 2,
   SMOKE_CHARGE: 3,
   ARMOUR_PLATING: 6,
   TARGETING_CHIP: 8,
+  REFLEX_WEAVE: 8,
   EXPANDED_CATALOG: 15,
 });
 

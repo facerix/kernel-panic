@@ -416,8 +416,14 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
 
   // Repair latent hitBonus overflow on crew entities (same migration as
   // restoreCrewMember, but for mid-combat run snapshots).
-  if (entity instanceof Crew && entity.gear && entity.gear.hitBonus > entity.maxHitBonus) {
-    entity.gear.hitBonus = entity.maxHitBonus;
+  if (entity instanceof Crew && entity.gear) {
+    if (entity.gear.hitBonus > entity.maxHitBonus) {
+      entity.gear.hitBonus = entity.maxHitBonus;
+    }
+    const dodgeBonus = entity.gear.dodgeBonus ?? 0;
+    if (dodgeBonus > entity.maxDodgeBonus) {
+      entity.gear.dodgeBonus = entity.maxDodgeBonus;
+    }
   }
 
   if (rec.archetype === 'tech' && rec.tech) {
@@ -549,8 +555,14 @@ function restoreCrewMember(rec: CampaignCrewSnapshot): Crew {
 
   // Repair latent data corruption: a previous bug allowed hitBonus to
   // accumulate past the archetype's cap, causing resolveRanged to throw.
-  if (member.gear && member.gear.hitBonus > member.maxHitBonus) {
-    member.gear.hitBonus = member.maxHitBonus;
+  if (member.gear) {
+    if (member.gear.hitBonus > member.maxHitBonus) {
+      member.gear.hitBonus = member.maxHitBonus;
+    }
+    const dodgeBonus = member.gear.dodgeBonus ?? 0;
+    if (dodgeBonus > member.maxDodgeBonus) {
+      member.gear.dodgeBonus = member.maxDodgeBonus;
+    }
   }
 
   return member;

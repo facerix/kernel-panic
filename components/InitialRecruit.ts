@@ -138,6 +138,20 @@ button.card[aria-pressed='true'] {
   color: var(--ir-dim);
   font-size: 0.82rem;
   margin-top: 0.15rem;
+
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+
+  .card-stats-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+  }
 }
 
 .card-blurb {
@@ -315,10 +329,34 @@ class InitialRecruit extends HTMLElement {
           className: 'card-archetype',
           textContent: info?.name ?? archetypeName.toUpperCase(),
         }),
-        h('span', {
-          className: 'card-stats',
-          textContent: `HP ${c.hp}/${c.maxHp}  ·  AIM ${((c.baseHitChance ?? 0.65) * 100).toFixed(0)}%`,
-        }),
+        h(
+          'span',
+          {
+            className: 'card-stats',
+          },
+          [
+            h('span', {
+              className: 'card-stats-item',
+              innerHTML: `HP <br/> ${c.hp}/${c.maxHp}`,
+            }),
+            h('span', {
+              className: 'card-stats-separator',
+              textContent: '·',
+            }),
+            h('span', {
+              className: 'card-stats-item',
+              innerHTML: `AIM <br/> ${((c.baseHitChance ?? 0.65) * 100).toFixed(0)}%`,
+            }),
+            h('span', {
+              className: 'card-stats-separator',
+              textContent: '·',
+            }),
+            h('span', {
+              className: 'card-stats-item',
+              innerHTML: `DODGE <br/> ${((c.baseDodgeChance ?? 0.2) * 100).toFixed(0)}%`,
+            }),
+          ]
+        ),
         h('span', {
           className: 'card-blurb',
           textContent: info?.blurb ?? '',

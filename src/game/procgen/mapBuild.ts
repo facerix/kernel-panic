@@ -74,6 +74,7 @@ type StampedLeaf = {
   originY: number;
   center: GridPoint;
   droneWorld: EntityAnchor[];
+  patrolPathsWorld: GridPoint[][];
   exitWorld: GridPoint[];
   corpCivilianWorld: CivilianAnchor[];
   neutralCivilianWorld: CivilianAnchor[];
@@ -188,12 +189,13 @@ export function buildMap({
   }
 
   // Drones — two passes:
-  //   1) Use authored drone anchors from non-spawn leaves first; they carry
-  //      designed waypoints, which are the gameplay we paid for.
+  //   1) Use authored drone anchors from non-spawn leaves first; each anchor
+  //      carries the nearest authored patrol path for its prefab.
   //   2) If the threat budget isn't met (some prefabs declare no drone
   //      anchors — `hallway` is intentionally one), fall back to picking
-  //      FLOOR tiles inside non-spawn leaves with a single-tile "stand
-  //      still" waypoint. Better than refusing to spawn the run.
+  //      FLOOR tiles inside non-spawn leaves and synthesise a two-point
+  //      cardinal patrol. Better than refusing to spawn the run, and more
+  //      alive than the old stand-still fallback.
   const droneAnchors: EntityAnchor[] = [];
   const corpCivilians: CivilianAnchor[] = [];
   const neutralCivilians: CivilianAnchor[] = [];
@@ -209,7 +211,14 @@ export function buildMap({
       if (droneAnchors.length >= threatCount) break;
       if (isAlreadyTaken(anchor.x, anchor.y)) continue;
       if (grid.tileAt(anchor.x, anchor.y) !== TILE.FLOOR) continue;
-      droneAnchors.push(anchor);
+      droneAnchors.push({
+        x: anchor.x,
+        y: anchor.y,
+        waypoints:
+          anchor.waypoints.length > 0
+            ? anchor.waypoints
+            : synthesizeFallbackPatrol(grid, { x: anchor.x, y: anchor.y }),
+      });
     }
   }
   for (let i = 1; i < stamped.length && droneAnchors.length < threatCount; i++) {
@@ -220,7 +229,11 @@ export function buildMap({
         if (droneAnchors.length >= threatCount) break;
         if (grid.tileAt(xx, yy) !== TILE.FLOOR) continue;
         if (isAlreadyTaken(xx, yy)) continue;
-        droneAnchors.push({ x: xx, y: yy, waypoints: [{ x: xx, y: yy }] });
+        droneAnchors.push({
+          x: xx,
+          y: yy,
+          waypoints: synthesizeFallbackPatrol(grid, { x: xx, y: yy }),
+        });
       }
     }
   }
@@ -235,7 +248,8 @@ export function buildMap({
   // drones) — civilians are optional content. Only place civilians on
   // passable, unoccupied tiles.
   for (let i = 1; i < stamped.length; i++) {
-    if (corpCivilians.length >= maxCorpCivilians && neutralCivilians.length >= maxNeutralCivilians) break;
+    if (corpCivilians.length >= maxCorpCivilians && neutralCivilians.length >= maxNeutralCivilians)
+      break;
     for (const a of stamped[i].corpCivilianWorld) {
       if (corpCivilians.length >= maxCorpCivilians) break;
       if (grid.tileAt(a.x, a.y) !== TILE.FLOOR) continue;
@@ -290,14 +304,25 @@ function stampPrefab(grid: Grid, rng: Rng, leaf: BspNode): StampedLeaf {
     y: originY + Math.floor(prefab.h / 2),
   };
 
-  const droneWorld = prefab.anchors.drones.map(a => ({
-    x: originX + a.x,
-    y: originY + a.y,
-    waypoints: (a.waypoints ?? []).map(wp => ({
+  const patrolPathsWorld = prefab.patrolPaths.map(path =>
+    path.map(wp => ({
       x: originX + wp.x,
       y: originY + wp.y,
-    })),
-  }));
+    }))
+  );
+  const droneWorld = prefab.anchors.drones.map(a => {
+    const spawn = { x: originX + a.x, y: originY + a.y };
+    const assignedPath = assignNearestPatrolPath(spawn, patrolPathsWorld);
+    return {
+      ...spawn,
+      waypoints:
+        assignedPath ??
+        (a.waypoints ?? []).map(wp => ({
+          x: originX + wp.x,
+          y: originY + wp.y,
+        })),
+    };
+  });
   const exitWorld = prefab.anchors.exit.map(e => ({
     x: originX + e.x,
     y: originY + e.y,
@@ -311,7 +336,60 @@ function stampPrefab(grid: Grid, rng: Rng, leaf: BspNode): StampedLeaf {
     y: originY + a.y,
   }));
 
-  return { leaf, prefab, originX, originY, center, droneWorld, exitWorld, corpCivilianWorld, neutralCivilianWorld };
+  return {
+    leaf,
+    prefab,
+    originX,
+    originY,
+    center,
+    droneWorld,
+    patrolPathsWorld,
+    exitWorld,
+    corpCivilianWorld,
+    neutralCivilianWorld,
+  };
+}
+
+function assignNearestPatrolPath(spawn: GridPoint, paths: GridPoint[][]): GridPoint[] | null {
+  let bestPath: GridPoint[] | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const path of paths) {
+    const first = path[0];
+    if (!first) continue;
+    const dx = first.x - spawn.x;
+    const dy = first.y - spawn.y;
+    const distanceSquared = dx * dx + dy * dy;
+    if (distanceSquared < bestDistance) {
+      bestDistance = distanceSquared;
+      bestPath = path.map(wp => ({ x: wp.x, y: wp.y }));
+    }
+  }
+  return bestPath;
+}
+
+function synthesizeFallbackPatrol(grid: Grid, spawn: GridPoint): GridPoint[] {
+  const directions = [
+    { x: 1, y: 0 },
+    { x: -1, y: 0 },
+    { x: 0, y: 1 },
+    { x: 0, y: -1 },
+  ];
+  const start = { x: spawn.x, y: spawn.y };
+
+  for (let distance = 1; distance < Math.max(grid.width, grid.height); distance++) {
+    for (const dir of directions) {
+      const candidate = {
+        x: spawn.x + dir.x * distance,
+        y: spawn.y + dir.y * distance,
+      };
+      if (!grid.inBounds(candidate.x, candidate.y)) continue;
+      if (grid.tileAt(candidate.x, candidate.y) === TILE.FLOOR) {
+        return [start, candidate];
+      }
+    }
+  }
+
+  return [start, start];
 }
 
 /**

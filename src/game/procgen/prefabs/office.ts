@@ -27,10 +27,6 @@ export const METADATA = Object.freeze({
       {
         x: 2,
         y: 0,
-        waypoints: [
-          { x: 2, y: 0 },
-          { x: 2, y: 3 },
-        ],
       },
     ],
     cover: [
@@ -40,4 +36,10 @@ export const METADATA = Object.freeze({
     exit: [{ x: 4, y: 3 }],
     corpCivilians: [{ x: 4, y: 1 }],
   },
+  patrolPaths: [
+    [
+      { x: 2, y: 0 },
+      { x: 2, y: 3 },
+    ],
+  ],
 } satisfies PrefabMetadata);

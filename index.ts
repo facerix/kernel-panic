@@ -142,6 +142,7 @@ type PendingJobResult = {
 
 type EntityDamagedPayload = {
   target?: Entity;
+  damage?: number;
   killed?: boolean;
   source?: string;
 };
@@ -1037,9 +1038,9 @@ function attachAnimationListeners(): void {
   if (!run?.bus) return;
   animationUnsubs.push(
     run.bus.on(EVENT.ENTITY_DAMAGED, payload => {
-      const { target, killed, source } = (payload ?? {}) as EntityDamagedPayload;
+      const { target, damage = 0, killed, source } = (payload ?? {}) as EntityDamagedPayload;
       // Player-side feedback: screen shake + red vignette when *we* get hit.
-      if (run?.player && target === run.player) {
+      if (run?.player && target === run.player && damage > 0) {
         triggerShake(stageEl);
         triggerDamageFlash(stageEl);
         animLock.push(ANIMATION_DURATIONS.DAMAGE_FLASH);
@@ -1047,7 +1048,7 @@ function attachAnimationListeners(): void {
       // Melee impact: the strike reads as landing on the *target*, not
       // hovering above the attacker. Ranged stays on the NOISE path so
       // misses still get a muzzle flash on the shooter's tile.
-      if (source === 'melee' && target) {
+      if (source === 'melee' && target && damage > 0) {
         const fired = runMuzzleFlash(renderer, paint, target.x, target.y);
         if (fired) animLock.push(ANIMATION_DURATIONS.MUZZLE_FLASH);
       }

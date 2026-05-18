@@ -32,6 +32,7 @@ import { TILE } from '../../constants.js';
 import { ASCII as OFFICE_ASCII, METADATA as OFFICE_METADATA } from './office.js';
 import { ASCII as SERVER_ROOM_ASCII, METADATA as SERVER_ROOM_METADATA } from './server-room.js';
 import { ASCII as HALLWAY_ASCII, METADATA as HALLWAY_METADATA } from './hallway.js';
+import { ASCII as LAB_ASCII, METADATA as LAB_METADATA } from './lab.js';
 import type { ParsedPrefab, PrefabAscii, PrefabAnchor, PrefabMetadata } from './types.js';
 
 export type {
@@ -101,11 +102,24 @@ export function parsePrefab(ascii: PrefabAscii, metadata: PrefabMetadata): Parse
     drones: validateAnchors(metadata.anchors?.drones ?? [], w, h, metadata.id, 'drones'),
     cover: validateAnchors(metadata.anchors?.cover ?? [], w, h, metadata.id, 'cover'),
     exit: validateAnchors(metadata.anchors?.exit ?? [], w, h, metadata.id, 'exit'),
-    corpCivilians: validateAnchors(metadata.anchors?.corpCivilians ?? [], w, h, metadata.id, 'corpCivilians'),
-    neutralCivilians: validateAnchors(metadata.anchors?.neutralCivilians ?? [], w, h, metadata.id, 'neutralCivilians'),
+    corpCivilians: validateAnchors(
+      metadata.anchors?.corpCivilians ?? [],
+      w,
+      h,
+      metadata.id,
+      'corpCivilians'
+    ),
+    neutralCivilians: validateAnchors(
+      metadata.anchors?.neutralCivilians ?? [],
+      w,
+      h,
+      metadata.id,
+      'neutralCivilians'
+    ),
   };
+  const patrolPaths = validatePatrolPaths(metadata.patrolPaths ?? [], w, h, metadata.id);
 
-  return { id: metadata.id, w, h, tiles, anchors };
+  return { id: metadata.id, w, h, tiles, anchors, patrolPaths };
 }
 
 function validateAnchors<T extends PrefabAnchor>(
@@ -152,10 +166,42 @@ function validateAnchors<T extends PrefabAnchor>(
   });
 }
 
+function validatePatrolPaths(
+  paths: PrefabAnchor[][],
+  w: number,
+  h: number,
+  prefabId: string
+): PrefabAnchor[][] {
+  if (!Array.isArray(paths)) {
+    throw new TypeError(`prefab ${prefabId}: patrolPaths must be an array`);
+  }
+  return paths.map((path, pathIndex) => {
+    if (!Array.isArray(path) || path.length === 0) {
+      throw new TypeError(
+        `prefab ${prefabId}: patrolPaths[${pathIndex}] must be a non-empty array`
+      );
+    }
+    return path.map((wp, waypointIndex) => {
+      if (!Number.isInteger(wp.x) || !Number.isInteger(wp.y)) {
+        throw new TypeError(
+          `prefab ${prefabId}: patrolPaths[${pathIndex}][${waypointIndex}] requires integer x,y`
+        );
+      }
+      if (wp.x < 0 || wp.x >= w || wp.y < 0 || wp.y >= h) {
+        throw new RangeError(
+          `prefab ${prefabId}: patrol waypoint (${wp.x},${wp.y}) out of ${w}x${h} bounds`
+        );
+      }
+      return { x: wp.x, y: wp.y };
+    });
+  });
+}
+
 export const PREFABS = Object.freeze({
   office: parsePrefab(OFFICE_ASCII, OFFICE_METADATA),
   serverRoom: parsePrefab(SERVER_ROOM_ASCII, SERVER_ROOM_METADATA),
   hallway: parsePrefab(HALLWAY_ASCII, HALLWAY_METADATA),
+  lab: parsePrefab(LAB_ASCII, LAB_METADATA),
 });
 
 /**

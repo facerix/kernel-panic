@@ -43,6 +43,13 @@ test('declared anchors lie inside the prefab bounds', () => {
       assert.ok(a.x >= 0 && a.x < prefab.w);
       assert.ok(a.y >= 0 && a.y < prefab.h);
     }
+    for (const path of prefab.patrolPaths) {
+      assert.ok(path.length > 0, `${prefab.id} patrol path must not be empty`);
+      for (const wp of path) {
+        assert.ok(wp.x >= 0 && wp.x < prefab.w, `${prefab.id} patrol waypoint out of bounds`);
+        assert.ok(wp.y >= 0 && wp.y < prefab.h, `${prefab.id} patrol waypoint out of bounds`);
+      }
+    }
   }
 });
 
@@ -80,4 +87,46 @@ test('parsePrefab throws on out-of-bounds anchor', () => {
 
 test('parsePrefab throws on metadata vs ASCII size disagreement', () => {
   assert.throws(() => parsePrefab('....\n....', { id: 'liar', w: 5, h: 2 }), /disagrees/);
+});
+
+test('parsePrefab throws on empty patrol paths', () => {
+  assert.throws(
+    () =>
+      parsePrefab('...\n...', {
+        id: 'empty-patrol',
+        anchors: { drones: [], cover: [], exit: [] },
+        patrolPaths: [[]],
+      }),
+    /patrolPaths/
+  );
+});
+
+test('parsePrefab throws on out-of-bounds patrol waypoints', () => {
+  assert.throws(
+    () =>
+      parsePrefab('...\n...', {
+        id: 'oob-patrol',
+        anchors: { drones: [], cover: [], exit: [] },
+        patrolPaths: [[{ x: 3, y: 0 }]],
+      }),
+    /patrol waypoint/
+  );
+});
+
+test('lab prefab exercises combat-depth anchors', () => {
+  const lab = PREFABS.lab;
+  assert.equal(lab.id, 'lab');
+  assert.equal(lab.w, 10);
+  assert.equal(lab.h, 6);
+  assert.equal(lab.anchors.drones.length, 2);
+  assert.equal(lab.anchors.corpCivilians?.length, 1);
+  assert.equal(lab.anchors.neutralCivilians?.length, 1);
+  assert.equal(lab.patrolPaths.length, 2);
+  assert.deepEqual(
+    lab.patrolPaths.map(path => path[0]),
+    [
+      { x: 2, y: 1 },
+      { x: 7, y: 4 },
+    ]
+  );
 });

@@ -57,6 +57,10 @@ export class Razor extends Crew {
     return 0.7;
   }
 
+  override get baseDodgeChance(): number {
+    return 0.35;
+  }
+
   constructor(props: CrewInit) {
     super({ ...props, glyph: '@' });
   }

@@ -234,6 +234,16 @@ test('restoreCampaign normalizes over-capped hitBonus in crew gear', () => {
   assert.equal(member.gear!.hitBonus, member.maxHitBonus);
 });
 
+test('restoreCampaign normalizes over-capped dodgeBonus in crew gear', () => {
+  const campaign = new Campaign({ seed: 42 });
+  const rec = snapshotCampaign(campaign);
+  rec.crew[0].gear = { maxHpBonus: 0, hitBonus: 0, dodgeBonus: 0.9 };
+  const restored = restoreCampaign(rec);
+  const member = restored.crew[0];
+  assert.ok(member.gear!.dodgeBonus <= member.maxDodgeBonus);
+  assert.equal(member.gear!.dodgeBonus, member.maxDodgeBonus);
+});
+
 test('restoreCampaign preserves valid hitBonus below cap', () => {
   const campaign = new Campaign({ seed: 0xfade });
   const rec = snapshotCampaign(campaign);
