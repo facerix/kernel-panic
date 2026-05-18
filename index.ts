@@ -57,7 +57,7 @@ import { placeSmoke, clearSmoke } from '/src/game/Smoke.js';
 import type { CampaignSnapshot } from '/src/game/persistence.js';
 import type { Contract } from '/src/game/hub/Curator.js';
 import type { Crew } from '/src/game/Crew.js';
-import type { Entity } from '/src/game/Entity.js';
+import { resolveEntityLabel, type Entity } from '/src/game/Entity.js';
 import type { Run, RunResult, RunTelemetry, Outcome } from '/src/game/Run.js';
 import type { Item } from '/src/game/items.js';
 import type { Intent } from '/src/input/applyIntent.js';
@@ -70,6 +70,7 @@ import '/components/TouchPad.js';
 import '/components/RunBriefing.js';
 import '/components/CrashDump.js';
 import '/components/SystemStart.js';
+import '/components/InitialRecruit.js';
 import '/components/CrewList.js';
 import '/components/CrewRoster.js';
 import '/components/FinnShop.js';
@@ -100,8 +101,18 @@ type CrashDumpElement = ModalElement & {
 type SystemStartElement = ModalElement & {
   setSession(session: { seed: number }): void;
 };
+type InitialRecruitElement = ModalElement & {
+  setCandidates(candidates: Crew[]): void;
+};
 type CrewRosterElement = ModalElement & {
-  setCrew(crew: Crew[], opts?: { salvage?: number }): void;
+  setCrew(
+    crew: Crew[],
+    opts?: {
+      salvage?: number;
+      availableRecruits?: Crew[];
+      recruitedThisVisit?: boolean;
+    }
+  ): void;
 };
 type FinnShopElement = ModalElement & {
   setCatalog(catalog: Item[], crew: Crew[], salvage: number): void;
@@ -110,7 +121,7 @@ type ItemInventoryElement = ModalElement & {
   setItems(consumables: NonNullable<Crew['inventory']>['consumables']): void;
 };
 type KeyHelpElement = ModalElement & {
-  setScope(scope: HelpScope): void;
+  setScope(scope: HelpScope, archetypeId?: string): void;
 };
 type TouchPadElement = HTMLElement & {
   mode: Mode;
@@ -154,6 +165,7 @@ let stageEl: HTMLElement;
 let briefingEl: RunBriefingElement;
 let crashEl: CrashDumpElement;
 let systemStartEl: SystemStartElement;
+let initialRecruitEl: InitialRecruitElement;
 let resumeModalEl: ConfirmationModalElement;
 let quitCampaignModalEl: ConfirmationModalElement;
 let touchPadEl: TouchPadElement;
@@ -185,13 +197,13 @@ let pendingJobResult: PendingJobResult | null = null;
 let activeSmokeOverlays: SmokeOverlay[] = [];
 
 /**
- * Most recent intent-result log line (melee, fire, perk use, denials, etc.).
- * Tracked at module level because `applyIntent`'s `log` callback fires
- * during intent handling, but the status line is finalised later in
- * `paint()` — without this, the action line gets clobbered by the
- * subsequent statusLine() rewrite.
+ * Two most recent intent-result log lines (melee, fire, perk use, denials,
+ * etc.). `lastActionLine` is the newest; `prevActionLine` is one step back.
+ * Both render in the status bar's two activity rows — unless a proximity
+ * hint is active, which bumps `prevActionLine` out of the upper slot.
  */
 let lastActionLine = '';
+let prevActionLine = '';
 
 /**
  * Plain-text body after `CORP —` from the last status paint while the queue
@@ -222,6 +234,7 @@ const allComponentsReady = Promise.all([
   customElements.whenDefined('crew-roster'),
   customElements.whenDefined('key-help'),
   customElements.whenDefined('system-start'),
+  customElements.whenDefined('initial-recruit'),
 ]);
 
 function mustGetElement<T extends HTMLElement>(id: string): T {
@@ -262,6 +275,7 @@ async function boot() {
   briefingEl = mustGetElement<RunBriefingElement>('briefing');
   crashEl = mustGetElement<CrashDumpElement>('crash');
   systemStartEl = mustGetElement<SystemStartElement>('system-start');
+  initialRecruitEl = mustGetElement<InitialRecruitElement>('initial-recruit');
   resumeModalEl = mustGetElement<ConfirmationModalElement>('resume-modal');
   quitCampaignModalEl = mustGetElement<ConfirmationModalElement>('quit-campaign-modal');
   touchPadEl = mustGetElement<TouchPadElement>('touch-pad');
@@ -300,8 +314,10 @@ async function boot() {
   briefingEl.addEventListener('dismiss', () => briefingEl.hide());
   crashEl.addEventListener('new-run', onNewRunRequested);
   systemStartEl.addEventListener('hub-enter', onSystemStartHubEnter);
+  initialRecruitEl.addEventListener('recruited', onInitialRecruited);
 
   crewRosterEl.addEventListener('dismiss', () => crewRosterEl.hide());
+  crewRosterEl.addEventListener('recruit', onCrewRecruit);
 
   finnShopEl.addEventListener('purchase', onFinnPurchase);
   finnShopEl.addEventListener('dismiss', () => finnShopEl.hide());
@@ -370,30 +386,79 @@ async function boot() {
 function startFreshCampaign() {
   campaign = new Campaign({
     seed: seedFromClock(),
+    crew: [],
     onPersist: handlePersist,
     onResult: handleResult,
   });
-  handlePersist();
 
   pendingJobResult = null;
-  attachVisionListener();
-  attachAnimationListeners();
-  attachRepListeners();
-  recomputeVision();
-  renderShell();
   systemStartEl.setSession({ seed: campaign.seed });
   systemStartEl.show();
 }
 
 function onSystemStartHubEnter() {
   systemStartEl.hide();
+  if (!campaign) return;
+  // Fresh campaign: crew is empty — show initial recruitment overlay.
+  if (campaign.crew.length === 0) {
+    const candidates = campaign.generateInitialCandidates();
+    initialRecruitEl.setCandidates(candidates);
+    initialRecruitEl.show();
+    return;
+  }
+  // Resumed or post-recruitment — go straight to hub.
+  enterHubAndRender();
+}
+
+function onInitialRecruited(evt: Event) {
+  if (!campaign) return;
+  const { memberIds } = (evt as CustomEvent<{ memberIds: string[] }>).detail;
+  campaign.recruitInitial(memberIds);
+  initialRecruitEl.hide();
+  // Now the crew is set — enter the hub for the first time (builds world, persists).
+  campaign.enterHub();
+  enterHubAndRender();
+  const names = campaign.crew.map(m => m.callsign).join(' and ');
+  flash(`CURATOR: ${names} on the board. Find me when you want work.`);
+}
+
+/**
+ * Attach listeners and render the hub after enterHub() has been called.
+ * Shared by both the post-initial-recruitment path and the normal
+ * system-start path (when crew already exists).
+ */
+function enterHubAndRender() {
+  attachVisionListener();
+  attachAnimationListeners();
+  attachRepListeners();
+  recomputeVision();
+  renderShell();
   flash('HUB — Curator has contracts when you are adjacent [Space].');
 }
 
 function presentCrewRoster() {
   if (!campaign) return;
-  crewRosterEl.setCrew(campaign.crew, { salvage: campaign.salvage });
+  campaign.backfillRecruitsIfEligible();
+  crewRosterEl.setCrew(campaign.crew, {
+    salvage: campaign.salvage,
+    availableRecruits: campaign.availableRecruits,
+    recruitedThisVisit: campaign.recruitedThisVisit,
+  });
   crewRosterEl.show();
+}
+
+function onCrewRecruit(evt: Event) {
+  if (!campaign) return;
+  const { recruitId } = (evt as CustomEvent<{ recruitId: string }>).detail;
+  try {
+    campaign.recruit(recruitId);
+    const member = campaign.getCrewMember(recruitId);
+    flash(`NEW OPERATIVE: ${member?.callsign ?? recruitId} joins the collective.`);
+    // Refresh the roster to reflect the new crew + hide recruit section.
+    presentCrewRoster();
+  } catch (err) {
+    flash(`RECRUITMENT FAILED: ${(err as Error).message}`);
+  }
 }
 
 function presentBriefing(contract: Contract) {
@@ -501,7 +566,6 @@ function onUseItem(evt: Event) {
   itemInventoryEl.hide();
   paint();
   if (run.player.ap === 0) {
-    flash('AP EXHAUSTED — auto-ending turn.');
     advanceTurn();
   }
 }
@@ -798,11 +862,11 @@ function runCorpTurn(onFinish: () => void): void {
     onFinish,
     onStep: (entityId: string, step: TurnActionStep) => {
       const scene = currentScene();
-      const line = formatCorpTurnStep(entityId, step);
+      if (!scene?.world || !scene.player) return;
+      const resolve = (id: string) => resolveEntityLabel(id, scene.world!.entities);
+      const line = formatCorpTurnStep(resolve(entityId), step, resolve);
       if (
         !line ||
-        !scene?.world ||
-        !scene.player ||
         !isCorpTurnStepLogVisibleToPlayer(scene.world, scene.player.id, entityId, step, (x, y) =>
           vision.isVisible(x, y)
         )
@@ -852,6 +916,11 @@ function handleInteract(): void {
     flash('Step adjacent to Finn (shop), Curator (contract), or Terminal (roster).');
     return;
   }
+  // Gate: can't take contracts with no deployable crew.
+  if (campaign.crew.filter(m => !m.flatlined).length === 0) {
+    flash('CURATOR: You need a crew first. Try the Terminal.');
+    return;
+  }
   const contract = campaign.curator.generateContract(campaign.rng);
   flash(`CURATOR: ${contract.label} — review and deploy.`);
   presentBriefing(contract);
@@ -887,7 +956,6 @@ function handleCombatInteract(): void {
         );
         paint();
         if (player.ap === 0) {
-          flash('AP EXHAUSTED — auto-ending turn.');
           advanceTurn();
         }
         return;
@@ -909,12 +977,13 @@ function onNewRunRequested(): void {
       ? campaign.getCrewMember(campaign.deployedMemberId)
       : null;
     const salvage = member?.inventory?.salvage ?? 0;
-    campaign.onJobEnd({ outcome, salvage });
-    // M5: clean completion bonus — no civilian harm during the run.
+    // M5: clean completion bonus — must run *before* `onJobEnd` so `enterHub` →
+    // `generateRecruits()` sees the updated Rep (M6 recruitment gates at 65).
     if (outcome === 'exit' && civilianHarmsThisJob === 0) {
       const actual = campaign.adjustRep(REP.CLEAN_COMPLETION_BONUS);
       flash(`REP +${actual}: clean extraction — no civilian casualties.`);
     }
+    campaign.onJobEnd({ outcome, salvage });
     if (campaign.state === CAMPAIGN_STATE.ENDED) {
       dataStore.deleteCampaign();
       startFreshCampaign();
@@ -1132,13 +1201,15 @@ function statusLine(modeHint: Mode): string {
     `AP ${player.ap}/${player.maxAp} HP ${player.hp}/${player.maxHp}${stealthTag}` +
     `  |  TURN ${run.queue.turnNumber} (${run.queue.currentFaction.toUpperCase()})${aim}`;
   const stats = `<span class="game-shell__stats">${statsInner}</span>`;
-  // Proximity hint and action line each render in their own reserved-height
-  // row so the status block's geometry is constant — appearing/disappearing
-  // hints change text, not the height of the bar. See `.game-shell__hint`
-  // and `.game-shell__activity` in main.css.
-  const hint = `<span class="game-shell__hint">${proximityHint()}</span>`;
-  let action = '';
-  if (run.state === RUN_STATE.COMBAT && run.queue.currentFaction === FACTION.CORP) {
+  // Two activity rows below the stats line. Ephemeral, non-logged status
+  // (proximity hints, corp mood) takes the upper slot when present,
+  // bumping the previous action line; otherwise both rows show the last
+  // two action logs. The reserved heights keep geometry constant.
+  let ephemeral = '';
+  const hintText = proximityHint();
+  if (hintText) {
+    ephemeral = `<span class="game-shell__activity hint">${hintText}</span>`;
+  } else if (run.state === RUN_STATE.COMBAT && run.queue.currentFaction === FACTION.CORP) {
     if (!run.world) throw new Error('[shell] combat status requires a world');
     const visibleCorp = countVisibleCorpEntities(
       run.world.entities.values(),
@@ -1146,19 +1217,21 @@ function statusLine(modeHint: Mode): string {
     );
     const body = corpTurnStatusBody(visibleCorp, run.queue.turnNumber);
     corpToneActivityBody = body;
-    action = `<span class="game-shell__activity corp"><span class="faction-tag">CORP</span> — ${body}</span>`;
+    ephemeral = `<span class="game-shell__activity corp"><span class="faction-tag">CORP</span> — ${body}</span>`;
   } else if (
     run.state === RUN_STATE.COMBAT &&
     run.queue.currentFaction === FACTION.PLAYER &&
     corpToneActivityBody !== null
   ) {
-    // show the last corp turn status until the player acts and flushes it
-    action = `<span class="game-shell__activity corp"><span class="faction-tag">CORP</span> — ${corpToneActivityBody}</span>`;
+    // show the last corp mood until the player acts and flushes it
+    ephemeral = `<span class="game-shell__activity corp"><span class="faction-tag">CORP</span> — ${corpToneActivityBody}</span>`;
     corpToneActivityBody = null;
-  } else {
-    action = `<span class="game-shell__activity">${lastActionLine ?? ''}</span>`;
   }
-  return stats + hint + action;
+  const upper = ephemeral
+    ? ephemeral
+    : `<span class="game-shell__activity">${prevActionLine ?? ''}</span>`;
+  const lower = `<span class="game-shell__activity">${lastActionLine ?? ''}</span>`;
+  return stats + upper + lower;
 }
 
 /**
@@ -1167,10 +1240,12 @@ function statusLine(modeHint: Mode): string {
  * (vs. caching at action-time, which would let a stale hint linger after a
  * corp turn shuffled the world).
  *
- * Today the only HUB interactable is the Curator; the only COMBAT
- * "interactable" is the EXIT tile (auto-trigger on step-on, hint on
- * adjacency). Both extend naturally — add a case here when new
- * interactables land (terminals, dropped weapons, etc.).
+ * When non-empty, the hint takes the upper activity row in the status bar,
+ * bumping the previous action log line. It is *not* pushed into the
+ * rolling logLines buffer — it's a transient, positional display.
+ *
+ * Add a case here when new interactables land (terminals, dropped weapons,
+ * etc.).
  */
 function proximityHint(): string {
   const run = currentScene();
@@ -1216,6 +1291,7 @@ function flash(line: string): void {
   if (scene?.state === RUN_STATE.COMBAT && scene.queue?.currentFaction === FACTION.PLAYER) {
     corpToneActivityBody = null;
   }
+  prevActionLine = lastActionLine;
   lastActionLine = line.replace(/^>\s*/, '');
   if (lastActionLine) {
     logLines.unshift(`> ${lastActionLine}`);
@@ -1284,7 +1360,9 @@ function tryShowKeyHelpOverlay(): 'ok' | 'blocking' | 'no-scope' | 'none' {
   if (isAnyBlockingModalOpen()) return 'blocking';
   const scope = helpScopeForRunState();
   if (!scope) return 'no-scope';
-  keyHelpEl.setScope(scope);
+  const scene = currentScene();
+  const archetypeId = scene && isRun(scene) ? scene.archetype : undefined;
+  keyHelpEl.setScope(scope, archetypeId);
   keyHelpEl.show();
   return 'ok';
 }
@@ -1343,6 +1421,7 @@ function isAnyBlockingModalOpen(): boolean {
   if (briefingEl?.isOpen) return true;
   if (crashEl?.isOpen) return true;
   if (systemStartEl?.isOpen) return true;
+  if (initialRecruitEl?.isOpen) return true;
   if (crewRosterEl?.isOpen) return true;
   if (finnShopEl?.isOpen) return true;
   if (itemInventoryEl?.isOpen) return true;

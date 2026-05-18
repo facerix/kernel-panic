@@ -43,6 +43,8 @@ export type Contract = {
   objective: Objective;
   threatCount: number;
   label: string;
+  /** M8: high-tier contracts may carry a recruitment reward. */
+  reward?: { recruit?: boolean };
 };
 
 type CuratorInit = Omit<EntityInit, 'faction' | 'glyph' | 'maxAp' | 'maxHp' | 'id' | 'x' | 'y'> & {

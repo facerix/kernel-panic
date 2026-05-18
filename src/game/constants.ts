@@ -163,10 +163,27 @@ export const REP = Object.freeze({
   /** Rep thresholds for NeutralCivilian behaviour. */
   NEUTRAL_IDLE_THRESHOLD: 70,
   NEUTRAL_FLEE_THRESHOLD: 30,
+  /** Rep threshold for recruitment (M6). */
+  RECRUIT_THRESHOLD: 65,
   /** Rep adjustments. */
   CLEAN_COMPLETION_BONUS: 10,
   CIVILIAN_KILL_PENALTY: -20,
   ALARM_PENALTY: -5,
+});
+
+/**
+ * Recruitment parameters (M6). Controls candidate pool size, campaign-start
+ * picks, and archetype weight distribution.
+ */
+export const RECRUIT = Object.freeze({
+  /** Mid-campaign: minimum recruits offered per hub visit (when Rep gate met). */
+  POOL_MIN: 1,
+  /** Mid-campaign: maximum recruits offered per hub visit. */
+  POOL_MAX: 2,
+  /** Campaign start: number of candidates generated. */
+  INITIAL_CANDIDATES: 3,
+  /** Campaign start: number the player must pick. */
+  INITIAL_PICKS: 2,
 });
 
 /**

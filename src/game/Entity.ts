@@ -1,4 +1,4 @@
-import { DEFAULT_AP, DEFAULT_HP, type FactionId } from './constants.js';
+import { DEFAULT_AP, DEFAULT_HP, FACTION, type FactionId } from './constants.js';
 import type { TurnActionStep, TurnActionSteps } from '../types.js';
 import type { Rng } from '../rng.js';
 import type { World } from './World.js';
@@ -132,4 +132,57 @@ export class Entity {
 export interface Entity {
   takeTurn?(world: World, rng: Rng): void | TurnActionStep[];
   takeTurnSteps?(world: World, rng: Rng): TurnActionSteps;
+}
+
+// ---------------------------------------------------------------------------
+// Display labels — human-readable names for log messages
+// ---------------------------------------------------------------------------
+
+/**
+ * Derive a kind label from an entity ID's prefix convention.
+ * IDs follow `<kind>-<index>` (e.g. `drone-0`, `neutral-civ-2`).
+ */
+function kindFromId(id: string): string {
+  if (id.startsWith('drone')) return 'Drone';
+  if (id.startsWith('neutral-civ')) return 'Civilian';
+  if (id.startsWith('corp-civ')) return 'Civilian';
+  if (id.includes('turret')) return 'Turret';
+  if (id.startsWith('crew')) return 'Operative';
+  return id;
+}
+
+function factionTag(faction: string): string {
+  switch (faction) {
+    case FACTION.CORP:
+      return '[Corp]';
+    case FACTION.NEUTRAL:
+      return '[Neutral]';
+    case FACTION.PLAYER:
+      // Player-faction entities (crew, turrets) don't need a tag —
+      // they're identified by callsign or kind alone.
+      return '';
+    default:
+      return `[${faction}]`;
+  }
+}
+
+/**
+ * Player-facing label for an entity: callsign for crew members,
+ * `[Faction]Kind` for everyone else (e.g. `[Corp]Drone`, `[Neutral]Civilian`,
+ * `Turret`).
+ */
+export function entityLabel(entity: { id: string; faction: string; callsign?: string | null }): string {
+  if (entity.callsign) return entity.callsign;
+  return `${factionTag(entity.faction)}${kindFromId(entity.id)}`;
+}
+
+/**
+ * Resolve a string entity ID to a display label using a World's entity map.
+ * Falls back to `kindFromId` if the entity isn't found (e.g. already removed).
+ */
+export function resolveEntityLabel(id: string, entities: { get(id: string): Entity | undefined }): string {
+  const e = entities.get(id);
+  if (e) return entityLabel(e as Entity & { callsign?: string | null });
+  // Entity gone (dead + removed) — best-effort from the ID pattern.
+  return kindFromId(id);
 }

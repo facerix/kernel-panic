@@ -12,7 +12,7 @@ Living plan for Phase 2 of Kernel Panic. Source of truth for milestone scope, cu
 | M3 — Salvage + inventory + improvised turrets | ✅ Done |
 | M4 — Finn's shop | ✅ Done |
 | M5 — Rep + NPC taxonomy | ✅ Done |
-| M6 — Recruitment | ⬜ Pending |
+| M6 — Recruitment | ✅ Done |
 | M7 — Combat depth + procgen | ⬜ Pending |
 | M8 — Job board + contract tiers | ⬜ Pending |
 
@@ -64,6 +64,16 @@ Test count at Phase 2 start: **409 passing** (end of Phase 1 / M8).
   - `<crew-list>` — extracted navigable row list (callsign, archetype, HP, status). Pure reusable list, no modal chrome. Emits `select` when the highlighted row changes.
   - `<crew-roster>` — Terminal view only (no deploy mode). Two-pane layout: `<crew-list>` on the left, detail pane on the right showing the selected member's stats, gear, and consumables. No `mode` parameter.
   - `<run-briefing>` — Curator job flow. Single modal combining contract details + embedded `<crew-list>` for operative selection. Replaces the old two-step flow (pick crew in roster → show briefing → JACK IN) with a one-step modal. Emits `deploy` with `{ memberId, contract }`.
+
+- **Campaign-start recruitment (M6):** New campaigns start with an empty crew (`crew: []`). The shell shows `<system-start>`, then presents `<initial-recruit>` — a full-screen overlay with 3 randomly-generated candidates (weighted 40/40/20 Merc/Razor/Tech). Player picks 2 of 3; the unchosen candidate is discarded. `Campaign.recruitInitial(memberIds)` commits the picks, then the shell calls `enterHub()` to build the hub world and persist. No Rep gate for initial recruitment — this is the campaign-start exception.
+- **`<initial-recruit>` component (M6):** New Web Component (`components/InitialRecruit.ts`). Card-based layout (3-column grid, responsive to 1-column on mobile). Cards show callsign, archetype, HP, AIM%, and a short blurb. Toggle selection with Enter/Space or click; ←/→ or A/D navigate. Confirm when exactly 2 are selected. Emits `recruited` CustomEvent with `{ memberIds: string[] }`.
+- **Mid-campaign recruitment (M6):** `Campaign.generateRecruits()` called on every `enterHub()`. Returns 1–2 candidates (weighted archetype pool) when `rep ≥ REP.RECRUIT_THRESHOLD` (65), empty array otherwise. `<crew-roster>` extended with an "Available Recruits" section below the crew list — recruit rows with keyboard nav (ArrowDown from last crew row transitions into recruit section). One recruit per hub visit (`recruitedThisVisit` flag, reset on `enterHub()`). `Campaign.recruit(recruitId)` validates Rep gate still holds, moves the recruit from `availableRecruits` into `crew`, persists.
+- **Recruit constants (M6):** `RECRUIT.POOL_MIN = 1`, `POOL_MAX = 2`, `INITIAL_CANDIDATES = 3`, `INITIAL_PICKS = 2`. `REP.RECRUIT_THRESHOLD = 65`. `RECRUIT_ARCHETYPE_POOL = ['merc','merc','razor','razor','tech']` (flat array for `rng.pick()` weighted distribution).
+- **Entity display labels (M6):** `entityLabel(entity)` and `resolveEntityLabel(id, entities)` in `Entity.ts`. Crew members display by callsign; other entities display as `[Faction]Kind` (e.g. `[Corp]Drone`, `[Neutral]Civilian`, `Turret`). All log messages in `applyIntent`, `combatTurnPipeline`, `corpTurnStatusCopy`, and `debug/index` switched from raw entity IDs to display labels.
+- **`CharacterSelect` removed (M6):** The `<character-select>` component is deleted — campaign-start archetype selection is replaced by the recruitment flow. The debug harness retains its own archetype selection via URL params.
+- **Status bar two-row activity (M6):** The status bar's lower section now has two activity rows instead of a dedicated hint row + action row. When a proximity hint is active, it takes the upper slot (pushing previous action line out); otherwise both rows show rolling action logs (`prevActionLine` / `lastActionLine`). Corp turn status messages also take the upper slot ephemerally. Geometry remains constant (CSS reserved heights).
+- **Rep adjustment order fix (M6):** Clean completion bonus (`adjustRep(+10)`) is now applied *before* `Campaign.onJobEnd()`, so that `enterHub()` → `generateRecruits()` sees the updated Rep value. Previously the bonus ran after `onJobEnd`, meaning a player at Rep 55 who completed a clean job would not see recruits until the *next* hub visit.
+- **Archetype metadata cleanup (M6):** `ARCHETYPES` entries gain `perkName` (e.g. `'VAULT'`) replacing the old `perkKey` field. Blurbs rewritten to be punchier. `<key-help>` now resolves `{perkLabel}` placeholder in the special-action row to the deployed archetype's perk label, and the intro paragraph mentions the specific perk name.
 
 ## Architecture conventions
 
@@ -209,15 +219,26 @@ Closes the **NEUTRAL faction shootable** kaizen item.
 - Prefab schema: `corpCivilians` and `neutralCivilians` anchor arrays added. `office` gets a corpCivilian anchor; `server-room` gets a neutralCivilian anchor.
 - Tests (671 total, up from 631 at M5 start): Rep adjust/clamp (5), CorpCivilian alarm + latch + suppression (9), NeutralCivilian idle/flee/panic at each Rep tier (9), neutral kill emits `civilian:harmed` (2), drone alarm subscription (3), civilian in aftermath pipeline (6), mapBuild civilian caps (3), turret/drone NEUTRAL targeting exclusion (2), persistence round-trip (1), vouch→rep migration (1).
 
-### M6 — Recruitment ⬜
+### M6 — Recruitment ✅
 
-- `Campaign` gains `availableRecruits: CrewRecord[]` — refreshed on each Hub visit. `generateRecruits(rng, campaign)` rolls 1–2 candidates; archetype weighted (Merc 40%, Razor 40%, Tech 20%); callsign picked from archetype list excluding all names ever used in this campaign (living + flatlined history).
-- **Unlock conditions** checked in `generateRecruits`: Rep ≥ 65 (at least one recruit appears) OR a completed contract carried a `reward.recruit: true` flag (M8 adds this to high-tier contracts).
-- `Campaign.recruit(recruitId)` — validates unlock condition still holds; pushes recruit onto `campaign.crew`; updates DataStore. Crew can exceed 3 members after recruitment.
-- Hub UI: `<crew-roster>` extended with a "Available Recruits" section (visible when `availableRecruits.length > 0`). Confirm button triggers `recruit` event on Campaign.
-- You can only recruit one new crew member each time you visit the hub, with one exception (see next bullet).
-- New campaigns no longer default to 3 fixed crew members. Instead, player is directed to go to the terminal and recruit their first 2 crew members. `<crew-roster>` in this mode will direct player to choose two from 3 randomly-generated candidates.
-- Tests: recruit generation (archetype weights over many seeds, callsign deduplication), Rep gate enforcement (below threshold → no recruits), recruit persistence in campaign snapshot.
+- `Campaign` gains `availableRecruits: Crew[]` and `recruitedThisVisit: boolean` — refreshed on each `enterHub()`. `generateRecruits()` rolls 1–2 candidates; archetype weighted via `RECRUIT_ARCHETYPE_POOL` (Merc 40%, Razor 40%, Tech 20%); callsign picked from archetype list excluding all names ever used in this campaign (living + flatlined + current recruit candidates).
+- **Unlock conditions** checked in `generateRecruits`: Rep ≥ `REP.RECRUIT_THRESHOLD` (65). Returns empty array below threshold. Contract `reward.recruit` flag type-stubbed on `Contract` for M8's high-tier contract rewards.
+- `Campaign.recruit(recruitId)` — validates Rep gate still holds, `recruitedThisVisit` not set, recruit exists in pool; splices recruit from `availableRecruits` into `crew`; sets `recruitedThisVisit = true`; persists. Crew can exceed 3 members after recruitment. Throws on all illegal preconditions.
+- `Campaign.backfillRecruitsIfEligible()` — safety net called by the shell before opening `<crew-roster>`. Fills an empty pool when Rep meets threshold but recruits weren't generated (edge case from restore order or Rep changes between enterHub and roster open).
+- Hub UI: `<crew-roster>` extended with an "Available Recruits" section below the crew list (visible when `availableRecruits.length > 0` and `!recruitedThisVisit`). Recruit rows are keyboard-navigable — ArrowDown from the last crew row transitions into the recruit section; ArrowUp from the first recruit row returns to crew. Selected recruit shows stats in the detail pane. RECRUIT button commits via `recruit` CustomEvent.
+- One recruit per hub visit (`recruitedThisVisit` flag, reset on `enterHub()`).
+- **Campaign-start rework:** New campaigns start with `crew: []`. The constructor skips `enterHub()` when crew is empty. Shell flow: `<system-start>` → `<initial-recruit>` (pick 2 of 3 candidates) → `Campaign.recruitInitial(memberIds)` → `Campaign.enterHub()`. `<initial-recruit>` is a new full-screen Web Component with card-based candidate display. `generateInitialCandidates()` produces `RECRUIT.INITIAL_CANDIDATES` (3) candidates using the weighted archetype pool; `recruitInitial()` validates exactly `RECRUIT.INITIAL_PICKS` (2) IDs and moves them into crew. No Rep gate for initial recruitment. `<character-select>` component deleted — archetype selection is replaced by recruitment.
+- **`archetype` field:** Merc, Razor, and Tech classes gain an `override archetype` string property (e.g. `'Merc'`). Used by `<initial-recruit>` and `<crew-roster>` for display when `constructor.name` is unavailable (minified builds).
+
+**Delivered expansion (M6 tweaks):**
+
+- **Entity display labels.** `entityLabel()` / `resolveEntityLabel()` in `Entity.ts` produce human-readable names for log messages — callsign for crew, `[Faction]Kind` for everything else. All log producers (`applyIntent`, `combatTurnPipeline`, `corpTurnStatusCopy`, `debug/index`) migrated from raw IDs to labels. The `@` placeholder in action lines replaced with crew callsigns.
+- **Status bar two-row activity.** The hint/action split replaced with two rolling activity rows. Proximity hints and corp mood take the upper slot ephemerally; otherwise both show action history.
+- **Key help archetype context.** `<key-help>` receives the deployed archetype ID and resolves `{perkLabel}` in the special-action row. Intro paragraph mentions the specific perk name.
+- **Rep adjustment order fix.** Clean completion bonus now runs before `onJobEnd` so `enterHub()` → `generateRecruits()` sees updated Rep.
+- **Archetype metadata cleanup.** `perkKey` → `perkName`, blurbs rewritten. Old `perkKey` tests removed.
+- **AP exhaustion message removed.** The redundant "AP EXHAUSTED — auto-ending turn" flash removed from `applyIntent` and `onUseItem` — the auto-advance is self-evident.
+- Tests (699 total, up from 671 at M6 start): `generateRecruits` pool size + archetype weights over 1000 seeds (3), callsign deduplication against flatlined crew + within batch (2), `recruit()` move/flag/gate/unknown (4), `recruitedThisVisit` reset on enterHub (1), persistence round-trip for recruits + pre-M6 compat (2), `backfillRecruitsIfEligible` fill/no-op/guard (3), empty-crew campaign skips enterHub (1), `generateInitialCandidates` count + uniqueness + weights (3), `recruitInitial` validation + commit + unknown + no-rep-gate (4).
 
 ### M7 — Combat depth + procgen ⬜
 

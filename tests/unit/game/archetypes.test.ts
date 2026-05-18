@@ -4,7 +4,7 @@
  * `src/game/archetypes/index.js` is a thin metadata layer over the existing
  * `Merc` and `Razor` classes. It serves three callers:
  *   - Hub UI reads `ARCHETYPES` to render labels
- *   - `<key-help>` reads `ARCHETYPES[id].perkKey` to label the perk row
+ *   - `<key-help>` reads `ARCHETYPES[id].perkLabel` for intro text
  *   - `Campaign.buildCrew` delegates to `buildCrewMember`
  * The class behaviour (vault / slide) is already covered by Merc/Razor tests;
  * here we only assert the metadata contract and the factory glue.
@@ -35,19 +35,8 @@ test('ARCHETYPES exposes merc, razor, and tech with required metadata', () => {
     assert.equal(typeof a.blurb, 'string');
     assert.ok(a.blurb.length > 0, `${id}.blurb empty`);
     assert.ok(Array.isArray(a.perks) && a.perks.length > 0);
-    assert.equal(typeof a.perkKey, 'string');
-    assert.ok(a.perkKey.length > 0);
     assert.equal(typeof a.perkLabel, 'string');
     assert.ok(a.perkLabel.length > 0);
-  }
-});
-
-test('every archetype shares the unified `x` perk key (M1 design lock)', () => {
-  // The keymap collapses Vault / Slide / Deploy into a single SPECIAL_AIM
-  // mode keyed on `x`. The registry's perkKey must mirror that — drift here
-  // would make <key-help> teach a key the dispatcher no longer accepts.
-  for (const id of ARCHETYPE_IDS) {
-    assert.equal(ARCHETYPES[id].perkKey, 'x', `${id} perkKey expected to be 'x'`);
   }
 });
 

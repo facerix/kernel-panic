@@ -337,3 +337,260 @@ test('rep survives campaign snapshot/restore round-trip', () => {
   const restored = restoreCampaign(snap);
   assert.equal(restored.rep, 35);
 });
+
+// ─── M6 — Recruitment ────────────────────────────────────────────────────────
+
+test('generateRecruits returns 1–2 candidates when Rep ≥ 65', () => {
+  const campaign = new Campaign({ seed: 99, rep: 65 });
+  assert.ok(campaign.availableRecruits.length >= 1);
+  assert.ok(campaign.availableRecruits.length <= 2);
+});
+
+test('generateRecruits returns empty when Rep < 65', () => {
+  const campaign = new Campaign({ seed: 99, rep: 64 });
+  assert.equal(campaign.availableRecruits.length, 0);
+});
+
+test('generateRecruits archetype weights approximate 40/40/20 over many seeds', () => {
+  const counts: Record<string, number> = { Merc: 0, Razor: 0, Tech: 0 };
+  const total = 1000;
+  for (let i = 0; i < total; i++) {
+    const campaign = new Campaign({ seed: i, rep: 80 });
+    for (const recruit of campaign.availableRecruits) {
+      counts[recruit.constructor.name]++;
+    }
+  }
+  const sum = counts.Merc + counts.Razor + counts.Tech;
+  // Merc and Razor should each be ~40%, Tech ~20%. Allow ±8% tolerance.
+  assert.ok(counts.Merc / sum > 0.32, `Merc ${(counts.Merc / sum * 100).toFixed(1)}% < 32%`);
+  assert.ok(counts.Merc / sum < 0.48, `Merc ${(counts.Merc / sum * 100).toFixed(1)}% > 48%`);
+  assert.ok(counts.Razor / sum > 0.32, `Razor ${(counts.Razor / sum * 100).toFixed(1)}% < 32%`);
+  assert.ok(counts.Razor / sum < 0.48, `Razor ${(counts.Razor / sum * 100).toFixed(1)}% > 48%`);
+  assert.ok(counts.Tech / sum > 0.12, `Tech ${(counts.Tech / sum * 100).toFixed(1)}% < 12%`);
+  assert.ok(counts.Tech / sum < 0.28, `Tech ${(counts.Tech / sum * 100).toFixed(1)}% > 28%`);
+});
+
+test('generateRecruits deduplicates callsigns against flatlined crew members', () => {
+  const campaign = new Campaign({ seed: 42, rep: 80 });
+  // Flatline all starter crew — their callsigns should still be excluded
+  for (const member of campaign.crew) {
+    member.flatlined = true;
+  }
+  // Regenerate recruits (simulates next hub visit)
+  campaign.enterHub();
+  const starterCallsigns = new Set(campaign.crew.map(m => m.callsign));
+  for (const recruit of campaign.availableRecruits) {
+    assert.ok(
+      !starterCallsigns.has(recruit.callsign),
+      `Recruit callsign "${recruit.callsign}" collides with flatlined crew member`
+    );
+  }
+});
+
+test('generateRecruits deduplicates callsigns within the same batch', () => {
+  // Over many seeds, no single batch should have duplicate callsigns
+  for (let i = 0; i < 200; i++) {
+    const campaign = new Campaign({ seed: i, rep: 80 });
+    const callsigns = campaign.availableRecruits.map(r => r.callsign);
+    assert.equal(
+      callsigns.length,
+      new Set(callsigns).size,
+      `Seed ${i}: duplicate callsigns in batch: ${callsigns}`
+    );
+  }
+});
+
+test('recruit() moves a recruit from availableRecruits into crew', () => {
+  const campaign = new Campaign({ seed: 7, rep: 80 });
+  assert.ok(campaign.availableRecruits.length > 0, 'Precondition: has recruits');
+  const recruit = campaign.availableRecruits[0];
+  const recruitId = recruit.id;
+  const crewSizeBefore = campaign.crew.length;
+
+  campaign.recruit(recruitId);
+
+  assert.equal(campaign.crew.length, crewSizeBefore + 1);
+  assert.ok(campaign.crew.some(m => m.id === recruitId));
+  assert.ok(!campaign.availableRecruits.some(r => r.id === recruitId));
+});
+
+test('recruit() sets recruitedThisVisit and prevents second recruitment', () => {
+  const campaign = new Campaign({ seed: 7, rep: 80 });
+  assert.equal(campaign.recruitedThisVisit, false);
+  const recruit = campaign.availableRecruits[0];
+
+  campaign.recruit(recruit.id);
+
+  assert.equal(campaign.recruitedThisVisit, true);
+  // If there's a second recruit available, trying to recruit them should throw
+  if (campaign.availableRecruits.length > 0) {
+    assert.throws(
+      () => campaign.recruit(campaign.availableRecruits[0].id),
+      /already recruited/i
+    );
+  }
+});
+
+test('recruit() throws for unknown recruitId', () => {
+  const campaign = new Campaign({ seed: 7, rep: 80 });
+  assert.throws(() => campaign.recruit('nonexistent'), /unknown recruit/i);
+});
+
+test('recruit() throws when Rep drops below threshold before recruiting', () => {
+  const campaign = new Campaign({ seed: 7, rep: 65 });
+  assert.ok(campaign.availableRecruits.length > 0, 'Precondition: has recruits');
+  const recruit = campaign.availableRecruits[0];
+  // Drop rep below threshold after recruits were generated
+  campaign.adjustRep(-20);
+  assert.throws(() => campaign.recruit(recruit.id), /rep/i);
+});
+
+test('recruitedThisVisit resets on enterHub', () => {
+  const campaign = new Campaign({ seed: 7, rep: 80 });
+  const recruit = campaign.availableRecruits[0];
+  campaign.recruit(recruit.id);
+  assert.equal(campaign.recruitedThisVisit, true);
+
+  // Simulate returning from a job
+  campaign.enterHub();
+  assert.equal(campaign.recruitedThisVisit, false);
+});
+
+test('availableRecruits and recruitedThisVisit survive persistence round-trip', () => {
+  const campaign = new Campaign({ seed: 55, rep: 80 });
+  assert.ok(campaign.availableRecruits.length > 0, 'Precondition: has recruits');
+  const recruitCallsign = campaign.availableRecruits[0].callsign;
+
+  const snap = snapshotCampaign(campaign);
+  const restored = restoreCampaign(snap);
+
+  assert.equal(restored.availableRecruits.length, campaign.availableRecruits.length);
+  assert.equal(restored.availableRecruits[0].callsign, recruitCallsign);
+  assert.equal(restored.recruitedThisVisit, false);
+});
+
+test('pre-M6 snapshot restores with empty availableRecruits', () => {
+  // Simulate a legacy snapshot without the M6 fields
+  const campaign = new Campaign({ seed: 42 });
+  const snap = snapshotCampaign(campaign) as Record<string, unknown>;
+  delete snap.availableRecruits;
+  delete snap.recruitedThisVisit;
+
+  const restored = restoreCampaign(snap as never);
+  assert.deepEqual(restored.availableRecruits, []);
+  assert.equal(restored.recruitedThisVisit, false);
+});
+
+test('backfillRecruitsIfEligible fills empty pool when Rep meets threshold', () => {
+  const campaign = new Campaign({ seed: 3, rep: 80 });
+  assert.ok(campaign.availableRecruits.length > 0);
+  campaign.availableRecruits = [];
+  campaign.backfillRecruitsIfEligible();
+  assert.ok(campaign.availableRecruits.length >= 1);
+});
+
+test('backfillRecruitsIfEligible is a no-op when Rep is below threshold', () => {
+  const campaign = new Campaign({ seed: 3, rep: 50 });
+  assert.equal(campaign.availableRecruits.length, 0);
+  campaign.backfillRecruitsIfEligible();
+  assert.equal(campaign.availableRecruits.length, 0);
+});
+
+test('backfillRecruitsIfEligible does not run when recruitedThisVisit is true', () => {
+  const campaign = new Campaign({ seed: 3, rep: 80 });
+  campaign.recruit(campaign.availableRecruits[0].id);
+  campaign.availableRecruits = [];
+  campaign.backfillRecruitsIfEligible();
+  assert.equal(campaign.availableRecruits.length, 0);
+});
+
+// ─── M6 Phase B — Campaign-start rework ──────────────────────────────────────
+
+test('Campaign with crew: [] starts without entering the Hub', () => {
+  const campaign = new Campaign({ seed: 42, crew: [] });
+  assert.equal(campaign.crew.length, 0);
+  assert.equal(campaign.state, CAMPAIGN_STATE.HUB);
+  // Hub world should NOT be built when crew is empty (no persist yet).
+  assert.equal(campaign.world, null);
+  assert.equal(campaign.player, null);
+});
+
+test('generateInitialCandidates returns RECRUIT.INITIAL_CANDIDATES (3) candidates', () => {
+  const campaign = new Campaign({ seed: 42, crew: [] });
+  const candidates = campaign.generateInitialCandidates();
+  assert.equal(candidates.length, 3);
+  // All candidates should have unique callsigns.
+  const callsigns = candidates.map(c => c.callsign);
+  assert.equal(new Set(callsigns).size, 3, `Duplicate callsigns: ${callsigns}`);
+  // All should have unique IDs.
+  const ids = candidates.map(c => c.id);
+  assert.equal(new Set(ids).size, 3);
+});
+
+test('generateInitialCandidates uses weighted archetype pool', () => {
+  const counts: Record<string, number> = { Merc: 0, Razor: 0, Tech: 0 };
+  const total = 500;
+  for (let i = 0; i < total; i++) {
+    const campaign = new Campaign({ seed: i, crew: [] });
+    const candidates = campaign.generateInitialCandidates();
+    for (const c of candidates) {
+      counts[c.constructor.name]++;
+    }
+  }
+  const sum = counts.Merc + counts.Razor + counts.Tech;
+  // Merc and Razor should each be ~40%, Tech ~20%. Allow ±10% tolerance.
+  assert.ok(counts.Merc / sum > 0.30, `Merc ${(counts.Merc / sum * 100).toFixed(1)}% < 30%`);
+  assert.ok(counts.Merc / sum < 0.50, `Merc ${(counts.Merc / sum * 100).toFixed(1)}% > 50%`);
+  assert.ok(counts.Tech / sum > 0.10, `Tech ${(counts.Tech / sum * 100).toFixed(1)}% < 10%`);
+  assert.ok(counts.Tech / sum < 0.30, `Tech ${(counts.Tech / sum * 100).toFixed(1)}% > 30%`);
+});
+
+test('recruitInitial validates exactly RECRUIT.INITIAL_PICKS (2) IDs', () => {
+  const campaign = new Campaign({ seed: 42, crew: [] });
+  campaign.generateInitialCandidates();
+  const ids = campaign.initialCandidates.map(c => c.id);
+
+  assert.throws(() => campaign.recruitInitial([ids[0]]), /exactly 2/i);
+  assert.throws(() => campaign.recruitInitial(ids), /exactly 2/i);
+  assert.throws(() => campaign.recruitInitial([]), /exactly 2/i);
+});
+
+test('recruitInitial moves selected candidates into crew', () => {
+  const campaign = new Campaign({ seed: 42, crew: [] });
+  campaign.generateInitialCandidates();
+  const picked = campaign.initialCandidates.slice(0, 2);
+  const pickedIds = picked.map(c => c.id);
+  const discardedId = campaign.initialCandidates[2].id;
+
+  campaign.recruitInitial(pickedIds);
+
+  assert.equal(campaign.crew.length, 2);
+  assert.ok(campaign.crew.some(m => m.id === pickedIds[0]));
+  assert.ok(campaign.crew.some(m => m.id === pickedIds[1]));
+  assert.ok(!campaign.crew.some(m => m.id === discardedId));
+  // initialCandidates should be cleared after recruitment.
+  assert.equal(campaign.initialCandidates.length, 0);
+});
+
+test('recruitInitial throws for unknown candidate IDs', () => {
+  const campaign = new Campaign({ seed: 42, crew: [] });
+  campaign.generateInitialCandidates();
+  const validId = campaign.initialCandidates[0].id;
+
+  assert.throws(
+    () => campaign.recruitInitial([validId, 'nonexistent']),
+    /unknown candidate/i
+  );
+});
+
+test('recruitInitial does not require Rep gate', () => {
+  // Fresh campaign has rep=50, below the 65 threshold — but initial
+  // recruitment bypasses the gate.
+  const campaign = new Campaign({ seed: 42, crew: [], rep: 20 });
+  campaign.generateInitialCandidates();
+  const ids = campaign.initialCandidates.slice(0, 2).map(c => c.id);
+
+  // Should NOT throw despite low rep.
+  campaign.recruitInitial(ids);
+  assert.equal(campaign.crew.length, 2);
+});

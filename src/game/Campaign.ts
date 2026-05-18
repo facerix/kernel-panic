@@ -3,8 +3,8 @@ import { World } from './World.js';
 import { TurnQueue } from './TurnQueue.js';
 import { EventBus } from './events.js';
 import { Entity } from './Entity.js';
-import { FACTION, REP } from './constants.js';
-import { buildCrewMember } from './archetypes/index.js';
+import { FACTION, REP, RECRUIT } from './constants.js';
+import { buildCrewMember, RECRUIT_ARCHETYPE_POOL } from './archetypes/index.js';
 import { Curator } from './hub/Curator.js';
 import { Terminal } from './hub/Terminal.js';
 import { Finn } from './hub/Finn.js';
@@ -85,6 +85,9 @@ export class Campaign {
   state: CampaignState;
   activeRun: Run | null;
   deployedMemberId: string | null;
+  availableRecruits: Crew[];
+  recruitedThisVisit: boolean;
+  initialCandidates: Crew[];
   onPersist: ((campaign: Campaign) => void) | null;
   onResult: ((result: RunResult) => void) | null;
   world: World | null;
@@ -138,6 +141,9 @@ export class Campaign {
     this.state = CAMPAIGN_STATE.HUB;
     this.activeRun = null;
     this.deployedMemberId = null;
+    this.availableRecruits = [];
+    this.recruitedThisVisit = false;
+    this.initialCandidates = [];
     this.onPersist = (onPersist as ((campaign: Campaign) => void) | undefined) ?? null;
     this.onResult = (onResult as ((result: RunResult) => void) | undefined) ?? null;
 
@@ -150,13 +156,19 @@ export class Campaign {
     this.terminal = null;
     this.exitTile = null;
 
-    this.enterHub();
+    // Skip enterHub when crew is empty — the shell drives initial recruitment
+    // (Phase B) and calls enterHub() after the player picks their starter crew.
+    // No persist until then, so a refresh before picking just restarts.
+    if (this.crew.length > 0) {
+      this.enterHub();
+    }
   }
 
   enterHub(): void {
     if (this.state !== CAMPAIGN_STATE.HUB && this.state !== CAMPAIGN_STATE.COMBAT) {
       throw new Error(`Campaign.enterHub: illegal transition from ${this.state}`);
     }
+    this.recruitedThisVisit = false;
     this.#tearDownHubWorld();
     const hub = buildHub();
     this.bus = new EventBus();
@@ -190,6 +202,22 @@ export class Campaign {
     this.queue = new TurnQueue([FACTION.PLAYER, FACTION.CORP]);
     this.exitTile = { ...hub.exitTile };
     this.state = CAMPAIGN_STATE.HUB;
+    this.availableRecruits = this.generateRecruits();
+    this.#persist();
+  }
+
+  /**
+   * If Rep meets the recruitment threshold but `availableRecruits` is still
+   * empty (legacy saves from the pre-fix shell order, or edge timing), fill
+   * the pool. No-op when not in HUB, already recruited this visit, Rep is
+   * low, or candidates already exist.
+   */
+  backfillRecruitsIfEligible(): void {
+    if (this.state !== CAMPAIGN_STATE.HUB) return;
+    if (this.recruitedThisVisit) return;
+    if (this.rep < REP.RECRUIT_THRESHOLD) return;
+    if (this.availableRecruits.length > 0) return;
+    this.availableRecruits = this.generateRecruits();
     this.#persist();
   }
 
@@ -281,6 +309,121 @@ export class Campaign {
     const before = this.rep;
     this.rep = Math.max(REP.MIN, Math.min(REP.MAX, this.rep + delta));
     return this.rep - before;
+  }
+
+  // ─── Recruitment (M6) ─────────────────────────────────────────────────────
+
+  /**
+   * Collect every callsign ever used by any crew member (living or flatlined)
+   * and any current recruit candidate. Used to prevent callsign recycling
+   * within a campaign — the kaizen item from M2.
+   */
+  allUsedCallsigns(): Set<string> {
+    const used = new Set<string>();
+    for (const member of this.crew) {
+      if (member.callsign) used.add(member.callsign);
+    }
+    for (const recruit of this.availableRecruits) {
+      if (recruit.callsign) used.add(recruit.callsign);
+    }
+    return used;
+  }
+
+  /**
+   * Generate a pool of recruit candidates. Called on each `enterHub()`.
+   * Returns an empty array when Rep is below the recruitment threshold.
+   */
+  generateRecruits(): Crew[] {
+    if (this.rep < REP.RECRUIT_THRESHOLD) return [];
+    const count = this.rng.intRange(RECRUIT.POOL_MIN, RECRUIT.POOL_MAX + 1);
+    const usedCallsigns = this.allUsedCallsigns();
+    const recruits: Crew[] = [];
+    for (let i = 0; i < count; i++) {
+      const archetypeId = this.rng.pick(RECRUIT_ARCHETYPE_POOL as unknown as string[]);
+      const recruit = buildCrewMember(archetypeId, { x: 0, y: 0 }, this.rng, {
+        id: `recruit-${i}-${this.rng.intRange(0, 0xffff)}`,
+        excludeCallsigns: usedCallsigns,
+      });
+      if (recruit.callsign) usedCallsigns.add(recruit.callsign);
+      recruits.push(recruit);
+    }
+    return recruits;
+  }
+
+  /**
+   * Recruit a candidate from `availableRecruits` into the permanent crew.
+   * Limited to one recruitment per hub visit. Throws on all illegal
+   * preconditions — crash over silent fallback.
+   */
+  recruit(recruitId: string): void {
+    if (this.state !== CAMPAIGN_STATE.HUB) {
+      throw new Error(`Campaign.recruit: illegal from ${this.state}`);
+    }
+    if (this.recruitedThisVisit) {
+      throw new Error('Campaign.recruit: already recruited this visit');
+    }
+    if (this.rep < REP.RECRUIT_THRESHOLD) {
+      throw new Error(
+        `Campaign.recruit: rep ${this.rep} below threshold ${REP.RECRUIT_THRESHOLD}`
+      );
+    }
+    const idx = this.availableRecruits.findIndex(r => r.id === recruitId);
+    if (idx === -1) {
+      throw new Error(`Campaign.recruit: unknown recruit "${recruitId}"`);
+    }
+    const [recruit] = this.availableRecruits.splice(idx, 1);
+    this.crew.push(recruit);
+    this.recruitedThisVisit = true;
+    this.#persist();
+  }
+
+  // ─── Initial recruitment (M6 Phase B) ────────────────────────────────────
+
+  /**
+   * Generate the starter candidate pool for a fresh campaign. Returns
+   * `RECRUIT.INITIAL_CANDIDATES` (3) candidates with weighted archetype
+   * distribution (40/40/20). Stores them on `initialCandidates` for
+   * `recruitInitial()` to consume. Does NOT require Rep gate — this is
+   * the campaign-start exception.
+   */
+  generateInitialCandidates(): Crew[] {
+    const usedCallsigns = this.allUsedCallsigns();
+    const candidates: Crew[] = [];
+    for (let i = 0; i < RECRUIT.INITIAL_CANDIDATES; i++) {
+      const archetypeId = this.rng.pick(RECRUIT_ARCHETYPE_POOL as unknown as string[]);
+      const candidate = buildCrewMember(archetypeId, { x: 0, y: 0 }, this.rng, {
+        id: `crew-init-${i}`,
+        excludeCallsigns: usedCallsigns,
+      });
+      if (candidate.callsign) usedCallsigns.add(candidate.callsign);
+      candidates.push(candidate);
+    }
+    this.initialCandidates = candidates;
+    return candidates;
+  }
+
+  /**
+   * Commit the player's initial crew picks. Exactly `RECRUIT.INITIAL_PICKS`
+   * (2) IDs from `initialCandidates` must be provided. Moves selected
+   * candidates into `crew`, discards the rest, clears `initialCandidates`.
+   * Does NOT call `enterHub()` — the shell does that after this returns.
+   */
+  recruitInitial(memberIds: string[]): void {
+    if (!Array.isArray(memberIds) || memberIds.length !== RECRUIT.INITIAL_PICKS) {
+      throw new Error(
+        `Campaign.recruitInitial: exactly ${RECRUIT.INITIAL_PICKS} IDs required, got ${memberIds?.length ?? 0}`
+      );
+    }
+    const selected: Crew[] = [];
+    for (const id of memberIds) {
+      const idx = this.initialCandidates.findIndex(c => c.id === id);
+      if (idx === -1) {
+        throw new Error(`Campaign.recruitInitial: unknown candidate "${id}"`);
+      }
+      selected.push(this.initialCandidates[idx]);
+    }
+    this.crew.push(...selected);
+    this.initialCandidates = [];
   }
 
   /**

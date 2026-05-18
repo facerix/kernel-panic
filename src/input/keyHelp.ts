@@ -50,7 +50,7 @@ export const HELP_ROWS = Object.freeze([
     // Single key, single touch button, single help row — the live verb is
     // determined by the player's class at intent-apply time.
     keys: Object.freeze(['x']),
-    label: 'Special action (archetype perk)',
+    label: 'Special action ({perkLabel})',
     scope: 'combat',
     group: 'action',
   },

@@ -150,6 +150,10 @@ export type CampaignSnapshot = {
   meta: CampaignMeta;
   deployedMemberId: string | null;
   activeRun: CampaignActiveRunSnapshot | null;
+  /** M6: recruit candidates available this hub visit. Defaults to [] for pre-M6 saves. */
+  availableRecruits?: CampaignCrewSnapshot[];
+  /** M6: true if the player already recruited this hub visit. Defaults to false. */
+  recruitedThisVisit?: boolean;
 };
 
 /**
@@ -180,6 +184,8 @@ export function snapshotCampaign(campaign: Campaign): CampaignSnapshot {
     meta: { ...campaign.meta },
     deployedMemberId: campaign.deployedMemberId,
     activeRun: campaign.activeRun ? snapshotActiveRun(campaign.activeRun) : null,
+    availableRecruits: campaign.availableRecruits.map(snapshotCrewMember),
+    recruitedThisVisit: campaign.recruitedThisVisit,
   };
 }
 
@@ -284,6 +290,11 @@ export function restoreCampaign(record: unknown, options: RestoreCampaignOptions
   });
   campaign.rng = new Rng(record.rng.seed);
   campaign.rng.setState(record.rng.state);
+
+  // Restore M6 recruitment state (overrides whatever enterHub() generated
+  // during construction — the constructor's rng state was wrong until above).
+  campaign.availableRecruits = (record.availableRecruits ?? []).map(restoreCrewMember);
+  campaign.recruitedThisVisit = record.recruitedThisVisit ?? false;
 
   if (record.activeRun) {
     const member = campaign.getCrewMember(record.activeRun.crewMemberId);
@@ -637,6 +648,16 @@ function validateCampaignRecord(record: unknown): asserts record is CampaignSnap
   }
   if (candidate.state === CAMPAIGN_STATE.COMBAT && !candidate.activeRun) {
     throw new Error('restoreCampaign: COMBAT state requires activeRun');
+  }
+  // M6 fields are optional for backwards compat with pre-M6 saves.
+  if (candidate.availableRecruits !== undefined && !Array.isArray(candidate.availableRecruits)) {
+    throw new TypeError('restoreCampaign: availableRecruits must be an array when present');
+  }
+  if (
+    candidate.recruitedThisVisit !== undefined &&
+    typeof candidate.recruitedThisVisit !== 'boolean'
+  ) {
+    throw new TypeError('restoreCampaign: recruitedThisVisit must be a boolean when present');
   }
 }
 

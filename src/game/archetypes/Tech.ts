@@ -44,6 +44,7 @@ export const CALLSIGNS = Object.freeze([
  * breaking the deployTurret contract.
  */
 export class Tech extends Crew {
+  override archetype = 'Tech';
   override get baseHitChance(): number {
     return 0.75;
   }

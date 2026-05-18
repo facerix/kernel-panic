@@ -7,7 +7,7 @@
  * the perk in the current keymap. The three consumers:
  *
  *   - `<crew-roster>` / Hub UI    reads `ARCHETYPES` for labels
- *   - `<key-help>`                reads `ARCHETYPES[id].perkKey` for labels
+ *   - `<key-help>`                reads `ARCHETYPES[id].perkLabel` for intro text
  *   - `Campaign.buildCrew`        calls `buildCrewMember` to instantiate crew
  *
  * In-world glyph is `'@'` for both archetypes (the player avatar is consistent
@@ -36,35 +36,41 @@ export type Archetype = Merc | Razor | Tech;
 export const ARCHETYPE_IDS = Object.freeze(['merc', 'razor', 'tech']);
 
 /**
+ * Weighted archetype pool for recruitment (M6). 40% Merc, 40% Razor, 20% Tech.
+ * Expressed as a flat array so `rng.pick()` gives the correct distribution.
+ */
+export const RECRUIT_ARCHETYPE_POOL = Object.freeze(['merc', 'merc', 'razor', 'razor', 'tech']);
+
+/**
  * All three archetypes share a single perk key (`x`) — the keymap collapses
  * vault/slide/deploy into one `MODE.SPECIAL_AIM` aim mode that dispatches by
  * archetype at the intent layer (`applyIntent.doSpecial`). The per-archetype
- * `perkLabel` is what surfaces in `<character-select>` and `<key-help>`, so
+ * `perkLabel` is what `<key-help>` surfaces in the combat intro text, so
  * the visible verb stays archetype-specific even though the keystroke doesn't.
  */
 export const ARCHETYPES = Object.freeze({
   merc: Object.freeze({
     id: 'merc',
     name: 'MERC',
-    blurb: 'Ranged specialist. Trades position for line-of-fire control.',
+    blurb: 'Long-range pressure. Vault repositions under fire.',
     perks: Object.freeze(['vault']),
-    perkKey: 'x',
+    perkName: 'VAULT',
     perkLabel: 'VAULT — hop cover & fire',
   }),
   razor: Object.freeze({
     id: 'razor',
     name: 'RAZOR',
-    blurb: 'Stealth / melee. Cuts angles drones can’t cover.',
+    blurb: 'Close-quarters ghost. Slide in, cut out.',
     perks: Object.freeze(['slide']),
-    perkKey: 'x',
+    perkName: 'SLIDE',
     perkLabel: 'SLIDE — 2-tile silent dash',
   }),
   tech: Object.freeze({
     id: 'tech',
     name: 'TECH',
-    blurb: 'Engineer. Drops auto-firing turrets to lock down sightlines.',
+    blurb: "Field engineer. Turrets hold what you can't.",
     perks: Object.freeze(['deploy']),
-    perkKey: 'x',
+    perkName: 'DEPLOY',
     perkLabel: 'DEPLOY — place a turret',
   }),
 });

@@ -74,7 +74,7 @@ test('formatPlayerAftermathLogLines describes a turret hit', () => {
   const lines = formatPlayerAftermathLogLines(aftermath);
   assert.deepEqual(formatPlayerAftermathStepLogLines(aftermath.steps[0]), lines);
   assert.equal(lines.length, 1);
-  assert.match(lines[0], /t1 auto-fires at drone-0/);
+  assert.match(lines[0], /auto-fires at \[Corp\]Drone/);
   assert.match(lines[0], /HIT|miss/);
 });
 
