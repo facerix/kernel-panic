@@ -47,12 +47,22 @@ export type CorpDroneTurnStep =
   | { type: 'patrol-skipped'; waypoint: GridPoint }
   | CorpDroneMoveStep;
 
+/** CorpCivilian alarm step — yielded when a corp non-combatant spots the player. */
+export type CorpCivilianTurnStep = { type: 'alarm'; target: string };
+
+/** NeutralCivilian aftermath steps — yielded during the player aftermath phase. */
+export type NeutralCivilianTurnStep =
+  | { type: 'neutral-idle' }
+  | { type: 'neutral-flee'; to: GridPoint }
+  | { type: 'neutral-cornered' }
+  | { type: 'neutral-panic' };
+
 /**
  * Discriminated union of every paced turn-step yield today. New step-aware
- * AIs should extend this union (e.g. `| TurretTurnStep`) so `corpTurnDriver`
- * and tests can treat generators uniformly.
+ * AIs should extend this union so `corpTurnDriver` and tests can treat
+ * generators uniformly.
  */
-export type TurnActionStep = CorpDroneTurnStep;
+export type TurnActionStep = CorpDroneTurnStep | CorpCivilianTurnStep | NeutralCivilianTurnStep;
 
 /**
  * Generator contract for entities the corp turn driver paces one yield at a

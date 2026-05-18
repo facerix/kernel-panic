@@ -41,12 +41,16 @@ import { Razor } from './archetypes/Razor.js';
 import { Tech } from './archetypes/Tech.js';
 import { Turret } from './Turret.js';
 import { CorpDrone, DRONE_STATE } from './ai/CorpDrone.js';
+import { CorpCivilian } from './entities/CorpCivilian.js';
+import { NeutralCivilian } from './entities/NeutralCivilian.js';
 import { Run, RUN_STATE } from './Run.js';
 import { Campaign, CAMPAIGN_STATE } from './Campaign.js';
 import type { CrewInit } from './Crew.js';
 import type { Inventory, Gear } from './Crew.js';
 import type { TurretInit } from './Turret.js';
 import type { CorpDroneProps } from './ai/CorpDrone.js';
+import type { CorpCivilianInit } from './entities/CorpCivilian.js';
+import type { NeutralCivilianInit } from './entities/NeutralCivilian.js';
 import type { EntityInit } from './Entity.js';
 import type { FactionId } from './constants.js';
 import type {
@@ -62,7 +66,7 @@ import type { CampaignMeta, CampaignState } from './Campaign.js';
 
 const ARCHETYPE_KEY = Symbol.for('kernel-panic.archetype');
 
-type RestoreEntityProps = Partial<CrewInit & TurretInit & CorpDroneProps & EntityInit> & {
+type RestoreEntityProps = Partial<CrewInit & TurretInit & CorpDroneProps & CorpCivilianInit & NeutralCivilianInit & EntityInit> & {
   id: string;
   x: number;
   y: number;
@@ -79,6 +83,10 @@ const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) =
     tech: (props: RestoreEntityProps) => new Tech(props as CrewInit),
     turret: (props: RestoreEntityProps) => new Turret(props as TurretInit),
     drone: (props: RestoreEntityProps) => new CorpDrone(props as CorpDroneProps),
+    'corp-civilian': (props: RestoreEntityProps) =>
+      new CorpCivilian(props as CorpCivilianInit),
+    'neutral-civilian': (props: RestoreEntityProps) =>
+      new NeutralCivilian(props as NeutralCivilianInit),
     // Generic fallback so a future `Entity` subclass (NPCs, items) doesn't break
     // the round-trip when the full archetype landed but the loader hasn't.
     entity: (props: RestoreEntityProps) =>
@@ -138,7 +146,7 @@ export type CampaignSnapshot = {
   rng: { seed: number; state: number };
   crew: CampaignCrewSnapshot[];
   salvage: number;
-  vouch: number;
+  rep: number;
   meta: CampaignMeta;
   deployedMemberId: string | null;
   activeRun: CampaignActiveRunSnapshot | null;
@@ -168,7 +176,7 @@ export function snapshotCampaign(campaign: Campaign): CampaignSnapshot {
     rng: { seed: campaign.rng.seed, state: campaign.rng.state },
     crew: campaign.crew.map(snapshotCrewMember),
     salvage: campaign.salvage,
-    vouch: campaign.vouch,
+    rep: campaign.rep,
     meta: { ...campaign.meta },
     deployedMemberId: campaign.deployedMemberId,
     activeRun: campaign.activeRun ? snapshotActiveRun(campaign.activeRun) : null,
@@ -225,6 +233,7 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
   run.state = record.state;
   run.bus = new EventBus();
   run.world = new World(grid, { events: run.bus });
+  run.world.alarmActive = record.alarmActive ?? false;
 
   const factionOrder = [FACTION.PLAYER, FACTION.CORP];
   if (record.currentFaction !== FACTION.PLAYER && record.currentFaction !== FACTION.CORP) {
@@ -268,7 +277,7 @@ export function restoreCampaign(record: unknown, options: RestoreCampaignOptions
     seed: record.seed,
     crew,
     salvage: record.salvage,
-    vouch: record.vouch,
+    rep: record.rep,
     meta: record.meta,
     onPersist: options.onPersist,
     onResult: options.onResult,
@@ -606,12 +615,18 @@ function validateCampaignRecord(record: unknown): asserts record is CampaignSnap
     throw new TypeError('restoreCampaign: crew must be a non-empty array');
   }
   const salvage = candidate.salvage;
-  const vouch = candidate.vouch;
+  // Migrate legacy saves that used "vouch" → "rep"
+  const legacy = candidate as Record<string, unknown>;
+  if (candidate.rep === undefined && legacy.vouch !== undefined) {
+    candidate.rep = legacy.vouch as number;
+    delete legacy.vouch;
+  }
+  const rep = candidate.rep;
   if (!Number.isInteger(salvage) || salvage === undefined || salvage < 0) {
     throw new RangeError('restoreCampaign: salvage must be a non-negative integer');
   }
-  if (!Number.isInteger(vouch) || vouch === undefined || vouch < 0 || vouch > 100) {
-    throw new RangeError('restoreCampaign: vouch must be an integer in [0, 100]');
+  if (!Number.isInteger(rep) || rep === undefined || rep < 0 || rep > 100) {
+    throw new RangeError('restoreCampaign: rep must be an integer in [0, 100]');
   }
   if (
     candidate.meta === null ||

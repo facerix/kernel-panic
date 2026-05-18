@@ -3,7 +3,7 @@ import { World } from './World.js';
 import { TurnQueue } from './TurnQueue.js';
 import { EventBus } from './events.js';
 import { Entity } from './Entity.js';
-import { FACTION } from './constants.js';
+import { FACTION, REP } from './constants.js';
 import { buildCrewMember } from './archetypes/index.js';
 import { Curator } from './hub/Curator.js';
 import { Terminal } from './hub/Terminal.js';
@@ -34,7 +34,7 @@ export type CampaignOptions = {
   seed?: unknown;
   crew?: unknown;
   salvage?: unknown;
-  vouch?: unknown;
+  rep?: unknown;
   meta?: unknown;
   onPersist?: unknown;
   onResult?: unknown;
@@ -80,7 +80,7 @@ export class Campaign {
   rng: Rng;
   crew: Crew[];
   salvage: number;
-  vouch: number;
+  rep: number;
   meta: CampaignMeta;
   state: CampaignState;
   activeRun: Run | null;
@@ -101,7 +101,7 @@ export class Campaign {
     seed,
     crew,
     salvage = 0,
-    vouch = 50,
+    rep = 50,
     meta = {},
     onPersist,
     onResult,
@@ -115,8 +115,8 @@ export class Campaign {
     if (typeof salvage !== 'number' || !Number.isInteger(salvage) || salvage < 0) {
       throw new RangeError(`Campaign salvage must be a non-negative integer, got ${salvage}`);
     }
-    if (typeof vouch !== 'number' || !Number.isInteger(vouch) || vouch < 0 || vouch > 100) {
-      throw new RangeError(`Campaign vouch must be an integer in [0, 100], got ${vouch}`);
+    if (typeof rep !== 'number' || !Number.isInteger(rep) || rep < 0 || rep > 100) {
+      throw new RangeError(`Campaign rep must be an integer in [0, 100], got ${rep}`);
     }
     if (meta === null || typeof meta !== 'object' || Array.isArray(meta)) {
       throw new TypeError('Campaign meta must be a plain object');
@@ -133,7 +133,7 @@ export class Campaign {
     this.rng = new Rng(this.seed);
     this.crew = (crew as Crew[] | undefined) ?? buildCrew(this.rng);
     this.salvage = salvage;
-    this.vouch = vouch;
+    this.rep = rep;
     this.meta = { ...(meta as CampaignMeta) };
     this.state = CAMPAIGN_STATE.HUB;
     this.activeRun = null;
@@ -267,6 +267,20 @@ export class Campaign {
       throw new Error(`Campaign.flatlineMember: unknown crew member "${memberId}"`);
     }
     member.flatlined = true;
+  }
+
+  /**
+   * Adjust the campaign Rep meter by `delta` (positive or negative), clamped
+   * to [0, 100]. Returns the actual delta applied after clamping — callers
+   * can use this to build accurate feed messages.
+   */
+  adjustRep(delta: number): number {
+    if (!Number.isFinite(delta)) {
+      throw new TypeError(`Campaign.adjustRep: delta must be a finite number, got ${delta}`);
+    }
+    const before = this.rep;
+    this.rep = Math.max(REP.MIN, Math.min(REP.MAX, this.rep + delta));
+    return this.rep - before;
   }
 
   /**

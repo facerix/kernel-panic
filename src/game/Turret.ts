@@ -95,7 +95,7 @@ export class Turret extends Entity {
     let bestDist = Infinity;
     for (const e of world.entities.values()) {
       if (!e.alive) continue;
-      if (e.faction === this.faction) continue;
+      if (e.faction === this.faction || e.faction === FACTION.NEUTRAL) continue;
       if (e === this) continue;
       const dx = e.x - this.x;
       const dy = e.y - this.y;

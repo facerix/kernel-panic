@@ -26,6 +26,9 @@ export const EVENT = Object.freeze({
   ENTITY_DAMAGED: 'entity:damaged',
   NOISE: 'noise',
   TURN_ENDED: 'turn:ended',
+  ALARM: 'alarm',
+  CIVILIAN_HARMED: 'civilian:harmed',
+  REP_CHANGED: 'rep:changed',
 });
 
 const KNOWN_TYPES = new Set<string>(Object.values(EVENT));

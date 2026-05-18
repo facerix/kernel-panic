@@ -36,6 +36,8 @@ import type { BspNode } from './bsp.js';
 import type { ParsedPrefab } from './prefabs/types.js';
 
 const DEFAULT_THREAT_COUNT = 2;
+const DEFAULT_MAX_CORP_CIVILIANS = 1;
+const DEFAULT_MAX_NEUTRAL_CIVILIANS = 1;
 
 /**
  * The outermost 1-tile rim of the grid is always reserved for WALL. The BSP
@@ -52,10 +54,16 @@ type EntityAnchor = {
   y: number;
   waypoints: { x: number; y: number }[];
 };
+export type CivilianAnchor = {
+  x: number;
+  y: number;
+};
 export type Map = {
   grid: Grid;
   spawns: { player: GridPoint };
   drones: EntityAnchor[];
+  corpCivilians: CivilianAnchor[];
+  neutralCivilians: CivilianAnchor[];
   exitTile: GridPoint;
 };
 
@@ -67,12 +75,16 @@ type StampedLeaf = {
   center: GridPoint;
   droneWorld: EntityAnchor[];
   exitWorld: GridPoint[];
+  corpCivilianWorld: CivilianAnchor[];
+  neutralCivilianWorld: CivilianAnchor[];
 };
 type BuildMapOptions = {
   rng: Rng;
   width: number;
   height: number;
   threatCount?: number;
+  maxCorpCivilians?: number;
+  maxNeutralCivilians?: number;
 };
 
 /**
@@ -87,6 +99,8 @@ export function buildMap({
   width,
   height,
   threatCount = DEFAULT_THREAT_COUNT,
+  maxCorpCivilians = DEFAULT_MAX_CORP_CIVILIANS,
+  maxNeutralCivilians = DEFAULT_MAX_NEUTRAL_CIVILIANS,
 }: BuildMapOptions): Map {
   if (!rng || typeof rng.fork !== 'function') {
     throw new TypeError('buildMap requires an Rng with fork() (use src/rng.js)');
@@ -99,6 +113,16 @@ export function buildMap({
   if (!Number.isInteger(threatCount) || threatCount < 0) {
     throw new RangeError(
       `buildMap: threatCount must be a non-negative integer, got ${threatCount}`
+    );
+  }
+  if (!Number.isInteger(maxCorpCivilians) || maxCorpCivilians < 0) {
+    throw new RangeError(
+      `buildMap: maxCorpCivilians must be a non-negative integer, got ${maxCorpCivilians}`
+    );
+  }
+  if (!Number.isInteger(maxNeutralCivilians) || maxNeutralCivilians < 0) {
+    throw new RangeError(
+      `buildMap: maxNeutralCivilians must be a non-negative integer, got ${maxNeutralCivilians}`
     );
   }
 
@@ -171,10 +195,14 @@ export function buildMap({
   //      FLOOR tiles inside non-spawn leaves with a single-tile "stand
   //      still" waypoint. Better than refusing to spawn the run.
   const droneAnchors: EntityAnchor[] = [];
+  const corpCivilians: CivilianAnchor[] = [];
+  const neutralCivilians: CivilianAnchor[] = [];
   const isAlreadyTaken = (x: number, y: number): boolean =>
     (x === playerSpawn.x && y === playerSpawn.y) ||
     (x === exitTile.x && y === exitTile.y) ||
-    droneAnchors.some(a => a.x === x && a.y === y);
+    droneAnchors.some(a => a.x === x && a.y === y) ||
+    corpCivilians.some(a => a.x === x && a.y === y) ||
+    neutralCivilians.some(a => a.x === x && a.y === y);
 
   for (let i = 1; i < stamped.length && droneAnchors.length < threatCount; i++) {
     for (const anchor of stamped[i].droneWorld) {
@@ -202,10 +230,32 @@ export function buildMap({
     );
   }
 
+  // Civilians — collect authored spawn points from non-spawn leaves, capped
+  // by maxCorpCivilians / maxNeutralCivilians. No fallback generation (unlike
+  // drones) — civilians are optional content. Only place civilians on
+  // passable, unoccupied tiles.
+  for (let i = 1; i < stamped.length; i++) {
+    if (corpCivilians.length >= maxCorpCivilians && neutralCivilians.length >= maxNeutralCivilians) break;
+    for (const a of stamped[i].corpCivilianWorld) {
+      if (corpCivilians.length >= maxCorpCivilians) break;
+      if (grid.tileAt(a.x, a.y) !== TILE.FLOOR) continue;
+      if (isAlreadyTaken(a.x, a.y)) continue;
+      corpCivilians.push(a);
+    }
+    for (const a of stamped[i].neutralCivilianWorld) {
+      if (neutralCivilians.length >= maxNeutralCivilians) break;
+      if (grid.tileAt(a.x, a.y) !== TILE.FLOOR) continue;
+      if (isAlreadyTaken(a.x, a.y)) continue;
+      neutralCivilians.push(a);
+    }
+  }
+
   return {
     grid,
     spawns: { player: playerSpawn },
     drones: droneAnchors,
+    corpCivilians,
+    neutralCivilians,
     exitTile,
   };
 }
@@ -252,8 +302,16 @@ function stampPrefab(grid: Grid, rng: Rng, leaf: BspNode): StampedLeaf {
     x: originX + e.x,
     y: originY + e.y,
   }));
+  const corpCivilianWorld = (prefab.anchors.corpCivilians ?? []).map(a => ({
+    x: originX + a.x,
+    y: originY + a.y,
+  }));
+  const neutralCivilianWorld = (prefab.anchors.neutralCivilians ?? []).map(a => ({
+    x: originX + a.x,
+    y: originY + a.y,
+  }));
 
-  return { leaf, prefab, originX, originY, center, droneWorld, exitWorld };
+  return { leaf, prefab, originX, originY, center, droneWorld, exitWorld, corpCivilianWorld, neutralCivilianWorld };
 }
 
 /**

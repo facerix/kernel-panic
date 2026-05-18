@@ -7,7 +7,7 @@ Turn-based cyberpunk roguelike PWA: tactical grid combat in Meatspace first, wit
 - **Archetypes:** Merc (ranged, Vault perk), Razor (melee/stealth, Slide perk), Tech (turret deploy).
 - **Combat:** Grid-based, AP costs — move 1, ranged attack 2, melee attack 1, interact 1, deploy 2.
 - **Systems:** A* pathfinding for drones, LOS, campaign persistence, salvage economy.
-- **Economy:** Salvage → Finn's shop. Vouch meter (NPC/social play in M5+).
+- **Economy:** Salvage → Finn's shop. Rep meter (NPC/social play in M5+).
 - **UI:** Canvas ASCII-plus terminal aesthetic; CRT-style presentation per blueprint.
 
 Detailed mechanics and roadmap: `docs/kernel-panic-v1-blueprint.md`. Current plan: `docs/phase-2-plan.md`.

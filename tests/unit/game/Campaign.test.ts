@@ -34,11 +34,11 @@ test('buildCrew creates one named member per starter archetype with unique calls
   );
 });
 
-test('Campaign starts in HUB with crew, salvage, vouch, and meta state', () => {
+test('Campaign starts in HUB with crew, salvage, rep, and meta state', () => {
   const campaign = new Campaign({ seed: 42 });
   assert.equal(campaign.state, CAMPAIGN_STATE.HUB);
   assert.equal(campaign.salvage, 0);
-  assert.equal(campaign.vouch, 50);
+  assert.equal(campaign.rep, 50);
   assert.deepEqual(campaign.meta, {});
   assert.equal(campaign.crew.length, 3);
   assert.ok(campaign.world);
@@ -290,4 +290,50 @@ test('consumables survive campaign snapshot/restore round-trip', () => {
   const restoredMember = restored.crew[0];
   assert.equal(restoredMember.inventory.consumables.length, 1);
   assert.equal(restoredMember.inventory.consumables[0].id, 'stim');
+});
+
+// --- M5: Rep meter -----------------------------------------------------------
+
+test('adjustRep raises rep and clamps at 100', () => {
+  const campaign = new Campaign({ seed: 42 }); // starts at 50
+  const delta = campaign.adjustRep(10);
+  assert.equal(campaign.rep, 60);
+  assert.equal(delta, 10);
+  // Clamp at 100.
+  const overshoot = campaign.adjustRep(999);
+  assert.equal(campaign.rep, 100);
+  assert.equal(overshoot, 40); // 100 − 60
+});
+
+test('adjustRep lowers rep and clamps at 0', () => {
+  const campaign = new Campaign({ seed: 42 }); // starts at 50
+  const delta = campaign.adjustRep(-20);
+  assert.equal(campaign.rep, 30);
+  assert.equal(delta, -20);
+  // Clamp at 0.
+  const overshoot = campaign.adjustRep(-999);
+  assert.equal(campaign.rep, 0);
+  assert.equal(overshoot, -30); // 0 − 30
+});
+
+test('adjustRep with zero delta is a no-op', () => {
+  const campaign = new Campaign({ seed: 42 });
+  const delta = campaign.adjustRep(0);
+  assert.equal(campaign.rep, 50);
+  assert.equal(delta, 0);
+});
+
+test('adjustRep throws on non-finite delta', () => {
+  const campaign = new Campaign({ seed: 42 });
+  assert.throws(() => campaign.adjustRep(NaN), /finite/);
+  assert.throws(() => campaign.adjustRep(Infinity), /finite/);
+});
+
+test('rep survives campaign snapshot/restore round-trip', () => {
+  const campaign = new Campaign({ seed: 42 });
+  campaign.adjustRep(-15);
+  assert.equal(campaign.rep, 35);
+  const snap = snapshotCampaign(campaign);
+  const restored = restoreCampaign(snap);
+  assert.equal(restored.rep, 35);
 });

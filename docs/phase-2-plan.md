@@ -11,7 +11,7 @@ Living plan for Phase 2 of Kernel Panic. Source of truth for milestone scope, cu
 | M2 — Campaign layer + named crew roster | ✅ Done |
 | M3 — Salvage + inventory + improvised turrets | ✅ Done |
 | M4 — Finn's shop | ✅ Done |
-| M5 — Vouch + NPC taxonomy | ⬜ Pending |
+| M5 — Rep + NPC taxonomy | ✅ Done |
 | M6 — Recruitment | ⬜ Pending |
 | M7 — Combat depth + procgen | ⬜ Pending |
 | M8 — Job board + contract tiers | ⬜ Pending |
@@ -19,7 +19,7 @@ Living plan for Phase 2 of Kernel Panic. Source of truth for milestone scope, cu
 **Phase 2 complete** when *all three* of:
 
 1. Every milestone box ticked ✅ (above).
-2. Full campaign loop playable offline on iOS Safari + Chrome desktop: Hub crew management → contract selection → job deployment → combat → extract or flatline → return to Hub, with Finn shop, Vouch meter, and recruitment visible.
+2. Full campaign loop playable offline on iOS Safari + Chrome desktop: Hub crew management → contract selection → job deployment → combat → extract or flatline → return to Hub, with Finn shop, Rep meter, and recruitment visible.
 3. `v0.2.0` tagged in git.
 
 Test count at Phase 2 start: **409 passing** (end of Phase 1 / M8).
@@ -37,15 +37,15 @@ Test count at Phase 2 start: **409 passing** (end of Phase 1 / M8).
 - **Salvage:** Universal collectible — all archetypes can loot drone corpses. Generic units (no typed components) in Phase 2. All archetypes bring salvage back to Finn at job end via the extraction path.
 - **Three persistence scopes:**
   - *Job-scoped* — consumables used, turrets placed; gone when the job ends.
-  - *Campaign-scoped* — crew gear, campaign salvage pool, Vouch meter; survive across jobs, lost on campaign wipe.
+  - *Campaign-scoped* — crew gear, campaign salvage pool, Rep meter; survive across jobs, lost on campaign wipe.
   - *Meta-scoped* — Hub upgrades purchased from Finn; permanent, survive even a full campaign wipe.
 - **Finn:** Hub NPC (a nod to Gibson's fence archetype). Accepts salvage; sells consumables (cheapest), crew gear (campaign-scoped), and Hub upgrades (meta-scoped). Placed in the Hub grid; interact to open shop.
 - **NPC taxonomy on jobs:**
   - *Collective-aligned* — Curator, Finn; never hostile.
-  - *Truly neutral* — civilians; Vouch-sensitive (behavior scales with meter level).
+  - *Truly neutral* — civilians; Rep-sensitive (behavior scales with meter level).
   - *Corp-aligned non-combatant* — office workers, desk security; do not fight but trigger an alarm (all drones in the map enter ENGAGE) if they spot the player.
-- **Vouch:** Campaign-level meter (0–100, starting at 50). Raised by clean contract completion; lowered by civilian/neutral kills. Gates neutral NPC behavior and crew recruitment unlocks.
-- **Recruitment:** New crew members unlock when Vouch reaches a threshold (suggest 65) or as a specific contract reward. Archetype and callsign generated on recruit; callsign deduplication applies.
+- **Rep:** Campaign-level meter (0–100, starting at 50). Raised by clean contract completion; lowered by civilian/neutral kills. Gates neutral NPC behavior and crew recruitment unlocks.
+- **Recruitment:** New crew members unlock when Rep reaches a threshold (suggest 65) or as a specific contract reward. Archetype and callsign generated on recruit; callsign deduplication applies.
 - **Animations (M0):** Turn-blocking — input disabled for ~300ms during the longest active animation. Three effects: screen shake (CSS `@keyframes` translate on game container, ~150ms), damage reddening (CRT filter temporary red vignette, ~300ms), muzzle flash (1-frame canvas color override at shooter's tile, ~80ms). All wired to the existing event bus. No game-logic changes.
 - **Unified special-action key (M1):** Vault, Slide, and Deploy collapse into a single `x` → `MODE.SPECIAL_AIM` → `{ type: 'special', dx, dy }` intent at the keymap layer; `applyIntent.doSpecial` dispatches to the archetype's perk by capability sniffing (`canDeploy` → Tech, `canVault` → Merc, `canSlide` → Razor). One key, one touch-pad button, one help row — no WASD collision (the original plan's `d` key clashed with WASD-right), and adding a future archetype only requires implementing its perk method.
 - **Interact key rebound to Space (M3):** `i` → Space (`' '`). Roguelike players associate `i` with inventory (which M4's Finn shop will want). Space is the universal "activate" key in modern games — accessible, no directional collision (qezc diagonals, WASD, arrows all occupied). Keymap, touchpad, key-help rows, and proximity hints all updated. `i` is now unbound, reserved for inventory in M4.
@@ -70,7 +70,7 @@ Test count at Phase 2 start: **409 passing** (end of Phase 1 / M8).
 All Phase 1 conventions apply (pure/DOM split, relative imports inside `src/`, absolute from outside, DataStore + `h()` + Web Components, crash over silent fallback, tests must be able to fail). Additions for Phase 2:
 
 - **Campaign layer.** `src/game/Campaign.js` is the new top-level game object. `index.js` mounts Campaign; Campaign mounts Run for each job. Run no longer owns the Hub state machine.
-- **Three DataStore scopes.** Job scope existed implicitly in Phase 1. Campaign scope (`crew`, `salvage`, `vouch`) and meta scope (`upgrades`) are new; both are serialised as separate DataStore records and survive across jobs and campaign wipes respectively.
+- **Three DataStore scopes.** Job scope existed implicitly in Phase 1. Campaign scope (`crew`, `salvage`, `rep`) and meta scope (`upgrades`) are new; both are serialised as separate DataStore records and survive across jobs and campaign wipes respectively.
 - **`Crew` sits between `Entity` and archetypes.** All player-controlled entities extend `Crew`. Crew-specific fields (`callsign`, `flatlined`, `inventory`, `gear`) must not leak into `Entity`; pure-logic tests for non-crew entities must not need them.
 - **Turret is a placed grid entity, not an archetype.** Lives in `src/game/Turret.js` (peer of `Entity.js`). Faction = PLAYER. Has HP; can be destroyed. `autoFire(world, rng)` is driven by the player-aftermath phase in `combatTurnPipeline.js` after the player yields, before corp AI begins.
 - **Combat turn pipeline.** Player → player aftermath → corp → player handoff lives in `src/game/combatTurnPipeline.js`, not in page-specific shells. Shells inject rendering, logging, animation locks, and timers; the module remains pure JS and unit-testable. Player aftermath is step-driven (`runPlayerAftermathSteps` / `drivePlayerAftermath`) so turret autofire, future allied NPC actions, hazards, and neutral movement can each render discretely before corp AI begins.
@@ -189,25 +189,33 @@ Full conversion of the codebase from vanilla JavaScript to TypeScript, completed
 - **Test suite intact:** 616 tests passing (up from 614 at end of M4 — two new tests added during conversion for `Hostile` and `Crew` edge cases). All tests run via `npm test` (`typecheck` + transpile + `node --test`). `typecheck:tests` still has ~10 residual errors (tests that use intentionally loose stubs, e.g. partial entity shapes) — these are non-blocking and tracked for a future kaizen pass.
 - **Net diff:** +3654 / −1191 lines across 120 files. The bulk is type annotations, interface declarations, and the build scaffolding. No behavioural changes to game logic, rendering, or persistence.
 
-### M5 — Vouch + NPC taxonomy ⬜
+### M5 — Rep + NPC taxonomy ✅
 
 Closes the **NEUTRAL faction shootable** kaizen item.
 
-- `Campaign.vouch` solidified (was stubbed at 50 in M2). `adjustVouch(delta)` clamps to `[0, 100]`. Events that adjust Vouch: +10 on clean contract completion (no civilian harm), −20 on neutral/civilian kill, −5 on corp non-combatant alarm triggered (complicity). All adjustments logged to the event bus as `vouch:changed { delta, reason }` for the UI feed.
-- **`CorpCivilian`** (`src/game/entities/CorpCivilian.js`) — extends `Entity`. Faction = CORP. No weapons. On each corp turn, checks `hasLineOfSight` to the deployed crew member (using shared `withinRange` + `blockerKeys`); if visible, emits `alarm` event. All `CorpDrone` instances subscribed to `alarm` immediately transition to ENGAGE with the crew member as target. Placed by `mapBuild.js` at authored spawn points in prefabs (at least one per `office` prefab).
-- **`NeutralCivilian`** (`src/game/entities/NeutralCivilian.js`) — extends `Entity`. Faction = NEUTRAL. Behavior on corp turn varies by `campaign.vouch`: ≥70 → idle; 30–69 → moves one tile away from player (uses `Pathfinding` to flee); <30 → emits `noise` event (triggers drone investigate). Does not fight under any condition.
-- **Neutral kill consequence:** `canFireRanged` already permits cross-faction shots on NEUTRAL. Now a `resolveRanged` hit on a NEUTRAL entity additionally emits `civilian:harmed { source }` — Campaign adjusts Vouch and logs to the feed. Closes kaizen item.
-- Hub Vouch indicator: a `VOUCH` readout added to the Hub crew panel (numeric + qualitative label: TRUSTED / KNOWN / UNKNOWN / BURNED).
-- `mapBuild.js`: CorpCivilian and NeutralCivilian spawns added to prefab schema. `office` and `server-room` prefabs updated with at least one civilian spawn each.
-- Tests: Vouch adjust/clamp, CorpCivilian alarm emission + drone ENGAGE transition, NeutralCivilian idle/flee/noise at each Vouch tier, neutral kill emits `civilian:harmed`, Vouch adjustment applied from event.
+- `Campaign.rep` solidified (renamed from `vouch`, which was stubbed at 50 in M2). `adjustRep(delta)` clamps to `[0, 100]`, returns actual delta applied. Save state migration: legacy `vouch` key auto-migrates to `rep` on restore.
+- **Rep constants:** `REP.MIN=0, MAX=100, START=50, NEUTRAL_IDLE_THRESHOLD=70, NEUTRAL_FLEE_THRESHOLD=30, CLEAN_COMPLETION_BONUS=+10, CIVILIAN_KILL_PENALTY=-20, ALARM_PENALTY=-5`. `REP_LABEL` brackets: TRUSTED (≥80), KNOWN (≥50), UNKNOWN (≥20), BURNED (≥0).
+- **Events:** Three new event types — `alarm`, `civilian:harmed`, `rep:changed`.
+- **`CorpCivilian`** (`src/game/entities/CorpCivilian.ts`) — extends `Entity`. Faction = CORP. No weapons, no movement. On each corp turn, checks LOS to the player; if visible, emits `alarm` event. Alarm is a **map-wide latch** on `world.alarmActive` — once any CorpCivilian triggers it, the facility stays on alert for the rest of the run (no stacking Rep penalties). All `CorpDrone` instances subscribed to `alarm` immediately transition to ENGAGE with the crew member as target. Placed by `mapBuild` at authored spawn points in prefabs.
+- **`NeutralCivilian`** (`src/game/entities/NeutralCivilian.ts`) — extends `Entity`. Faction = NEUTRAL. Acts during the **player aftermath** phase (between turret autofire and corp AI), not during the corp turn. Behavior varies by `campaign.rep` passed as context: ≥70 → idle; 30–69 → flees one tile away from player (greedy Chebyshev maximise); <30 → emits `noise` event (draws drone investigation). Does not fight under any condition.
+- **Neutral kill consequence:** `Run.#onEntityDamaged` emits `civilian:harmed` when a NEUTRAL entity is damaged by the player or player's turret. Shell subscribes: kill → `adjustRep(CIVILIAN_KILL_PENALTY)`, alarm → `adjustRep(ALARM_PENALTY)`. Closes kaizen item.
+- **Clean completion bonus:** On EXIT with zero `civilianHarmsThisJob`, shell applies `+10 Rep`.
+- **Hostile targeting fix:** `Hostile.isHostileTo()` and `Turret.findTarget()` now exclude NEUTRAL entities — drones and turrets no longer target bystanders.
+- **Civilian caps:** `mapBuild` gains `maxCorpCivilians` (default 1) and `maxNeutralCivilians` (default 1) to control difficulty scaling.
+- **Alert visuals:** Combat status bar shows a red `[ALERT]` tag when `world.alarmActive`. CRT filter applies a faint red wash (`alertTint`) over the canvas, shifting the mood of the whole screen.
+- Hub Rep indicator: `REP N (LABEL)` in the Hub status line.
+- `combatTurnPipeline.ts`: `PlayerAftermathStep` expanded to include `NeutralCivilianAftermathStep`. `runPlayerAftermathSteps` accepts optional `{ rep }` context. Log formatting covers flee, cornered, and panic steps.
+- Persistence: `alarmActive` saved in run snapshots (defaults to `false` for pre-M5 saves). CorpCivilian and NeutralCivilian added to `ARCHETYPE_FACTORY` and `archetypeOf()`.
+- Prefab schema: `corpCivilians` and `neutralCivilians` anchor arrays added. `office` gets a corpCivilian anchor; `server-room` gets a neutralCivilian anchor.
+- Tests (671 total, up from 631 at M5 start): Rep adjust/clamp (5), CorpCivilian alarm + latch + suppression (9), NeutralCivilian idle/flee/panic at each Rep tier (9), neutral kill emits `civilian:harmed` (2), drone alarm subscription (3), civilian in aftermath pipeline (6), mapBuild civilian caps (3), turret/drone NEUTRAL targeting exclusion (2), persistence round-trip (1), vouch→rep migration (1).
 
 ### M6 — Recruitment ⬜
 
 - `Campaign` gains `availableRecruits: CrewRecord[]` — refreshed on each Hub visit. `generateRecruits(rng, campaign)` rolls 1–2 candidates; archetype weighted (Merc 40%, Razor 40%, Tech 20%); callsign picked from archetype list excluding all names ever used in this campaign (living + flatlined history).
-- **Unlock conditions** checked in `generateRecruits`: Vouch ≥ 65 (at least one recruit appears) OR a completed contract carried a `reward.recruit: true` flag (M8 adds this to high-tier contracts).
+- **Unlock conditions** checked in `generateRecruits`: Rep ≥ 65 (at least one recruit appears) OR a completed contract carried a `reward.recruit: true` flag (M8 adds this to high-tier contracts).
 - `Campaign.recruit(recruitId)` — validates unlock condition still holds; pushes recruit onto `campaign.crew`; updates DataStore. Crew can exceed 3 members after recruitment.
 - Hub UI: `<crew-roster>` extended with a "Available Recruits" section (visible when `availableRecruits.length > 0`). Confirm button triggers `recruit` event on Campaign.
-- Tests: recruit generation (archetype weights over many seeds, callsign deduplication), Vouch gate enforcement (below threshold → no recruits), recruit persistence in campaign snapshot.
+- Tests: recruit generation (archetype weights over many seeds, callsign deduplication), Rep gate enforcement (below threshold → no recruits), recruit persistence in campaign snapshot.
 
 ### M7 — Combat depth + procgen ⬜
 
@@ -221,14 +229,14 @@ Closes the **melee always hits**, **drone patrol anchor**, and **corridor procge
 
 ### M8 — Job board + contract tiers ⬜
 
-- `Curator.generateContracts(rng, campaign)` replaces `generateContract` — returns an array of 3 contracts per Hub visit. Contract shape gains `difficulty: 'standard' | 'elevated' | 'critical'` and `reward: { salvage: N, vouchDelta: N, recruit?: true }`.
+- `Curator.generateContracts(rng, campaign)` replaces `generateContract` — returns an array of 3 contracts per Hub visit. Contract shape gains `difficulty: 'standard' | 'elevated' | 'critical'` and `reward: { salvage: N, repDelta: N, recruit?: true }`.
 - **Difficulty effects:** `standard` → existing threat count + no civilians. `elevated` → +1 drone, CorpCivilian present. `critical` → +2 drones, CorpCivilian + NeutralCivilian present, harder drone patrol paths (shorter gaps between waypoints).
 - **Hub meta-upgrade — `better-contracts`** (available from Finn in M4): shifts `generateContracts` pool weight toward elevated/critical tiers and raises salvage reward floors. Campaign's `meta.betterContracts` flag gates this.
 - **`<contract-select>` web component** replaces `<run-briefing>` — displays all 3 contracts with difficulty badge, reward summary, and a TAKE THE JOB button. Keyboard-navigable (↑/↓, Enter, Esc). The selected contract is passed into `Campaign.deployCrewMember(memberId, contract)` and from there into `Run` → `mapBuild`.
 - `mapBuild.js`: accepts `threatCount` and `difficulty` from the contract; scales drone count and civilian spawns accordingly.
-- `Campaign.onJobEnd` applies `contract.reward`: salvage added to pool, `adjustVouch(vouchDelta)`, recruit flag sets a pending recruit for next Hub visit.
+- `Campaign.onJobEnd` applies `contract.reward`: salvage added to pool, `adjustRep(repDelta)`, recruit flag sets a pending recruit for next Hub visit.
 - **Invert job acceptance flow:** Currently, when talking with the Curator, player selects the crew member to deploy, then accepts the job. Once job options land, player should first be presented with the job list, then once they take a job, they can choose the crew member best suited to that mission. Phase 3 will further enrich this paradigm when we add more complexity to job completion goals beyond "find the exit."
-- Tests: `Curator.test.js` — pool of 3, difficulty distribution, reward scaling, `better-contracts` shifts pool; `Campaign.test.js` — contract reward applied correctly (salvage, Vouch, recruit flag), `mapBuild` receives correct threat config from contract.
+- Tests: `Curator.test.js` — pool of 3, difficulty distribution, reward scaling, `better-contracts` shifts pool; `Campaign.test.js` — contract reward applied correctly (salvage, Rep, recruit flag), `mapBuild` receives correct threat config from contract.
 
 ## Recorded problems (deferred)
 

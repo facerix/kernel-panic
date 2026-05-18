@@ -101,6 +101,8 @@ export function parsePrefab(ascii: PrefabAscii, metadata: PrefabMetadata): Parse
     drones: validateAnchors(metadata.anchors?.drones ?? [], w, h, metadata.id, 'drones'),
     cover: validateAnchors(metadata.anchors?.cover ?? [], w, h, metadata.id, 'cover'),
     exit: validateAnchors(metadata.anchors?.exit ?? [], w, h, metadata.id, 'exit'),
+    corpCivilians: validateAnchors(metadata.anchors?.corpCivilians ?? [], w, h, metadata.id, 'corpCivilians'),
+    neutralCivilians: validateAnchors(metadata.anchors?.neutralCivilians ?? [], w, h, metadata.id, 'neutralCivilians'),
   };
 
   return { id: metadata.id, w, h, tiles, anchors };
@@ -111,7 +113,7 @@ function validateAnchors<T extends PrefabAnchor>(
   w: number,
   h: number,
   prefabId: string,
-  kind: 'drones' | 'cover' | 'exit'
+  kind: 'drones' | 'cover' | 'exit' | 'corpCivilians' | 'neutralCivilians'
 ): T[] {
   if (!Array.isArray(list)) {
     throw new TypeError(`prefab ${prefabId}: anchors.${kind} must be an array`);

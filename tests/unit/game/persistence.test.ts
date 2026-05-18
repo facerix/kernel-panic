@@ -171,7 +171,7 @@ test('snapshot without a Run instance throws TypeError', () => {
 test('campaign snapshot/restore round-trips campaign scope', () => {
   const campaign = new Campaign({ seed: 0xface });
   campaign.salvage = 7;
-  campaign.vouch = 62;
+  campaign.rep = 62;
   campaign.meta = { expandedCatalog: true };
   campaign.crew[1].flatlined = true;
 
@@ -181,7 +181,7 @@ test('campaign snapshot/restore round-trips campaign scope', () => {
 
   assert.deepEqual(recB, recA);
   assert.equal(restored.salvage, 7);
-  assert.equal(restored.vouch, 62);
+  assert.equal(restored.rep, 62);
   assert.deepEqual(restored.meta, { expandedCatalog: true });
   assert.equal(restored.crew[1].flatlined, true);
 });
@@ -206,7 +206,18 @@ test('restoreCampaign throws on corrupt campaign records', () => {
   assert.throws(() => restoreCampaign({ ...rec, type: 'run' }), /campaign/);
   assert.throws(() => restoreCampaign({ ...rec, crew: [] }), /crew/);
   assert.throws(() => restoreCampaign({ ...rec, salvage: -1 }), /salvage/);
-  assert.throws(() => restoreCampaign({ ...rec, vouch: 101 }), /vouch/);
+  assert.throws(() => restoreCampaign({ ...rec, rep: 101 }), /rep/);
+});
+
+test('restoreCampaign migrates legacy "vouch" key to "rep"', () => {
+  const campaign = new Campaign({ seed: 0xdead });
+  campaign.rep = 75;
+  const rec = snapshotCampaign(campaign);
+  // Simulate a legacy save that used "vouch" instead of "rep"
+  const legacy = { ...rec, vouch: rec.rep } as Record<string, unknown>;
+  delete legacy.rep;
+  const restored = restoreCampaign(legacy);
+  assert.equal(restored.rep, 75);
 });
 
 test('restoreCampaign normalizes over-capped hitBonus in crew gear', () => {

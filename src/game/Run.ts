@@ -45,6 +45,8 @@ import { Razor } from './archetypes/Razor.js';
 import { Tech } from './archetypes/Tech.js';
 import { Turret } from './Turret.js';
 import { CorpDrone } from './ai/CorpDrone.js';
+import { CorpCivilian } from './entities/CorpCivilian.js';
+import { NeutralCivilian } from './entities/NeutralCivilian.js';
 import { isObjective } from './hub/Curator.js';
 import { buildMap } from './procgen/mapBuild.js';
 import type { Contract } from './hub/Curator.js';
@@ -71,7 +73,7 @@ const COMBAT_MAP_HEIGHT = 16;
 export type RunState = (typeof RUN_STATE)[keyof typeof RUN_STATE];
 export type Outcome = (typeof OUTCOME)[keyof typeof OUTCOME];
 export type CrewArchetypeId = 'merc' | 'razor' | 'tech';
-export type EntityArchetypeId = CrewArchetypeId | 'turret' | 'drone' | 'entity';
+export type EntityArchetypeId = CrewArchetypeId | 'turret' | 'drone' | 'corp-civilian' | 'neutral-civilian' | 'entity';
 
 export type RunTelemetry = {
   archetype: CrewArchetypeId;
@@ -132,6 +134,8 @@ export type RunSnapshot = {
   grid: { w: number; h: number; tiles: number[] };
   entities: RunEntitySnapshot[];
   telemetry: RunTelemetry;
+  /** Map-wide alarm latch. Missing in pre-M5 saves → defaults to false. */
+  alarmActive?: boolean;
 };
 
 export type RunResult = {
@@ -264,6 +268,16 @@ export class Run {
       this.world.addEntity(drone);
       drone.bindToBus(this.bus);
     }
+    for (let i = 0; i < map.corpCivilians.length; i++) {
+      const a = map.corpCivilians[i]!;
+      const civ = new CorpCivilian({ id: `corp-civ-${i}`, x: a.x, y: a.y });
+      this.world.addEntity(civ);
+    }
+    for (let i = 0; i < map.neutralCivilians.length; i++) {
+      const a = map.neutralCivilians[i]!;
+      const civ = new NeutralCivilian({ id: `neutral-civ-${i}`, x: a.x, y: a.y });
+      this.world.addEntity(civ);
+    }
     this.queue = new TurnQueue([FACTION.PLAYER, FACTION.CORP]);
     this.exitTile = { ...map.exitTile };
     this.state = RUN_STATE.COMBAT;
@@ -325,6 +339,7 @@ export class Run {
       },
       entities: Array.from(world.entities.values()).map(snapshotEntity),
       telemetry: { ...this.telemetry },
+      alarmActive: world.alarmActive,
     };
   }
 
@@ -403,6 +418,23 @@ export class Run {
       this.telemetry.kills = (this.telemetry.kills ?? 0) + 1;
     } else if (killed && attacker instanceof Turret && attacker.ownerId === this.player.id) {
       this.telemetry.kills = (this.telemetry.kills ?? 0) + 1;
+    }
+    // M5: emit civilian:harmed when a NEUTRAL entity takes damage from the
+    // player (or the player's turret). The shell subscribes and adjusts Rep.
+    if (target.faction === FACTION.NEUTRAL && target !== this.player) {
+      const isPlayerSource =
+        attacker === this.player ||
+        (attacker instanceof Turret && attacker.ownerId === this.player.id);
+      if (isPlayerSource) {
+        this.telemetry.civilianHarms = ((this.telemetry.civilianHarms as number) ?? 0) + 1;
+        this.world?.events?.emit(EVENT.CIVILIAN_HARMED, {
+          attacker,
+          target,
+          damage,
+          killed,
+          source,
+        });
+      }
     }
     // M3: assign loot to killed hostiles. The loot roll uses the Run's own
     // Rng so it's deterministic on the contract seed.
@@ -497,6 +529,8 @@ function archetypeOf(entity: Entity): EntityArchetypeId {
   if (entity instanceof Tech) return 'tech';
   if (entity instanceof Turret) return 'turret';
   if (entity instanceof CorpDrone) return 'drone';
+  if (entity instanceof CorpCivilian) return 'corp-civilian';
+  if (entity instanceof NeutralCivilian) return 'neutral-civilian';
   if (entity instanceof Entity) return 'entity';
   throw new Error(`archetypeOf: cannot classify entity ${(entity as Entity | undefined)?.id}`);
 }

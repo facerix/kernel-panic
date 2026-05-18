@@ -66,7 +66,7 @@ export function canFireRanged(
   if (target === attacker) return { ok: false, reason: 'self-target' };
   // NOTE: only same-faction is blocked. NEUTRAL is *not* shielded — civilians
   // are shootable in V1 by design (narrative consequences, not a rules wall).
-  // Revisit when noise/Vouch lands.
+  // Revisit when noise/Rep lands.
   if (target.faction === attacker.faction) return { ok: false, reason: 'same-faction' };
   if (!options.freeShot && !attacker.canAfford(AP_COST.RANGED_ATTACK)) {
     return { ok: false, reason: 'insufficient-ap' };
@@ -115,7 +115,9 @@ export function resolveRanged(
   // Crew archetypes override baseHitChance (Merc 0.8, Tech 0.75, Razor 0.7);
   // non-crew entities (drones, turrets) fall back to BASE_HIT_CHANCE.
   const entityBaseHit =
-    'baseHitChance' in attacker ? (attacker as { baseHitChance: number }).baseHitChance : BASE_HIT_CHANCE;
+    'baseHitChance' in attacker
+      ? (attacker as { baseHitChance: number }).baseHitChance
+      : BASE_HIT_CHANCE;
   // M4: crew gear's targeting chip adds hitBonus to the base chance.
   const gearBonus = (attacker as Entity & { gear?: { hitBonus?: number } }).gear?.hitBonus ?? 0;
   const baseHit = options.baseHit ?? entityBaseHit + gearBonus;

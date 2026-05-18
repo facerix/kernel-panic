@@ -24,11 +24,15 @@ export class World {
   entities: Map<string, Entity>;
   events: EventBus | null;
 
+  /** Map-wide alarm latch. Once raised by a CorpCivilian, stays true for the run. */
+  alarmActive: boolean;
+
   constructor(grid: Grid, options: WorldOptions = {}) {
     if (!grid) throw new TypeError('World requires a grid');
     this.grid = grid;
     this.entities = new Map();
     this.events = options.events ?? null;
+    this.alarmActive = false;
   }
 
   addEntity(entity: Entity) {

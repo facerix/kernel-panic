@@ -149,3 +149,33 @@ export const NOISE_RADIUS = Object.freeze({
   MELEE: 5,
   RANGED: SIGHT_RANGE, // a gunshot is heard as far as it could have travelled
 });
+
+/**
+ * Rep meter parameters. Campaign-level social standing — 0 (BURNED) to 100
+ * (TRUSTED), starting at 50 (UNKNOWN). Adjusted by in-job events (kills,
+ * alarms) and clean contract completions. Gates NeutralCivilian behaviour
+ * (M5) and recruitment (M6).
+ */
+export const REP = Object.freeze({
+  MIN: 0,
+  MAX: 100,
+  START: 50,
+  /** Rep thresholds for NeutralCivilian behaviour. */
+  NEUTRAL_IDLE_THRESHOLD: 70,
+  NEUTRAL_FLEE_THRESHOLD: 30,
+  /** Rep adjustments. */
+  CLEAN_COMPLETION_BONUS: 10,
+  CIVILIAN_KILL_PENALTY: -20,
+  ALARM_PENALTY: -5,
+});
+
+/**
+ * Rep qualitative labels, keyed by lower bound. The shell maps `campaign.rep`
+ * to the highest bracket whose lower bound the value meets or exceeds.
+ */
+export const REP_LABEL = Object.freeze([
+  { min: 80, label: 'TRUSTED' },
+  { min: 50, label: 'KNOWN' },
+  { min: 20, label: 'UNKNOWN' },
+  { min: 0, label: 'BURNED' },
+]);

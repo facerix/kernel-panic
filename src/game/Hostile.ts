@@ -1,5 +1,5 @@
 import { Entity, type EntityInit } from './Entity.js';
-import { SIGHT_RANGE } from './constants.js';
+import { FACTION, SIGHT_RANGE } from './constants.js';
 import { hasLineOfSight, withinRange } from './LineOfSight.js';
 import type { Rng } from '../rng.js';
 import type { TurnActionStep } from '../types.js';
@@ -30,6 +30,8 @@ export abstract class Hostile extends Entity {
   abstract override takeTurn(world: World, rng: Rng): void | TurnActionStep[];
 
   isHostileTo(entity: Entity): boolean {
+    // NEUTRAL entities are bystanders — never valid targets for hostiles.
+    if (entity.faction === FACTION.NEUTRAL) return false;
     return entity.faction !== this.faction;
   }
 

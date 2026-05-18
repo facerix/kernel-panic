@@ -37,5 +37,6 @@ export const METADATA = Object.freeze({
       { x: 3, y: 3 },
     ],
     exit: [{ x: 0, y: 2 }],
+    neutralCivilians: [{ x: 0, y: 4 }],
   },
 } satisfies PrefabMetadata);

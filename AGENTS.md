@@ -4,7 +4,7 @@ Agent-specific guidance. See [README.md](README.md) for project overview, archit
 
 ## Domain: Kernel Panic
 
-Turn-based cyberpunk roguelike on HTML canvas (ASCII-plus terminal look). **Phase 2** deepens Meatspace: crew management, campaign layer, Tech archetype, salvage economy, Finn's shop. Later phases add jack-in / Matrix layer, ICE, CCTV PIP, Vouch-driven NPCs.
+Turn-based cyberpunk roguelike on HTML canvas (ASCII-plus terminal look). **Phase 2** deepens Meatspace: crew management, campaign layer, Tech archetype, salvage economy, Finn's shop. Later phases add jack-in / Matrix layer, ICE, CCTV PIP, Rep-driven NPCs.
 
 Authoritative design notes: [docs/kernel-panic-v1-blueprint.md](docs/kernel-panic-v1-blueprint.md) and [docs/game-overview.md](docs/game-overview.md).
 

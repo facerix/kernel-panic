@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import { Run, RUN_STATE, OUTCOME } from '../../../src/game/Run.js';
 import { OBJECTIVES } from '../../../src/game/hub/Curator.js';
 import { FACTION, SALVAGE_DROP_MIN, SALVAGE_DROP_MAX } from '../../../src/game/constants.js';
+import { Entity } from '../../../src/game/Entity.js';
+import { EVENT } from '../../../src/game/events.js';
 import { Turret } from '../../../src/game/Turret.js';
 import { buildCrewMember } from '../../../src/game/archetypes/index.js';
 import { Rng } from '../../../src/rng.js';
@@ -277,6 +279,80 @@ test('player inventory is initialised at job deploy (enterCombat)', () => {
   assert.ok(run.player.inventory, 'inventory should be initialised');
   assert.equal(run.player.inventory.salvage, 0);
   assert.deepEqual(run.player.inventory.consumables, []);
+});
+
+// --- M5: civilian:harmed emission --------------------------------------------
+
+test('civilian:harmed emitted when player damages a NEUTRAL entity', () => {
+  const run = new Run({ crewMember: makeCrew('merc'), seed: 42 });
+  run.enterBriefing(fakeContract());
+  run.enterCombat();
+
+  // Find a passable, unoccupied tile near the player to place the neutral.
+  const world = run.world!;
+  const player = run.player!;
+  let nx = -1;
+  let ny = -1;
+  for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,-1],[1,-1],[-1,1]]) {
+    const cx = player.x + dx;
+    const cy = player.y + dy;
+    if (world.grid.isPassable(cx, cy) && !world.entityAt(cx, cy)) {
+      nx = cx;
+      ny = cy;
+      break;
+    }
+  }
+  assert.ok(nx >= 0, 'need a passable neighbor to place neutral');
+
+  const neutral = new Entity({
+    id: 'test-neutral-civ',
+    x: nx,
+    y: ny,
+    faction: FACTION.NEUTRAL,
+    glyph: 'n',
+  });
+  world.addEntity(neutral);
+
+  const harmed: unknown[] = [];
+  run.bus!.on(EVENT.CIVILIAN_HARMED, (payload: unknown) => harmed.push(payload));
+
+  // Simulate a melee hit via entity:damaged event (the combat resolver emits
+  // this; we trigger the Run listener directly through the bus).
+  run.bus!.emit(EVENT.ENTITY_DAMAGED, {
+    attacker: run.player,
+    target: neutral,
+    damage: 2,
+    killed: false,
+    source: 'melee',
+  });
+
+  assert.equal(harmed.length, 1, 'civilian:harmed should fire on NEUTRAL hit');
+  const payload = harmed[0] as Record<string, unknown>;
+  assert.equal(payload.killed, false);
+  assert.equal(payload.target, neutral);
+  assert.equal((run.telemetry.civilianHarms as number), 1);
+});
+
+test('civilian:harmed does NOT fire when a CORP entity is killed', () => {
+  const run = new Run({ crewMember: makeCrew('merc'), seed: 42 });
+  run.enterBriefing(fakeContract());
+  run.enterCombat();
+
+  const harmed: unknown[] = [];
+  run.bus!.on(EVENT.CIVILIAN_HARMED, (payload: unknown) => harmed.push(payload));
+
+  // The drones are corp — killing one should not emit civilian:harmed.
+  const drone = [...run.world!.entities.values()].find(e => e.faction === FACTION.CORP);
+  assert.ok(drone, 'should have a corp drone on the map');
+  run.bus!.emit(EVENT.ENTITY_DAMAGED, {
+    attacker: run.player,
+    target: drone,
+    damage: 3,
+    killed: true,
+    source: 'ranged',
+  });
+
+  assert.equal(harmed.length, 0, 'corp kills must not emit civilian:harmed');
 });
 
 test('Run constructor rejects bad inputs', () => {

@@ -25,7 +25,7 @@ import { Campaign, CAMPAIGN_STATE, willEndCampaignOnThisDeath } from '/src/game/
 import { RUN_STATE } from '/src/game/Run.js';
 import { restoreCampaign, snapshotCampaign } from '/src/game/persistence.js';
 import { runCorpTurn as driveCorpTurn } from '/src/game/corpTurnDriver.js';
-import { FACTION, AP_COST } from '/src/game/constants.js';
+import { FACTION, AP_COST, REP, REP_LABEL } from '/src/game/constants.js';
 import {
   advanceFromPlayerTurn,
   drivePlayerAftermath,
@@ -141,6 +141,8 @@ type NoisePayload = {
 let campaign: Campaign | null = null;
 let vision = new VisionField();
 let visionMoveUnsub: (() => void) | null = null;
+let repUnsubs: (() => void)[] = [];
+let civilianHarmsThisJob = 0;
 
 let canvas: HTMLCanvasElement;
 let statusEl: HTMLElement | null = null;
@@ -366,6 +368,7 @@ function startFreshCampaign() {
   pendingJobResult = null;
   attachVisionListener();
   attachAnimationListeners();
+  attachRepListeners();
   recomputeVision();
   renderShell();
   systemStartEl.setSession({ seed: campaign.seed });
@@ -411,6 +414,7 @@ function onBriefingDeploy(evt: Event) {
   vision.resetFogState();
   attachVisionListener();
   attachAnimationListeners();
+  attachRepListeners();
   recomputeVision();
   flash('JACKED IN. Reach the exit tile (¤) before the drones drop you.');
   renderShell();
@@ -566,6 +570,7 @@ function resumeCampaign(record: CampaignSnapshot | unknown) {
     }
     attachVisionListener();
     attachAnimationListeners();
+    attachRepListeners();
     recomputeVision();
     if (campaign.activeRun?.state === RUN_STATE.BRIEFING && campaign.activeRun.contract) {
       briefingEl.setContract(campaign.activeRun.contract);
@@ -720,6 +725,7 @@ function advanceTurn(): void {
         animLock,
         stepDelayMs: PLAYER_AFTERMATH_ACTION_DELAY_MS,
         lockMarginMs: ANIMATION_DURATIONS.MUZZLE_FLASH,
+        rep: campaign?.rep,
       });
     },
     onCorpTurnReady: () => {
@@ -877,6 +883,11 @@ function onNewRunRequested(): void {
       : null;
     const salvage = member?.inventory?.salvage ?? 0;
     campaign.onJobEnd({ outcome, salvage });
+    // M5: clean completion bonus — no civilian harm during the run.
+    if (outcome === 'exit' && civilianHarmsThisJob === 0) {
+      const actual = campaign.adjustRep(REP.CLEAN_COMPLETION_BONUS);
+      flash(`REP +${actual}: clean extraction — no civilian casualties.`);
+    }
     if (campaign.state === CAMPAIGN_STATE.ENDED) {
       dataStore.deleteCampaign();
       startFreshCampaign();
@@ -890,6 +901,7 @@ function onNewRunRequested(): void {
   crashEl.hide();
   attachVisionListener();
   attachAnimationListeners();
+  attachRepListeners();
   recomputeVision();
   flash('HUB — choose the next job.');
   renderShell();
@@ -961,6 +973,38 @@ function attachAnimationListeners(): void {
   );
 }
 
+/**
+ * Subscribe M5 Rep-affecting events to the active run's bus.
+ *
+ *   - `civilian:harmed` → -20 Rep per kill, track all harm for clean completion.
+ *   - `alarm` → -5 Rep per alarm trigger (complicity).
+ *
+ * Re-attached on every Run state transition (same posture as animations).
+ */
+function attachRepListeners(): void {
+  for (const off of repUnsubs) off();
+  repUnsubs = [];
+  civilianHarmsThisJob = 0;
+  const run = currentScene();
+  if (!run?.bus || !campaign) return;
+  repUnsubs.push(
+    run.bus.on(EVENT.CIVILIAN_HARMED, payload => {
+      if (!campaign) return;
+      civilianHarmsThisJob++;
+      const { killed } = (payload ?? {}) as { killed?: boolean };
+      if (killed) {
+        const actual = campaign.adjustRep(REP.CIVILIAN_KILL_PENALTY);
+        flash(`REP ${actual >= 0 ? '+' : ''}${actual}: civilian killed.`);
+      }
+    }),
+    run.bus.on(EVENT.ALARM, () => {
+      if (!campaign) return;
+      const actual = campaign.adjustRep(REP.ALARM_PENALTY);
+      flash(`REP ${actual >= 0 ? '+' : ''}${actual}: facility alarm triggered.`);
+    })
+  );
+}
+
 function recomputeVision(): void {
   const run = currentScene();
   if (!run || !run.world || !run.player) return;
@@ -1026,6 +1070,7 @@ function paint(modeHint: Mode = activeMode()): void {
   // combat where LOS and drone stealth detection matter.
   const activeVision = run.state === RUN_STATE.COMBAT ? vision : undefined;
   renderer.draw(run.world, run.player, { vision: activeVision });
+  crt.alertTint = run.state === RUN_STATE.COMBAT && run.world.alarmActive;
   crt.apply();
   setStatus(statusLine(modeHint));
 }
@@ -1043,10 +1088,12 @@ function statusLine(modeHint: Mode): string {
       throw new Error('[shell] combat status requires an active run');
     }
     const salvageTag = run.player?.inventory ? ` SAL:${run.player.inventory.salvage}` : '';
-    identity = `${run.player?.callsign ?? run.archetype} ${run.archetype.toUpperCase()}${salvageTag}`;
+    const alertTag = run.world?.alarmActive ? ' <span class="alert-tag">[ALERT]</span>' : '';
+    identity = `${run.player?.callsign ?? run.archetype} ${run.archetype.toUpperCase()}${salvageTag}${alertTag}`;
   } else {
     if (!campaign) return stateLabel();
-    identity = `CREW ${campaign.crew.filter(member => !member.flatlined).length}/${campaign.crew.length} SALVAGE ${campaign.salvage}`;
+    const repLabel = REP_LABEL.find(b => campaign!.rep >= b.min)?.label ?? 'UNKNOWN';
+    identity = `CREW ${campaign.crew.filter(member => !member.flatlined).length}/${campaign.crew.length} SALVAGE ${campaign.salvage} REP ${campaign.rep} (${repLabel})`;
   }
   if (!run.queue) return stateLabel();
   const statsInner =

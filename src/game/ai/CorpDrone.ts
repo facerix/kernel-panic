@@ -59,6 +59,12 @@ type NoiseEventPayload = {
   source?: Entity;
 };
 
+type AlarmEventPayload = {
+  source?: Entity;
+  target?: Entity;
+  origin?: { x: number; y: number };
+};
+
 export interface CorpDroneProps extends Omit<HostileInit, 'faction' | 'glyph'> {
   patrolWaypoints?: { x: number; y: number }[];
 }
@@ -99,16 +105,32 @@ export class CorpDrone extends Hostile {
     if (!events || typeof events.on !== 'function') {
       throw new TypeError('CorpDrone.bindToBus requires an EventBus');
     }
-    const off = events.on(EVENT.NOISE, (payload: unknown) =>
+    const offNoise = events.on(EVENT.NOISE, (payload: unknown) =>
       this.#onNoise(payload as NoiseEventPayload)
     );
-    this.#unsubs.push(off);
+    const offAlarm = events.on(EVENT.ALARM, (payload: unknown) =>
+      this.#onAlarm(payload as AlarmEventPayload)
+    );
+    this.#unsubs.push(offNoise, offAlarm);
     return () => this.unbind();
   }
 
   unbind() {
     for (const off of this.#unsubs) off();
     this.#unsubs = [];
+  }
+
+  /**
+   * Facility alarm — a CorpCivilian spotted the player. All drones force-
+   * transition to ENGAGE regardless of current state and point at the
+   * target's position. This overrides even an existing ENGAGE target
+   * (fresh intel from a spotter supersedes stale pursuit data).
+   */
+  #onAlarm({ target }: AlarmEventPayload = {}) {
+    if (!this.alive) return;
+    if (!target || !Number.isInteger(target.x) || !Number.isInteger(target.y)) return;
+    this.lastKnownTarget = { x: target.x, y: target.y };
+    this.state = DRONE_STATE.ENGAGE;
   }
 
   #onNoise({ origin, radius, source }: NoiseEventPayload = {}) {

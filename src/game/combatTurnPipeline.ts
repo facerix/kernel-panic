@@ -1,4 +1,7 @@
 import { Turret, type TurretAutoFireResult } from './Turret.js';
+import { NeutralCivilian } from './entities/NeutralCivilian.js';
+import { REP } from './constants.js';
+import type { NeutralCivilianTurnStep } from '../types.js';
 import type { World } from './World.js';
 import type { Rng } from '../rng.js';
 
@@ -19,15 +22,28 @@ import type { Rng } from '../rng.js';
  * human-readable lines from `formatPlayerAftermathLogLines`.
  *
  */
-export type PlayerAftermathStep = {
+export type TurretAftermathStep = {
   type: 'turret-autofire';
   turret: Turret;
   action: TurretAutoFireResult;
 };
 
+export type NeutralCivilianAftermathStep = {
+  type: 'neutral-civilian';
+  entity: NeutralCivilian;
+  step: NeutralCivilianTurnStep;
+};
+
+export type PlayerAftermathStep = TurretAftermathStep | NeutralCivilianAftermathStep;
+
 export type PlayerAftermath = {
   steps: PlayerAftermathStep[];
   turretAutoFire: { turret: Turret; action: TurretAutoFireResult }[];
+};
+
+export type PlayerAftermathOpts = {
+  /** Current campaign rep for NeutralCivilian AI. Defaults to REP.START (50). */
+  rep?: number;
 };
 
 type DrivePlayerAftermathOpts = {
@@ -98,6 +114,7 @@ type DrivePlayerAftermathCtx = {
   stepDelayMs?: number;
   lockMarginMs?: number;
   schedule?: (fn: () => void, ms: number) => void;
+  rep?: number;
 };
 
 /** Subset of {@link DrivePlayerAftermathCtx} passed into the paced aftermath pump. */
@@ -126,8 +143,9 @@ export function drivePlayerAftermath(ctx: DrivePlayerAftermathCtx) {
     stepDelayMs = 0,
     lockMarginMs = 0,
     schedule = defaultSchedule,
+    rep,
   } = ctx;
-  const steps = runPlayerAftermathSteps(world, rng);
+  const steps = runPlayerAftermathSteps(world, rng, { rep });
   pumpPlayerAftermath(steps, { onStep, onFinish, animLock, stepDelayMs, lockMarginMs, schedule });
 }
 
@@ -137,7 +155,7 @@ export function drivePlayerAftermath(ctx: DrivePlayerAftermathCtx) {
  */
 export function drivePlayerAftermathSync(ctx: DrivePlayerAftermathCtx) {
   validatePlayerAftermathDriverCtx(ctx, { allowTiming: false });
-  for (const step of runPlayerAftermathSteps(ctx.world, ctx.rng)) {
+  for (const step of runPlayerAftermathSteps(ctx.world, ctx.rng, { rep: ctx.rep })) {
     ctx.onStep(step);
   }
   ctx.onFinish();
@@ -153,10 +171,10 @@ export function drivePlayerAftermathSync(ctx: DrivePlayerAftermathCtx) {
  * @param {import('../rng.js').Rng} rng
  * @returns {PlayerAftermath}
  */
-export function runPlayerAftermath(world: World, rng: Rng) {
-  const steps = [...runPlayerAftermathSteps(world, rng)];
+export function runPlayerAftermath(world: World, rng: Rng, opts?: PlayerAftermathOpts) {
+  const steps = [...runPlayerAftermathSteps(world, rng, opts)];
   const turretAutoFire = steps
-    .filter(step => step.type === 'turret-autofire')
+    .filter((step): step is TurretAftermathStep => step.type === 'turret-autofire')
     .map(step => ({ turret: step.turret, action: step.action }));
   return { steps, turretAutoFire };
 }
@@ -172,8 +190,10 @@ export function runPlayerAftermath(world: World, rng: Rng) {
  */
 export function* runPlayerAftermathSteps(
   world: World,
-  rng: Rng
+  rng: Rng,
+  opts?: PlayerAftermathOpts
 ): Generator<PlayerAftermathStep, void, undefined> {
+  // Phase 1: turret autofire
   for (const entity of world.entities.values()) {
     if (!(entity instanceof Turret)) continue;
     if (!entity.alive) continue;
@@ -182,6 +202,16 @@ export function* runPlayerAftermathSteps(
       turret: entity,
       action: entity.autoFire(world, rng),
     };
+  }
+  // Phase 2: neutral civilian reactions (flee / panic / idle based on rep)
+  const rep = opts?.rep ?? REP.START;
+  for (const entity of world.entities.values()) {
+    if (!(entity instanceof NeutralCivilian)) continue;
+    if (!entity.alive) continue;
+    const step = entity.act(world, rng, { rep });
+    if (step) {
+      yield { type: 'neutral-civilian', entity, step };
+    }
   }
 }
 
@@ -210,6 +240,9 @@ export function formatPlayerAftermathStepLogLines(step: PlayerAftermathStep) {
   if (step.type === 'turret-autofire') {
     const line = formatTurretAutofireLine(step.turret, step.action);
     return line ? [line] : [];
+  }
+  if (step.type === 'neutral-civilian') {
+    return formatNeutralCivilianLine(step.entity, step.step);
   }
   return [];
 }
@@ -315,6 +348,20 @@ function validatePlayerAftermathDriverCtx(
   }
   if (ctx.schedule !== undefined && typeof ctx.schedule !== 'function') {
     throw new TypeError('drivePlayerAftermath: ctx.schedule must be a function when supplied');
+  }
+}
+
+function formatNeutralCivilianLine(entity: NeutralCivilian, step: NeutralCivilianTurnStep): string[] {
+  switch (step.type) {
+    case 'neutral-flee':
+      return [`${entity.id} flees to (${step.to.x},${step.to.y}).`];
+    case 'neutral-cornered':
+      return [`${entity.id} is cornered — nowhere to flee.`];
+    case 'neutral-panic':
+      return [`${entity.id} PANICS — noise draws attention!`];
+    case 'neutral-idle':
+    default:
+      return [];
   }
 }
 

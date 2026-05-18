@@ -16,13 +16,13 @@ When an item lands, gets reclassified, or develops new context, edit it in place
 
 - **Melee always hits.** Deterministic in V1 by design; will get parry/dodge math when archetype kits expand. `MELEE_DAMAGE` is the one knob today. **(→ M7: dodge roll + `COVER_DODGE_BONUS`; `MELEE_DAMAGE` raised to compensate.)**
 - **Corpse positions aren't memorised.** Live and dead entities follow the same "we don't track where things were" rule — duck out of LOS and the corpse vanishes from memory until you can see the tile again. Logically a corpse doesn't move, so memorising them would be more honest. **(→ M3: load-bearing for the salvage loop — players must be able to navigate back to a corpse they saw fall. `VisionField.memorisedCorpses` map + dim render pass.)**
-- **NEUTRAL faction is shootable by anyone.** `canFireRanged` only blocks same-faction targets — civilians can be hit by player or corp shots. Intentional today (narrative consequences); revisit when noise/Vouch lands and we have UI to express the cost. Noted in `Combat.js`. **(→ M5: `civilian:harmed` event emitted on neutral hit; Vouch penalty applied; consequence is now legible in the feed.)**
+- ~~**NEUTRAL faction is shootable by anyone.**~~ **(→ Closed in M5.)** `civilian:harmed` event emitted on neutral hit; Rep penalty applied; drones and turrets now exclude NEUTRAL from targeting. Consequence is legible in the feed and the Hub status bar.
 
 ## ▶ Phase 3 candidates
 
 - **Cyberspace / Matrix layer.** Jack-in mechanic, second layered grid, ICE AI (Probes, Sparks, Guardians), CCTV PIP window showing physical body status while jacked in. Originally Blueprint Phase 2; moved to Phase 3 so Phase 2 deepens Meatspace first.
 - **Decker archetype.** Cyberspace specialist. Deferred alongside the Matrix layer — design the environment before designing who navigates it.
-- **Full Vouch NPC ally behaviour.** Phase 2 (M5) lays the groundwork: Vouch meter, NPC taxonomy, behavior tiers. Phase 3 adds the payoff: high-Vouch neutrals become Human Shields or information sources, as described in the blueprint.
+- **Full Rep NPC ally behaviour.** Phase 2 (M5) lays the groundwork: Rep meter, NPC taxonomy, behavior tiers. Phase 3 adds the payoff: high-rep neutrals become Human Shields or information sources, as described in the blueprint.
 - **Typed salvage components.** Phase 2 uses a generic `salvage: number` counter. Typed components (CPU chips, wiring, servos combining into different recipes) would add crafting depth but are out of scope until the Phase 2 economy is validated in play.
 
 ## ◇ Monitored

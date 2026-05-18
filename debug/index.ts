@@ -39,7 +39,7 @@ import type { Crew } from '/src/game/Crew';
 import type { Intent } from '/src/input/applyIntent.js';
 import type { Archetype } from '/src/game/archetypes';
 import type { Entity } from '/src/game/Entity.js';
-import type { CorpDroneTurnStep, TurnActionStep } from '/src/types.js';
+import type { TurnActionStep } from '/src/types.js';
 import type { Mode } from '/src/input/keymap.js';
 import type TouchPad from '/components/TouchPad';
 import type { PlayerAftermathStep } from '/src/game/combatTurnPipeline.js';
@@ -272,7 +272,7 @@ function formatCorpAction(actor: Entity, action: TurnActionStep) {
     case 'investigate-abandoned':
       return `> ${actor.id} lost the trail.`;
     default:
-      return `> ${actor.id} ${(action as CorpDroneTurnStep).type}`;
+      return `> ${actor.id} ${(action as { type: string }).type}`;
   }
 }
 

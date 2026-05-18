@@ -447,3 +447,95 @@ test('takeTurn drains takeTurnSteps into the legacy log shape', () => {
   const fromWrapper = drone.takeTurn(w, new StubRng([0]));
   assert.deepEqual(fromWrapper, generated);
 });
+
+// --- M5: alarm subscription --------------------------------------------------
+
+test('drone subscribes to alarm and force-transitions to ENGAGE with target position', () => {
+  const bus = new EventBus();
+  const world = new World(new Grid(12, 6), { events: bus });
+  const drone = new CorpDrone({ id: 'd', x: 1, y: 1, maxAp: 3, patrolWaypoints: [{ x: 5, y: 1 }] });
+  world.addEntity(drone);
+  drone.bindToBus(bus);
+  assert.equal(drone.state, DRONE_STATE.PATROL);
+
+  // Simulate an alarm from a CorpCivilian spotting a player at (8, 3).
+  bus.emit(EVENT.ALARM, {
+    source: { id: 'civ-0', x: 3, y: 3 },
+    target: { id: 'player', x: 8, y: 3, alive: true },
+    origin: { x: 3, y: 3 },
+  });
+
+  assert.equal(drone.state, DRONE_STATE.ENGAGE, 'alarm should force ENGAGE');
+  assert.deepEqual(drone.lastKnownTarget, { x: 8, y: 3 }, 'target should be the player position');
+});
+
+test('alarm overrides existing ENGAGE target with fresh intel', () => {
+  const bus = new EventBus();
+  const world = new World(new Grid(12, 6), { events: bus });
+  const drone = new CorpDrone({ id: 'd', x: 1, y: 1, maxAp: 3 });
+  world.addEntity(drone);
+  drone.bindToBus(bus);
+
+  // Already engaging a stale target.
+  drone.state = DRONE_STATE.ENGAGE;
+  drone.lastKnownTarget = { x: 5, y: 5 };
+
+  // Fresh alarm with a different player position.
+  bus.emit(EVENT.ALARM, {
+    source: { id: 'civ-0', x: 2, y: 2 },
+    target: { id: 'player', x: 9, y: 1, alive: true },
+    origin: { x: 2, y: 2 },
+  });
+
+  assert.deepEqual(drone.lastKnownTarget, { x: 9, y: 1 }, 'fresh alarm should update target');
+});
+
+test('dead drone ignores alarm events', () => {
+  const bus = new EventBus();
+  const world = new World(new Grid(12, 6), { events: bus });
+  const drone = new CorpDrone({ id: 'd', x: 1, y: 1, maxAp: 3 });
+  world.addEntity(drone);
+  drone.bindToBus(bus);
+  drone.damage(drone.maxHp); // kill
+
+  bus.emit(EVENT.ALARM, {
+    source: { id: 'civ-0', x: 2, y: 2 },
+    target: { id: 'player', x: 8, y: 3, alive: true },
+    origin: { x: 2, y: 2 },
+  });
+
+  assert.equal(drone.state, DRONE_STATE.PATROL, 'dead drone stays in original state');
+  assert.equal(drone.lastKnownTarget, null, 'dead drone does not acquire target');
+});
+
+// --- M5: drones must not target NEUTRAL civilians ----------------------------
+
+test('drone does not acquire NEUTRAL entities as targets', () => {
+  const grid = new Grid(10, 10);
+  for (let x = 0; x < 10; x++) {
+    for (let y = 0; y < 10; y++) grid.setTile(x, y, TILE.FLOOR);
+  }
+  const bus = new EventBus();
+  const world = new World(grid, { events: bus });
+  const drone = new CorpDrone({
+    id: 'drone',
+    x: 3,
+    y: 3,
+    maxAp: 3,
+    patrolWaypoints: [{ x: 3, y: 3 }],
+  });
+  const neutral = new Entity({
+    id: 'neutral-civ',
+    x: 4,
+    y: 3,
+    faction: FACTION.NEUTRAL,
+    glyph: 'n',
+  });
+  world.addEntity(drone);
+  world.addEntity(neutral);
+  drone.bindToBus(bus);
+
+  // The drone should NOT see the neutral as hostile.
+  assert.equal(drone.acquireTarget(world), null, 'NEUTRAL must not be a valid target');
+  assert.equal(drone.isHostileTo(neutral), false, 'NEUTRAL must not be hostile');
+});

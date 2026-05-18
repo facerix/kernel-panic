@@ -215,3 +215,24 @@ test('runTurretAutoFire skips destroyed turrets entirely (no entry in result)', 
   assert.equal(results.length, 1);
   assert.equal(results[0].turret.id, 't1');
 });
+
+// --- M5: turrets must not target NEUTRAL civilians ---------------------------
+
+test('turret does not target NEUTRAL-faction entities', () => {
+  const { world } = makeWorld({ withBus: true });
+  const turret = new Turret({ id: 'sentry', x: 3, y: 3 });
+  const neutral = new Entity({
+    id: 'bystander',
+    x: 4,
+    y: 3,
+    faction: FACTION.NEUTRAL,
+    glyph: 'n',
+  });
+  world.addEntity(turret);
+  world.addEntity(neutral);
+
+  assert.equal(turret.findTarget(world), null, 'NEUTRAL must not be targeted by turret');
+  const result = turret.autoFire(world, new Rng(1));
+  assert.equal(result.type, 'idle');
+  assert.equal(result.reason, 'no-target');
+});

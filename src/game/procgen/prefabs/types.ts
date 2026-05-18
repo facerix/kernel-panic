@@ -20,6 +20,10 @@ export type PrefabAnchorsSpec = {
   drones: PrefabDroneAnchor[];
   cover: PrefabAnchor[];
   exit: PrefabAnchor[];
+  /** M5: corp-aligned non-combatant spawn points. */
+  corpCivilians?: PrefabAnchor[];
+  /** M5: neutral civilian spawn points. */
+  neutralCivilians?: PrefabAnchor[];
 };
 
 /**

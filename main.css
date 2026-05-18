@@ -207,6 +207,12 @@ main {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+
+    .alert-tag {
+      color: #ff4d4d;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+    }
   }
 
   .game-shell__hint {

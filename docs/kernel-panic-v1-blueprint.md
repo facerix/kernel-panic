@@ -7,7 +7,7 @@ A tactical, purely turn-based roguelike inspired by *Neuromancer* and classic 80
 * **Dual-Map Systems:** Meatspace (Physical) and Cyberspace (The Matrix) exist as layered grids.
 * **Total Vulnerability:** Your physical body is a "vegetable" while you are jacked into the Matrix.
 * **Tactical Grid Combat:** Purely turn-based movement and action.
-* **The Vouch System:** Social capital as a primary progression mechanic and tactical advantage.
+* **The Rep System:** Social capital as a primary progression mechanic and tactical advantage.
 * **ASCII-Plus Aesthetic:** A modern "terminal" look using ASCII characters with high-fidelity effects.
 
 ## 3. Player Archetypes (Phase 1)
@@ -38,7 +38,7 @@ A tactical, purely turn-based roguelike inspired by *Neuromancer* and classic 80
 * **Persistence:** The map state is saved during a run; holes you blow in walls stay there for the backtrack.
 
 ## 6. Social & Economy
-* **The Vouch Meter:** Increases by completing community-focused tasks. Higher Vouch levels turn neutral NPCs into "Human Shields" or information sources.
+* **The Rep Meter:** Increases by completing community-focused tasks. Higher Rep levels turn neutral NPCs into "Human Shields" or information sources.
 * **Credits:** The primary currency in V1. Used for ammo, medical stims, and permanent RAM upgrades.
 
 ## 7. The Terminal UI
@@ -54,17 +54,23 @@ A tactical, purely turn-based roguelike inspired by *Neuromancer* and classic 80
 * The "Safe Space" Hub and the Curator (Quest-giver).
 * Death Screen: Terminal Crash Dump.
 
-### Phase 2: Ghost in the Machine
+### Phase 2: Deepening Meatspace
+
+* Campaign system: crew management, multi-run progression, new PC class (Tech).
+* Salvage economy & Finn, the gear broker.
+* Rep system / social groundwork.
+
+### Phase 3: Ghost in the Machine
 * The Jack-in mechanic and layered Matrix grid.
 * ICE AI and Cyberspace nodes.
 * The CCTV PIP Window.
 
-### Phase 3: The Social Fabric
+### Phase 4: The Social Fabric
 * Reputation-based NPC interactions.
 * Advanced breaching tools.
-* Dynamic "Vouch" zones.
+* Dynamic "Rep" zones.
 
-### Phase 4: Meta-Progression
+### Phase 5: Meta-Progression
 * Neural Backups (Legacy Data).
 * Permanent base upgrades.
 * Diverse biomes (Arcologies, Data Havens).

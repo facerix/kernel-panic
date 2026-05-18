@@ -6,10 +6,12 @@ import assert from 'node:assert/strict';
 
 import { Grid } from '../../../src/game/Grid.js';
 import { World } from '../../../src/game/World.js';
+import { Entity } from '../../../src/game/Entity.js';
 import { Turret } from '../../../src/game/Turret.js';
 import { CorpDrone } from '../../../src/game/ai/CorpDrone.js';
+import { NeutralCivilian } from '../../../src/game/entities/NeutralCivilian.js';
 import { EventBus } from '../../../src/game/events.js';
-import { TILE } from '../../../src/game/constants.js';
+import { TILE, FACTION, REP } from '../../../src/game/constants.js';
 import { Rng } from '../../../src/rng.js';
 import {
   advanceFromPlayerTurn,
@@ -215,4 +217,93 @@ test('advanceFromPlayerTurn rejects malformed ctx', () => {
     () => advanceFromPlayerTurn({ ...valid, drivePlayerAftermath: null }),
     /drivePlayerAftermath/
   );
+});
+
+// --- M5: NeutralCivilian in player aftermath ---------------------------------
+
+test('runPlayerAftermathSteps yields neutral-civilian steps for live NeutralCivilians', () => {
+  const { world } = makeOpenWorld();
+  // Place a player entity so the civilian can see it and react.
+  const player = new Entity({ id: 'player', x: 2, y: 2, faction: FACTION.PLAYER, glyph: '@' });
+  const civ = new NeutralCivilian({ id: 'nc-0', x: 4, y: 4 });
+  world.addEntity(player);
+  world.addEntity(civ);
+
+  // rep=50 → between IDLE (70) and FLEE (30) → should flee
+  const steps = [...runPlayerAftermathSteps(world, new Rng(1), { rep: 50 })];
+  const civSteps = steps.filter(s => s.type === 'neutral-civilian');
+  assert.equal(civSteps.length, 1, 'should yield one neutral-civilian step');
+  assert.equal(civSteps[0].step.type, 'neutral-flee');
+});
+
+test('runPlayerAftermathSteps: high rep → neutral-idle (no log line)', () => {
+  const { world } = makeOpenWorld();
+  const player = new Entity({ id: 'player', x: 2, y: 2, faction: FACTION.PLAYER, glyph: '@' });
+  const civ = new NeutralCivilian({ id: 'nc-1', x: 4, y: 4 });
+  world.addEntity(player);
+  world.addEntity(civ);
+
+  const steps = [...runPlayerAftermathSteps(world, new Rng(1), { rep: REP.NEUTRAL_IDLE_THRESHOLD })];
+  const civSteps = steps.filter(s => s.type === 'neutral-civilian');
+  assert.equal(civSteps.length, 1);
+  assert.equal(civSteps[0].step.type, 'neutral-idle');
+  // Idle steps produce no log lines.
+  assert.deepEqual(formatPlayerAftermathStepLogLines(civSteps[0]), []);
+});
+
+test('runPlayerAftermathSteps: low rep → neutral-panic with log line', () => {
+  const { world } = makeOpenWorld();
+  const player = new Entity({ id: 'player', x: 2, y: 2, faction: FACTION.PLAYER, glyph: '@' });
+  const civ = new NeutralCivilian({ id: 'nc-2', x: 4, y: 4 });
+  world.addEntity(player);
+  world.addEntity(civ);
+
+  const steps = [...runPlayerAftermathSteps(world, new Rng(1), { rep: 10 })];
+  const civSteps = steps.filter(s => s.type === 'neutral-civilian');
+  assert.equal(civSteps.length, 1);
+  assert.equal(civSteps[0].step.type, 'neutral-panic');
+  const lines = formatPlayerAftermathStepLogLines(civSteps[0]);
+  assert.equal(lines.length, 1);
+  assert.match(lines[0], /nc-2.*PANIC/i);
+});
+
+test('runPlayerAftermathSteps skips dead NeutralCivilians', () => {
+  const { world } = makeOpenWorld();
+  const player = new Entity({ id: 'player', x: 2, y: 2, faction: FACTION.PLAYER, glyph: '@' });
+  const civ = new NeutralCivilian({ id: 'nc-dead', x: 4, y: 4 });
+  civ.damage(civ.maxHp);
+  world.addEntity(player);
+  world.addEntity(civ);
+
+  const steps = [...runPlayerAftermathSteps(world, new Rng(1), { rep: 50 })];
+  assert.equal(steps.filter(s => s.type === 'neutral-civilian').length, 0);
+});
+
+test('runPlayerAftermathSteps defaults rep to REP.START when omitted', () => {
+  const { world } = makeOpenWorld();
+  const player = new Entity({ id: 'player', x: 2, y: 2, faction: FACTION.PLAYER, glyph: '@' });
+  const civ = new NeutralCivilian({ id: 'nc-default', x: 4, y: 4 });
+  world.addEntity(player);
+  world.addEntity(civ);
+
+  // REP.START=50 → between IDLE(70) and FLEE(30) → flee
+  const steps = [...runPlayerAftermathSteps(world, new Rng(1))];
+  const civSteps = steps.filter(s => s.type === 'neutral-civilian');
+  assert.equal(civSteps.length, 1);
+  assert.equal(civSteps[0].step.type, 'neutral-flee');
+});
+
+test('formatPlayerAftermathStepLogLines: flee step produces a log line', () => {
+  const { world } = makeOpenWorld();
+  const player = new Entity({ id: 'player', x: 2, y: 2, faction: FACTION.PLAYER, glyph: '@' });
+  const civ = new NeutralCivilian({ id: 'nc-flee', x: 4, y: 4 });
+  world.addEntity(player);
+  world.addEntity(civ);
+
+  const steps = [...runPlayerAftermathSteps(world, new Rng(1), { rep: 50 })];
+  const civStep = steps.find(s => s.type === 'neutral-civilian');
+  assert.ok(civStep);
+  const lines = formatPlayerAftermathStepLogLines(civStep);
+  assert.equal(lines.length, 1);
+  assert.match(lines[0], /nc-flee.*flees/i);
 });
