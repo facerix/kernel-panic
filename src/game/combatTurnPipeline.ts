@@ -36,6 +36,29 @@ export type NeutralCivilianAftermathStep = {
 
 export type PlayerAftermathStep = TurretAftermathStep | NeutralCivilianAftermathStep;
 
+/**
+ * Whether an aftermath step should emit player-facing log lines.
+ * Same policy as `isCorpTurnStepLogVisibleToPlayer`: unseen turret / NPC
+ * activity stays off the feed; turret shots that hit the player are always shown.
+ */
+export function isPlayerAftermathStepLogVisible(
+  step: PlayerAftermathStep,
+  isTileVisible: (x: number, y: number) => boolean,
+  playerId: string
+): boolean {
+  if (step.type === 'turret-autofire') {
+    const { turret, action } = step;
+    if (action.type === 'fire' && action.target.id === playerId) {
+      return true;
+    }
+    return isTileVisible(turret.x, turret.y);
+  }
+  if (step.type === 'neutral-civilian') {
+    return isTileVisible(step.entity.x, step.entity.y);
+  }
+  return true;
+}
+
 export type PlayerAftermath = {
   steps: PlayerAftermathStep[];
   turretAutoFire: { turret: Turret; action: TurretAutoFireResult }[];

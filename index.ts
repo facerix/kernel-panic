@@ -30,11 +30,13 @@ import {
   advanceFromPlayerTurn,
   drivePlayerAftermath,
   formatPlayerAftermathStepLogLines,
+  isPlayerAftermathStepLogVisible,
 } from '/src/game/combatTurnPipeline.js';
 import {
   corpTurnStatusBody,
   countVisibleCorpEntities,
   formatCorpTurnStep,
+  isCorpTurnStepLogVisibleToPlayer,
 } from '/src/game/corpTurnStatusCopy.js';
 import { EVENT } from '/src/game/events.js';
 import { VisionField } from '/src/game/Vision.js';
@@ -183,7 +185,7 @@ let pendingJobResult: PendingJobResult | null = null;
 let activeSmokeOverlays: SmokeOverlay[] = [];
 
 /**
- * Most recent intent-result log line ("@ moved to (3,4) — 2 AP left.").
+ * Most recent intent-result log line (melee, fire, perk use, denials, etc.).
  * Tracked at module level because `applyIntent`'s `log` callback fires
  * during intent handling, but the status line is finalised later in
  * `paint()` — without this, the action line gets clobbered by the
@@ -192,7 +194,15 @@ let activeSmokeOverlays: SmokeOverlay[] = [];
 let lastActionLine = '';
 
 /**
- * Most recent intent-result log lines ("@ moved to (3,4) — 2 AP left.").
+ * Plain-text body after `CORP —` from the last status paint while the queue
+ * belonged to CORP. Surfaced again on the player slice until `flash()` runs
+ * on the player's turn (new feedback replaces it; avoids snapping the third
+ * row back to a stale `lastActionLine` from before the yield).
+ */
+let corpToneActivityBody: string | null = null;
+
+/**
+ * Rolling game-log buffer (newest first in `logLines`).
  * Tracked at module level because `applyIntent`'s `log` callback fires
  * during intent handling, but the status line is finalised later in
  * `paint()` — without this, the action line gets clobbered by the
@@ -733,8 +743,14 @@ function advanceTurn(): void {
       paint();
     },
     onPlayerAftermathStep: step => {
-      for (const line of formatPlayerAftermathStepLogLines(step)) {
-        flash(line);
+      const scene = currentScene();
+      if (
+        scene?.player &&
+        isPlayerAftermathStepLogVisible(step, (x, y) => vision.isVisible(x, y), scene.player.id)
+      ) {
+        for (const line of formatPlayerAftermathStepLogLines(step)) {
+          flash(line);
+        }
       }
       paint();
     },
@@ -781,8 +797,19 @@ function runCorpTurn(onFinish: () => void): void {
     lockMarginMs: ANIMATION_DURATIONS.MUZZLE_FLASH,
     onFinish,
     onStep: (entityId: string, step: TurnActionStep) => {
+      const scene = currentScene();
       const line = formatCorpTurnStep(entityId, step);
-      if (line) flash(line);
+      if (
+        !line ||
+        !scene?.world ||
+        !scene.player ||
+        !isCorpTurnStepLogVisibleToPlayer(scene.world, scene.player.id, entityId, step, (x, y) =>
+          vision.isVisible(x, y)
+        )
+      ) {
+        return;
+      }
+      flash(line);
     },
   });
 }
@@ -892,6 +919,8 @@ function onNewRunRequested(): void {
       dataStore.deleteCampaign();
       startFreshCampaign();
       return;
+    } else {
+      flash('HUB — choose the next job.');
     }
   } else if (campaign.state === CAMPAIGN_STATE.ENDED) {
     dataStore.deleteCampaign();
@@ -903,7 +932,6 @@ function onNewRunRequested(): void {
   attachAnimationListeners();
   attachRepListeners();
   recomputeVision();
-  flash('HUB — choose the next job.');
   renderShell();
 }
 
@@ -1078,6 +1106,9 @@ function paint(modeHint: Mode = activeMode()): void {
 function statusLine(modeHint: Mode): string {
   const run = currentScene();
   if (!run) return '';
+  if (run.state !== RUN_STATE.COMBAT) {
+    corpToneActivityBody = null;
+  }
   const aim = modeHint && modeHint !== MODE.IDLE ? `  |  AIM: ${modeHint}` : '';
   const player = run.player;
   if (!player) return stateLabel();
@@ -1114,7 +1145,16 @@ function statusLine(modeHint: Mode): string {
       (x: number, y: number) => vision.isVisible(x, y)
     );
     const body = corpTurnStatusBody(visibleCorp, run.queue.turnNumber);
+    corpToneActivityBody = body;
     action = `<span class="game-shell__activity corp"><span class="faction-tag">CORP</span> — ${body}</span>`;
+  } else if (
+    run.state === RUN_STATE.COMBAT &&
+    run.queue.currentFaction === FACTION.PLAYER &&
+    corpToneActivityBody !== null
+  ) {
+    // show the last corp turn status until the player acts and flushes it
+    action = `<span class="game-shell__activity corp"><span class="faction-tag">CORP</span> — ${corpToneActivityBody}</span>`;
+    corpToneActivityBody = null;
   } else {
     action = `<span class="game-shell__activity">${lastActionLine ?? ''}</span>`;
   }
@@ -1171,11 +1211,17 @@ function proximityHint(): string {
 }
 
 /** Stash a one-shot message that the next paint surfaces in the status bar. */
-function flash(line: unknown): void {
-  lastActionLine = String(line ?? '').replace(/^>\s*/, '');
-  logLines.unshift(`> ${lastActionLine}`);
-  if (logLines.length > 20) logLines.splice(20);
-  logContentEl.textContent = logLines.join('\n');
+function flash(line: string): void {
+  const scene = currentScene();
+  if (scene?.state === RUN_STATE.COMBAT && scene.queue?.currentFaction === FACTION.PLAYER) {
+    corpToneActivityBody = null;
+  }
+  lastActionLine = line.replace(/^>\s*/, '');
+  if (lastActionLine) {
+    logLines.unshift(`> ${lastActionLine}`);
+    if (logLines.length > 20) logLines.splice(20);
+    logContentEl.textContent = logLines.join('\n');
+  }
 }
 
 function stateLabel(): string {

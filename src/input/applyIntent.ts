@@ -80,6 +80,8 @@ const KNOWN_INTENT_TYPES = new Set([
   'cancel',
 ]);
 
+const AP_EXHAUSTED_MESSAGE = '> AP EXHAUSTED — auto-ending turn.';
+
 /*
   Player actions aren't quite intents, nor are they world events.
   They are a way to communicate actions from the game loop to the UI layer.
@@ -89,6 +91,14 @@ export const PLAYER_ACTIONS = Object.freeze({
   INVENTORY: 'inventory',
   INTERACT: 'interact',
 });
+
+function gateOnApExhausted(ctx: ApplyIntentContext) {
+  const { player, log, advanceTurn } = ctx;
+  if (player.ap === 0) {
+    log(AP_EXHAUSTED_MESSAGE);
+    advanceTurn();
+  }
+}
 
 /**
  * Drive a single player intent against the world. Auto-ends the player's
@@ -181,12 +191,12 @@ function doMove(intent: Intent, ctx: ApplyIntentContext) {
     log(`> @ moved to (${nx}, ${ny}) — EXIT REACHED.`);
     ctx.onPlayerAction(PLAYER_ACTIONS.REACHED_EXIT);
     return;
+  } else {
+    // just clear the line to flush any existing stale log line
+    log('');
   }
-  log(`> @ moved to (${player.x}, ${player.y}) — ${player.ap} AP left.`);
-  if (player.ap === 0) {
-    log('> AP EXHAUSTED — auto-ending turn.');
-    advanceTurn();
-  }
+  // Intentionally no per-step move line — coordinates + AP spammed the game log.
+  gateOnApExhausted(ctx);
 }
 
 /**
@@ -231,10 +241,7 @@ function doDeploy(intent: Intent, ctx: ApplyIntentContext) {
   if (check?.ok) {
     const turret = tech.deployTurret(world, intent.dx!, intent.dy!);
     log(`> @ deploys turret ${turret.id} at (${turret.x}, ${turret.y}) — ${player.ap} AP left.`);
-    if (player.ap === 0) {
-      log('> AP EXHAUSTED — auto-ending turn.');
-      advanceTurn();
-    }
+    gateOnApExhausted(ctx);
     return;
   }
   // M3: if the pre-built turret is spent, try an improvised turret from salvage.
@@ -246,10 +253,7 @@ function doDeploy(intent: Intent, ctx: ApplyIntentContext) {
         `> @ improvises turret ${turret.id} at (${turret.x}, ${turret.y}) — ` +
           `${player.inventory!.salvage} salvage left, ${player.ap} AP left.`
       );
-      if (player.ap === 0) {
-        log('> AP EXHAUSTED — auto-ending turn.');
-        advanceTurn();
-      }
+      gateOnApExhausted(ctx);
       return;
     }
     // Fall through to the original deny — surface the most helpful reason.
@@ -300,10 +304,7 @@ function doVault(intent: Intent, ctx: ApplyIntentContext) {
     log(`> @ vaulted to (${player.x}, ${player.y}) — ${player.ap} AP left.`);
   }
 
-  if (player.ap === 0) {
-    log('> AP EXHAUSTED — auto-ending turn.');
-    advanceTurn();
-  }
+  gateOnApExhausted(ctx);
 }
 
 function doSlide(intent: Intent, ctx: ApplyIntentContext) {
@@ -320,10 +321,7 @@ function doSlide(intent: Intent, ctx: ApplyIntentContext) {
   log(
     `> @ slid to (${player.x}, ${player.y}) — CLOAKED until next turn (` + `${player.ap} AP left).`
   );
-  if (player.ap === 0) {
-    log('> AP EXHAUSTED — auto-ending turn.');
-    advanceTurn();
-  }
+  gateOnApExhausted(ctx);
 }
 
 function doMelee(intent: Intent, ctx: ApplyIntentContext) {
@@ -343,10 +341,7 @@ function doMelee(intent: Intent, ctx: ApplyIntentContext) {
     `> @ slashes ${target.id} for ${result.damage}` +
       (result.killed ? ` — ${target.id.toUpperCase()} DOWN.` : '.')
   );
-  if (player.ap === 0) {
-    log('> AP EXHAUSTED — auto-ending turn.');
-    advanceTurn();
-  }
+  gateOnApExhausted(ctx);
 }
 
 function doInteract(ctx: ApplyIntentContext) {
@@ -390,8 +385,5 @@ function doFire(intent: Intent, ctx: ApplyIntentContext) {
       `${result.inCover ? ', cover' : ''}).` +
       (result.killed ? ` ${target.id.toUpperCase()} DOWN.` : '')
   );
-  if (player.ap === 0) {
-    log('> AP EXHAUSTED — auto-ending turn.');
-    advanceTurn();
-  }
+  gateOnApExhausted(ctx);
 }

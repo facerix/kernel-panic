@@ -20,6 +20,7 @@ import {
   runPlayerAftermathSteps,
   formatPlayerAftermathStepLogLines,
   formatPlayerAftermathLogLines,
+  isPlayerAftermathStepLogVisible,
 } from '../../../src/game/combatTurnPipeline.js';
 
 function makeOpenWorld() {
@@ -306,4 +307,53 @@ test('formatPlayerAftermathStepLogLines: flee step produces a log line', () => {
   const lines = formatPlayerAftermathStepLogLines(civStep);
   assert.equal(lines.length, 1);
   assert.match(lines[0], /nc-flee.*flees/i);
+});
+
+test('isPlayerAftermathStepLogVisible: turret shot on player is logged even when turret tile unseen', () => {
+  const turret = new Turret({ id: 't1', x: 1, y: 1 });
+  const target = new Entity({
+    id: 'merc',
+    x: 3,
+    y: 2,
+    faction: FACTION.PLAYER,
+    glyph: '@',
+  });
+  const step = {
+    type: 'turret-autofire' as const,
+    turret,
+    action: {
+      type: 'fire' as const,
+      target,
+      result: {
+        hit: true,
+        roll: 0.5,
+        threshold: 0.2,
+        inCover: false,
+        damage: 1,
+        killed: false,
+      },
+    },
+  };
+  assert.equal(isPlayerAftermathStepLogVisible(step, () => false, 'merc'), true);
+});
+
+test('isPlayerAftermathStepLogVisible: turret idle from unseen tile is suppressed', () => {
+  const turret = new Turret({ id: 't1', x: 1, y: 1 });
+  const step = {
+    type: 'turret-autofire' as const,
+    turret,
+    action: { type: 'idle' as const, reason: 'no-target' as const },
+  };
+  assert.equal(isPlayerAftermathStepLogVisible(step, () => false, 'merc'), false);
+});
+
+test('isPlayerAftermathStepLogVisible: neutral civilian uses civilian tile', () => {
+  const civ = new NeutralCivilian({ id: 'nc', x: 5, y: 5 });
+  const step = {
+    type: 'neutral-civilian' as const,
+    entity: civ,
+    step: { type: 'neutral-panic' as const },
+  };
+  assert.equal(isPlayerAftermathStepLogVisible(step, (x, y) => x === 5 && y === 5, 'merc'), true);
+  assert.equal(isPlayerAftermathStepLogVisible(step, () => false, 'merc'), false);
 });

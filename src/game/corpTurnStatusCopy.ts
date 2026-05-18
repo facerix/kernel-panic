@@ -6,6 +6,8 @@
 
 import { FACTION } from './constants.js';
 import type { Entity } from './Entity.js';
+import { Turret } from './Turret.js';
+import type { World } from './World.js';
 import type { TurnActionStep } from '../types.js';
 
 type IsVisibleFn = (x: number, y: number) => boolean;
@@ -68,6 +70,38 @@ export function corpTurnStatusBody(visibleCorpCount: number, turnNumber: number)
     GENERIC_STATUS_MESSAGES[Math.floor(Math.random() * GENERIC_STATUS_MESSAGES.length)];
   corpNoiseForTurn.set(turnNumber, messageForUnseenCorp);
   return messageForUnseenCorp;
+}
+
+/**
+ * Whether a corp-turn log line for this step should reach the player-facing feed.
+ * Activity from actors the player cannot currently see is omitted (fog-of-war).
+ * Incoming fire on the player is always narrated — you still feel the shot.
+ * Destroying a deployable you own (turret) is always narrated — uplink / damage
+ * feed the Tech expects even when the shooter tile is unseen.
+ */
+export function isCorpTurnStepLogVisibleToPlayer(
+  world: World,
+  playerId: string,
+  entityId: string,
+  step: TurnActionStep,
+  isTileVisible: IsVisibleFn
+): boolean {
+  const actor = world.entities.get(entityId);
+  if (!actor?.alive) return false;
+
+  if (step.type === 'fire' && step.target === playerId) {
+    return true;
+  }
+
+  // kaizen: decide if we should surface this just on kills or also on hits
+  if (step.type === 'fire' && step.result.killed) {
+    const victim = world.entities.get(step.target);
+    if (victim instanceof Turret && victim.ownerId === playerId) {
+      return true;
+    }
+  }
+
+  return isTileVisible(actor.x, actor.y);
 }
 
 /**

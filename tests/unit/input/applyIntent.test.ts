@@ -83,13 +83,13 @@ function buildCtx({ archetype = 'merc', placeDrone = true } = {}) {
   return { ctx, log, calls, drone, world, player, queue };
 }
 
-test('move intent commits and logs a move', () => {
+test('move intent commits without per-step move coordinate log line', () => {
   const { ctx, log, player } = buildCtx();
   // Move down — (2,3) is plain floor, while (3,2) holds the test's cover tile.
   applyIntent({ type: 'move', dx: 0, dy: 1 }, ctx);
   assert.equal(player.x, 2);
   assert.equal(player.y, 3);
-  assert.ok(log.some(l => l.includes('moved to')));
+  assert.ok(!log.some(l => l.includes('moved to')));
 });
 
 test('move into a wall is denied (logs MOVE DENIED, no mutation)', () => {
