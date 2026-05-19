@@ -42,7 +42,7 @@ test('Campaign starts in HUB with crew, salvage, credits, rep, and meta state', 
   assert.equal(campaign.state, CAMPAIGN_STATE.HUB);
   assert.equal(campaign.salvage, 0);
   assert.equal(campaign.credits, 0);
-  assert.equal(campaign.rep, 50);
+  assert.equal(campaign.rep, 20);
   assert.deepEqual(campaign.meta, {});
   assert.equal(campaign.crew.length, 3);
   assert.ok(campaign.world);
@@ -96,7 +96,7 @@ test('onJobEnd with EXIT applies contract Cred and Rep rewards without spending 
   campaign.onJobEnd({ outcome: OUTCOME.EXIT, salvage: 4 });
   assert.equal(campaign.salvage, 4);
   assert.equal(campaign.credits, 60);
-  assert.equal(campaign.rep, 57);
+  assert.equal(campaign.rep, 27); // 20 start + 7 repDelta
 });
 
 test('critical contract recruit reward creates a recruit lead without Rep gate', () => {
@@ -385,31 +385,31 @@ test('consumables survive campaign snapshot/restore round-trip', () => {
 // --- M5: Rep meter -----------------------------------------------------------
 
 test('adjustRep raises rep and clamps at 100', () => {
-  const campaign = new Campaign({ seed: 42 }); // starts at 50
+  const campaign = new Campaign({ seed: 42 }); // starts at 20
   const delta = campaign.adjustRep(10);
-  assert.equal(campaign.rep, 60);
+  assert.equal(campaign.rep, 30);
   assert.equal(delta, 10);
   // Clamp at 100.
   const overshoot = campaign.adjustRep(999);
   assert.equal(campaign.rep, 100);
-  assert.equal(overshoot, 40); // 100 − 60
+  assert.equal(overshoot, 70); // 100 − 30
 });
 
 test('adjustRep lowers rep and clamps at 0', () => {
-  const campaign = new Campaign({ seed: 42 }); // starts at 50
-  const delta = campaign.adjustRep(-20);
-  assert.equal(campaign.rep, 30);
-  assert.equal(delta, -20);
+  const campaign = new Campaign({ seed: 42 }); // starts at 20
+  const delta = campaign.adjustRep(-15);
+  assert.equal(campaign.rep, 5);
+  assert.equal(delta, -15);
   // Clamp at 0.
   const overshoot = campaign.adjustRep(-999);
   assert.equal(campaign.rep, 0);
-  assert.equal(overshoot, -30); // 0 − 30
+  assert.equal(overshoot, -5); // 0 − 5
 });
 
 test('adjustRep with zero delta is a no-op', () => {
   const campaign = new Campaign({ seed: 42 });
   const delta = campaign.adjustRep(0);
-  assert.equal(campaign.rep, 50);
+  assert.equal(campaign.rep, 20);
   assert.equal(delta, 0);
 });
 
@@ -421,7 +421,7 @@ test('adjustRep throws on non-finite delta', () => {
 
 test('rep survives campaign snapshot/restore round-trip', () => {
   const campaign = new Campaign({ seed: 42 });
-  campaign.adjustRep(-15);
+  campaign.adjustRep(15);
   assert.equal(campaign.rep, 35);
   const snap = snapshotCampaign(campaign);
   const restored = restoreCampaign(snap);
@@ -668,7 +668,7 @@ test('recruitInitial throws for unknown candidate IDs', () => {
 });
 
 test('recruitInitial does not require Rep gate', () => {
-  // Fresh campaign has rep=50, below the 65 threshold — but initial
+  // Fresh campaign has rep=20, below the 65 threshold — but initial
   // recruitment bypasses the gate.
   const campaign = new Campaign({ seed: 42, crew: [], rep: 20 });
   campaign.generateInitialCandidates();

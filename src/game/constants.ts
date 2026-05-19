@@ -176,7 +176,7 @@ export const NOISE_RADIUS = Object.freeze({
 export const REP = Object.freeze({
   MIN: 0,
   MAX: 100,
-  START: 50,
+  START: 20,
   /** Rep thresholds for NeutralCivilian behaviour. */
   NEUTRAL_IDLE_THRESHOLD: 70,
   NEUTRAL_FLEE_THRESHOLD: 30,

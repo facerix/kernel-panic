@@ -114,6 +114,20 @@ test('restore preserves drone AI state (mode + lastKnownTarget + patrol index)',
   assert.equal(restoredDrone.patrolIndex, 1);
 });
 
+test('restore throws on a drone patrolIndex past the waypoint list', () => {
+  // Regression: takeTurnSteps dereferences patrolWaypoints[patrolIndex]
+  // without a guard. A corrupt / stale index must fail loudly at restore,
+  // not crash mid-turn.
+  const run = freshCombatRun(0xbad1);
+  const drone = [...run.world.entities.values()].find(e => e.faction === FACTION.CORP);
+  assert.ok(drone, 'expected at least one drone for threatCount=1');
+  const rec = snapshot(run);
+  const droneRec = rec.entities.find(e => e.id === drone.id);
+  assert.ok(droneRec?.drone, 'expected drone record');
+  droneRec.drone.patrolIndex = droneRec.drone.patrolWaypoints.length + 5;
+  assert.throws(() => restore(rec), /patrolIndex/);
+});
+
 test('restore preserves turnNumber and currentFaction', () => {
   const run = freshCombatRun(11);
   run.queue.endTurn(run.world);

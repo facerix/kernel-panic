@@ -185,19 +185,6 @@ export function isContractDifficulty(value: string): value is ContractDifficulty
   return (Object.values(CONTRACT_DIFFICULTY) as string[]).includes(value);
 }
 
-function tierLabel(difficulty: ContractDifficulty): string {
-  switch (difficulty) {
-    case CONTRACT_DIFFICULTY.STANDARD:
-      return 'STANDARD';
-    case CONTRACT_DIFFICULTY.ELEVATED:
-      return 'ELEVATED';
-    case CONTRACT_DIFFICULTY.CRITICAL:
-      return 'CRITICAL';
-    default:
-      return difficulty;
-  }
-}
-
 function pickUniqueLabel(rng: Rng, used: Set<string>): string {
   for (let i = 0; i < CONTRACT_LABELS.length; i++) {
     const label = rng.pick([...CONTRACT_LABELS]);

@@ -110,7 +110,7 @@ export class Campaign {
     crew,
     salvage = 0,
     credits = 0,
-    rep = 20,
+    rep = REP.START,
     meta = {},
     onPersist,
     onResult,

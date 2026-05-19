@@ -110,9 +110,14 @@ export function advanceFromPlayerTurn(ctx: PlayerTurnContext) {
     onPlayerTurnReady = () => {},
   } = ctx;
 
+  // If the player's action already ended the run (e.g. stepping onto the exit
+  // tile transitions to RESULT synchronously), do not advance the turn queue —
+  // refreshing corp AP and bumping the turn counter on a dead run is a state
+  // mutation that should never happen.
+  if (isTerminal()) return;
+
   queue.endTurn(world);
   onCorpTurnReady();
-  if (isTerminal()) return;
 
   drivePlayerAftermath({
     onStep: onPlayerAftermathStep,

@@ -441,6 +441,9 @@ function onInitialRecruited(evt: Event) {
  * system-start path (when crew already exists).
  */
 function enterHubAndRender() {
+  if (!campaign?.curator) {
+    throw new Error('enterHubAndRender: hub not entered — curator is missing.');
+  }
   attachVisionListener();
   attachAnimationListeners();
   attachRepListeners();
@@ -1040,6 +1043,9 @@ function onNewRunRequested(): void {
     } else {
       flash('HUB — choose the next job.');
       // reset the current job options
+      if (!campaign.curator) {
+        throw new Error('onNewRunRequested: hub not entered — curator is missing.');
+      }
       currentJobOptions = campaign.curator.generateContracts(campaign.rng, campaign);
     }
   } else if (campaign.state === CAMPAIGN_STATE.ENDED) {

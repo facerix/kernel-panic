@@ -199,9 +199,12 @@ export class CorpDrone extends Hostile {
         patrolSpin = 0;
         this.state = DRONE_STATE.ENGAGE;
         this.lastKnownTarget = { x: target.x, y: target.y };
-        const fireCheck = canFireRanged(world, this, target);
+        // Fire at sight range: `acquireTarget` qualifies targets by
+        // `this.sightRange`, so the fire check must use the same range or a
+        // long-sighted drone could see a target it can never shoot.
+        const fireCheck = canFireRanged(world, this, target, { range: this.sightRange });
         if (fireCheck.ok) {
-          const result = resolveRanged(world, this, target, rng);
+          const result = resolveRanged(world, this, target, rng, { range: this.sightRange });
           yield { type: 'fire', target: target.id, result };
           continue;
         }

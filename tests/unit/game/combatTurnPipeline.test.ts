@@ -176,6 +176,34 @@ test('advanceFromPlayerTurn waits for async aftermath before starting corp', () 
   ]);
 });
 
+test('advanceFromPlayerTurn does not advance the queue when the run is already terminal', () => {
+  // Regression: stepping onto the exit tile transitions the run to RESULT
+  // synchronously. The pipeline must not call queue.endTurn (refreshing corp
+  // AP / bumping the turn counter) on a dead run.
+  const { world } = makeOpenWorld();
+  world.addEntity(new Turret({ id: 't1', x: 2, y: 2 }));
+  const calls = [];
+  const queue = {
+    endTurn: () => calls.push('queue.endTurn'),
+  };
+
+  advanceFromPlayerTurn({
+    queue,
+    world,
+    rng: new Rng(1),
+    isTerminal: () => true,
+    onCorpTurnReady: () => calls.push('corp.ready'),
+    onPlayerAftermathStep: () => calls.push('player.aftermath.step'),
+    driveCorpTurn: ({ onFinish }) => {
+      calls.push('corp.drive');
+      onFinish();
+    },
+    onPlayerTurnReady: () => calls.push('player.ready'),
+  });
+
+  assert.deepEqual(calls, []);
+});
+
 test('advanceFromPlayerTurn lets async corp driver own when the player turn resumes', () => {
   const { world } = makeOpenWorld();
   const calls = [];
@@ -289,11 +317,11 @@ test('runPlayerAftermathSteps defaults rep to REP.START when omitted', () => {
   world.addEntity(player);
   world.addEntity(civ);
 
-  // REP.START=50 → between IDLE(70) and FLEE(30) → flee
+  // REP.START=20 → below FLEE(30) → panic
   const steps = [...runPlayerAftermathSteps(world, new Rng(1))];
   const civSteps = steps.filter(s => s.type === 'neutral-civilian');
   assert.equal(civSteps.length, 1);
-  assert.equal(civSteps[0].step.type, 'neutral-flee');
+  assert.equal(civSteps[0].step.type, 'neutral-panic');
 });
 
 test('formatPlayerAftermathStepLogLines: flee step produces a log line', () => {
