@@ -32,7 +32,7 @@ test('Finn.catalog returns the filtered shop catalog', () => {
   const items = f.catalog({});
   assert.ok(Array.isArray(items));
   assert.ok(items.length > 0);
-  // All six items visible without any meta upgrades.
+  // All base catalog items visible without any meta upgrades.
   const ids = items.map(i => i.id);
   assert.ok(ids.includes(ITEM_ID.STIM));
   assert.ok(ids.includes(ITEM_ID.SMOKE_CHARGE));
@@ -40,13 +40,15 @@ test('Finn.catalog returns the filtered shop catalog', () => {
   assert.ok(ids.includes(ITEM_ID.TARGETING_CHIP));
   assert.ok(ids.includes(ITEM_ID.REFLEX_WEAVE));
   assert.ok(ids.includes(ITEM_ID.EXPANDED_CATALOG));
+  assert.ok(ids.includes(ITEM_ID.BETTER_CONTRACTS));
 });
 
-test('catalog hides Expanded Catalog once purchased (unique meta)', () => {
+test('catalog hides purchased unique meta upgrades', () => {
   const f = new Finn();
-  const items = f.catalog({ expandedCatalog: true });
+  const items = f.catalog({ expandedCatalog: true, betterContracts: true });
   const ids = items.map(i => i.id);
   assert.ok(!ids.includes(ITEM_ID.EXPANDED_CATALOG));
+  assert.ok(!ids.includes(ITEM_ID.BETTER_CONTRACTS));
   // Other items are still present.
   assert.ok(ids.includes(ITEM_ID.STIM));
   assert.ok(ids.includes(ITEM_ID.ARMOUR_PLATING));
@@ -58,7 +60,7 @@ test('catalog hides Expanded Catalog once purchased (unique meta)', () => {
 
 test('getShopCatalog returns all items when meta is empty', () => {
   const items = getShopCatalog({});
-  assert.equal(items.length, 6);
+  assert.equal(items.length, 7);
 });
 
 test('getItemById returns the item for a valid id', () => {
@@ -85,6 +87,16 @@ test('every catalog item has a positive integer cost', () => {
   for (const item of items) {
     assert.ok(Number.isInteger(item.cost) && item.cost > 0, `item ${item.id} has invalid cost`);
   }
+});
+
+test('catalog item costs are priced in Creds', () => {
+  assert.equal(getItemById(ITEM_ID.STIM).cost, 20);
+  assert.equal(getItemById(ITEM_ID.SMOKE_CHARGE).cost, 30);
+  assert.equal(getItemById(ITEM_ID.ARMOUR_PLATING).cost, 60);
+  assert.equal(getItemById(ITEM_ID.TARGETING_CHIP).cost, 80);
+  assert.equal(getItemById(ITEM_ID.REFLEX_WEAVE).cost, 80);
+  assert.equal(getItemById(ITEM_ID.EXPANDED_CATALOG).cost, 150);
+  assert.equal(getItemById(ITEM_ID.BETTER_CONTRACTS).cost, 180);
 });
 
 // ---------------------------------------------------------------------------

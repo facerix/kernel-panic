@@ -14,7 +14,7 @@ Living plan for Phase 2 of Kernel Panic. Source of truth for milestone scope, cu
 | M5 — Rep + NPC taxonomy | ✅ Done |
 | M6 — Recruitment | ✅ Done |
 | M7 — Combat depth + procgen | ✅ Done |
-| M8 — Job board + contract tiers | ⬜ Pending |
+| M8 — Job board + contract tiers | ✅ Done |
 
 **Phase 2 complete** when *all three* of:
 
@@ -33,13 +33,13 @@ Test count at Phase 2 start: **409 passing** (end of Phase 1 / M8).
 - **`flatlined` vs `alive`:** `Entity.alive` is job-scoped — it resets when a crew member is deployed on a new job. `Crew.flatlined` is campaign-permanent; a flatlined crew member is never deployed again.
 - **Callsigns:** Each archetype file exports a `const CALLSIGNS` string array (10–15 curated entries). `buildCrewMember(archetypeId, spawn, rng)` replaces `buildPlayer` in `src/game/archetypes/index.js` and uses the campaign `Rng` to pick from the list. Snapshots store the chosen callsign explicitly so restore never re-rolls. Callsign deduplication excludes names already held by any living or flatlined crew member in the campaign's history.
 - **Tech turret (free):** Tech starts each job with 1 pre-built turret — a starting resource, not a crafted item. Deploying costs AP (`AP_COST.DEPLOY = 2`). The turret persists as a placed grid entity until destroyed or the job ends.
-- **Tech turret (improvised):** From M3, Tech can deploy additional turrets mid-job by spending salvage (`SALVAGE_PER_IMPROVISED_TURRET`, suggest 2 units). Trade-off: tactical advantage now vs. salvage to trade at Finn's later. Only Tech can convert salvage to turrets in the field.
-- **Salvage:** Universal collectible — all archetypes can loot drone corpses. Generic units (no typed components) in Phase 2. All archetypes bring salvage back to Finn at job end via the extraction path.
+- **Tech turret (improvised):** From M3, Tech can deploy additional turrets mid-job by spending carried salvage (`SALVAGE_PER_IMPROVISED_TURRET`, suggest 2 units). Trade-off: tactical advantage now vs. extracting salvage to sell to Finn later. Only Tech can convert salvage to turrets in the field.
+- **Salvage:** Universal collectible — all archetypes can loot drone corpses. Generic units (no typed components) in Phase 2. Extracted salvage becomes a campaign material pool that Finn buys manually at 10 Cr per salvage.
 - **Three persistence scopes:**
   - *Job-scoped* — consumables used, turrets placed; gone when the job ends.
-  - *Campaign-scoped* — crew gear, campaign salvage pool, Rep meter; survive across jobs, lost on campaign wipe.
+  - *Campaign-scoped* — crew gear, campaign salvage pool, Creds, Rep meter; survive across jobs, lost on campaign wipe.
   - *Meta-scoped* — Hub upgrades purchased from Finn; permanent, survive even a full campaign wipe.
-- **Finn:** Hub NPC (a nod to Gibson's fence archetype). Accepts salvage; sells consumables (cheapest), crew gear (campaign-scoped), and Hub upgrades (meta-scoped). Placed in the Hub grid; interact to open shop.
+- **Finn:** Hub NPC (a nod to Gibson's fence archetype). Buys extracted salvage at a fixed 10 Cr rate; sells consumables (cheapest), crew gear (campaign-scoped), and Hub upgrades (meta-scoped) for Creds. Placed in the Hub grid; interact to open shop.
 - **NPC taxonomy on jobs:**
   - *Collective-aligned* — Curator, Finn; never hostile.
   - *Truly neutral* — civilians; Rep-sensitive (behavior scales with meter level).
@@ -81,7 +81,7 @@ Test count at Phase 2 start: **409 passing** (end of Phase 1 / M8).
 All Phase 1 conventions apply (pure/DOM split, relative imports inside `src/`, absolute from outside, DataStore + `h()` + Web Components, crash over silent fallback, tests must be able to fail). Additions for Phase 2:
 
 - **Campaign layer.** `src/game/Campaign.js` is the new top-level game object. `index.js` mounts Campaign; Campaign mounts Run for each job. Run no longer owns the Hub state machine.
-- **Three DataStore scopes.** Job scope existed implicitly in Phase 1. Campaign scope (`crew`, `salvage`, `rep`) and meta scope (`upgrades`) are new; both are serialised as separate DataStore records and survive across jobs and campaign wipes respectively.
+- **Three DataStore scopes.** Job scope existed implicitly in Phase 1. Campaign scope (`crew`, `salvage`, `credits`, `rep`) and meta scope (`upgrades`) are new; both are serialised as separate DataStore records and survive across jobs and campaign wipes respectively.
 - **`Crew` sits between `Entity` and archetypes.** All player-controlled entities extend `Crew`. Crew-specific fields (`callsign`, `flatlined`, `inventory`, `gear`) must not leak into `Entity`; pure-logic tests for non-crew entities must not need them.
 - **Turret is a placed grid entity, not an archetype.** Lives in `src/game/Turret.js` (peer of `Entity.js`). Faction = PLAYER. Has HP; can be destroyed. `autoFire(world, rng)` is driven by the player-aftermath phase in `combatTurnPipeline.js` after the player yields, before corp AI begins.
 - **Combat turn pipeline.** Player → player aftermath → corp → player handoff lives in `src/game/combatTurnPipeline.js`, not in page-specific shells. Shells inject rendering, logging, animation locks, and timers; the module remains pure JS and unit-testable. Player aftermath is step-driven (`runPlayerAftermathSteps` / `drivePlayerAftermath`) so turret autofire, future allied NPC actions, hazards, and neutral movement can each render discretely before corp AI begins.
@@ -131,7 +131,7 @@ The main shell uses paced aftermath so each step can paint and hold the animatio
 The biggest architectural seam in Phase 2. `Run.js` is refactored; Hub logic moves up.
 
 - `src/game/Campaign.js` — top-level state machine. States: `HUB` → `COMBAT` (a Run episode) → back to `HUB`; terminal state `ENDED` (all crew flatlined).
-- Owns: `crew[]` (array of `Crew` instances), `salvage` (number, campaign pool), `vouch` (number, stub `50` until M5), meta-upgrade state (stub `{}` until M4).
+- Owns: `crew[]` (array of `Crew` instances), `salvage` (number, campaign pool), `credits` (campaign money), `vouch`/`rep` (number, stub `50` until M5), meta-upgrade state (stub `{}` until M4).
 - `buildCrew(rng)` — creates one Merc, one Razor, one Tech via `buildCrewMember`; deduplicates callsigns.
 - `deployCrewMember(id)` — validates member is not flatlined; instantiates a `Run` for the job.
 - `onJobEnd(result)` — if crew member survived: adds extracted salvage to pool; if died: calls `flatlineMember(id)`, then checks `crew.every(m => m.flatlined)` → transition to `ENDED`.
@@ -140,7 +140,7 @@ The biggest architectural seam in Phase 2. `Run.js` is refactored; Hub logic mov
 - `index.js` (shell): mounts `Campaign` instead of `Run` directly. Campaign's `onPersist` callback writes to DataStore at campaign scope. Meta scope written separately on every Hub upgrade purchase.
 - **Campaign start UX:** On the start of a new campaign, a new `<system-start>` overlay shows a basic terminal-styled welcome message in the Curator's voice.
 - **Campaign wipe UX (shell):** When the last non-flatlined operator dies on a job, `<crash-dump>` shows campaign-terminal copy (`willEndCampaignOnThisDeath` → `campaignTerminal` on death telemetry — **CAMPAIGN TERMINATED**, last-fight trace, `[ NEW CAMPAIGN ]`). Resuming a save in `ENDED` uses `outcome: 'campaign-over'` (roster + salvage line). Same overlay component as per-job debrief (M8).
-- DataStore: new `campaign` record `{ id, crew: CrewSnapshot[], salvage, vouch, meta }`. `persistence.js` gains `snapshotCampaign(campaign)` / `restoreCampaign(record)`. Corrupt campaign records throw with useful messages (same rule as job snapshots).
+- DataStore: new `campaign` record `{ id, crew: CrewSnapshot[], salvage, credits, vouch, meta }`. `persistence.js` gains `snapshotCampaign(campaign)` / `restoreCampaign(record)`. Corrupt campaign records throw with useful messages (same rule as job snapshots).
 - Hub UI: `<crew-roster>` web component — shows all three crew members (callsign, archetype badge, HP indicator, `FLATLINED` flag). Crew member selection for next deployment. Mounts in place of the removed Hub-inside-Run panel.
 - `buildPlayer` removed from `src/game/archetypes/index.js`; all callers updated.
 - Tests: `Campaign.test.js` — crew creation (3 members, one per archetype, unique callsigns), deployment validation (not flatlined), flatline + campaign-end condition, `onJobEnd` salvage accumulation, snapshot/restore round-trip.
@@ -156,7 +156,7 @@ Closes the **corpse memorisation** kaizen item (load-bearing for the salvage loo
 - **Tech improvised turret:** `Tech.canImproviseTurret(world, dx, dy)` / `Tech.improviseTurret(world, dx, dy)` — identical to `deployTurret` in tile checks and AP cost, but gates on `inventory.salvage >= SALVAGE_PER_IMPROVISED_TURRET` (2) instead of `turretReady`. Uses `_improvisedTurretCount` for unique turret ids. The unified `x` special path in `applyIntent.doDeploy` routes to `deployTurret` if `turretReady`, falls back to `improviseTurret` if `canImproviseTurret` passes, otherwise surfaces the most helpful denial reason.
 - `SALVAGE_DROP_MIN = 1`, `SALVAGE_DROP_MAX = 3`, `SALVAGE_PER_IMPROVISED_TURRET = 2` added to `src/game/constants.js`.
 - **Interact key rebound:** `i` → Space (`' '`). `i` freed for inventory in M4. Keymap, touchpad, key-help, and all tests updated. Proximity hints updated with `[Space]` labels.
-- Status lines: combat HUD shows `SAL:N` for carried salvage; Hub shows `SALVAGE N` for campaign pool. Debug harness shows salvage count for Tech.
+- Status lines: combat HUD shows `SAL:N` for carried salvage; Hub shows `CREDS N SALVAGE N` for campaign balances. Debug harness shows salvage count for Tech.
 - Tests (33 new, 555 total): `Crew.initInventory` + idempotency, `collectSalvage` full legality matrix (adjacency, alive, loot present, AP, inventory init), loot assignment on kill (deterministic, turret kills, non-lethal no-op), inventory initialisation at deploy, corpse memorisation + clear, memorised corpse rendering in frame builder, improvised turret full legality matrix + commit + unique ids, applyIntent routing to improvised turret, campaign persistence round-trip with inventory, keymap/touchpad/keyHelp rebind.
 
 ### M4 — Finn's shop ✅
@@ -164,19 +164,20 @@ Closes the **corpse memorisation** kaizen item (load-bearing for the salvage loo
 - `src/game/hub/Finn.js` — NEUTRAL Hub NPC; `catalog(metaState)` returns an array of `Item` descriptors filtered by which meta-upgrades have been purchased. Placed at `(2, 2)` in the Hub (authored, no collision with Terminal at `(9, 2)` or Curator at their authored position).
 - **Item catalog (Phase 2 initial set):**
 
-  | Item | Scope | Cost (salvage) | Effect |
+  | Item | Scope | Cred cost | Effect |
   |---|---|---|---|
-  | Stim | Job-scoped | 2 | Restores 2 HP to the deployed crew member |
-  | Smoke charge | Job-scoped | 3 | Blocks LOS in radius 2 for 1 turn (new `SMOKE` tile type, passable, blocks LOS) |
-  | Armour plating | Campaign-scoped | 6 | +1 `maxHp` on target crew member |
-  | Targeting chip | Campaign-scoped | 8 | +`TARGETING_BONUS` (10%) ranged hit chance for target crew member (capped at 100% AIM) |
-  | Reflex weave | Campaign-scoped | 8 | +`DODGE_BONUS` (10%) melee dodge chance for target crew member (capped at 100% DODGE) |
-  | Expanded catalog | Meta | 15 | Unlocks rare item tier in Finn's shop |
+  | Stim | Job-scoped | 20 Cr | Restores 2 HP to the deployed crew member |
+  | Smoke charge | Job-scoped | 30 Cr | Blocks LOS in radius 2 for 1 turn (new `SMOKE` tile type, passable, blocks LOS) |
+  | Armour plating | Campaign-scoped | 60 Cr | +1 `maxHp` on target crew member |
+  | Targeting chip | Campaign-scoped | 80 Cr | +`TARGETING_BONUS` (10%) ranged hit chance for target crew member (capped at 100% AIM) |
+  | Reflex weave | Campaign-scoped | 80 Cr | +`DODGE_BONUS` (10%) melee dodge chance for target crew member (capped at 100% DODGE) |
+  | Expanded catalog | Meta | 150 Cr | Unlocks rare item tier in Finn's shop |
+  | Better Contracts | Meta | 180 Cr | Raises contract difficulty weighting and Cred reward floors |
 
-- `<finn-shop>` web component — Shadow DOM. Browse catalog (grouped by scope), shows campaign salvage balance, select target crew member for crew-gear purchases, confirm. Emits `purchase` CustomEvent `{ item, targetMemberId }`. Keyboard-navigable (↑/↓, Enter confirm, Esc close) for consistency with `<character-select>`.
+- `<finn-shop>` web component — Shadow DOM. Browse catalog (grouped by scope), shows campaign Creds and salvage balances, sells campaign salvage via `SELL 1` / `SELL 5` / `SELL ALL`, select target crew member for crew-gear purchases, confirm. Emits `purchase` CustomEvent `{ item, targetMemberId }` and `sell-salvage` CustomEvent `{ quantity }`. Keyboard-navigable (↑/↓, Enter confirm, Esc close) for consistency with `<character-select>`.
 - Hub panel: `<finn-shop>` mounts inside the Hub panel. Finn entity in Hub grid shows `F` glyph; interact (`i`) when adjacent opens the shop (same pattern as Terminal → character-select).
-- `Campaign.js` handles `purchase` events: deducts salvage, applies item effect. Crew-gear effects are stored on `Crew.gear` (e.g. `{ maxHpBonus: 1, hitBonus: 0.1, dodgeBonus: 0 }`). `Combat.resolveRanged` reads `attacker.gear?.hitBonus ?? 0`; `Combat.resolveMelee` reads defender `gear?.dodgeBonus ?? 0`. Meta upgrades stored in `campaign.meta`. `<finn-shop>` disables crew at max AIM when buying Targeting Chip and at max DODGE when buying Reflex Weave.
-- Tests: `Finn.test.js` — catalog generation with and without meta-upgrade, purchase validation (insufficient salvage throws), crew-gear application, meta-upgrade flag set; `persistence.test.js` — crew gear survives campaign snapshot round-trip.
+- `Campaign.js` handles `purchase` events: deducts Creds, applies item effect. Crew-gear effects are stored on `Crew.gear` (e.g. `{ maxHpBonus: 1, hitBonus: 0.1, dodgeBonus: 0 }`). `Combat.resolveRanged` reads `attacker.gear?.hitBonus ?? 0`; `Combat.resolveMelee` reads defender `gear?.dodgeBonus ?? 0`. Meta upgrades stored in `campaign.meta`. `<finn-shop>` disables crew at max AIM when buying Targeting Chip and at max DODGE when buying Reflex Weave.
+- Tests: `Finn.test.js` — catalog generation with and without meta-upgrade, purchase validation (insufficient Creds throws), crew-gear application, meta-upgrade flag set; `persistence.test.js` — crew gear survives campaign snapshot round-trip.
 
 **Delivered expansion (M4 tweaks):**
 
@@ -247,23 +248,22 @@ Closes the **NEUTRAL faction shootable** kaizen item.
 Closes the **melee always hits**, **drone patrol anchor**, and **corridor procgen** kaizen items.
 
 - **Melee dodge** (`Combat.ts`): `resolveMelee` now requires the run RNG (no `Math.random` fallback) and rolls defender dodge. Defender dodge threshold = `baseDodgeChance` (from `Crew` / archetype override, else `DODGE_CHANCE = 0.2` for non-crew) + `gear.dodgeBonus` + `COVER_DODGE_BONUS` (0.1) when diagonal corner cover applies. `Razor.baseDodgeChance` is **0.35** (defined on the archetype class, not in `constants.ts`). On a dodge, emits `entity:damaged` with `{ damage: 0, dodged: true }` (listeners see the event; no HP changes). `MELEE_DAMAGE` raised from 2 to 3 to compensate for miss chance. `canMelee` unchanged — the pre-check is still adjacency + AP + faction only. Run telemetry and hit-flash animation ignore zero-damage dodge events. Log line reports roll vs threshold when dodged.
-- **Reflex Weave** (`items.ts`, `Crew.applyGear`): Campaign-scoped Finn shop item (8 salvage). Stacks +10% (`DODGE_BONUS`) melee dodge per purchase on a target crew member, capped so `baseDodgeChance + dodgeBonus ≤ 1`. Mirrors Targeting Chip for AIM. Listed in `<finn-shop>` catalog; shown in `<crew-roster>` gear lines when owned.
+- **Reflex Weave** (`items.ts`, `Crew.applyGear`): Campaign-scoped Finn shop item (80 Cr). Stacks +10% (`DODGE_BONUS`) melee dodge per purchase on a target crew member, capped so `baseDodgeChance + dodgeBonus ≤ 1`. Mirrors Targeting Chip for AIM. Listed in `<finn-shop>` catalog; shown in `<crew-roster>` gear lines when owned.
 - **Crew stat surfacing:** `<crew-roster>` detail pane and recruit preview show **AIM** and **DODGE** percentages (base + gear, capped at 100%). `<initial-recruit>` candidate cards show `HP · AIM · DODGE` on each card.
 - **Drone patrol anchors** (`mapBuild.js` + prefabs): Prefab schema gains optional `patrolPaths: [{x,y}[]]` waypoint lists. `mapBuild.js` assigns the nearest authored path to each drone spawn (Euclidean distance to first waypoint). Fallback drones now synthesise a 2-point patrol from spawn + nearest cardinal FLOOR tile instead of patrolling in place.
 - **New prefab — `lab`:** 10×6 room. Central cover cluster (3 tiles), two drone anchors with cross-lane patrol paths, one CorpCivilian spawn, one NeutralCivilian spawn. Exercises the M5 alarm system in generated maps.
 - **Cover hit modifier clarification:** `resolveRanged` applies `COVER_HIT_PENALTY` when `hasCoverBetween(attacker.position, target.position)` is true — i.e. when the *target* has intervening cover. This was the intent from Phase 1 locked-in decisions ("cover grants a defender hit-modifier"). Verify implementation matches intent; document in `Combat.js` if it was previously ambiguous.
 - Tests: dodge roll at `DODGE_CHANCE`, Razor defender uses `baseDodgeChance` (0.35), gear `dodgeBonus` in `resolveMelee` threshold, Reflex Weave `applyGear` + purchase + persistence cap repair, cover dodge bonus, miss event emitted with `dodged: true`, HP unchanged on miss, no RNG fallback; patrol path assignment, fallback synthesis, and moving waypoint validation; `lab` prefab parses without error and places anchors correctly.
 
-### M8 — Job board + contract tiers ⬜
+### M8 — Job board + contract tiers ✅
 
-- `Curator.generateContracts(rng, campaign)` replaces `generateContract` — returns an array of 3 contracts per Hub visit. Contract shape gains `difficulty: 'standard' | 'elevated' | 'critical'` and `reward: { salvage: N, repDelta: N, recruit?: true }`.
-- **Difficulty effects:** `standard` → existing threat count + no civilians. `elevated` → +1 drone, CorpCivilian present. `critical` → +2 drones, CorpCivilian + NeutralCivilian present, harder drone patrol paths (shorter gaps between waypoints).
-- **Hub meta-upgrade — `better-contracts`** (available from Finn in M4): shifts `generateContracts` pool weight toward elevated/critical tiers and raises salvage reward floors. Campaign's `meta.betterContracts` flag gates this.
-- **`<contract-select>` web component** replaces `<run-briefing>` — displays all 3 contracts with difficulty badge, reward summary, and a TAKE THE JOB button. Keyboard-navigable (↑/↓, Enter, Esc). The selected contract is passed into `Campaign.deployCrewMember(memberId, contract)` and from there into `Run` → `mapBuild`.
-- `mapBuild.js`: accepts `threatCount` and `difficulty` from the contract; scales drone count and civilian spawns accordingly.
-- `Campaign.onJobEnd` applies `contract.reward`: salvage added to pool, `adjustRep(repDelta)`, recruit flag sets a pending recruit for next Hub visit.
-- **Invert job acceptance flow:** Currently, when talking with the Curator, player selects the crew member to deploy, then accepts the job. Once job options land, player should first be presented with the job list, then once they take a job, they can choose the crew member best suited to that mission. Phase 3 will further enrich this paradigm when we add more complexity to job completion goals beyond "find the exit."
-- Tests: `Curator.test.js` — pool of 3, difficulty distribution, reward scaling, `better-contracts` shifts pool; `Campaign.test.js` — contract reward applied correctly (salvage, Rep, recruit flag), `mapBuild` receives correct threat config from contract.
+- `Curator.generateContracts(rng, campaign)` returns 3 deterministic contracts per Hub visit. `generateContract()` remains as a backward-compatible wrapper for older debug/tests. Contract shape now includes `difficulty: 'standard' | 'elevated' | 'critical'` and required `reward: { credits, repDelta, recruit?: true }`.
+- **Difficulty effects:** `standard` → 2 drones, no civilians. `elevated` → 3 drones, CorpCivilian cap enabled. `critical` → 4 drones, CorpCivilian + NeutralCivilian caps enabled, and patrol paths are tightened where safe to create shorter gaps between waypoints.
+- **Hub meta-upgrade — `better-contracts`:** Finn now sells the unique Better Contracts meta upgrade. `campaign.meta.betterContracts` shifts Curator's pool toward elevated/critical tiers and raises all generated Cred reward floors by 20 Cr.
+- **`<contract-select>` web component:** New job-board modal displays all 3 contracts with difficulty badge, threat count, reward summary, and a TAKE THE JOB action. Keyboard-navigable (↑/↓, W/S, Enter, Esc). The shell now shows job board first, then reuses `<run-briefing>` for operative selection, preserving the M4 crew-list deploy pane while inverting acceptance flow.
+- `Run.enterCombat()` passes contract `threatCount` and `difficulty` into `mapBuild`; `mapBuild` validates difficulty loudly and derives default civilian caps from the tier.
+- `Campaign.onJobEnd` applies extraction rewards on EXIT: carried salvage enters the campaign salvage pool, contract Creds are added to `campaign.credits`, `adjustRep(repDelta)` applies Rep, and `reward.recruit` creates a one-recruit lead for the next Hub visit that bypasses the Rep gate. Reward recruit ids persist across save/restore.
+- Tests (727 total): Curator contract board determinism + tier/reward shape + Better Contracts weighting; Campaign contract reward Cred/Rep/recruit flow + Better Contracts purchase; Run contract threat handoff; mapBuild difficulty caps + validation; Finn catalog updated for the new meta item.
 
 ## Recorded problems (deferred)
 

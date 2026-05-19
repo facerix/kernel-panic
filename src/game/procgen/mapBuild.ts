@@ -27,13 +27,14 @@
  */
 
 import { Grid } from '../Grid.js';
-import { TILE } from '../constants.js';
+import { CONTRACT_DIFFICULTY, TILE } from '../constants.js';
 import { BSP_TUNABLES, splitRegion, leaves, internalNodes } from './bsp.js';
 import { fittingPrefabs } from './prefabs/index.js';
 import type { Rng } from '../../rng.js';
 import type { GridPoint } from '../../types.js';
 import type { BspNode } from './bsp.js';
 import type { ParsedPrefab } from './prefabs/types.js';
+import type { ContractDifficulty } from '../constants.js';
 
 const DEFAULT_THREAT_COUNT = 2;
 const DEFAULT_MAX_CORP_CIVILIANS = 1;
@@ -84,6 +85,7 @@ type BuildMapOptions = {
   width: number;
   height: number;
   threatCount?: number;
+  difficulty?: ContractDifficulty;
   maxCorpCivilians?: number;
   maxNeutralCivilians?: number;
 };
@@ -100,8 +102,9 @@ export function buildMap({
   width,
   height,
   threatCount = DEFAULT_THREAT_COUNT,
-  maxCorpCivilians = DEFAULT_MAX_CORP_CIVILIANS,
-  maxNeutralCivilians = DEFAULT_MAX_NEUTRAL_CIVILIANS,
+  difficulty = CONTRACT_DIFFICULTY.ELEVATED,
+  maxCorpCivilians,
+  maxNeutralCivilians,
 }: BuildMapOptions): Map {
   if (!rng || typeof rng.fork !== 'function') {
     throw new TypeError('buildMap requires an Rng with fork() (use src/rng.js)');
@@ -116,12 +119,18 @@ export function buildMap({
       `buildMap: threatCount must be a non-negative integer, got ${threatCount}`
     );
   }
-  if (!Number.isInteger(maxCorpCivilians) || maxCorpCivilians < 0) {
+  if (!isDifficulty(difficulty)) {
+    throw new Error(`buildMap: unknown difficulty "${difficulty}"`);
+  }
+  const civilianCaps = civilianCapsForDifficulty(difficulty);
+  const resolvedMaxCorpCivilians = maxCorpCivilians ?? civilianCaps.corp;
+  const resolvedMaxNeutralCivilians = maxNeutralCivilians ?? civilianCaps.neutral;
+  if (!Number.isInteger(resolvedMaxCorpCivilians) || resolvedMaxCorpCivilians < 0) {
     throw new RangeError(
       `buildMap: maxCorpCivilians must be a non-negative integer, got ${maxCorpCivilians}`
     );
   }
-  if (!Number.isInteger(maxNeutralCivilians) || maxNeutralCivilians < 0) {
+  if (!Number.isInteger(resolvedMaxNeutralCivilians) || resolvedMaxNeutralCivilians < 0) {
     throw new RangeError(
       `buildMap: maxNeutralCivilians must be a non-negative integer, got ${maxNeutralCivilians}`
     );
@@ -248,16 +257,19 @@ export function buildMap({
   // drones) — civilians are optional content. Only place civilians on
   // passable, unoccupied tiles.
   for (let i = 1; i < stamped.length; i++) {
-    if (corpCivilians.length >= maxCorpCivilians && neutralCivilians.length >= maxNeutralCivilians)
+    if (
+      corpCivilians.length >= resolvedMaxCorpCivilians &&
+      neutralCivilians.length >= resolvedMaxNeutralCivilians
+    )
       break;
     for (const a of stamped[i].corpCivilianWorld) {
-      if (corpCivilians.length >= maxCorpCivilians) break;
+      if (corpCivilians.length >= resolvedMaxCorpCivilians) break;
       if (grid.tileAt(a.x, a.y) !== TILE.FLOOR) continue;
       if (isAlreadyTaken(a.x, a.y)) continue;
       corpCivilians.push(a);
     }
     for (const a of stamped[i].neutralCivilianWorld) {
-      if (neutralCivilians.length >= maxNeutralCivilians) break;
+      if (neutralCivilians.length >= resolvedMaxNeutralCivilians) break;
       if (grid.tileAt(a.x, a.y) !== TILE.FLOOR) continue;
       if (isAlreadyTaken(a.x, a.y)) continue;
       neutralCivilians.push(a);
@@ -267,11 +279,63 @@ export function buildMap({
   return {
     grid,
     spawns: { player: playerSpawn },
-    drones: droneAnchors,
+    drones:
+      difficulty === CONTRACT_DIFFICULTY.CRITICAL
+        ? droneAnchors.map(anchor => ({
+            ...anchor,
+            waypoints: tightenPatrol(grid, anchor.waypoints),
+          }))
+        : droneAnchors,
     corpCivilians,
     neutralCivilians,
     exitTile,
   };
+}
+
+function isDifficulty(value: string): value is ContractDifficulty {
+  return (Object.values(CONTRACT_DIFFICULTY) as string[]).includes(value);
+}
+
+function civilianCapsForDifficulty(difficulty: ContractDifficulty): {
+  corp: number;
+  neutral: number;
+} {
+  switch (difficulty) {
+    case CONTRACT_DIFFICULTY.STANDARD:
+      return { corp: 0, neutral: 0 };
+    case CONTRACT_DIFFICULTY.ELEVATED:
+      return { corp: DEFAULT_MAX_CORP_CIVILIANS, neutral: 0 };
+    case CONTRACT_DIFFICULTY.CRITICAL:
+      return { corp: DEFAULT_MAX_CORP_CIVILIANS, neutral: DEFAULT_MAX_NEUTRAL_CIVILIANS };
+    default:
+      return { corp: DEFAULT_MAX_CORP_CIVILIANS, neutral: DEFAULT_MAX_NEUTRAL_CIVILIANS };
+  }
+}
+
+function tightenPatrol(grid: Grid, path: GridPoint[]): GridPoint[] {
+  if (path.length < 2) return path.map(wp => ({ ...wp }));
+  const tightened: GridPoint[] = [];
+  for (let i = 0; i < path.length; i++) {
+    const current = path[i]!;
+    const next = path[i + 1];
+    tightened.push({ ...current });
+    if (!next) continue;
+    const dx = next.x - current.x;
+    const dy = next.y - current.y;
+    if (Math.max(Math.abs(dx), Math.abs(dy)) > 2) {
+      const midpoint = {
+        x: current.x + Math.sign(dx) * Math.ceil(Math.abs(dx) / 2),
+        y: current.y + Math.sign(dy) * Math.ceil(Math.abs(dy) / 2),
+      };
+      if (
+        grid.inBounds(midpoint.x, midpoint.y) &&
+        grid.tileAt(midpoint.x, midpoint.y) === TILE.FLOOR
+      ) {
+        tightened.push(midpoint);
+      }
+    }
+  }
+  return tightened;
 }
 
 function stampPrefab(grid: Grid, rng: Rng, leaf: BspNode): StampedLeaf {

@@ -10,15 +10,17 @@ import {
   snapshot,
   snapshotCampaign,
 } from '../../../src/game/persistence.js';
-import { FACTION } from '../../../src/game/constants.js';
+import { FACTION, SALVAGE_TO_CRED_RATE } from '../../../src/game/constants.js';
 import { buildCrewMember } from '../../../src/game/archetypes/index.js';
 import { Rng } from '../../../src/rng.js';
 
 const fakeContract = (overrides = {}) => ({
   seed: 12345,
   objective: OBJECTIVES.REACH_EXIT,
+  difficulty: 'standard',
   threatCount: 1,
   label: 'test job',
+  reward: { credits: 0, repDelta: 0 },
   ...overrides,
 });
 
@@ -171,6 +173,7 @@ test('snapshot without a Run instance throws TypeError', () => {
 test('campaign snapshot/restore round-trips campaign scope', () => {
   const campaign = new Campaign({ seed: 0xface });
   campaign.salvage = 7;
+  campaign.credits = 90;
   campaign.rep = 62;
   campaign.meta = { expandedCatalog: true };
   campaign.crew[1].flatlined = true;
@@ -181,6 +184,7 @@ test('campaign snapshot/restore round-trips campaign scope', () => {
 
   assert.deepEqual(recB, recA);
   assert.equal(restored.salvage, 7);
+  assert.equal(restored.credits, 90);
   assert.equal(restored.rep, 62);
   assert.deepEqual(restored.meta, { expandedCatalog: true });
   assert.equal(restored.crew[1].flatlined, true);
@@ -193,11 +197,34 @@ test('campaign snapshot captures an active briefing job', () => {
   assert.equal(rec.type, 'campaign');
   assert.equal(rec.activeRun.state, 'BRIEFING');
   assert.equal(rec.activeRun.contract.label, 'briefing job');
+  assert.equal(rec.activeRun.contract.reward.credits, 0);
 
   const restored = restoreCampaign(rec);
   assert.equal(restored.activeRun.state, 'BRIEFING');
   assert.equal(restored.activeRun.contract.label, 'briefing job');
   assert.equal(restored.activeRun.crewMember.id, campaign.crew[2].id);
+});
+
+test('restoreCampaign restores legacy snapshots without credits as zero', () => {
+  const campaign = new Campaign({ seed: 0xc0de, salvage: 4, credits: 70 });
+  const rec = snapshotCampaign(campaign) as Record<string, unknown>;
+  delete rec.credits;
+  const restored = restoreCampaign(rec);
+  assert.equal(restored.salvage, 4);
+  assert.equal(restored.credits, 0);
+});
+
+test('restoreCampaign migrates legacy active-run salvage rewards to Creds', () => {
+  const campaign = new Campaign({ seed: 0xbeef });
+  campaign.deployCrewMember(campaign.crew[2].id, fakeContract({ label: 'legacy reward' }));
+  const rec = snapshotCampaign(campaign) as Record<string, unknown>;
+  const activeRun = rec.activeRun as { contract: { reward: Record<string, unknown> } };
+  activeRun.contract.reward = { salvage: 6, repDelta: 2 };
+
+  const restored = restoreCampaign(rec);
+
+  assert.equal(restored.activeRun!.contract.reward.credits, 6 * SALVAGE_TO_CRED_RATE);
+  assert.equal(restored.activeRun!.contract.reward.repDelta, 2);
 });
 
 test('restoreCampaign throws on corrupt campaign records', () => {
@@ -206,6 +233,7 @@ test('restoreCampaign throws on corrupt campaign records', () => {
   assert.throws(() => restoreCampaign({ ...rec, type: 'run' }), /campaign/);
   assert.throws(() => restoreCampaign({ ...rec, crew: [] }), /crew/);
   assert.throws(() => restoreCampaign({ ...rec, salvage: -1 }), /salvage/);
+  assert.throws(() => restoreCampaign({ ...rec, credits: -1 }), /credits/);
   assert.throws(() => restoreCampaign({ ...rec, rep: 101 }), /rep/);
 });
 

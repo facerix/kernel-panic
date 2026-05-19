@@ -2,7 +2,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { Rng } from '../../../../src/rng.js';
-import { FACTION, TILE } from '../../../../src/game/constants.js';
+import {
+  CONTRACT_DIFFICULTY,
+  FACTION,
+  SALVAGE_TO_CRED_RATE,
+  TILE,
+} from '../../../../src/game/constants.js';
 import { Curator, OBJECTIVES, isObjective } from '../../../../src/game/hub/Curator.js';
 import { buildHub } from '../../../../src/game/hub/SafeSpace.js';
 
@@ -22,13 +27,33 @@ test('generateContract is deterministic for the same Rng state', () => {
   assert.deepEqual(a, b);
 });
 
+test('generateContracts returns a deterministic board of 3 tiered contracts', () => {
+  const a = new Curator().generateContracts(new Rng(123));
+  const b = new Curator().generateContracts(new Rng(123));
+  assert.deepEqual(a, b);
+  assert.equal(a.length, 3);
+  for (const contract of a) {
+    assert.ok(isObjective(contract.objective), `unknown objective ${contract.objective}`);
+    assert.ok(
+      Object.values(CONTRACT_DIFFICULTY).includes(contract.difficulty),
+      `unknown difficulty ${contract.difficulty}`
+    );
+    assert.ok(contract.threatCount >= 2);
+    assert.ok(Number.isInteger(contract.reward.credits) && contract.reward.credits >= 0);
+    assert.ok(Number.isInteger(contract.reward.repDelta));
+  }
+});
+
 test('contract objective is in the known set and threatCount > 0', () => {
   const contract = new Curator().generateContract(new Rng(0xdeadbeef));
   assert.ok(isObjective(contract.objective), `unknown objective ${contract.objective}`);
   assert.equal(contract.objective, OBJECTIVES.REACH_EXIT);
+  assert.ok(Object.values(CONTRACT_DIFFICULTY).includes(contract.difficulty));
   assert.ok(contract.threatCount > 0);
   assert.ok(typeof contract.label === 'string' && contract.label.length > 0);
   assert.ok(Number.isInteger(contract.seed) && contract.seed >= 0);
+  assert.ok(Number.isInteger(contract.reward.credits));
+  assert.ok(Number.isInteger(contract.reward.repDelta));
 });
 
 test('different Rng states yield different seeds (no constant return)', () => {
@@ -43,6 +68,35 @@ test('different Rng states yield different seeds (no constant return)', () => {
 
 test('generateContract throws on missing rng', () => {
   assert.throws(() => new Curator().generateContract(null), /requires an Rng/);
+});
+
+test('better-contracts shifts the board toward elevated/critical tiers and raises Cred floors', () => {
+  const normalCounts = { elevatedOrCritical: 0, credits: 0 };
+  const betterCounts = { elevatedOrCritical: 0, credits: 0 };
+  for (let seed = 0; seed < 200; seed++) {
+    for (const contract of new Curator().generateContracts(new Rng(seed), { meta: {} })) {
+      if (contract.difficulty !== CONTRACT_DIFFICULTY.STANDARD) normalCounts.elevatedOrCritical++;
+      normalCounts.credits += contract.reward.credits;
+    }
+    for (const contract of new Curator().generateContracts(new Rng(seed), {
+      meta: { betterContracts: true },
+    })) {
+      if (contract.difficulty !== CONTRACT_DIFFICULTY.STANDARD) betterCounts.elevatedOrCritical++;
+      betterCounts.credits += contract.reward.credits;
+      assert.ok(
+        contract.reward.credits >= 20 + 2 * SALVAGE_TO_CRED_RATE,
+        'better-contracts should raise reward floors by 20 Cr'
+      );
+    }
+  }
+  assert.ok(
+    betterCounts.elevatedOrCritical > normalCounts.elevatedOrCritical,
+    'better-contracts should offer more elevated/critical jobs'
+  );
+  assert.ok(
+    betterCounts.credits > normalCounts.credits,
+    'better-contracts should improve aggregate Cred rewards'
+  );
 });
 
 test('Curator is immobile — refreshAp keeps ap at 0', () => {

@@ -25,7 +25,7 @@ import { Campaign, CAMPAIGN_STATE, willEndCampaignOnThisDeath } from '/src/game/
 import { RUN_STATE } from '/src/game/Run.js';
 import { restoreCampaign, snapshotCampaign } from '/src/game/persistence.js';
 import { runCorpTurn as driveCorpTurn } from '/src/game/corpTurnDriver.js';
-import { FACTION, AP_COST, REP, REP_LABEL } from '/src/game/constants.js';
+import { FACTION, AP_COST, REP, REP_LABEL, SALVAGE_TO_CRED_RATE } from '/src/game/constants.js';
 import {
   advanceFromPlayerTurn,
   drivePlayerAftermath,
@@ -67,6 +67,7 @@ import type { Telemetry, TurnActionStep } from '/src/types.js';
 import '/components/ConfirmationModal.js';
 import '/components/UpdateNotification.js';
 import '/components/TouchPad.js';
+import '/components/ContractSelect.js';
 import '/components/RunBriefing.js';
 import '/components/CrashDump.js';
 import '/components/SystemStart.js';
@@ -95,6 +96,9 @@ type RunBriefingElement = ModalElement & {
   setContract(contract: Contract): void;
   setCrew(crew: Crew[]): void;
 };
+type ContractSelectElement = ModalElement & {
+  setContracts(contracts: Contract[]): void;
+};
 type CrashDumpElement = ModalElement & {
   setTelemetry(telemetry: Record<string, unknown>): void;
 };
@@ -115,7 +119,7 @@ type CrewRosterElement = ModalElement & {
   ): void;
 };
 type FinnShopElement = ModalElement & {
-  setCatalog(catalog: Item[], crew: Crew[], salvage: number): void;
+  setCatalog(catalog: Item[], crew: Crew[], balances: { credits: number; salvage: number }): void;
 };
 type ItemInventoryElement = ModalElement & {
   setItems(consumables: NonNullable<Crew['inventory']>['consumables']): void;
@@ -164,6 +168,7 @@ let renderer: AsciiRenderer;
 let crt: CrtFilter;
 let stageEl: HTMLElement;
 let briefingEl: RunBriefingElement;
+let contractSelectEl: ContractSelectElement;
 let crashEl: CrashDumpElement;
 let systemStartEl: SystemStartElement;
 let initialRecruitEl: InitialRecruitElement;
@@ -178,6 +183,8 @@ let logEl: HTMLElement;
 let logHeaderEl: HTMLElement;
 let logContentEl: HTMLPreElement;
 let keyboard: KeyboardController;
+
+let currentJobOptions: Contract[] = [];
 
 /**
  * Animation-lock for M0 combat feedback. Listeners on the run bus
@@ -230,6 +237,7 @@ const allComponentsReady = Promise.all([
   customElements.whenDefined('confirmation-modal'),
   customElements.whenDefined('finn-shop'),
   customElements.whenDefined('item-inventory'),
+  customElements.whenDefined('contract-select'),
   customElements.whenDefined('touch-pad'),
   customElements.whenDefined('crew-list'),
   customElements.whenDefined('crew-roster'),
@@ -273,6 +281,7 @@ async function boot() {
   }
   stageEl = canvas.parentElement;
   statusEl = mustGetElement<HTMLElement>('game-status');
+  contractSelectEl = mustGetElement<ContractSelectElement>('contract-select');
   briefingEl = mustGetElement<RunBriefingElement>('briefing');
   crashEl = mustGetElement<CrashDumpElement>('crash');
   systemStartEl = mustGetElement<SystemStartElement>('system-start');
@@ -311,6 +320,8 @@ async function boot() {
   // panel is open keeps both behaviours clean.
   window.addEventListener('keydown', handleGlobalKey, true);
 
+  contractSelectEl.addEventListener('contract-selected', onContractSelected);
+  contractSelectEl.addEventListener('dismiss', () => contractSelectEl.hide());
   briefingEl.addEventListener('deploy', onBriefingDeploy);
   briefingEl.addEventListener('dismiss', () => briefingEl.hide());
   crashEl.addEventListener('new-run', onNewRunRequested);
@@ -321,6 +332,7 @@ async function boot() {
   crewRosterEl.addEventListener('recruit', onCrewRecruit);
 
   finnShopEl.addEventListener('purchase', onFinnPurchase);
+  finnShopEl.addEventListener('sell-salvage', onFinnSellSalvage);
   finnShopEl.addEventListener('dismiss', () => finnShopEl.hide());
 
   itemInventoryEl.addEventListener('use-item', onUseItem);
@@ -435,6 +447,8 @@ function enterHubAndRender() {
   recomputeVision();
   renderShell();
   flash('HUB — Curator has contracts when you are adjacent [Space].');
+  // generate job options once on hub enter
+  currentJobOptions = campaign.curator.generateContracts(campaign.rng, campaign);
 }
 
 function presentCrewRoster() {
@@ -469,6 +483,19 @@ function presentBriefing(contract: Contract) {
   briefingEl.show();
 }
 
+function presentContractSelect(contracts: Contract[]) {
+  contractSelectEl.setContracts(contracts);
+  contractSelectEl.show();
+}
+
+function onContractSelected(evt: Event) {
+  const { contract } = (evt as CustomEvent<{ contract?: Contract }>).detail;
+  if (!contract) return;
+  contractSelectEl.hide();
+  flash(`CURATOR: ${contract.label} — choose an operative.`);
+  presentBriefing(contract);
+}
+
 function onBriefingDeploy(evt: Event) {
   if (!campaign) return;
   const { memberId, contract } = (evt as CustomEvent<{ memberId?: string; contract?: Contract }>)
@@ -499,7 +526,10 @@ function onBriefingDeploy(evt: Event) {
 function presentFinnShop() {
   if (!campaign || !campaign.finn) return;
   const catalog = campaign.finn.catalog(campaign.meta);
-  finnShopEl.setCatalog(catalog, campaign.crew, campaign.salvage);
+  finnShopEl.setCatalog(catalog, campaign.crew, {
+    credits: campaign.credits,
+    salvage: campaign.salvage,
+  });
   finnShopEl.show();
 }
 
@@ -517,8 +547,24 @@ function onFinnPurchase(evt: Event) {
     flash(`PURCHASE FAILED: ${errorMessage(err)}`);
     return;
   }
-  flash(`FINN: Purchased ${itemId}. SALVAGE ${campaign.salvage}.`);
+  flash(`FINN: Purchased ${itemId}. CREDS ${campaign.credits}.`);
   // Refresh the shop to reflect new balance and purchased meta upgrades.
+  presentFinnShop();
+}
+
+function onFinnSellSalvage(evt: Event) {
+  if (!campaign) return;
+  const { quantity } = (evt as CustomEvent<{ quantity?: number }>).detail;
+  try {
+    if (quantity === undefined) {
+      throw new TypeError('sell-salvage quantity is required');
+    }
+    campaign.sellSalvage(quantity);
+  } catch (err) {
+    flash(`SALE FAILED: ${errorMessage(err)}`);
+    return;
+  }
+  flash(`FINN: Bought ${quantity} salvage for ${quantity * SALVAGE_TO_CRED_RATE} Cr.`);
   presentFinnShop();
 }
 
@@ -922,9 +968,11 @@ function handleInteract(): void {
     flash('CURATOR: You need a crew first. Try the Terminal.');
     return;
   }
-  const contract = campaign.curator.generateContract(campaign.rng);
-  flash(`CURATOR: ${contract.label} — review and deploy.`);
-  presentBriefing(contract);
+  if (currentJobOptions.length === 0) {
+    currentJobOptions = campaign.curator.generateContracts(campaign.rng, campaign);
+  }
+  flash('CURATOR: Three jobs on the board. Pick your trouble.');
+  presentContractSelect(currentJobOptions);
 }
 
 /**
@@ -991,6 +1039,8 @@ function onNewRunRequested(): void {
       return;
     } else {
       flash('HUB — choose the next job.');
+      // reset the current job options
+      currentJobOptions = campaign.curator.generateContracts(campaign.rng, campaign);
     }
   } else if (campaign.state === CAMPAIGN_STATE.ENDED) {
     dataStore.deleteCampaign();
@@ -1194,7 +1244,7 @@ function statusLine(modeHint: Mode): string {
   } else {
     if (!campaign) return stateLabel();
     const repLabel = REP_LABEL.find(b => campaign!.rep >= b.min)?.label ?? 'UNKNOWN';
-    identity = `CREW ${campaign.crew.filter(member => !member.flatlined).length}/${campaign.crew.length} SALVAGE ${campaign.salvage} REP ${campaign.rep} (${repLabel})`;
+    identity = `CREW ${campaign.crew.filter(member => !member.flatlined).length}/${campaign.crew.length} CREDS ${campaign.credits} SALVAGE ${campaign.salvage} REP ${campaign.rep} (${repLabel})`;
   }
   if (!run.queue) return stateLabel();
   const statsInner =
@@ -1419,6 +1469,7 @@ function helpScopeForRunState(): HelpScope | null {
 }
 
 function isAnyBlockingModalOpen(): boolean {
+  if (contractSelectEl?.isOpen) return true;
   if (briefingEl?.isOpen) return true;
   if (crashEl?.isOpen) return true;
   if (systemStartEl?.isOpen) return true;

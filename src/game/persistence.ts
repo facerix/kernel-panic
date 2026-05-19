@@ -33,7 +33,7 @@ import { Grid } from './Grid.js';
 import { World } from './World.js';
 import { TurnQueue } from './TurnQueue.js';
 import { EventBus } from './events.js';
-import { FACTION } from './constants.js';
+import { FACTION, SALVAGE_TO_CRED_RATE } from './constants.js';
 import { Entity } from './Entity.js';
 import { Crew } from './Crew.js';
 import { Merc } from './archetypes/Merc.js';
@@ -147,6 +147,8 @@ export type CampaignSnapshot = {
   rng: { seed: number; state: number };
   crew: CampaignCrewSnapshot[];
   salvage: number;
+  /** M8+: campaign money. Defaults to 0 for pre-Creds saves. */
+  credits?: number;
   rep: number;
   meta: CampaignMeta;
   deployedMemberId: string | null;
@@ -155,6 +157,10 @@ export type CampaignSnapshot = {
   availableRecruits?: CampaignCrewSnapshot[];
   /** M6: true if the player already recruited this hub visit. Defaults to false. */
   recruitedThisVisit?: boolean;
+  /** M8: contract reward waiting to produce one recruit on next Hub entry. */
+  pendingRecruitReward?: boolean;
+  /** M8: available recruit ids that bypass the Rep gate because they were job rewards. */
+  rewardRecruitIds?: string[];
 };
 
 /**
@@ -181,12 +187,15 @@ export function snapshotCampaign(campaign: Campaign): CampaignSnapshot {
     rng: { seed: campaign.rng.seed, state: campaign.rng.state },
     crew: campaign.crew.map(snapshotCrewMember),
     salvage: campaign.salvage,
+    credits: campaign.credits,
     rep: campaign.rep,
     meta: { ...campaign.meta },
     deployedMemberId: campaign.deployedMemberId,
     activeRun: campaign.activeRun ? snapshotActiveRun(campaign.activeRun) : null,
     availableRecruits: campaign.availableRecruits.map(snapshotCrewMember),
     recruitedThisVisit: campaign.recruitedThisVisit,
+    pendingRecruitReward: campaign.pendingRecruitReward,
+    rewardRecruitIds: [...campaign.rewardRecruitIds],
   };
 }
 
@@ -234,7 +243,7 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
   });
   run.rng = new Rng(record.rng.seed);
   run.rng.setState(record.rng.state);
-  run.contract = record.contract ? { ...record.contract } : null;
+  run.contract = normalizeContract(record.contract);
   run.exitTile = record.exitTile ? { ...record.exitTile } : null;
   run.telemetry = { ...record.telemetry };
   run.state = record.state;
@@ -284,6 +293,7 @@ export function restoreCampaign(record: unknown, options: RestoreCampaignOptions
     seed: record.seed,
     crew,
     salvage: record.salvage,
+    credits: record.credits ?? 0,
     rep: record.rep,
     meta: record.meta,
     onPersist: options.onPersist,
@@ -296,6 +306,8 @@ export function restoreCampaign(record: unknown, options: RestoreCampaignOptions
   // during construction — the constructor's rng state was wrong until above).
   campaign.availableRecruits = (record.availableRecruits ?? []).map(restoreCrewMember);
   campaign.recruitedThisVisit = record.recruitedThisVisit ?? false;
+  campaign.pendingRecruitReward = record.pendingRecruitReward ?? false;
+  campaign.rewardRecruitIds = new Set(record.rewardRecruitIds ?? []);
 
   if (record.activeRun) {
     const member = campaign.getCrewMember(record.activeRun.crewMemberId);
@@ -580,7 +592,7 @@ function snapshotActiveRun(run: Run): CampaignActiveRunSnapshot {
     archetype: run.archetype,
     seed: run.seed,
     rng: { seed: run.rng.seed, state: run.rng.state },
-    contract: run.contract ? { ...run.contract } : null,
+    contract: normalizeContract(run.contract),
     telemetry: { ...run.telemetry },
   };
   if (run.state === RUN_STATE.COMBAT || run.state === RUN_STATE.RESULT) {
@@ -608,10 +620,53 @@ function restoreActiveRun(
   });
   run.rng = new Rng(record.rng.seed);
   run.rng.setState(record.rng.state);
-  run.contract = record.contract ? { ...record.contract } : null;
+  run.contract = normalizeContract(record.contract);
   run.telemetry = { ...record.telemetry };
   run.state = record.state;
   return run;
+}
+
+type LegacyContractReward = {
+  credits?: unknown;
+  salvage?: unknown;
+  repDelta?: unknown;
+  recruit?: unknown;
+};
+
+function normalizeContract(
+  contract: RunSnapshot['contract'] | null | undefined
+): RunSnapshot['contract'] {
+  if (!contract) return null;
+  const raw = contract as Omit<NonNullable<RunSnapshot['contract']>, 'reward'> & {
+    reward?: LegacyContractReward;
+  };
+  const reward = raw.reward;
+  if (!reward) {
+    return {
+      ...raw,
+      reward: { credits: 0, repDelta: 0 },
+    };
+  }
+  const credits = Number.isInteger(reward.credits)
+    ? (reward.credits as number)
+    : Number.isInteger(reward.salvage)
+      ? (reward.salvage as number) * SALVAGE_TO_CRED_RATE
+      : undefined;
+  if (credits === undefined || credits < 0) {
+    throw new RangeError('restore: contract reward credits must be a non-negative integer');
+  }
+  const repDelta = reward.repDelta ?? 0;
+  if (!Number.isInteger(repDelta)) {
+    throw new RangeError('restore: contract reward repDelta must be an integer');
+  }
+  return {
+    ...raw,
+    reward: {
+      credits,
+      repDelta: repDelta as number,
+      ...(reward.recruit === true ? { recruit: true as const } : {}),
+    },
+  };
 }
 
 function validateCampaignRecord(record: unknown): asserts record is CampaignSnapshot {
@@ -639,6 +694,7 @@ function validateCampaignRecord(record: unknown): asserts record is CampaignSnap
     throw new TypeError('restoreCampaign: crew must be a non-empty array');
   }
   const salvage = candidate.salvage;
+  const credits = candidate.credits ?? 0;
   // Migrate legacy saves that used "vouch" → "rep"
   const legacy = candidate as Record<string, unknown>;
   if (candidate.rep === undefined && legacy.vouch !== undefined) {
@@ -648,6 +704,9 @@ function validateCampaignRecord(record: unknown): asserts record is CampaignSnap
   const rep = candidate.rep;
   if (!Number.isInteger(salvage) || salvage === undefined || salvage < 0) {
     throw new RangeError('restoreCampaign: salvage must be a non-negative integer');
+  }
+  if (!Number.isInteger(credits) || credits < 0) {
+    throw new RangeError('restoreCampaign: credits must be a non-negative integer');
   }
   if (!Number.isInteger(rep) || rep === undefined || rep < 0 || rep > 100) {
     throw new RangeError('restoreCampaign: rep must be an integer in [0, 100]');

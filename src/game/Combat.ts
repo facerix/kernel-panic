@@ -235,7 +235,8 @@ export function resolveMelee(
     'baseDodgeChance' in target
       ? (target as { baseDodgeChance: number }).baseDodgeChance
       : DODGE_CHANCE;
-  const gearDodgeBonus = (target as Entity & { gear?: { dodgeBonus?: number } }).gear?.dodgeBonus ?? 0;
+  const gearDodgeBonus =
+    (target as Entity & { gear?: { dodgeBonus?: number } }).gear?.dodgeBonus ?? 0;
   const dodgeChance = options.dodgeChance ?? entityBaseDodge + gearDodgeBonus;
   const coverDodgeBonus = options.coverDodgeBonus ?? COVER_DODGE_BONUS;
   const dodgeThreshold = inCover ? dodgeChance + coverDodgeBonus : dodgeChance;

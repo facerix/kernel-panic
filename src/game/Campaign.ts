@@ -3,7 +3,7 @@ import { World } from './World.js';
 import { TurnQueue } from './TurnQueue.js';
 import { EventBus } from './events.js';
 import { Entity } from './Entity.js';
-import { FACTION, REP, RECRUIT } from './constants.js';
+import { FACTION, REP, RECRUIT, SALVAGE_TO_CRED_RATE } from './constants.js';
 import { buildCrewMember, RECRUIT_ARCHETYPE_POOL } from './archetypes/index.js';
 import { Curator } from './hub/Curator.js';
 import { Terminal } from './hub/Terminal.js';
@@ -27,6 +27,7 @@ const STARTER_ARCHETYPES = Object.freeze(['merc', 'razor', 'tech']);
 export type CampaignState = (typeof CAMPAIGN_STATE)[keyof typeof CAMPAIGN_STATE];
 export type CampaignMeta = Record<string, unknown> & {
   expandedCatalog?: boolean;
+  betterContracts?: boolean;
 };
 
 export type CampaignOptions = {
@@ -34,6 +35,7 @@ export type CampaignOptions = {
   seed?: unknown;
   crew?: unknown;
   salvage?: unknown;
+  credits?: unknown;
   rep?: unknown;
   meta?: unknown;
   onPersist?: unknown;
@@ -80,6 +82,7 @@ export class Campaign {
   rng: Rng;
   crew: Crew[];
   salvage: number;
+  credits: number;
   rep: number;
   meta: CampaignMeta;
   state: CampaignState;
@@ -87,6 +90,8 @@ export class Campaign {
   deployedMemberId: string | null;
   availableRecruits: Crew[];
   recruitedThisVisit: boolean;
+  pendingRecruitReward: boolean;
+  rewardRecruitIds: Set<string>;
   initialCandidates: Crew[];
   onPersist: ((campaign: Campaign) => void) | null;
   onResult: ((result: RunResult) => void) | null;
@@ -104,7 +109,8 @@ export class Campaign {
     seed,
     crew,
     salvage = 0,
-    rep = 50,
+    credits = 0,
+    rep = 20,
     meta = {},
     onPersist,
     onResult,
@@ -117,6 +123,9 @@ export class Campaign {
     }
     if (typeof salvage !== 'number' || !Number.isInteger(salvage) || salvage < 0) {
       throw new RangeError(`Campaign salvage must be a non-negative integer, got ${salvage}`);
+    }
+    if (typeof credits !== 'number' || !Number.isInteger(credits) || credits < 0) {
+      throw new RangeError(`Campaign credits must be a non-negative integer, got ${credits}`);
     }
     if (typeof rep !== 'number' || !Number.isInteger(rep) || rep < 0 || rep > 100) {
       throw new RangeError(`Campaign rep must be an integer in [0, 100], got ${rep}`);
@@ -136,6 +145,7 @@ export class Campaign {
     this.rng = new Rng(this.seed);
     this.crew = (crew as Crew[] | undefined) ?? buildCrew(this.rng);
     this.salvage = salvage;
+    this.credits = credits;
     this.rep = rep;
     this.meta = { ...(meta as CampaignMeta) };
     this.state = CAMPAIGN_STATE.HUB;
@@ -143,6 +153,8 @@ export class Campaign {
     this.deployedMemberId = null;
     this.availableRecruits = [];
     this.recruitedThisVisit = false;
+    this.pendingRecruitReward = false;
+    this.rewardRecruitIds = new Set();
     this.initialCandidates = [];
     this.onPersist = (onPersist as ((campaign: Campaign) => void) | undefined) ?? null;
     this.onResult = (onResult as ((result: RunResult) => void) | undefined) ?? null;
@@ -202,6 +214,7 @@ export class Campaign {
     this.queue = new TurnQueue([FACTION.PLAYER, FACTION.CORP]);
     this.exitTile = { ...hub.exitTile };
     this.state = CAMPAIGN_STATE.HUB;
+    this.rewardRecruitIds.clear();
     this.availableRecruits = this.generateRecruits();
     this.#persist();
   }
@@ -215,16 +228,13 @@ export class Campaign {
   backfillRecruitsIfEligible(): void {
     if (this.state !== CAMPAIGN_STATE.HUB) return;
     if (this.recruitedThisVisit) return;
-    if (this.rep < REP.RECRUIT_THRESHOLD) return;
+    if (this.rep < REP.RECRUIT_THRESHOLD && !this.pendingRecruitReward) return;
     if (this.availableRecruits.length > 0) return;
     this.availableRecruits = this.generateRecruits();
     this.#persist();
   }
 
-  deployCrewMember(
-    memberId: string,
-    contract: Pick<Contract, 'seed'> & Record<string, unknown>
-  ): Run {
+  deployCrewMember(memberId: string, contract: Contract): Run {
     if (this.state !== CAMPAIGN_STATE.HUB) {
       throw new Error(`Campaign.deployCrewMember: illegal from ${this.state}`);
     }
@@ -265,7 +275,11 @@ export class Campaign {
     if (outcome === OUTCOME.DEATH) {
       this.flatlineMember(this.deployedMemberId);
     } else {
+      const reward = this.activeRun.contract?.reward;
       this.salvage += salvage;
+      this.credits += reward?.credits ?? 0;
+      if (reward) this.adjustRep(reward.repDelta);
+      if (reward?.recruit) this.pendingRecruitReward = true;
     }
     // Clear job-scoped salvage (extracted or forfeited on death).
     // Consumables persist in the crew member's inventory until used —
@@ -311,6 +325,23 @@ export class Campaign {
     return this.rep - before;
   }
 
+  sellSalvage(quantity: number): void {
+    if (this.state !== CAMPAIGN_STATE.HUB) {
+      throw new Error(`Campaign.sellSalvage: illegal from ${this.state}`);
+    }
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      throw new RangeError(`Campaign.sellSalvage: quantity must be a positive integer`);
+    }
+    if (quantity > this.salvage) {
+      throw new Error(
+        `Campaign.sellSalvage: insufficient salvage (have ${this.salvage}, tried ${quantity})`
+      );
+    }
+    this.salvage -= quantity;
+    this.credits += quantity * SALVAGE_TO_CRED_RATE;
+    this.#persist();
+  }
+
   // ─── Recruitment (M6) ─────────────────────────────────────────────────────
 
   /**
@@ -334,8 +365,12 @@ export class Campaign {
    * Returns an empty array when Rep is below the recruitment threshold.
    */
   generateRecruits(): Crew[] {
-    if (this.rep < REP.RECRUIT_THRESHOLD) return [];
-    const count = this.rng.intRange(RECRUIT.POOL_MIN, RECRUIT.POOL_MAX + 1);
+    const rewardRecruit = this.pendingRecruitReward;
+    if (this.rep < REP.RECRUIT_THRESHOLD && !rewardRecruit) return [];
+    const count =
+      rewardRecruit && this.rep < REP.RECRUIT_THRESHOLD
+        ? 1
+        : this.rng.intRange(RECRUIT.POOL_MIN, RECRUIT.POOL_MAX + 1);
     const usedCallsigns = this.allUsedCallsigns();
     const recruits: Crew[] = [];
     for (let i = 0; i < count; i++) {
@@ -345,8 +380,10 @@ export class Campaign {
         excludeCallsigns: usedCallsigns,
       });
       if (recruit.callsign) usedCallsigns.add(recruit.callsign);
+      if (rewardRecruit) this.rewardRecruitIds.add(recruit.id);
       recruits.push(recruit);
     }
+    if (rewardRecruit) this.pendingRecruitReward = false;
     return recruits;
   }
 
@@ -362,7 +399,7 @@ export class Campaign {
     if (this.recruitedThisVisit) {
       throw new Error('Campaign.recruit: already recruited this visit');
     }
-    if (this.rep < REP.RECRUIT_THRESHOLD) {
+    if (this.rep < REP.RECRUIT_THRESHOLD && !this.rewardRecruitIds.has(recruitId)) {
       throw new Error(`Campaign.recruit: rep ${this.rep} below threshold ${REP.RECRUIT_THRESHOLD}`);
     }
     const idx = this.availableRecruits.findIndex(r => r.id === recruitId);
@@ -370,6 +407,7 @@ export class Campaign {
       throw new Error(`Campaign.recruit: unknown recruit "${recruitId}"`);
     }
     const [recruit] = this.availableRecruits.splice(idx, 1);
+    this.rewardRecruitIds.delete(recruit.id);
     this.crew.push(recruit);
     this.recruitedThisVisit = true;
     this.#persist();
@@ -425,9 +463,9 @@ export class Campaign {
   }
 
   /**
-   * Purchase an item from Finn's shop. Deducts salvage, applies the item
+   * Purchase an item from Finn's shop. Deducts Creds, applies the item
    * effect, and persists. Throws on all illegal preconditions (insufficient
-   * salvage, unknown item, duplicate meta purchase) — crash over silent
+   * Creds, unknown item, duplicate meta purchase) — crash over silent
    * fallback.
    *
    * @param {{ itemId: string, targetMemberId?: string }} opts
@@ -440,9 +478,9 @@ export class Campaign {
       throw new TypeError('Campaign.purchase: itemId must be a non-empty string');
     }
     const item = getItemById(itemId);
-    if (this.salvage < item.cost) {
+    if (this.credits < item.cost) {
       throw new Error(
-        `Campaign.purchase: insufficient salvage (have ${this.salvage}, need ${item.cost})`
+        `Campaign.purchase: insufficient Creds (have ${this.credits}, need ${item.cost})`
       );
     }
     // Validate target for items that need one.
@@ -467,8 +505,8 @@ export class Campaign {
       }
     }
 
-    // Commit: deduct salvage first, then apply effect.
-    this.salvage -= item.cost;
+    // Commit: deduct Creds first, then apply effect.
+    this.credits -= item.cost;
 
     switch (item.scope) {
       case ITEM_SCOPE.JOB:

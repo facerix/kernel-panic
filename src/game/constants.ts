@@ -137,15 +137,29 @@ export const SMOKE_RADIUS = 2;
 export const SMOKE_DURATION_TURNS = 1;
 export const TARGETING_BONUS = 0.1;
 export const DODGE_BONUS = 0.1;
+export const SALVAGE_TO_CRED_RATE = 10;
 
 export const SHOP_COST = Object.freeze({
-  STIM: 2,
-  SMOKE_CHARGE: 3,
-  ARMOUR_PLATING: 6,
-  TARGETING_CHIP: 8,
-  REFLEX_WEAVE: 8,
-  EXPANDED_CATALOG: 15,
+  STIM: 20,
+  SMOKE_CHARGE: 30,
+  ARMOUR_PLATING: 60,
+  TARGETING_CHIP: 80,
+  REFLEX_WEAVE: 80,
+  EXPANDED_CATALOG: 150,
+  BETTER_CONTRACTS: 180,
 });
+
+/**
+ * Curator contract tiers (M8). `threatCount` is stored directly on each
+ * generated contract; difficulty drives civilian caps and patrol pressure.
+ */
+export const CONTRACT_DIFFICULTY = Object.freeze({
+  STANDARD: 'standard',
+  ELEVATED: 'elevated',
+  CRITICAL: 'critical',
+});
+
+export type ContractDifficulty = (typeof CONTRACT_DIFFICULTY)[keyof typeof CONTRACT_DIFFICULTY];
 
 export const NOISE_RADIUS = Object.freeze({
   MOVE: 3,

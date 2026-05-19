@@ -11,12 +11,15 @@ import { OUTCOME, RUN_STATE } from '../../../src/game/Run.js';
 import { Rng } from '../../../src/rng.js';
 import { OBJECTIVES } from '../../../src/game/hub/Curator.js';
 import { snapshotCampaign, restoreCampaign } from '../../../src/game/persistence.js';
+import { SALVAGE_TO_CRED_RATE, SHOP_COST } from '../../../src/game/constants.js';
 
 const fakeContract = (overrides = {}) => ({
   seed: 12345,
   objective: OBJECTIVES.REACH_EXIT,
+  difficulty: 'standard',
   threatCount: 1,
   label: 'test job',
+  reward: { credits: 0, repDelta: 0 },
   ...overrides,
 });
 
@@ -34,10 +37,11 @@ test('buildCrew creates one named member per starter archetype with unique calls
   );
 });
 
-test('Campaign starts in HUB with crew, salvage, rep, and meta state', () => {
+test('Campaign starts in HUB with crew, salvage, credits, rep, and meta state', () => {
   const campaign = new Campaign({ seed: 42 });
   assert.equal(campaign.state, CAMPAIGN_STATE.HUB);
   assert.equal(campaign.salvage, 0);
+  assert.equal(campaign.credits, 0);
   assert.equal(campaign.rep, 50);
   assert.deepEqual(campaign.meta, {});
   assert.equal(campaign.crew.length, 3);
@@ -50,7 +54,10 @@ test('Campaign starts in HUB with crew, salvage, rep, and meta state', () => {
 test('deployCrewMember starts a job Run for a non-flatlined crew member', () => {
   const campaign = new Campaign({ seed: 42 });
   const member = campaign.crew[0];
-  const run = campaign.deployCrewMember(member.id, fakeContract());
+  const run = campaign.deployCrewMember(
+    member.id,
+    fakeContract({ reward: { credits: 50, repDelta: 0 } })
+  );
   assert.equal(campaign.state, CAMPAIGN_STATE.COMBAT);
   assert.equal(campaign.activeRun, run);
   assert.equal(run.state, RUN_STATE.BRIEFING);
@@ -76,6 +83,39 @@ test('onJobEnd returns survivors to HUB and accumulates extracted salvage', () =
   assert.equal(campaign.salvage, 4);
   assert.equal(member.flatlined, false);
   assert.ok(campaign.world, 'hub world should be rebuilt');
+});
+
+test('onJobEnd with EXIT applies contract Cred and Rep rewards without spending salvage', () => {
+  const campaign = new Campaign({ seed: 42 });
+  const member = campaign.crew[1];
+  const contract = fakeContract({
+    reward: { credits: 60, repDelta: 7 },
+  });
+  const run = campaign.deployCrewMember(member.id, contract);
+  run.enterCombat();
+  campaign.onJobEnd({ outcome: OUTCOME.EXIT, salvage: 4 });
+  assert.equal(campaign.salvage, 4);
+  assert.equal(campaign.credits, 60);
+  assert.equal(campaign.rep, 57);
+});
+
+test('critical contract recruit reward creates a recruit lead without Rep gate', () => {
+  const campaign = new Campaign({ seed: 42, rep: 20 });
+  const member = campaign.crew[1];
+  const contract = fakeContract({
+    difficulty: 'critical',
+    threatCount: 4,
+    reward: { credits: 0, repDelta: 0, recruit: true },
+  });
+  const run = campaign.deployCrewMember(member.id, contract);
+  run.enterCombat();
+  campaign.onJobEnd({ outcome: OUTCOME.EXIT, salvage: 0 });
+  assert.equal(campaign.state, CAMPAIGN_STATE.HUB);
+  assert.equal(campaign.pendingRecruitReward, false);
+  assert.equal(campaign.availableRecruits.length, 1);
+  const recruit = campaign.availableRecruits[0];
+  campaign.recruit(recruit.id);
+  assert.ok(campaign.crew.some(m => m.id === recruit.id));
 });
 
 test('willEndCampaignOnThisDeath is true only for the last surviving crew slot', () => {
@@ -105,12 +145,16 @@ test('onJobEnd with EXIT transfers crew inventory salvage to campaign pool', () 
 test('onJobEnd with DEATH does not add salvage to the campaign pool', () => {
   const campaign = new Campaign({ seed: 42 });
   const member = campaign.crew[0];
-  const run = campaign.deployCrewMember(member.id, fakeContract());
+  const run = campaign.deployCrewMember(
+    member.id,
+    fakeContract({ reward: { credits: 50, repDelta: 0 } })
+  );
   run.enterCombat();
   member.initInventory();
   member.inventory.salvage = 5;
   campaign.onJobEnd({ outcome: OUTCOME.DEATH });
   assert.equal(campaign.salvage, 0, 'death forfeits salvage');
+  assert.equal(campaign.credits, 0, 'death forfeits contract Creds');
 });
 
 // --- M3: persistence round-trip with inventory ----------------------------
@@ -153,69 +197,105 @@ test('Campaign Hub world includes Finn NPC', () => {
 
 // --- M4: Campaign.purchase ------------------------------------------------
 
-test('purchase deducts salvage and adds a consumable to the target crew member', () => {
-  const campaign = new Campaign({ seed: 42, salvage: 10 });
+test('sellSalvage converts campaign salvage into Creds at the fixed rate', () => {
+  const campaign = new Campaign({ seed: 42, salvage: 8, credits: 5 });
+  campaign.sellSalvage(1);
+  assert.equal(campaign.salvage, 7);
+  assert.equal(campaign.credits, 5 + SALVAGE_TO_CRED_RATE);
+  campaign.sellSalvage(5);
+  assert.equal(campaign.salvage, 2);
+  assert.equal(campaign.credits, 5 + 6 * SALVAGE_TO_CRED_RATE);
+  campaign.sellSalvage(campaign.salvage);
+  assert.equal(campaign.salvage, 0);
+  assert.equal(campaign.credits, 5 + 8 * SALVAGE_TO_CRED_RATE);
+});
+
+test('sellSalvage throws on invalid quantities and oversell attempts', () => {
+  const campaign = new Campaign({ seed: 42, salvage: 3 });
+  assert.throws(() => campaign.sellSalvage(0), /positive integer/i);
+  assert.throws(() => campaign.sellSalvage(1.5), /positive integer/i);
+  assert.throws(() => campaign.sellSalvage(4), /insufficient salvage/i);
+  assert.equal(campaign.salvage, 3);
+  assert.equal(campaign.credits, 0);
+});
+
+test('sellSalvage is illegal outside HUB state', () => {
+  const campaign = new Campaign({ seed: 42, salvage: 3 });
+  campaign.deployCrewMember(campaign.crew[0].id, fakeContract());
+  assert.throws(() => campaign.sellSalvage(1), /illegal from/i);
+});
+
+test('purchase deducts Creds and adds a consumable to the target crew member', () => {
+  const campaign = new Campaign({ seed: 42, salvage: 10, credits: SHOP_COST.STIM });
   const member = campaign.crew[0];
   campaign.purchase({ itemId: 'stim', targetMemberId: member.id });
-  assert.equal(campaign.salvage, 10 - 2); // SHOP_COST.STIM = 2
+  assert.equal(campaign.salvage, 10);
+  assert.equal(campaign.credits, 0);
   assert.ok(member.inventory, 'inventory should be initialised after purchase');
   assert.equal(member.inventory.consumables.length, 1);
   assert.equal(member.inventory.consumables[0].id, 'stim');
 });
 
 test('purchase applies campaign-scoped gear bonus (armour plating)', () => {
-  const campaign = new Campaign({ seed: 42, salvage: 20 });
+  const campaign = new Campaign({ seed: 42, credits: SHOP_COST.ARMOUR_PLATING });
   const member = campaign.crew[0];
   const origMaxHp = member.maxHp;
   campaign.purchase({ itemId: 'armour-plating', targetMemberId: member.id });
-  assert.equal(campaign.salvage, 20 - 6); // SHOP_COST.ARMOUR_PLATING = 6
+  assert.equal(campaign.credits, 0);
   assert.equal(member.maxHp, origMaxHp + 1);
   assert.equal(member.gear.maxHpBonus, 1);
 });
 
 test('purchase applies targeting chip gear bonus', () => {
-  const campaign = new Campaign({ seed: 42, salvage: 20 });
+  const campaign = new Campaign({ seed: 42, credits: SHOP_COST.TARGETING_CHIP });
   const member = campaign.crew[0];
   campaign.purchase({ itemId: 'targeting-chip', targetMemberId: member.id });
   assert.equal(member.gear.hitBonus, 0.1);
 });
 
 test('purchase applies reflex weave gear bonus', () => {
-  const campaign = new Campaign({ seed: 42, salvage: 20 });
+  const campaign = new Campaign({ seed: 42, credits: SHOP_COST.REFLEX_WEAVE });
   const member = campaign.crew[0];
   campaign.purchase({ itemId: 'reflex-weave', targetMemberId: member.id });
   assert.equal(member.gear.dodgeBonus, 0.1);
 });
 
 test('purchase sets meta flag for Expanded Catalog', () => {
-  const campaign = new Campaign({ seed: 42, salvage: 20 });
+  const campaign = new Campaign({ seed: 42, credits: SHOP_COST.EXPANDED_CATALOG });
   campaign.purchase({ itemId: 'expanded-catalog' });
   assert.equal(campaign.meta.expandedCatalog, true);
-  assert.equal(campaign.salvage, 20 - 15);
+  assert.equal(campaign.credits, 0);
+});
+
+test('purchase sets meta flag for Better Contracts', () => {
+  const campaign = new Campaign({ seed: 42, credits: SHOP_COST.BETTER_CONTRACTS });
+  campaign.purchase({ itemId: 'better-contracts' });
+  assert.equal(campaign.meta.betterContracts, true);
+  assert.equal(campaign.credits, 0);
 });
 
 test('purchase rejects duplicate unique meta upgrades', () => {
-  const campaign = new Campaign({ seed: 42, salvage: 40 });
+  const campaign = new Campaign({ seed: 42, credits: SHOP_COST.EXPANDED_CATALOG * 2 });
   campaign.purchase({ itemId: 'expanded-catalog' });
   assert.throws(() => campaign.purchase({ itemId: 'expanded-catalog' }), /already purchased/i);
 });
 
-test('purchase throws on insufficient salvage', () => {
-  const campaign = new Campaign({ seed: 42, salvage: 1 });
+test('purchase throws on insufficient Creds', () => {
+  const campaign = new Campaign({ seed: 42, credits: SHOP_COST.STIM - 1 });
   const member = campaign.crew[0];
   assert.throws(
     () => campaign.purchase({ itemId: 'stim', targetMemberId: member.id }),
-    /insufficient salvage/i
+    /insufficient Creds/i
   );
 });
 
 test('purchase throws when target is missing for items that need one', () => {
-  const campaign = new Campaign({ seed: 42, salvage: 10 });
+  const campaign = new Campaign({ seed: 42, credits: SHOP_COST.STIM });
   assert.throws(() => campaign.purchase({ itemId: 'stim' }), /requires a target/i);
 });
 
 test('purchase throws when target is flatlined', () => {
-  const campaign = new Campaign({ seed: 42, salvage: 10 });
+  const campaign = new Campaign({ seed: 42, credits: SHOP_COST.STIM });
   const member = campaign.crew[0];
   campaign.flatlineMember(member.id);
   assert.throws(
@@ -225,7 +305,7 @@ test('purchase throws when target is flatlined', () => {
 });
 
 test('purchase is illegal outside HUB state', () => {
-  const campaign = new Campaign({ seed: 42, salvage: 10 });
+  const campaign = new Campaign({ seed: 42, credits: SHOP_COST.STIM });
   campaign.deployCrewMember(campaign.crew[0].id, fakeContract());
   assert.throws(
     () => campaign.purchase({ itemId: 'stim', targetMemberId: campaign.crew[0].id }),
@@ -236,7 +316,7 @@ test('purchase is illegal outside HUB state', () => {
 // --- M4: onJobEnd clears job-scoped consumables ----------------------------
 
 test('onJobEnd preserves consumables but clears salvage', () => {
-  const campaign = new Campaign({ seed: 42, salvage: 10 });
+  const campaign = new Campaign({ seed: 42, salvage: 10, credits: SHOP_COST.STIM * 2 });
   const member = campaign.crew[0];
   campaign.purchase({ itemId: 'stim', targetMemberId: member.id });
   campaign.purchase({ itemId: 'stim', targetMemberId: member.id });
@@ -269,7 +349,10 @@ test('crew member HP persists across jobs — no free heal on deploy', () => {
 // --- M4: persistence round-trip with gear and consumables ------------------
 
 test('crew gear survives campaign snapshot/restore round-trip', () => {
-  const campaign = new Campaign({ seed: 42, salvage: 20 });
+  const campaign = new Campaign({
+    seed: 42,
+    credits: SHOP_COST.ARMOUR_PLATING + SHOP_COST.TARGETING_CHIP,
+  });
   const member = campaign.crew[0];
   campaign.purchase({ itemId: 'armour-plating', targetMemberId: member.id });
   campaign.purchase({ itemId: 'targeting-chip', targetMemberId: member.id });
@@ -281,7 +364,7 @@ test('crew gear survives campaign snapshot/restore round-trip', () => {
 });
 
 test('meta state survives campaign snapshot/restore round-trip', () => {
-  const campaign = new Campaign({ seed: 42, salvage: 20 });
+  const campaign = new Campaign({ seed: 42, credits: SHOP_COST.EXPANDED_CATALOG });
   campaign.purchase({ itemId: 'expanded-catalog' });
   const snap = snapshotCampaign(campaign);
   const restored = restoreCampaign(snap);
@@ -289,7 +372,7 @@ test('meta state survives campaign snapshot/restore round-trip', () => {
 });
 
 test('consumables survive campaign snapshot/restore round-trip', () => {
-  const campaign = new Campaign({ seed: 42, salvage: 10 });
+  const campaign = new Campaign({ seed: 42, credits: SHOP_COST.STIM });
   const member = campaign.crew[0];
   campaign.purchase({ itemId: 'stim', targetMemberId: member.id });
   const snap = snapshotCampaign(campaign);

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { Rng } from '../../../../src/rng.js';
-import { TILE } from '../../../../src/game/constants.js';
+import { CONTRACT_DIFFICULTY, TILE } from '../../../../src/game/constants.js';
 import { World } from '../../../../src/game/World.js';
 import { findPath } from '../../../../src/game/Pathfinding.js';
 import { buildMap } from '../../../../src/game/procgen/mapBuild.js';
@@ -233,6 +233,54 @@ test('maxCorpCivilians=0 / maxNeutralCivilians=0 produces no civilians', () => {
   });
   assert.equal(map.corpCivilians.length, 0);
   assert.equal(map.neutralCivilians.length, 0);
+});
+
+test('contract difficulty controls default civilian caps', () => {
+  for (const seed of [0xface, 0xdead, 0xbeef, 0xcafe, 0xfeedface]) {
+    const standard = buildMap({
+      rng: new Rng(seed),
+      width: 24,
+      height: 16,
+      threatCount: 2,
+      difficulty: CONTRACT_DIFFICULTY.STANDARD,
+    });
+    assert.equal(standard.corpCivilians.length, 0);
+    assert.equal(standard.neutralCivilians.length, 0);
+
+    const elevated = buildMap({
+      rng: new Rng(seed),
+      width: 24,
+      height: 16,
+      threatCount: 3,
+      difficulty: CONTRACT_DIFFICULTY.ELEVATED,
+    });
+    assert.ok(elevated.corpCivilians.length <= 1);
+    assert.equal(elevated.neutralCivilians.length, 0);
+
+    const critical = buildMap({
+      rng: new Rng(seed),
+      width: 24,
+      height: 16,
+      threatCount: 4,
+      difficulty: CONTRACT_DIFFICULTY.CRITICAL,
+    });
+    assert.ok(critical.corpCivilians.length <= 1);
+    assert.ok(critical.neutralCivilians.length <= 1);
+  }
+});
+
+test('unknown contract difficulty throws', () => {
+  assert.throws(
+    () =>
+      buildMap({
+        rng: new Rng(1),
+        width: 24,
+        height: 16,
+        threatCount: 1,
+        difficulty: 'black-ice',
+      }),
+    /unknown difficulty/
+  );
 });
 
 test('negative maxCorpCivilians / maxNeutralCivilians throw', () => {
