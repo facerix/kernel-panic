@@ -470,9 +470,7 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
       // dereferences `patrolWaypoints[patrolIndex]` without a guard, so a
       // stale or corrupt index would crash mid-turn. Fail loudly here instead.
       if (idx < 0 || (len > 0 && idx >= len)) {
-        throw new RangeError(
-          `restore: drone ${rec.id} patrolIndex=${idx} out of [0, ${len})`
-        );
+        throw new RangeError(`restore: drone ${rec.id} patrolIndex=${idx} out of [0, ${len})`);
       }
       entity.patrolIndex = len > 0 ? idx : 0;
     }
