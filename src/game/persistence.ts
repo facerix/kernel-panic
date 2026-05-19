@@ -33,7 +33,7 @@ import { Grid } from './Grid.js';
 import { World } from './World.js';
 import { TurnQueue } from './TurnQueue.js';
 import { EventBus } from './events.js';
-import { FACTION } from './constants.js';
+import { FACTION, SALVAGE_TO_CRED_RATE } from './constants.js';
 import { Entity } from './Entity.js';
 import { Crew } from './Crew.js';
 import { Merc } from './archetypes/Merc.js';
@@ -66,7 +66,9 @@ import type { CampaignMeta, CampaignState } from './Campaign.js';
 
 const ARCHETYPE_KEY = Symbol.for('kernel-panic.archetype');
 
-type RestoreEntityProps = Partial<CrewInit & TurretInit & CorpDroneProps & CorpCivilianInit & NeutralCivilianInit & EntityInit> & {
+type RestoreEntityProps = Partial<
+  CrewInit & TurretInit & CorpDroneProps & CorpCivilianInit & NeutralCivilianInit & EntityInit
+> & {
   id: string;
   x: number;
   y: number;
@@ -83,8 +85,7 @@ const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) =
     tech: (props: RestoreEntityProps) => new Tech(props as CrewInit),
     turret: (props: RestoreEntityProps) => new Turret(props as TurretInit),
     drone: (props: RestoreEntityProps) => new CorpDrone(props as CorpDroneProps),
-    'corp-civilian': (props: RestoreEntityProps) =>
-      new CorpCivilian(props as CorpCivilianInit),
+    'corp-civilian': (props: RestoreEntityProps) => new CorpCivilian(props as CorpCivilianInit),
     'neutral-civilian': (props: RestoreEntityProps) =>
       new NeutralCivilian(props as NeutralCivilianInit),
     // Generic fallback so a future `Entity` subclass (NPCs, items) doesn't break
@@ -146,10 +147,20 @@ export type CampaignSnapshot = {
   rng: { seed: number; state: number };
   crew: CampaignCrewSnapshot[];
   salvage: number;
+  /** M8+: campaign money. Defaults to 0 for pre-Creds saves. */
+  credits?: number;
   rep: number;
   meta: CampaignMeta;
   deployedMemberId: string | null;
   activeRun: CampaignActiveRunSnapshot | null;
+  /** M6: recruit candidates available this hub visit. Defaults to [] for pre-M6 saves. */
+  availableRecruits?: CampaignCrewSnapshot[];
+  /** M6: true if the player already recruited this hub visit. Defaults to false. */
+  recruitedThisVisit?: boolean;
+  /** M8: contract reward waiting to produce one recruit on next Hub entry. */
+  pendingRecruitReward?: boolean;
+  /** M8: available recruit ids that bypass the Rep gate because they were job rewards. */
+  rewardRecruitIds?: string[];
 };
 
 /**
@@ -176,10 +187,15 @@ export function snapshotCampaign(campaign: Campaign): CampaignSnapshot {
     rng: { seed: campaign.rng.seed, state: campaign.rng.state },
     crew: campaign.crew.map(snapshotCrewMember),
     salvage: campaign.salvage,
+    credits: campaign.credits,
     rep: campaign.rep,
     meta: { ...campaign.meta },
     deployedMemberId: campaign.deployedMemberId,
     activeRun: campaign.activeRun ? snapshotActiveRun(campaign.activeRun) : null,
+    availableRecruits: campaign.availableRecruits.map(snapshotCrewMember),
+    recruitedThisVisit: campaign.recruitedThisVisit,
+    pendingRecruitReward: campaign.pendingRecruitReward,
+    rewardRecruitIds: [...campaign.rewardRecruitIds],
   };
 }
 
@@ -227,7 +243,7 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
   });
   run.rng = new Rng(record.rng.seed);
   run.rng.setState(record.rng.state);
-  run.contract = record.contract ? { ...record.contract } : null;
+  run.contract = normalizeContract(record.contract);
   run.exitTile = record.exitTile ? { ...record.exitTile } : null;
   run.telemetry = { ...record.telemetry };
   run.state = record.state;
@@ -277,6 +293,7 @@ export function restoreCampaign(record: unknown, options: RestoreCampaignOptions
     seed: record.seed,
     crew,
     salvage: record.salvage,
+    credits: record.credits ?? 0,
     rep: record.rep,
     meta: record.meta,
     onPersist: options.onPersist,
@@ -284,6 +301,13 @@ export function restoreCampaign(record: unknown, options: RestoreCampaignOptions
   });
   campaign.rng = new Rng(record.rng.seed);
   campaign.rng.setState(record.rng.state);
+
+  // Restore M6 recruitment state (overrides whatever enterHub() generated
+  // during construction — the constructor's rng state was wrong until above).
+  campaign.availableRecruits = (record.availableRecruits ?? []).map(restoreCrewMember);
+  campaign.recruitedThisVisit = record.recruitedThisVisit ?? false;
+  campaign.pendingRecruitReward = record.pendingRecruitReward ?? false;
+  campaign.rewardRecruitIds = new Set(record.rewardRecruitIds ?? []);
 
   if (record.activeRun) {
     const member = campaign.getCrewMember(record.activeRun.crewMemberId);
@@ -404,8 +428,14 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
 
   // Repair latent hitBonus overflow on crew entities (same migration as
   // restoreCrewMember, but for mid-combat run snapshots).
-  if (entity instanceof Crew && entity.gear && entity.gear.hitBonus > entity.maxHitBonus) {
-    entity.gear.hitBonus = entity.maxHitBonus;
+  if (entity instanceof Crew && entity.gear) {
+    if (entity.gear.hitBonus > entity.maxHitBonus) {
+      entity.gear.hitBonus = entity.maxHitBonus;
+    }
+    const dodgeBonus = entity.gear.dodgeBonus ?? 0;
+    if (dodgeBonus > entity.maxDodgeBonus) {
+      entity.gear.dodgeBonus = entity.maxDodgeBonus;
+    }
   }
 
   if (rec.archetype === 'tech' && rec.tech) {
@@ -434,7 +464,15 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
       entity.lastKnownTarget = { x: lk.x, y: lk.y };
     }
     if (Number.isInteger(rec.drone.patrolIndex)) {
-      entity.patrolIndex = rec.drone.patrolIndex;
+      const idx = rec.drone.patrolIndex as number;
+      const len = entity.patrolWaypoints.length;
+      // Bounds-check against the restored waypoint list — `takeTurnSteps`
+      // dereferences `patrolWaypoints[patrolIndex]` without a guard, so a
+      // stale or corrupt index would crash mid-turn. Fail loudly here instead.
+      if (idx < 0 || (len > 0 && idx >= len)) {
+        throw new RangeError(`restore: drone ${rec.id} patrolIndex=${idx} out of [0, ${len})`);
+      }
+      entity.patrolIndex = len > 0 ? idx : 0;
     }
   }
 
@@ -537,8 +575,14 @@ function restoreCrewMember(rec: CampaignCrewSnapshot): Crew {
 
   // Repair latent data corruption: a previous bug allowed hitBonus to
   // accumulate past the archetype's cap, causing resolveRanged to throw.
-  if (member.gear && member.gear.hitBonus > member.maxHitBonus) {
-    member.gear.hitBonus = member.maxHitBonus;
+  if (member.gear) {
+    if (member.gear.hitBonus > member.maxHitBonus) {
+      member.gear.hitBonus = member.maxHitBonus;
+    }
+    const dodgeBonus = member.gear.dodgeBonus ?? 0;
+    if (dodgeBonus > member.maxDodgeBonus) {
+      member.gear.dodgeBonus = member.maxDodgeBonus;
+    }
   }
 
   return member;
@@ -556,7 +600,7 @@ function snapshotActiveRun(run: Run): CampaignActiveRunSnapshot {
     archetype: run.archetype,
     seed: run.seed,
     rng: { seed: run.rng.seed, state: run.rng.state },
-    contract: run.contract ? { ...run.contract } : null,
+    contract: normalizeContract(run.contract),
     telemetry: { ...run.telemetry },
   };
   if (run.state === RUN_STATE.COMBAT || run.state === RUN_STATE.RESULT) {
@@ -584,10 +628,53 @@ function restoreActiveRun(
   });
   run.rng = new Rng(record.rng.seed);
   run.rng.setState(record.rng.state);
-  run.contract = record.contract ? { ...record.contract } : null;
+  run.contract = normalizeContract(record.contract);
   run.telemetry = { ...record.telemetry };
   run.state = record.state;
   return run;
+}
+
+type LegacyContractReward = {
+  credits?: unknown;
+  salvage?: unknown;
+  repDelta?: unknown;
+  recruit?: unknown;
+};
+
+function normalizeContract(
+  contract: RunSnapshot['contract'] | null | undefined
+): RunSnapshot['contract'] {
+  if (!contract) return null;
+  const raw = contract as Omit<NonNullable<RunSnapshot['contract']>, 'reward'> & {
+    reward?: LegacyContractReward;
+  };
+  const reward = raw.reward;
+  if (!reward) {
+    return {
+      ...raw,
+      reward: { credits: 0, repDelta: 0 },
+    };
+  }
+  const credits = Number.isInteger(reward.credits)
+    ? (reward.credits as number)
+    : Number.isInteger(reward.salvage)
+      ? (reward.salvage as number) * SALVAGE_TO_CRED_RATE
+      : undefined;
+  if (credits === undefined || credits < 0) {
+    throw new RangeError('restore: contract reward credits must be a non-negative integer');
+  }
+  const repDelta = reward.repDelta ?? 0;
+  if (!Number.isInteger(repDelta)) {
+    throw new RangeError('restore: contract reward repDelta must be an integer');
+  }
+  return {
+    ...raw,
+    reward: {
+      credits,
+      repDelta: repDelta as number,
+      ...(reward.recruit === true ? { recruit: true as const } : {}),
+    },
+  };
 }
 
 function validateCampaignRecord(record: unknown): asserts record is CampaignSnapshot {
@@ -615,6 +702,7 @@ function validateCampaignRecord(record: unknown): asserts record is CampaignSnap
     throw new TypeError('restoreCampaign: crew must be a non-empty array');
   }
   const salvage = candidate.salvage;
+  const credits = candidate.credits ?? 0;
   // Migrate legacy saves that used "vouch" → "rep"
   const legacy = candidate as Record<string, unknown>;
   if (candidate.rep === undefined && legacy.vouch !== undefined) {
@@ -624,6 +712,9 @@ function validateCampaignRecord(record: unknown): asserts record is CampaignSnap
   const rep = candidate.rep;
   if (!Number.isInteger(salvage) || salvage === undefined || salvage < 0) {
     throw new RangeError('restoreCampaign: salvage must be a non-negative integer');
+  }
+  if (!Number.isInteger(credits) || credits < 0) {
+    throw new RangeError('restoreCampaign: credits must be a non-negative integer');
   }
   if (!Number.isInteger(rep) || rep === undefined || rep < 0 || rep > 100) {
     throw new RangeError('restoreCampaign: rep must be an integer in [0, 100]');
@@ -637,6 +728,16 @@ function validateCampaignRecord(record: unknown): asserts record is CampaignSnap
   }
   if (candidate.state === CAMPAIGN_STATE.COMBAT && !candidate.activeRun) {
     throw new Error('restoreCampaign: COMBAT state requires activeRun');
+  }
+  // M6 fields are optional for backwards compat with pre-M6 saves.
+  if (candidate.availableRecruits !== undefined && !Array.isArray(candidate.availableRecruits)) {
+    throw new TypeError('restoreCampaign: availableRecruits must be an array when present');
+  }
+  if (
+    candidate.recruitedThisVisit !== undefined &&
+    typeof candidate.recruitedThisVisit !== 'boolean'
+  ) {
+    throw new TypeError('restoreCampaign: recruitedThisVisit must be a boolean when present');
   }
 }
 

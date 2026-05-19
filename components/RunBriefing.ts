@@ -29,8 +29,10 @@ const OBJECTIVE_COPY = Object.freeze({
 type Objective = keyof typeof OBJECTIVE_COPY;
 type BriefingCells = {
   target: HTMLElement;
+  difficulty: HTMLElement;
   seed: HTMLElement;
   threat: HTMLElement;
+  reward: HTMLElement;
   objective: HTMLElement;
 };
 
@@ -199,6 +201,13 @@ function threatCopy(count: number) {
   return `${count} ${count === 1 ? 'drone' : 'drones'}`;
 }
 
+function rewardCopy(contract: Partial<Contract>) {
+  const reward = contract.reward;
+  if (!reward) return '?';
+  const recruit = reward.recruit ? ' + recruit lead' : '';
+  return `Cr +${reward.credits} / REP +${reward.repDelta}${recruit}`;
+}
+
 class RunBriefing extends HTMLElement {
   #contract: Contract | null = null;
   #selectedMember: CrewMember | null = null;
@@ -220,19 +229,25 @@ class RunBriefing extends HTMLElement {
 
     // Contract detail cells.
     const target = h('dd', { id: 'target' });
+    const difficulty = h('dd', { id: 'difficulty' });
     const seed = h('dd', { id: 'seed' });
     const threat = h('dd', { id: 'threat' });
+    const reward = h('dd', { id: 'reward' });
     const objective = h('dd', { id: 'objective' });
-    this.#cells = { target, seed, threat, objective };
+    this.#cells = { target, difficulty, seed, threat, reward, objective };
 
     const contractPane = h('div', { className: 'contract-details' }, [
       h('dl', {}, [
         h('dt', { textContent: 'TARGET' }),
         target,
+        h('dt', { textContent: 'TIER' }),
+        difficulty,
         h('dt', { textContent: 'SEED' }),
         seed,
         h('dt', { textContent: 'THREAT' }),
         threat,
+        h('dt', { textContent: 'REWARD' }),
+        reward,
         h('dt', { textContent: 'OBJ' }),
         objective,
       ]),
@@ -337,8 +352,10 @@ class RunBriefing extends HTMLElement {
     if (!this.#cells) return;
     const c = this.#contract ?? ({} as Contract);
     this.#cells.target.textContent = c.label ?? '?';
+    this.#cells.difficulty.textContent = c.difficulty?.toUpperCase?.() ?? '?';
     this.#cells.seed.textContent = hexSeed(c.seed);
     this.#cells.threat.textContent = threatCopy(c.threatCount);
+    this.#cells.reward.textContent = rewardCopy(c);
     this.#cells.objective.textContent = objectiveCopy(c.objective);
   }
 

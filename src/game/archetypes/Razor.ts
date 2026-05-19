@@ -52,8 +52,13 @@ export const CALLSIGNS = Object.freeze([
  * clear at refreshAp anyway). Not a bug, just a lifecycle to be aware of.
  */
 export class Razor extends Crew {
+  override archetype = 'Razor';
   override get baseHitChance(): number {
     return 0.7;
+  }
+
+  override get baseDodgeChance(): number {
+    return 0.35;
   }
 
   constructor(props: CrewInit) {

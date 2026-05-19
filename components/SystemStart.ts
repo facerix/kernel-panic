@@ -132,15 +132,15 @@ button.enter-hub:active {
 const BOOT_LINES = [
   'handshake_ok ........................ OK',
   'meatspace_link ...................... OK',
-  'crew_buffer ......................... 3 slots',
+  'crew_buffer ......................... 2 free slots',
   'safe_partition ...................... mounted',
   'curator_channel ..................... standby',
 ].join('\n');
 
 const CURATOR_COPY =
-  'CURATOR — You are cleared into the safe house. Crew is on the board; ' +
-  'when you want work, find me adjacent and open a contract. No heroics on ' +
-  'the carpet.';
+  'CURATOR — You are cleared into the safe house. We have runners looking ' +
+  'for work — pick your crew, then find me when you want work. No heroics ' +
+  'on the carpet.';
 
 function hexSeed(seed: number) {
   if (!Number.isFinite(seed)) return '?';

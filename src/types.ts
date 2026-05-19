@@ -26,6 +26,17 @@ export type RangedAttackResult = {
   killed: boolean;
 };
 
+/** Outcome of a committed melee strike (`resolveMelee`). */
+export type MeleeAttackResult = {
+  hit: boolean;
+  dodged: boolean;
+  roll: number;
+  dodgeThreshold: number;
+  inCover: boolean;
+  damage: number;
+  killed: boolean;
+};
+
 /** Movement yields from `CorpDrone` pathing (`#stepToward`). */
 export type CorpDroneMoveKind = 'engage' | 'investigate' | 'patrol';
 

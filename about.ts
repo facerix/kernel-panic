@@ -43,7 +43,7 @@ whenLoaded.then(async () => {
     version.innerText = 'Not available';
   }
 
-  const latestVersionInfo = (await serviceWorkerManager.getLatestVersion()) ?? '<unknown>';
+  const latestVersionInfo = await serviceWorkerManager.getLatestVersion();
   if (latestVersion && latestVersionContainer && noUpdateContainer) {
     if (latestVersionInfo && latestVersionInfo !== currentVersion) {
       latestVersion.innerText = latestVersionInfo;

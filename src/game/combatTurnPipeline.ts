@@ -1,5 +1,6 @@
 import { Turret, type TurretAutoFireResult } from './Turret.js';
 import { NeutralCivilian } from './entities/NeutralCivilian.js';
+import { entityLabel } from './Entity.js';
 import { REP } from './constants.js';
 import type { NeutralCivilianTurnStep } from '../types.js';
 import type { World } from './World.js';
@@ -109,9 +110,14 @@ export function advanceFromPlayerTurn(ctx: PlayerTurnContext) {
     onPlayerTurnReady = () => {},
   } = ctx;
 
+  // If the player's action already ended the run (e.g. stepping onto the exit
+  // tile transitions to RESULT synchronously), do not advance the turn queue —
+  // refreshing corp AP and bumping the turn counter on a dead run is a state
+  // mutation that should never happen.
+  if (isTerminal()) return;
+
   queue.endTurn(world);
   onCorpTurnReady();
-  if (isTerminal()) return;
 
   drivePlayerAftermath({
     onStep: onPlayerAftermathStep,
@@ -374,14 +380,18 @@ function validatePlayerAftermathDriverCtx(
   }
 }
 
-function formatNeutralCivilianLine(entity: NeutralCivilian, step: NeutralCivilianTurnStep): string[] {
+function formatNeutralCivilianLine(
+  entity: NeutralCivilian,
+  step: NeutralCivilianTurnStep
+): string[] {
+  const label = entityLabel(entity);
   switch (step.type) {
     case 'neutral-flee':
-      return [`${entity.id} flees to (${step.to.x},${step.to.y}).`];
+      return [`${label} flees to (${step.to.x},${step.to.y}).`];
     case 'neutral-cornered':
-      return [`${entity.id} is cornered — nowhere to flee.`];
+      return [`${label} is cornered — nowhere to flee.`];
     case 'neutral-panic':
-      return [`${entity.id} PANICS — noise draws attention!`];
+      return [`${label} PANICS — noise draws attention!`];
     case 'neutral-idle':
     default:
       return [];
@@ -389,17 +399,19 @@ function formatNeutralCivilianLine(entity: NeutralCivilian, step: NeutralCivilia
 }
 
 function formatTurretAutofireLine(turret: Turret, action: TurretAutoFireResult) {
+  const turretLabel = entityLabel(turret);
   if (action.type === 'fire') {
     const r = action.result;
+    const targetLabel = entityLabel(action.target);
     return (
-      `${turret.id} auto-fires at ${action.target.id} — ` +
+      `${turretLabel} auto-fires at ${targetLabel} — ` +
       `${r.hit ? 'HIT' : 'miss'} (roll ${r.roll.toFixed(2)} vs ${r.threshold.toFixed(2)}` +
       `${r.inCover ? ', cover' : ''}).` +
-      (r.killed ? ` ${action.target.id.toUpperCase()} DOWN.` : '')
+      (r.killed ? ` ${targetLabel.toUpperCase()} DOWN.` : '')
     );
   }
   if (action.reason === 'no-target') {
-    return `${turret.id} scans — no target in range.`;
+    return `${turretLabel} scans — no target in range.`;
   }
   return null;
 }

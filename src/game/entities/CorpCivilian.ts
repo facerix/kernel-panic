@@ -26,7 +26,10 @@ import type { TurnActionStep, TurnActionSteps } from '../../types.js';
 import type { World } from '../World.js';
 import type { Rng } from '../../rng.js';
 
-export interface CorpCivilianInit extends Omit<EntityInit, 'faction' | 'glyph' | 'maxAp' | 'maxHp'> {
+export interface CorpCivilianInit extends Omit<
+  EntityInit,
+  'faction' | 'glyph' | 'maxAp' | 'maxHp'
+> {
   sightRange?: number;
 }
 
@@ -42,7 +45,9 @@ export class CorpCivilian extends Entity {
       maxHp: 1,
     });
     if (!Number.isInteger(sightRange) || sightRange < 0) {
-      throw new RangeError(`CorpCivilian sightRange must be a non-negative integer, got ${sightRange}`);
+      throw new RangeError(
+        `CorpCivilian sightRange must be a non-negative integer, got ${sightRange}`
+      );
     }
     this.sightRange = sightRange;
   }

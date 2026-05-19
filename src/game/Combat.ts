@@ -21,7 +21,7 @@
  * an illegal call it throws *before* mutating state.
  */
 
-import type { RangedAttackResult } from '../types.js';
+import type { MeleeAttackResult, RangedAttackResult } from '../types.js';
 import type { Entity } from './Entity.js';
 import type { World } from './World.js';
 import type { Rng } from '../rng.js';
@@ -29,10 +29,13 @@ import {
   AP_COST,
   BASE_HIT_CHANCE,
   COVER_HIT_PENALTY,
+  COVER_DODGE_BONUS,
+  DODGE_CHANCE,
   RANGED_DAMAGE,
   MELEE_DAMAGE,
   NOISE_RADIUS,
   SIGHT_RANGE,
+  TILE,
 } from './constants.js';
 import { hasLineOfSight, hasCoverBetween, withinRange } from './LineOfSight.js';
 import { EVENT } from './events.js';
@@ -50,6 +53,8 @@ export type ResolveRangedOptions = CanFireRangedOptions & {
 
 export type ResolveMeleeOptions = {
   damage?: number;
+  dodgeChance?: number;
+  coverDodgeBonus?: number;
 };
 
 /**
@@ -197,38 +202,74 @@ export function canMelee(world: World, attacker: Entity, target: Entity) {
 }
 
 /**
- * Commit a melee strike. Deterministic in V1 — adjacency + AP buys the hit.
- * Throws on illegal pre-conditions (so a buggy caller can't silently steal
- * AP with no swing) and emits both `entity:damaged` and a `noise` event so
- * the world reacts the same way it does for ranged.
+ * Commit a melee strike. M7 gives defenders a dodge roll while keeping the
+ * pre-check strict: adjacency + AP buys a committed swing, not guaranteed HP
+ * loss. Throws on illegal pre-conditions (so a buggy caller can't silently
+ * steal AP with no swing) and emits both `entity:damaged` and a `noise` event
+ * so the world reacts the same way it does for ranged.
  *
- * @returns {{ hit: boolean, damage: number, killed: boolean }}
+ * Diagonal corner cover counts as `inCover`: the line between two diagonal
+ * neighbours passes through the corner shared by two cells, so either COVER
+ * cell can give the defender something to duck around. Orthogonal melee has
+ * no intervening tile at Chebyshev-1 adjacency.
  */
 export function resolveMelee(
   world: World,
   attacker: Entity,
   target: Entity,
+  rng: Rng,
   options: ResolveMeleeOptions = {}
-) {
+): MeleeAttackResult {
   const check = canMelee(world, attacker, target);
   if (!check.ok) {
     throw new Error(`Illegal melee from ${attacker.id} → ${target.id}: ${check.reason}`);
   }
+  if (!rng || typeof rng.next !== 'function') {
+    throw new TypeError('resolveMelee requires an Rng with a next() method');
+  }
+
+  const inCover = hasMeleeCoverBetween(world, attacker, target);
+  // Crew archetypes override baseDodgeChance (Razor 0.35); drones and turrets
+  // fall back to DODGE_CHANCE.
+  const entityBaseDodge =
+    'baseDodgeChance' in target
+      ? (target as { baseDodgeChance: number }).baseDodgeChance
+      : DODGE_CHANCE;
+  const gearDodgeBonus =
+    (target as Entity & { gear?: { dodgeBonus?: number } }).gear?.dodgeBonus ?? 0;
+  const dodgeChance = options.dodgeChance ?? entityBaseDodge + gearDodgeBonus;
+  const coverDodgeBonus = options.coverDodgeBonus ?? COVER_DODGE_BONUS;
+  const dodgeThreshold = inCover ? dodgeChance + coverDodgeBonus : dodgeChance;
+  if (!Number.isFinite(dodgeThreshold) || dodgeThreshold < 0 || dodgeThreshold > 1) {
+    throw new RangeError(
+      `resolveMelee: dodge threshold ${dodgeThreshold} out of [0,1] ` +
+        `(dodgeChance=${dodgeChance}, coverDodgeBonus=${coverDodgeBonus}, inCover=${inCover})`
+    );
+  }
+
   attacker.spendAp(AP_COST.MELEE_ATTACK);
 
   // Attacking breaks stealth — a melee swing drops the cloak. Same guard
   // as resolveRanged: only fires when the attacker is actually stealthed.
   if (attacker.stealthed) attacker.stealthed = false;
 
-  const damage = options.damage ?? MELEE_DAMAGE;
-  target.damage(damage);
-  const killed = !target.alive;
+  const roll = rng.next();
+  const dodged = roll < dodgeThreshold;
+  const hit = !dodged;
+  let damage = 0;
+  let killed = false;
+  if (hit) {
+    damage = options.damage ?? MELEE_DAMAGE;
+    target.damage(damage);
+    killed = !target.alive;
+  }
   world.events?.emit(EVENT.ENTITY_DAMAGED, {
     attacker,
     target,
     damage,
     killed,
     source: 'melee',
+    dodged,
   });
   // Melee is loud but not as loud as a gunshot — heard mid-room, not building-
   // wide. Origin is the attacker's tile (point of impact in V1; diff between
@@ -239,5 +280,20 @@ export function resolveMelee(
     source: attacker,
     kind: 'melee',
   });
-  return { hit: true, damage, killed };
+  return { hit, dodged, roll, dodgeThreshold, inCover, damage, killed };
+}
+
+function hasMeleeCoverBetween(world: World, attacker: Entity, target: Entity): boolean {
+  if (hasCoverBetween(world.grid, attacker.x, attacker.y, target.x, target.y)) return true;
+
+  const dx = target.x - attacker.x;
+  const dy = target.y - attacker.y;
+  if (Math.abs(dx) !== 1 || Math.abs(dy) !== 1) return false;
+
+  const cornerA = { x: attacker.x + dx, y: attacker.y };
+  const cornerB = { x: attacker.x, y: attacker.y + dy };
+  return (
+    world.grid.tileAt(cornerA.x, cornerA.y) === TILE.COVER ||
+    world.grid.tileAt(cornerB.x, cornerB.y) === TILE.COVER
+  );
 }

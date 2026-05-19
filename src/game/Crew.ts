@@ -2,6 +2,8 @@ import { Entity } from './Entity.js';
 import {
   AP_COST,
   BASE_HIT_CHANCE,
+  DODGE_BONUS,
+  DODGE_CHANCE,
   FACTION,
   STIM_HEAL,
   SMOKE_RADIUS,
@@ -21,10 +23,11 @@ export type Inventory = {
 export type Gear = {
   maxHpBonus: number;
   hitBonus: number;
+  dodgeBonus: number;
 };
 
 const createDefaultInventory = (): Inventory => ({ salvage: 0, consumables: [] });
-const createDefaultGear = (): Gear => ({ maxHpBonus: 0, hitBonus: 0 });
+const createDefaultGear = (): Gear => ({ maxHpBonus: 0, hitBonus: 0, dodgeBonus: 0 });
 
 /**
  * Crew — the base class for every player-controlled archetype.
@@ -89,9 +92,22 @@ export class Crew extends Entity {
     return BASE_HIT_CHANCE;
   }
 
+  /**
+   * Base melee dodge probability for this crew member (before cover bonus).
+   * Overridden on Razor; other archetypes use {@link DODGE_CHANCE}.
+   */
+  get baseDodgeChance(): number {
+    return DODGE_CHANCE;
+  }
+
   /** Maximum gear hit bonus this crew member can accumulate (= 1 − baseHitChance). */
   get maxHitBonus(): number {
     return 1 - this.baseHitChance;
+  }
+
+  /** Maximum gear dodge bonus this crew member can accumulate (= 1 − baseDodgeChance). */
+  get maxDodgeBonus(): number {
+    return 1 - this.baseDodgeChance;
   }
 
   constructor({
@@ -122,7 +138,7 @@ export class Crew extends Entity {
     this.inventory = inventory;
     /**
      * Permanent gear bonuses purchased from Finn's shop (campaign-scoped).
-     * `{ maxHpBonus: number, hitBonus: number }`. Defaults to `null` until
+     * `{ maxHpBonus, hitBonus, dodgeBonus }`. Defaults to `null` until
      * the first gear purchase; `initGear()` locks in the schema. Combat and
      * persistence read `gear?.hitBonus ?? 0` etc. so `null` is safe.
      */
@@ -163,9 +179,12 @@ export class Crew extends Entity {
         this.hp += 1; // immediate benefit — no need to heal it
         break;
       case ITEM_ID.TARGETING_CHIP:
-        this.gear!.hitBonus = Math.min(
-          this.gear!.hitBonus + TARGETING_BONUS,
-          this.maxHitBonus
+        this.gear!.hitBonus = Math.min(this.gear!.hitBonus + TARGETING_BONUS, this.maxHitBonus);
+        break;
+      case ITEM_ID.REFLEX_WEAVE:
+        this.gear!.dodgeBonus = Math.min(
+          (this.gear!.dodgeBonus ?? 0) + DODGE_BONUS,
+          this.maxDodgeBonus
         );
         break;
       default:

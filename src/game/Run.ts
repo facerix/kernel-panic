@@ -47,7 +47,7 @@ import { Turret } from './Turret.js';
 import { CorpDrone } from './ai/CorpDrone.js';
 import { CorpCivilian } from './entities/CorpCivilian.js';
 import { NeutralCivilian } from './entities/NeutralCivilian.js';
-import { isObjective } from './hub/Curator.js';
+import { isContractDifficulty, isObjective } from './hub/Curator.js';
 import { buildMap } from './procgen/mapBuild.js';
 import type { Contract } from './hub/Curator.js';
 import type { FactionId } from './constants.js';
@@ -73,7 +73,13 @@ const COMBAT_MAP_HEIGHT = 16;
 export type RunState = (typeof RUN_STATE)[keyof typeof RUN_STATE];
 export type Outcome = (typeof OUTCOME)[keyof typeof OUTCOME];
 export type CrewArchetypeId = 'merc' | 'razor' | 'tech';
-export type EntityArchetypeId = CrewArchetypeId | 'turret' | 'drone' | 'corp-civilian' | 'neutral-civilian' | 'entity';
+export type EntityArchetypeId =
+  | CrewArchetypeId
+  | 'turret'
+  | 'drone'
+  | 'corp-civilian'
+  | 'neutral-civilian'
+  | 'entity';
 
 export type RunTelemetry = {
   archetype: CrewArchetypeId;
@@ -157,6 +163,7 @@ type EntityDamagedPayload = {
   damage: number;
   killed: boolean;
   source?: string;
+  dodged?: boolean;
 };
 
 type EntityMovedPayload = {
@@ -252,6 +259,7 @@ export class Run {
       width: COMBAT_MAP_WIDTH,
       height: COMBAT_MAP_HEIGHT,
       threatCount: this.contract.threatCount,
+      difficulty: this.contract.difficulty,
     });
     this.world = new World(map.grid, { events: this.bus });
     this.player = this.#makePlayer(map.spawns.player);
@@ -403,6 +411,7 @@ export class Run {
     if (!this.player) {
       throw new Error('Run.#onEntityDamaged: COMBAT state without a player');
     }
+    if (damage <= 0 && !killed) return;
     if (target === this.player) {
       this.telemetry.lastDamageSource = source ?? null;
       this.telemetry.lastAttacker = attacker?.id ?? null;
@@ -573,6 +582,21 @@ function validateContract(contract: unknown): asserts contract is Contract {
   }
   if (!Number.isInteger(threatCount) || threatCount === undefined || threatCount < 0) {
     throw new TypeError(`contract.threatCount must be a non-negative integer, got ${threatCount}`);
+  }
+  if (!isContractDifficulty(candidate.difficulty ?? '')) {
+    throw new Error(`contract.difficulty "${candidate.difficulty}" is not a known difficulty`);
+  }
+  if (!candidate.reward || typeof candidate.reward !== 'object') {
+    throw new TypeError('contract.reward must be an object');
+  }
+  if (!Number.isInteger(candidate.reward.credits) || candidate.reward.credits < 0) {
+    throw new TypeError('contract.reward.credits must be a non-negative integer');
+  }
+  if (!Number.isInteger(candidate.reward.repDelta)) {
+    throw new TypeError('contract.reward.repDelta must be an integer');
+  }
+  if (candidate.reward.recruit !== undefined && candidate.reward.recruit !== true) {
+    throw new TypeError('contract.reward.recruit must be true when present');
   }
   if (typeof candidate.label !== 'string' || candidate.label.length === 0) {
     throw new TypeError('contract.label must be a non-empty string');

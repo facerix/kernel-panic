@@ -30,7 +30,10 @@ export type NeutralCivilianTurnContext = {
   rep: number;
 };
 
-export interface NeutralCivilianInit extends Omit<EntityInit, 'faction' | 'glyph' | 'maxAp' | 'maxHp'> {
+export interface NeutralCivilianInit extends Omit<
+  EntityInit,
+  'faction' | 'glyph' | 'maxAp' | 'maxHp'
+> {
   sightRange?: number;
 }
 
@@ -46,7 +49,9 @@ export class NeutralCivilian extends Entity {
       maxHp: 1,
     });
     if (!Number.isInteger(sightRange) || sightRange < 0) {
-      throw new RangeError(`NeutralCivilian sightRange must be a non-negative integer, got ${sightRange}`);
+      throw new RangeError(
+        `NeutralCivilian sightRange must be a non-negative integer, got ${sightRange}`
+      );
     }
     this.sightRange = sightRange;
   }

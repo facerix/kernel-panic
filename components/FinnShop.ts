@@ -6,11 +6,13 @@
  * browse, Enter to buy, Esc to close).
  *
  * Events:
- *   - `purchase`  — `{ itemId, targetMemberId? }` — player confirmed a buy.
- *   - `dismiss`   — player pressed Esc / clicked backdrop.
+ *   - `purchase`      — `{ itemId, targetMemberId? }` — player confirmed a buy.
+ *   - `sell-salvage`  — `{ quantity }` — player sold campaign salvage for Creds.
+ *   - `dismiss`       — player pressed Esc / clicked backdrop.
  */
 
 import { h } from '/src/domUtils.js';
+import { SALVAGE_TO_CRED_RATE } from '/src/game/constants.js';
 import { ITEM_ID, ITEM_SCOPE } from '/src/game/items.js';
 import type { Item } from '/src/game/items.js';
 import type { Crew as CrewMember } from '/src/game/Crew.js';
@@ -23,6 +25,7 @@ type CrewMemberSnapshot = {
   maxHp: number;
   flatlined: boolean;
   atMaxHit: boolean;
+  atMaxDodge: boolean;
 };
 
 const CSS = `
@@ -81,6 +84,56 @@ const CSS = `
   color: var(--shop-gold);
   font-size: 0.9rem;
   letter-spacing: 0.08em;
+}
+
+.sell-panel {
+  border: 1px dashed rgba(0, 217, 165, 0.5);
+  border-radius: 4px;
+  padding: 0.55rem 0.6rem;
+  margin: 0 0 0.7rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.sell-rate {
+  margin: 0;
+  color: var(--shop-dim);
+  font-size: 0.78rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.sell-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.4rem;
+}
+
+button.sell-button {
+  appearance: none;
+  -webkit-appearance: none;
+  background: rgba(0, 217, 165, 0.08);
+  color: var(--shop-text);
+  border: 1px solid rgba(0, 217, 165, 0.45);
+  border-radius: 4px;
+  padding: 0.45rem 0.35rem;
+  font: inherit;
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  min-height: 34px;
+}
+
+button.sell-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+button.sell-button:not(:disabled):hover,
+button.sell-button:focus-visible {
+  outline: none;
+  border-color: var(--shop-accent);
+  background: var(--shop-row-active);
 }
 
 .section-label {
@@ -238,6 +291,7 @@ const SCOPE_ORDER = [ITEM_SCOPE.JOB, ITEM_SCOPE.CAMPAIGN, ITEM_SCOPE.META];
 class FinnShop extends HTMLElement {
   #catalog: Item[] = [];
   #crew: CrewMemberSnapshot[] = [];
+  #credits = 0;
   #salvage = 0;
   #ready = false;
   #panelEl: HTMLElement | null = null;
@@ -293,9 +347,9 @@ class FinnShop extends HTMLElement {
   /**
    * @param {Array} catalog — item descriptors from `Finn.catalog(meta)`
    * @param {Array} crew — crew member snapshots `{ id, callsign, archetype, hp, maxHp, flatlined }`
-   * @param {number} salvage — campaign salvage balance
+   * @param {{ credits: number, salvage: number }} balances — campaign Cred and salvage balances
    */
-  setCatalog(catalog: Item[], crew: CrewMember[], salvage: number) {
+  setCatalog(catalog: Item[], crew: CrewMember[], balances: { credits: number; salvage: number }) {
     this.#catalog = catalog;
     this.#crew = crew.map(member => ({
       id: member.id,
@@ -305,8 +359,10 @@ class FinnShop extends HTMLElement {
       maxHp: member.maxHp,
       flatlined: !!member.flatlined,
       atMaxHit: (member.gear?.hitBonus ?? 0) >= member.maxHitBonus,
+      atMaxDodge: (member.gear?.dodgeBonus ?? 0) >= member.maxDodgeBonus,
     }));
-    this.#salvage = salvage;
+    this.#credits = balances.credits ?? 0;
+    this.#salvage = balances.salvage ?? 0;
     this.#phase = 'browse';
     this.#pendingItem = null;
     this.#selectedIndex = 0;
@@ -338,7 +394,7 @@ class FinnShop extends HTMLElement {
   #render() {
     if (!this.#ready) return;
     this.#titleEl!.textContent = "── FINN'S SHOP ──";
-    this.#balanceEl!.textContent = `SALVAGE ${this.#salvage}`;
+    this.#balanceEl!.textContent = `CREDS ${this.#credits}  SALVAGE ${this.#salvage}`;
 
     while (this.#bodyEl!.firstChild) this.#bodyEl!.removeChild(this.#bodyEl!.firstChild);
     this.#flatItems = [];
@@ -347,6 +403,8 @@ class FinnShop extends HTMLElement {
       this.#renderTargetSelection();
       return;
     }
+
+    this.#renderSellPanel();
 
     // Group catalog by scope.
     for (const scope of SCOPE_ORDER) {
@@ -357,7 +415,7 @@ class FinnShop extends HTMLElement {
       const rows = h('div', { className: 'rows' });
 
       for (const item of items) {
-        const canAfford = this.#salvage >= item.cost;
+        const canAfford = this.#credits >= item.cost;
         const flatIndex = this.#flatItems.length;
         const btn = h('button', {
           type: 'button',
@@ -370,7 +428,7 @@ class FinnShop extends HTMLElement {
         btn.append(
           h('span', { className: 'cursor', textContent: '>' }),
           h('span', { className: 'item-name', textContent: item.label }),
-          h('span', { className: 'item-cost', textContent: `${item.cost} SAL` }),
+          h('span', { className: 'item-cost', textContent: `${item.cost} Cr` }),
           h('span', { className: 'item-desc', textContent: item.description })
         );
         rows.appendChild(btn);
@@ -393,6 +451,38 @@ class FinnShop extends HTMLElement {
     this.#hintEl!.textContent = '[ ENTER buy  ·  Esc close ]';
   }
 
+  #renderSellPanel() {
+    const panel = h('section', { className: 'sell-panel' });
+    panel.appendChild(
+      h('p', {
+        className: 'sell-rate',
+        textContent: `Sell salvage to Finn · ${SALVAGE_TO_CRED_RATE} Cr each`,
+      })
+    );
+    const actions = h('div', { className: 'sell-actions' });
+    actions.append(
+      this.#sellButton('SELL 1', 1),
+      this.#sellButton('SELL 5', 5),
+      this.#sellButton('SELL ALL', this.#salvage)
+    );
+    panel.appendChild(actions);
+    this.#bodyEl!.appendChild(panel);
+  }
+
+  #sellButton(label: string, quantity: number): HTMLButtonElement {
+    const btn = h('button', {
+      type: 'button',
+      className: 'sell-button',
+      textContent: label,
+      disabled: quantity <= 0 || this.#salvage < quantity,
+    }) as HTMLButtonElement;
+    btn.addEventListener('click', () => {
+      if (btn.disabled) return;
+      this.#emit('sell-salvage', { quantity });
+    });
+    return btn;
+  }
+
   #renderTargetSelection() {
     const item = this.#pendingItem;
     if (!item) return;
@@ -405,23 +495,26 @@ class FinnShop extends HTMLElement {
     this.#targetButtons = [] as HTMLButtonElement[];
     this.#targetIndex = Math.max(
       0,
-      this.#crew.findIndex(m => !m.flatlined)
+      this.#crew.findIndex(member => !this.#isTargetDisabled(member))
     );
 
     const isTargetingChip = item.id === ITEM_ID.TARGETING_CHIP;
+    const isReflexWeave = item.id === ITEM_ID.REFLEX_WEAVE;
     const rows = h('div', { className: 'rows' });
     for (let i = 0; i < this.#crew.length; i++) {
       const member = this.#crew[i];
-      const atCap = isTargetingChip && member.atMaxHit;
+      const atCap = (isTargetingChip && member.atMaxHit) || (isReflexWeave && member.atMaxDodge);
+      const disabled = this.#isTargetDisabled(member);
       const btn = h('button', {
         type: 'button',
         className: 'target-row',
-        disabled: member.flatlined || atCap,
+        disabled,
         ariaCurrent: i === this.#targetIndex ? 'true' : 'false',
       }) as HTMLButtonElement;
       btn.dataset.targetIndex = String(i);
       btn.addEventListener('click', () => this.#confirmTarget(i));
-      const suffix = member.flatlined ? ' FLATLINED' : atCap ? ' MAX HIT' : '';
+      const capLabel = isTargetingChip ? 'MAX HIT' : isReflexWeave ? 'MAX DODGE' : '';
+      const suffix = member.flatlined ? ' FLATLINED' : atCap ? ` ${capLabel}` : '';
       btn.append(
         h('span', { className: 'cursor', textContent: '>' }),
         h('span', {
@@ -499,7 +592,7 @@ class FinnShop extends HTMLElement {
     let next = this.#targetIndex;
     for (let i = 0; i < this.#crew.length; i++) {
       next = (next + delta + this.#crew.length) % this.#crew.length;
-      if (!this.#crew[next].flatlined) break;
+      if (!this.#targetButtons[next].disabled) break;
     }
     this.#targetIndex = next;
     for (let i = 0; i < this.#targetButtons.length; i++) {
@@ -535,11 +628,19 @@ class FinnShop extends HTMLElement {
 
   #confirmTarget(index: number) {
     const member = this.#crew[index];
-    if (!member || member.flatlined || !this.#pendingItem) return;
+    const btn = this.#targetButtons[index];
+    if (!member || !btn || btn.disabled || !this.#pendingItem) return;
     this.#emit('purchase', {
       itemId: this.#pendingItem.id,
       targetMemberId: member.id,
     });
+  }
+
+  #isTargetDisabled(member: CrewMemberSnapshot) {
+    if (member.flatlined || !this.#pendingItem) return true;
+    if (this.#pendingItem.id === ITEM_ID.TARGETING_CHIP) return member.atMaxHit;
+    if (this.#pendingItem.id === ITEM_ID.REFLEX_WEAVE) return member.atMaxDodge;
+    return false;
   }
 
   #syncCurrent() {

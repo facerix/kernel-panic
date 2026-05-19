@@ -12,6 +12,8 @@ import {
   AP_COST,
   BASE_HIT_CHANCE,
   COVER_HIT_PENALTY,
+  COVER_DODGE_BONUS,
+  DODGE_CHANCE,
 } from '../../../src/game/constants.js';
 import { canFireRanged, resolveRanged, canMelee, resolveMelee } from '../../../src/game/Combat.js';
 import { MELEE_DAMAGE, NOISE_RADIUS } from '../../../src/game/constants.js';
@@ -334,12 +336,15 @@ test('canMelee rejects a dead target', () => {
   assert.equal(canMelee(world, attacker, target).reason, 'invalid-target');
 });
 
-test('resolveMelee debits MELEE AP and applies MELEE_DAMAGE', () => {
+test('resolveMelee debits MELEE AP and applies MELEE_DAMAGE on a failed dodge', () => {
   const { world, attacker, target } = makeMeleeFight();
   const apBefore = attacker.ap;
   const hpBefore = target.hp;
-  const result = resolveMelee(world, attacker, target);
+  const result = resolveMelee(world, attacker, target, new StubRng([0.99]));
   assert.equal(result.hit, true);
+  assert.equal(result.dodged, false);
+  assert.equal(result.dodgeThreshold, DODGE_CHANCE);
+  assert.equal(result.inCover, false);
   assert.equal(result.damage, MELEE_DAMAGE);
   assert.equal(target.hp, hpBefore - MELEE_DAMAGE);
   assert.equal(attacker.ap, apBefore - 1 /* AP_COST.MELEE_ATTACK */);
@@ -348,7 +353,7 @@ test('resolveMelee debits MELEE AP and applies MELEE_DAMAGE', () => {
 test('resolveMelee marks killed=true when damage drops the target', () => {
   const { world, attacker, target } = makeMeleeFight();
   target.hp = 1;
-  const result = resolveMelee(world, attacker, target);
+  const result = resolveMelee(world, attacker, target, new StubRng([0.99]));
   assert.equal(result.killed, true);
   assert.equal(target.alive, false);
 });
@@ -356,8 +361,10 @@ test('resolveMelee marks killed=true when damage drops the target', () => {
 test('resolveMelee throws on illegal preconditions and does NOT debit AP', () => {
   const { world, attacker, target } = makeMeleeFight({ attackerAt: [1, 1], targetAt: [5, 1] });
   const apBefore = attacker.ap;
-  assert.throws(() => resolveMelee(world, attacker, target), /Illegal melee/);
+  const rng = new StubRng([0.99]);
+  assert.throws(() => resolveMelee(world, attacker, target, rng), /Illegal melee/);
   assert.equal(attacker.ap, apBefore);
+  assert.equal(rng.calls, 0, 'no roll consumed on illegal melee');
 });
 
 test('resolveMelee emits entity:damaged with source="melee"', async () => {
@@ -371,10 +378,87 @@ test('resolveMelee emits entity:damaged with source="melee"', async () => {
   world.addEntity(target);
   const damaged = [];
   bus.on(EVENT.ENTITY_DAMAGED, payload => damaged.push(payload));
-  resolveMelee(world, attacker, target);
+  resolveMelee(world, attacker, target, new StubRng([0.99]));
   assert.equal(damaged.length, 1);
   assert.equal(damaged[0].source, 'melee');
   assert.equal(damaged[0].damage, MELEE_DAMAGE);
+  assert.equal(damaged[0].dodged, false);
+});
+
+test('resolveMelee can be dodged without changing target HP', async () => {
+  const { EventBus, EVENT } = await import('../../../src/game/events.js');
+  const bus = new EventBus();
+  const grid = new Grid(8, 8);
+  const world = new World(grid, { events: bus });
+  const attacker = new Entity({ id: 'a', x: 3, y: 3, faction: FACTION.PLAYER, glyph: '@' });
+  const target = new Entity({ id: 't', x: 4, y: 3, faction: FACTION.CORP, glyph: 'd' });
+  world.addEntity(attacker);
+  world.addEntity(target);
+  const hpBefore = target.hp;
+  const damaged = [];
+  bus.on(EVENT.ENTITY_DAMAGED, payload => damaged.push(payload));
+
+  const result = resolveMelee(world, attacker, target, new StubRng([DODGE_CHANCE - 0.01]));
+
+  assert.equal(result.hit, false);
+  assert.equal(result.dodged, true);
+  assert.equal(result.damage, 0);
+  assert.equal(result.killed, false);
+  assert.equal(target.hp, hpBefore, 'dodged melee must not mutate HP');
+  assert.equal(damaged.length, 1);
+  assert.equal(damaged[0].damage, 0);
+  assert.equal(damaged[0].dodged, true);
+});
+
+test('resolveMelee hits when roll is exactly the dodge threshold', () => {
+  const { world, attacker, target } = makeMeleeFight();
+  const result = resolveMelee(world, attacker, target, new StubRng([DODGE_CHANCE]));
+  assert.equal(result.hit, true, 'dodge uses roll < threshold, matching ranged edge semantics');
+});
+
+test('resolveMelee uses Razor.baseDodgeChance when the defender is a Razor', () => {
+  const g = new Grid(8, 8);
+  const w = new World(g);
+  const attacker = new Entity({
+    id: 'a',
+    x: 3,
+    y: 3,
+    faction: FACTION.CORP,
+    glyph: 'd',
+  });
+  const target = new Razor({ id: 'r', x: 4, y: 3, callsign: 'Cipher' });
+  w.addEntity(attacker);
+  w.addEntity(target);
+  const result = resolveMelee(w, attacker, target, new StubRng([target.baseDodgeChance - 0.01]));
+  assert.equal(result.dodgeThreshold, target.baseDodgeChance);
+  assert.equal(result.dodged, true);
+  assert.equal(target.hp, target.maxHp, 'dodge must not reduce HP');
+});
+
+test('resolveMelee applies COVER_DODGE_BONUS for diagonal corner cover', () => {
+  const { world, attacker, target } = makeMeleeFight({
+    attackerAt: [3, 3],
+    targetAt: [4, 4],
+  });
+  world.grid.setTile(4, 3, TILE.COVER);
+  const roll = DODGE_CHANCE + COVER_DODGE_BONUS - 0.01;
+  const result = resolveMelee(world, attacker, target, new StubRng([roll]));
+  assert.equal(result.inCover, true);
+  assert.equal(result.dodgeThreshold, DODGE_CHANCE + COVER_DODGE_BONUS);
+  assert.equal(result.dodged, true, 'cover bonus converts this roll into a dodge');
+});
+
+test('resolveMelee crashes if no Rng is supplied (no Math.random fallback)', () => {
+  const { world, attacker, target } = makeMeleeFight();
+  assert.throws(() => resolveMelee(world, attacker, target, null), TypeError);
+});
+
+test('resolveMelee crashes when the computed dodge threshold is out of [0,1]', () => {
+  const { world, attacker, target } = makeMeleeFight();
+  const rng = new StubRng([0.99]);
+  assert.throws(() => resolveMelee(world, attacker, target, rng, { dodgeChance: 1.1 }), RangeError);
+  assert.equal(attacker.ap, 4, 'no AP burned on bad dodge tuning');
+  assert.equal(rng.calls, 0, 'no roll consumed on bad dodge tuning');
 });
 
 // --- Stealth-break on attack -----------------------------------------------
@@ -389,7 +473,7 @@ test('resolveRanged clears attacker.stealthed on a committed shot (hit or miss)'
 test('resolveMelee clears attacker.stealthed on a committed strike', () => {
   const { world, attacker, target } = makeMeleeFight();
   attacker.stealthed = true;
-  resolveMelee(world, attacker, target);
+  resolveMelee(world, attacker, target, new StubRng([0.99]));
   assert.equal(attacker.stealthed, false, 'melee swing drops the cloak');
 });
 
@@ -437,7 +521,7 @@ test('resolveMelee emits a noise event (MELEE radius)', async () => {
   world.addEntity(target);
   const noises = [];
   bus.on(EVENT.NOISE, payload => noises.push(payload));
-  resolveMelee(world, attacker, target);
+  resolveMelee(world, attacker, target, new StubRng([0.99]));
   assert.equal(noises.length, 1);
   assert.equal(noises[0].kind, 'melee');
   assert.equal(noises[0].radius, NOISE_RADIUS.MELEE);

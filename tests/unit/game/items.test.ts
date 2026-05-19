@@ -9,6 +9,7 @@ import {
   STIM_HEAL,
   SMOKE_RADIUS,
   TARGETING_BONUS,
+  DODGE_BONUS,
   DEFAULT_HP,
 } from '../../../src/game/constants.js';
 import { Merc } from '../../../src/game/archetypes/Merc.js';
@@ -16,7 +17,10 @@ import { CorpDrone } from '../../../src/game/ai/CorpDrone.js';
 import { Rng } from '../../../src/rng.js';
 import { ITEM_ID } from '../../../src/game/items.js';
 import { placeSmoke, clearSmoke } from '../../../src/game/Smoke.js';
-import { resolveRanged } from '../../../src/game/Combat.js';
+import { resolveRanged, resolveMelee } from '../../../src/game/Combat.js';
+import { Razor } from '../../../src/game/archetypes/Razor.js';
+import { Entity } from '../../../src/game/Entity.js';
+import { FACTION } from '../../../src/game/constants.js';
 
 // ---------------------------------------------------------------------------
 // Crew.applyGear — Armour Plating
@@ -56,6 +60,16 @@ test('applyGear throws on unknown item', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Crew.applyGear — Reflex Weave
+// ---------------------------------------------------------------------------
+
+test('applyGear(REFLEX_WEAVE) sets dodgeBonus', () => {
+  const crew = new Merc({ id: 'merc', x: 0, y: 0 });
+  crew.applyGear(ITEM_ID.REFLEX_WEAVE);
+  assert.equal(crew.gear.dodgeBonus, DODGE_BONUS);
+});
+
+// ---------------------------------------------------------------------------
 // Combat.resolveRanged reads hitBonus from gear
 // ---------------------------------------------------------------------------
 
@@ -72,6 +86,30 @@ test('resolveRanged incorporates gear hitBonus into threshold', () => {
   const result = resolveRanged(world, attacker, target, rng);
   // Merc baseHitChance is 0.8; one targeting chip adds TARGETING_BONUS.
   assert.equal(result.threshold, attacker.baseHitChance + TARGETING_BONUS);
+});
+
+// ---------------------------------------------------------------------------
+// Combat.resolveMelee reads dodgeBonus from gear
+// ---------------------------------------------------------------------------
+
+test('resolveMelee incorporates gear dodgeBonus into threshold', () => {
+  const grid = new Grid(12, 6, TILE.FLOOR);
+  const bus = new EventBus();
+  const world = new World(grid, { events: bus });
+  const attacker = new Entity({
+    id: 'corp',
+    x: 2,
+    y: 2,
+    faction: FACTION.CORP,
+    glyph: 'd',
+  });
+  const target = new Razor({ id: 'razor', x: 3, y: 2, callsign: 'Cipher' });
+  target.applyGear(ITEM_ID.REFLEX_WEAVE);
+  world.addEntity(attacker);
+  world.addEntity(target);
+  const rng = new Rng(42);
+  const result = resolveMelee(world, attacker, target, rng);
+  assert.equal(result.dodgeThreshold, target.baseDodgeChance + DODGE_BONUS);
 });
 
 // ---------------------------------------------------------------------------

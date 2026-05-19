@@ -38,7 +38,7 @@ import { Rng } from '/src/rng.js';
 import type { Crew } from '/src/game/Crew';
 import type { Intent } from '/src/input/applyIntent.js';
 import type { Archetype } from '/src/game/archetypes';
-import type { Entity } from '/src/game/Entity.js';
+import { entityLabel, resolveEntityLabel, type Entity } from '/src/game/Entity.js';
 import type { TurnActionStep } from '/src/types.js';
 import type { Mode } from '/src/input/keymap.js';
 import type TouchPad from '/components/TouchPad';
@@ -245,34 +245,36 @@ function runCorpTurn() {
 }
 
 function formatCorpAction(actor: Entity, action: TurnActionStep) {
+  const label = entityLabel(actor);
   switch (action.type) {
     case 'fire': {
       const r = action.result;
+      const targetLabel = resolveEntityLabel(action.target, world.entities);
       return (
-        `> ${actor.id} fires at ${action.target} — ` +
+        `> ${label} fires at ${targetLabel} — ` +
         `${r.hit ? 'HIT' : 'miss'} (roll ${r.roll.toFixed(2)} vs ${r.threshold.toFixed(2)}` +
         `${r.inCover ? ', cover' : ''}).` +
-        (r.killed ? ` ${action.target.toUpperCase()} DOWN.` : '')
+        (r.killed ? ` ${targetLabel.toUpperCase()} DOWN.` : '')
       );
     }
     case 'fire-blocked':
-      return `> ${actor.id} can't fire: ${action.reason}.`;
+      return `> ${label} can't fire: ${action.reason}.`;
     case 'move-engage':
-      return `> ${actor.id} closes to (${action.to.x}, ${action.to.y}).`;
+      return `> ${label} closes to (${action.to.x}, ${action.to.y}).`;
     case 'move-investigate':
-      return `> ${actor.id} investigates → (${action.to.x}, ${action.to.y}).`;
+      return `> ${label} investigates → (${action.to.x}, ${action.to.y}).`;
     case 'move-patrol':
-      return `> ${actor.id} patrols → (${action.to.x}, ${action.to.y}).`;
+      return `> ${label} patrols → (${action.to.x}, ${action.to.y}).`;
     case 'patrol-arrived':
-      return `> ${actor.id} reached waypoint (${action.waypoint.x}, ${action.waypoint.y}).`;
+      return `> ${label} reached waypoint (${action.waypoint.x}, ${action.waypoint.y}).`;
     case 'patrol-skipped':
-      return `> ${actor.id} skipped waypoint (${action.waypoint.x}, ${action.waypoint.y}).`;
+      return `> ${label} skipped waypoint (${action.waypoint.x}, ${action.waypoint.y}).`;
     case 'investigate-cleared':
-      return `> ${actor.id} found nothing — back to patrol.`;
+      return `> ${label} found nothing — back to patrol.`;
     case 'investigate-abandoned':
-      return `> ${actor.id} lost the trail.`;
+      return `> ${label} lost the trail.`;
     default:
-      return `> ${actor.id} ${(action as { type: string }).type}`;
+      return `> ${label} ${(action as { type: string }).type}`;
   }
 }
 

@@ -27,13 +27,14 @@
  */
 
 import { Grid } from '../Grid.js';
-import { TILE } from '../constants.js';
+import { CONTRACT_DIFFICULTY, TILE } from '../constants.js';
 import { BSP_TUNABLES, splitRegion, leaves, internalNodes } from './bsp.js';
 import { fittingPrefabs } from './prefabs/index.js';
 import type { Rng } from '../../rng.js';
 import type { GridPoint } from '../../types.js';
 import type { BspNode } from './bsp.js';
 import type { ParsedPrefab } from './prefabs/types.js';
+import type { ContractDifficulty } from '../constants.js';
 
 const DEFAULT_THREAT_COUNT = 2;
 const DEFAULT_MAX_CORP_CIVILIANS = 1;
@@ -74,6 +75,7 @@ type StampedLeaf = {
   originY: number;
   center: GridPoint;
   droneWorld: EntityAnchor[];
+  patrolPathsWorld: GridPoint[][];
   exitWorld: GridPoint[];
   corpCivilianWorld: CivilianAnchor[];
   neutralCivilianWorld: CivilianAnchor[];
@@ -83,6 +85,7 @@ type BuildMapOptions = {
   width: number;
   height: number;
   threatCount?: number;
+  difficulty?: ContractDifficulty;
   maxCorpCivilians?: number;
   maxNeutralCivilians?: number;
 };
@@ -99,8 +102,9 @@ export function buildMap({
   width,
   height,
   threatCount = DEFAULT_THREAT_COUNT,
-  maxCorpCivilians = DEFAULT_MAX_CORP_CIVILIANS,
-  maxNeutralCivilians = DEFAULT_MAX_NEUTRAL_CIVILIANS,
+  difficulty = CONTRACT_DIFFICULTY.ELEVATED,
+  maxCorpCivilians,
+  maxNeutralCivilians,
 }: BuildMapOptions): Map {
   if (!rng || typeof rng.fork !== 'function') {
     throw new TypeError('buildMap requires an Rng with fork() (use src/rng.js)');
@@ -115,12 +119,18 @@ export function buildMap({
       `buildMap: threatCount must be a non-negative integer, got ${threatCount}`
     );
   }
-  if (!Number.isInteger(maxCorpCivilians) || maxCorpCivilians < 0) {
+  if (!isDifficulty(difficulty)) {
+    throw new Error(`buildMap: unknown difficulty "${difficulty}"`);
+  }
+  const civilianCaps = civilianCapsForDifficulty(difficulty);
+  const resolvedMaxCorpCivilians = maxCorpCivilians ?? civilianCaps.corp;
+  const resolvedMaxNeutralCivilians = maxNeutralCivilians ?? civilianCaps.neutral;
+  if (!Number.isInteger(resolvedMaxCorpCivilians) || resolvedMaxCorpCivilians < 0) {
     throw new RangeError(
       `buildMap: maxCorpCivilians must be a non-negative integer, got ${maxCorpCivilians}`
     );
   }
-  if (!Number.isInteger(maxNeutralCivilians) || maxNeutralCivilians < 0) {
+  if (!Number.isInteger(resolvedMaxNeutralCivilians) || resolvedMaxNeutralCivilians < 0) {
     throw new RangeError(
       `buildMap: maxNeutralCivilians must be a non-negative integer, got ${maxNeutralCivilians}`
     );
@@ -188,12 +198,13 @@ export function buildMap({
   }
 
   // Drones — two passes:
-  //   1) Use authored drone anchors from non-spawn leaves first; they carry
-  //      designed waypoints, which are the gameplay we paid for.
+  //   1) Use authored drone anchors from non-spawn leaves first; each anchor
+  //      carries the nearest authored patrol path for its prefab.
   //   2) If the threat budget isn't met (some prefabs declare no drone
   //      anchors — `hallway` is intentionally one), fall back to picking
-  //      FLOOR tiles inside non-spawn leaves with a single-tile "stand
-  //      still" waypoint. Better than refusing to spawn the run.
+  //      FLOOR tiles inside non-spawn leaves and synthesise a two-point
+  //      cardinal patrol. Better than refusing to spawn the run, and more
+  //      alive than the old stand-still fallback.
   const droneAnchors: EntityAnchor[] = [];
   const corpCivilians: CivilianAnchor[] = [];
   const neutralCivilians: CivilianAnchor[] = [];
@@ -209,7 +220,14 @@ export function buildMap({
       if (droneAnchors.length >= threatCount) break;
       if (isAlreadyTaken(anchor.x, anchor.y)) continue;
       if (grid.tileAt(anchor.x, anchor.y) !== TILE.FLOOR) continue;
-      droneAnchors.push(anchor);
+      droneAnchors.push({
+        x: anchor.x,
+        y: anchor.y,
+        waypoints:
+          anchor.waypoints.length > 0
+            ? anchor.waypoints
+            : synthesizeFallbackPatrol(grid, { x: anchor.x, y: anchor.y }),
+      });
     }
   }
   for (let i = 1; i < stamped.length && droneAnchors.length < threatCount; i++) {
@@ -220,7 +238,11 @@ export function buildMap({
         if (droneAnchors.length >= threatCount) break;
         if (grid.tileAt(xx, yy) !== TILE.FLOOR) continue;
         if (isAlreadyTaken(xx, yy)) continue;
-        droneAnchors.push({ x: xx, y: yy, waypoints: [{ x: xx, y: yy }] });
+        droneAnchors.push({
+          x: xx,
+          y: yy,
+          waypoints: synthesizeFallbackPatrol(grid, { x: xx, y: yy }),
+        });
       }
     }
   }
@@ -235,15 +257,19 @@ export function buildMap({
   // drones) — civilians are optional content. Only place civilians on
   // passable, unoccupied tiles.
   for (let i = 1; i < stamped.length; i++) {
-    if (corpCivilians.length >= maxCorpCivilians && neutralCivilians.length >= maxNeutralCivilians) break;
+    if (
+      corpCivilians.length >= resolvedMaxCorpCivilians &&
+      neutralCivilians.length >= resolvedMaxNeutralCivilians
+    )
+      break;
     for (const a of stamped[i].corpCivilianWorld) {
-      if (corpCivilians.length >= maxCorpCivilians) break;
+      if (corpCivilians.length >= resolvedMaxCorpCivilians) break;
       if (grid.tileAt(a.x, a.y) !== TILE.FLOOR) continue;
       if (isAlreadyTaken(a.x, a.y)) continue;
       corpCivilians.push(a);
     }
     for (const a of stamped[i].neutralCivilianWorld) {
-      if (neutralCivilians.length >= maxNeutralCivilians) break;
+      if (neutralCivilians.length >= resolvedMaxNeutralCivilians) break;
       if (grid.tileAt(a.x, a.y) !== TILE.FLOOR) continue;
       if (isAlreadyTaken(a.x, a.y)) continue;
       neutralCivilians.push(a);
@@ -253,11 +279,63 @@ export function buildMap({
   return {
     grid,
     spawns: { player: playerSpawn },
-    drones: droneAnchors,
+    drones:
+      difficulty === CONTRACT_DIFFICULTY.CRITICAL
+        ? droneAnchors.map(anchor => ({
+            ...anchor,
+            waypoints: tightenPatrol(grid, anchor.waypoints),
+          }))
+        : droneAnchors,
     corpCivilians,
     neutralCivilians,
     exitTile,
   };
+}
+
+function isDifficulty(value: string): value is ContractDifficulty {
+  return (Object.values(CONTRACT_DIFFICULTY) as string[]).includes(value);
+}
+
+function civilianCapsForDifficulty(difficulty: ContractDifficulty): {
+  corp: number;
+  neutral: number;
+} {
+  switch (difficulty) {
+    case CONTRACT_DIFFICULTY.STANDARD:
+      return { corp: 0, neutral: 0 };
+    case CONTRACT_DIFFICULTY.ELEVATED:
+      return { corp: DEFAULT_MAX_CORP_CIVILIANS, neutral: 0 };
+    case CONTRACT_DIFFICULTY.CRITICAL:
+      return { corp: DEFAULT_MAX_CORP_CIVILIANS, neutral: DEFAULT_MAX_NEUTRAL_CIVILIANS };
+    default:
+      return { corp: DEFAULT_MAX_CORP_CIVILIANS, neutral: DEFAULT_MAX_NEUTRAL_CIVILIANS };
+  }
+}
+
+function tightenPatrol(grid: Grid, path: GridPoint[]): GridPoint[] {
+  if (path.length < 2) return path.map(wp => ({ ...wp }));
+  const tightened: GridPoint[] = [];
+  for (let i = 0; i < path.length; i++) {
+    const current = path[i]!;
+    const next = path[i + 1];
+    tightened.push({ ...current });
+    if (!next) continue;
+    const dx = next.x - current.x;
+    const dy = next.y - current.y;
+    if (Math.max(Math.abs(dx), Math.abs(dy)) > 2) {
+      const midpoint = {
+        x: current.x + Math.sign(dx) * Math.ceil(Math.abs(dx) / 2),
+        y: current.y + Math.sign(dy) * Math.ceil(Math.abs(dy) / 2),
+      };
+      if (
+        grid.inBounds(midpoint.x, midpoint.y) &&
+        grid.tileAt(midpoint.x, midpoint.y) === TILE.FLOOR
+      ) {
+        tightened.push(midpoint);
+      }
+    }
+  }
+  return tightened;
 }
 
 function stampPrefab(grid: Grid, rng: Rng, leaf: BspNode): StampedLeaf {
@@ -290,14 +368,25 @@ function stampPrefab(grid: Grid, rng: Rng, leaf: BspNode): StampedLeaf {
     y: originY + Math.floor(prefab.h / 2),
   };
 
-  const droneWorld = prefab.anchors.drones.map(a => ({
-    x: originX + a.x,
-    y: originY + a.y,
-    waypoints: (a.waypoints ?? []).map(wp => ({
+  const patrolPathsWorld = prefab.patrolPaths.map(path =>
+    path.map(wp => ({
       x: originX + wp.x,
       y: originY + wp.y,
-    })),
-  }));
+    }))
+  );
+  const droneWorld = prefab.anchors.drones.map(a => {
+    const spawn = { x: originX + a.x, y: originY + a.y };
+    const assignedPath = assignNearestPatrolPath(spawn, patrolPathsWorld);
+    return {
+      ...spawn,
+      waypoints:
+        assignedPath ??
+        (a.waypoints ?? []).map(wp => ({
+          x: originX + wp.x,
+          y: originY + wp.y,
+        })),
+    };
+  });
   const exitWorld = prefab.anchors.exit.map(e => ({
     x: originX + e.x,
     y: originY + e.y,
@@ -311,7 +400,60 @@ function stampPrefab(grid: Grid, rng: Rng, leaf: BspNode): StampedLeaf {
     y: originY + a.y,
   }));
 
-  return { leaf, prefab, originX, originY, center, droneWorld, exitWorld, corpCivilianWorld, neutralCivilianWorld };
+  return {
+    leaf,
+    prefab,
+    originX,
+    originY,
+    center,
+    droneWorld,
+    patrolPathsWorld,
+    exitWorld,
+    corpCivilianWorld,
+    neutralCivilianWorld,
+  };
+}
+
+function assignNearestPatrolPath(spawn: GridPoint, paths: GridPoint[][]): GridPoint[] | null {
+  let bestPath: GridPoint[] | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const path of paths) {
+    const first = path[0];
+    if (!first) continue;
+    const dx = first.x - spawn.x;
+    const dy = first.y - spawn.y;
+    const distanceSquared = dx * dx + dy * dy;
+    if (distanceSquared < bestDistance) {
+      bestDistance = distanceSquared;
+      bestPath = path.map(wp => ({ x: wp.x, y: wp.y }));
+    }
+  }
+  return bestPath;
+}
+
+function synthesizeFallbackPatrol(grid: Grid, spawn: GridPoint): GridPoint[] {
+  const directions = [
+    { x: 1, y: 0 },
+    { x: -1, y: 0 },
+    { x: 0, y: 1 },
+    { x: 0, y: -1 },
+  ];
+  const start = { x: spawn.x, y: spawn.y };
+
+  for (let distance = 1; distance < Math.max(grid.width, grid.height); distance++) {
+    for (const dir of directions) {
+      const candidate = {
+        x: spawn.x + dir.x * distance,
+        y: spawn.y + dir.y * distance,
+      };
+      if (!grid.inBounds(candidate.x, candidate.y)) continue;
+      if (grid.tileAt(candidate.x, candidate.y) === TILE.FLOOR) {
+        return [start, candidate];
+      }
+    }
+  }
+
+  return [start, start];
 }
 
 /**

@@ -17,6 +17,8 @@
 
 import { h } from '/src/domUtils.js';
 import { describeKeymap } from '/src/input/keyHelp.js';
+import { ARCHETYPES } from '/src/game/archetypes/index.js';
+import type { ArchetypeInfo } from '/src/game/archetypes/index.js';
 
 const KEY_LABEL = Object.freeze({
   ' ': 'Space',
@@ -211,6 +213,7 @@ function joinKeys(keys: string[]) {
 
 class KeyHelp extends HTMLElement {
   #scope = 'combat';
+  #archetypeInfo: ArchetypeInfo | null = null;
   #ready = false;
   #body: HTMLDivElement | null = null;
   #panelEl: HTMLDivElement | null = null;
@@ -231,7 +234,7 @@ class KeyHelp extends HTMLElement {
     ]) as HTMLDivElement;
     shadow.appendChild(this.#panelEl);
 
-    // Backdrop click closes — matches <character-select>'s affordance.
+    // Backdrop click closes on outside click.
     this.#onBackdrop = evt => {
       if (!evt.composedPath().includes(this.#panelEl as EventTarget)) this.#emit('dismiss');
     };
@@ -246,8 +249,12 @@ class KeyHelp extends HTMLElement {
    * unknown scope to match the crash-over-silent-fallback rule (a typo
    * elsewhere would otherwise render an empty help panel).
    */
-  setScope(scope: string) {
+  setScope(scope: string, archetypeId?: string) {
     this.#scope = scope;
+    this.#archetypeInfo =
+      archetypeId && archetypeId in ARCHETYPES
+        ? ARCHETYPES[archetypeId as keyof typeof ARCHETYPES]
+        : null;
     if (this.#ready) this.#render();
   }
 
@@ -293,8 +300,11 @@ class KeyHelp extends HTMLElement {
       }
       const dl = h('dl', { className: 'rows' });
       for (const r of groupRows) {
+        const label = r.label.includes('{perkLabel}')
+          ? r.label.replace('{perkLabel}', this.#archetypeInfo?.perkLabel ?? '')
+          : r.label;
         dl.appendChild(h('dt', { textContent: joinKeys(r.keys as string[]) }));
-        dl.appendChild(h('dd', { textContent: r.label }));
+        dl.appendChild(h('dd', { textContent: label }));
       }
       bodyChildren.push(dl);
       this.#body.appendChild(h('section', { className: 'group' }, bodyChildren));
@@ -319,9 +329,11 @@ class KeyHelp extends HTMLElement {
         'In the hub, walk up to the Curator or the crew terminal (‡ glyph) and use Interact to hear rumors, pick contracts, or open the crew roster.',
     });
 
+    const perkHint = this.#archetypeInfo
+      ? `Your archetype special (${this.#archetypeInfo.perkName}) is a strong ability`
+      : 'Your archetype special (Vault, Slide, or Deploy) is a strong reposition';
     const combatExtra = h('p', {
-      textContent:
-        'Opposing drones and defenses act after you wait (.) and pass the round. Walls and corners break line of sight for ranged shots; melee is usually cheaper AP than firing. Your archetype special (Vault, Slide, or Deploy) is a strong reposition — pick it, aim a direction when prompted, then confirm.',
+      textContent: `Opposing drones and defenses act after you wait (.) and pass the round. Walls and corners break line of sight for ranged shots; melee is usually cheaper AP than firing. ${perkHint} — pick it, aim a direction when prompted, then confirm.`,
     });
 
     const controlHint = coarse

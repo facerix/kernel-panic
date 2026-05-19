@@ -4,7 +4,13 @@ import assert from 'node:assert/strict';
 import { Grid } from '../../../src/game/Grid.js';
 import { Entity } from '../../../src/game/Entity.js';
 import { World } from '../../../src/game/World.js';
-import { TILE, FACTION, AP_COST, BASE_HIT_CHANCE } from '../../../src/game/constants.js';
+import {
+  TILE,
+  FACTION,
+  AP_COST,
+  BASE_HIT_CHANCE,
+  SIGHT_RANGE,
+} from '../../../src/game/constants.js';
 import { CorpDrone, DRONE_STATE } from '../../../src/game/ai/CorpDrone.js';
 import { EventBus, EVENT } from '../../../src/game/events.js';
 import { Rng } from '../../../src/rng.js';
@@ -93,6 +99,28 @@ test('drone in LOS+range fires at the player when AP allows', () => {
   assert.equal(log.length, 1);
   assert.equal(log[0].type, 'fire');
   assert.equal(log[0].result.hit, true);
+});
+
+test('long-sighted drone fires at a target beyond SIGHT_RANGE but within its sightRange', () => {
+  // Regression: acquireTarget qualifies targets by this.sightRange, but the
+  // fire check used to default to SIGHT_RANGE — so a drone with extended
+  // sight could see a target it could never shoot.
+  const dist = SIGHT_RANGE + 2;
+  const w = openWorld(dist + 3, 6);
+  const player = new Entity({ id: 'p', x: 1 + dist, y: 2, faction: FACTION.PLAYER, glyph: '@' });
+  const drone = new CorpDrone({
+    id: 'd',
+    x: 1,
+    y: 2,
+    maxAp: AP_COST.RANGED_ATTACK,
+    sightRange: SIGHT_RANGE + 4,
+  });
+  w.addEntity(player);
+  w.addEntity(drone);
+  const log = drone.takeTurn(w, new StubRng([0]));
+  assert.equal(log.length, 1);
+  assert.equal(log[0].type, 'fire');
+  assert.equal(player.hp, player.maxHp - 1);
 });
 
 test('drone closes distance when target is out of fire range', () => {

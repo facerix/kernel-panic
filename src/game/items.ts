@@ -3,8 +3,8 @@
  *
  * Items are plain descriptor objects — no class hierarchy. The catalog is a
  * static array filtered at query time by the campaign's `meta` state (the
- * `expandedCatalog` flag gates a future "rare" tier but no rare items exist
- * yet in Phase 2).
+ * `expandedCatalog` flag gates a future "rare" tier; M8 adds Better
+ * Contracts, which improves Curator contract rolls.
  *
  * Three persistence scopes:
  *   - `job`      — consumable, stored in `Crew.inventory.consumables`,
@@ -18,7 +18,7 @@
  * is pure data — no mutations, no DOM.
  */
 
-import { SHOP_COST, STIM_HEAL, SMOKE_RADIUS, TARGETING_BONUS } from './constants.js';
+import { SHOP_COST, STIM_HEAL, SMOKE_RADIUS, TARGETING_BONUS, DODGE_BONUS } from './constants.js';
 
 export type Item = {
   id: string;
@@ -42,7 +42,9 @@ export const ITEM_ID = Object.freeze({
   SMOKE_CHARGE: 'smoke-charge',
   ARMOUR_PLATING: 'armour-plating',
   TARGETING_CHIP: 'targeting-chip',
+  REFLEX_WEAVE: 'reflex-weave',
   EXPANDED_CATALOG: 'expanded-catalog',
+  BETTER_CONTRACTS: 'better-contracts',
 });
 
 /**
@@ -50,7 +52,7 @@ export const ITEM_ID = Object.freeze({
  *   - `id`          — unique key, matches ITEM_ID
  *   - `label`       — display name for the shop UI
  *   - `scope`       — ITEM_SCOPE value
- *   - `cost`        — salvage price
+ *   - `cost`        — Cred price
  *   - `description` — one-line effect summary for the shop
  *   - `needsTarget` — true if purchase requires a target crew member
  *   - `metaGate`    — if set, item only appears when `meta[metaGate]` is truthy
@@ -90,11 +92,28 @@ const CATALOG: readonly Item[] = Object.freeze([
     needsTarget: true,
   }),
   Object.freeze({
+    id: ITEM_ID.REFLEX_WEAVE,
+    label: 'Reflex Weave',
+    scope: ITEM_SCOPE.CAMPAIGN,
+    cost: SHOP_COST.REFLEX_WEAVE,
+    description: `+${(DODGE_BONUS * 100).toFixed(0)}% melee dodge chance for target crew member.`,
+    needsTarget: true,
+  }),
+  Object.freeze({
     id: ITEM_ID.EXPANDED_CATALOG,
     label: 'Expanded Catalog',
     scope: ITEM_SCOPE.META,
     cost: SHOP_COST.EXPANDED_CATALOG,
     description: 'Unlocks rare item tier in the shop.',
+    needsTarget: false,
+    unique: true,
+  }),
+  Object.freeze({
+    id: ITEM_ID.BETTER_CONTRACTS,
+    label: 'Better Contracts',
+    scope: ITEM_SCOPE.META,
+    cost: SHOP_COST.BETTER_CONTRACTS,
+    description: 'Curator offers tougher jobs with better Cred floors.',
     needsTarget: false,
     unique: true,
   }),
@@ -145,6 +164,8 @@ export function metaKeyFor(itemId: string) {
   switch (itemId) {
     case ITEM_ID.EXPANDED_CATALOG:
       return 'expandedCatalog';
+    case ITEM_ID.BETTER_CONTRACTS:
+      return 'betterContracts';
     default:
       return undefined;
   }

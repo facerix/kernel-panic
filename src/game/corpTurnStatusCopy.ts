@@ -107,28 +107,37 @@ export function isCorpTurnStepLogVisibleToPlayer(
 /**
  * Format a single corp-turn step into a player-facing log line.
  * Returns `null` for steps that don't warrant a log entry (patrol noise, etc.).
+ *
+ * `resolve` maps a raw entity ID to a display label (callsign for crew,
+ * `[Faction]Kind` for hostiles/neutrals). The caller supplies it — typically
+ * a closure over the world's entity map.
  */
-export function formatCorpTurnStep(entityId: string, step: TurnActionStep): string | null {
+export function formatCorpTurnStep(
+  actorLabel: string,
+  step: TurnActionStep,
+  resolve: (id: string) => string = id => id
+): string | null {
   switch (step.type) {
     case 'fire': {
       const r = step.result;
+      const targetLabel = resolve(step.target);
       return (
-        `${entityId} fires at ${step.target} — ` +
+        `${actorLabel} fires at ${targetLabel} — ` +
         `${r.hit ? 'HIT' : 'miss'} (roll ${r.roll.toFixed(2)} vs ${r.threshold.toFixed(2)}` +
         `${r.inCover ? ', cover' : ''}).` +
-        (r.killed ? ` ${step.target.toUpperCase()} DOWN.` : '')
+        (r.killed ? ` ${targetLabel.toUpperCase()} DOWN.` : '')
       );
     }
     case 'fire-blocked':
-      return `${entityId} targets locked — ${step.reason}.`;
+      return `${actorLabel} targets locked — ${step.reason}.`;
     case 'move-engage':
-      return `${entityId} advances to (${step.to.x}, ${step.to.y}).`;
+      return `${actorLabel} advances to (${step.to.x}, ${step.to.y}).`;
     case 'move-investigate':
-      return `${entityId} investigates (${step.to.x}, ${step.to.y}).`;
+      return `${actorLabel} investigates (${step.to.x}, ${step.to.y}).`;
     case 'investigate-cleared':
-      return `${entityId} clears lead — resuming patrol.`;
+      return `${actorLabel} clears lead — resuming patrol.`;
     case 'investigate-abandoned':
-      return `${entityId} abandons pursuit — resuming patrol.`;
+      return `${actorLabel} abandons pursuit — resuming patrol.`;
     // Patrol movement and waypoint chatter are noise; skip them.
     case 'move-patrol':
     case 'patrol-arrived':

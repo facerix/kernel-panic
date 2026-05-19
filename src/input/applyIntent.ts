@@ -42,6 +42,7 @@
 import { FACTION, SIGHT_RANGE, VAULT_DAMAGE, NOISE_RADIUS } from '../game/constants.js';
 import { canFireRanged, resolveRanged, canMelee, resolveMelee } from '../game/Combat.js';
 import { hasLineOfSight, withinRange } from '../game/LineOfSight.js';
+import { entityLabel } from '../game/Entity.js';
 import { EVENT } from '../game/events.js';
 import { TILE } from '../game/constants.js';
 import type { Archetype } from '../game/archetypes/index.js';
@@ -80,8 +81,6 @@ const KNOWN_INTENT_TYPES = new Set([
   'cancel',
 ]);
 
-const AP_EXHAUSTED_MESSAGE = '> AP EXHAUSTED — auto-ending turn.';
-
 /*
   Player actions aren't quite intents, nor are they world events.
   They are a way to communicate actions from the game loop to the UI layer.
@@ -93,9 +92,8 @@ export const PLAYER_ACTIONS = Object.freeze({
 });
 
 function gateOnApExhausted(ctx: ApplyIntentContext) {
-  const { player, log, advanceTurn } = ctx;
+  const { player, advanceTurn } = ctx;
   if (player.ap === 0) {
-    log(AP_EXHAUSTED_MESSAGE);
     advanceTurn();
   }
 }
@@ -130,7 +128,7 @@ export function applyIntent(intent: Intent, ctx: ApplyIntentContext) {
       return doInventory(ctx);
     case 'end-turn': {
       const apBefore = player.ap;
-      log(`> @ waits (drops ${apBefore} AP).`);
+      log(`> ${entityLabel(player)} waits (drops ${apBefore} AP).`);
       player.ap = 0;
       advanceTurn();
       return;
@@ -171,7 +169,7 @@ export function pickFireTarget(ctx: ApplyIntentContext, dx: number, dy: number) 
 // ---------------------------------------------------------------------------
 
 function doMove(intent: Intent, ctx: ApplyIntentContext) {
-  const { world, player, log, advanceTurn } = ctx;
+  const { world, player, log } = ctx;
   const nx = player.x + (intent?.dx ?? 0);
   const ny = player.y + (intent?.dy ?? 0);
   const occupant = world.entityAt(nx, ny);
@@ -188,7 +186,7 @@ function doMove(intent: Intent, ctx: ApplyIntentContext) {
   }
   world.moveEntity(player, intent.dx!, intent.dy!);
   if (world.grid.tileAt(nx, ny) === TILE.EXIT) {
-    log(`> @ moved to (${nx}, ${ny}) — EXIT REACHED.`);
+    log(`> ${entityLabel(player)} moved to (${nx}, ${ny}) — EXIT REACHED.`);
     ctx.onPlayerAction(PLAYER_ACTIONS.REACHED_EXIT);
     return;
   } else {
@@ -235,12 +233,15 @@ function doSpecial(intent: Intent, ctx: ApplyIntentContext) {
 }
 
 function doDeploy(intent: Intent, ctx: ApplyIntentContext) {
-  const { world, player, log, advanceTurn } = ctx;
+  const { world, player, log } = ctx;
   const tech = player as Tech;
+  const playerLabel = entityLabel(player);
   const check = tech.canDeploy(world, intent.dx!, intent.dy!);
   if (check?.ok) {
     const turret = tech.deployTurret(world, intent.dx!, intent.dy!);
-    log(`> @ deploys turret ${turret.id} at (${turret.x}, ${turret.y}) — ${player.ap} AP left.`);
+    log(
+      `> ${playerLabel} deploys ${entityLabel(turret)} at (${turret.x}, ${turret.y}) — ${player.ap} AP left.`
+    );
     gateOnApExhausted(ctx);
     return;
   }
@@ -250,7 +251,7 @@ function doDeploy(intent: Intent, ctx: ApplyIntentContext) {
     if (impCheck.ok) {
       const turret = tech.improviseTurret(world, intent.dx!, intent.dy!);
       log(
-        `> @ improvises turret ${turret.id} at (${turret.x}, ${turret.y}) — ` +
+        `> ${playerLabel} improvises ${entityLabel(turret)} at (${turret.x}, ${turret.y}) — ` +
           `${player.inventory!.salvage} salvage left, ${player.ap} AP left.`
       );
       gateOnApExhausted(ctx);
@@ -264,11 +265,12 @@ function doDeploy(intent: Intent, ctx: ApplyIntentContext) {
 }
 
 function doVault(intent: Intent, ctx: ApplyIntentContext) {
-  const { world, player, log, advanceTurn } = ctx;
+  const { world, player, log } = ctx;
   const merc = player as Merc;
+  const playerLabel = entityLabel(player);
   const check = merc.canVault(world, intent.dx!, intent.dy!);
   if (!check?.ok) {
-    log(`> VAULT DENIED: ${check?.reason}`);
+    log(`> ${playerLabel} VAULT DENIED: ${check?.reason}`);
     return;
   }
 
@@ -296,36 +298,38 @@ function doVault(intent: Intent, ctx: ApplyIntentContext) {
       kind: 'vault',
     });
     log(
-      `> @ vaulted to (${player.x}, ${player.y}) — SLAMMED ${occupant.id} for ${VAULT_DAMAGE} damage!` +
-        (killed ? ` ${occupant.id.toUpperCase()} DOWN.` : '') +
+      `> ${playerLabel} vaulted to (${player.x}, ${player.y}) — SLAMMED ${entityLabel(occupant)} for ${VAULT_DAMAGE} damage!` +
+        (killed ? ` ${entityLabel(occupant).toUpperCase()} DOWN.` : '') +
         ` — ${player.ap} AP left.`
     );
   } else {
-    log(`> @ vaulted to (${player.x}, ${player.y}) — ${player.ap} AP left.`);
+    log(`> ${playerLabel} vaulted to (${player.x}, ${player.y}) — ${player.ap} AP left.`);
   }
 
   gateOnApExhausted(ctx);
 }
 
 function doSlide(intent: Intent, ctx: ApplyIntentContext) {
-  const { world, player, log, advanceTurn } = ctx;
+  const { world, player, log } = ctx;
   const razor = player as Razor;
+  const playerLabel = entityLabel(player);
   // `doSpecial` already gated this on `canSlide`, so the method must exist;
   // we go straight into the legality check.
   const check = razor.canSlide(world, intent.dx!, intent.dy!);
   if (!check.ok) {
-    log(`> SLIDE DENIED: ${check.reason}`);
+    log(`> ${playerLabel} SLIDE DENIED: ${check.reason}`);
     return;
   }
   razor.slide(world, intent.dx!, intent.dy!);
   log(
-    `> @ slid to (${player.x}, ${player.y}) — CLOAKED until next turn (` + `${player.ap} AP left).`
+    `> ${playerLabel} slid to (${player.x}, ${player.y}) — CLOAKED until next turn (` +
+      `${player.ap} AP left).`
   );
   gateOnApExhausted(ctx);
 }
 
 function doMelee(intent: Intent, ctx: ApplyIntentContext) {
-  const { world, player, log, advanceTurn } = ctx;
+  const { world, player, log } = ctx;
   const target = world.entityAt(player.x + intent.dx!, player.y + intent.dy!);
   if (!target) {
     log('> MELEE: no target on that tile.');
@@ -336,11 +340,19 @@ function doMelee(intent: Intent, ctx: ApplyIntentContext) {
     log(`> MELEE DENIED: ${check.reason}`);
     return;
   }
-  const result = resolveMelee(world, player, target);
-  log(
-    `> @ slashes ${target.id} for ${result.damage}` +
-      (result.killed ? ` — ${target.id.toUpperCase()} DOWN.` : '.')
-  );
+  const result = resolveMelee(world, player, target, ctx.rng);
+  if (result.dodged) {
+    log(
+      `> ${entityLabel(player)} slashes at ${entityLabel(target)} — DODGED ` +
+        `(roll ${result.roll.toFixed(2)} vs ${result.dodgeThreshold.toFixed(2)}` +
+        `${result.inCover ? ', cover' : ''}).`
+    );
+  } else {
+    log(
+      `> ${entityLabel(player)} slashes ${entityLabel(target)} for ${result.damage}` +
+        (result.killed ? ` — ${entityLabel(target).toUpperCase()} DOWN.` : '.')
+    );
+  }
   gateOnApExhausted(ctx);
 }
 
@@ -367,7 +379,7 @@ function doInventory(ctx: ApplyIntentContext) {
 }
 
 function doFire(intent: Intent, ctx: ApplyIntentContext) {
-  const { world, player, rng, log, advanceTurn } = ctx;
+  const { world, player, rng, log } = ctx;
   const target = pickFireTarget(ctx, intent.dx!, intent.dy!);
   if (!target) {
     log('> FIRE: no hostile in that direction.');
@@ -380,10 +392,10 @@ function doFire(intent: Intent, ctx: ApplyIntentContext) {
   }
   const result = resolveRanged(world, player, target, rng);
   log(
-    `> @ fires at ${target.id} — ` +
+    `> ${entityLabel(player)} fires at ${entityLabel(target)} — ` +
       `${result.hit ? 'HIT' : 'miss'} (roll ${result.roll.toFixed(2)} vs ${result.threshold.toFixed(2)}` +
       `${result.inCover ? ', cover' : ''}).` +
-      (result.killed ? ` ${target.id.toUpperCase()} DOWN.` : '')
+      (result.killed ? ` ${entityLabel(target).toUpperCase()} DOWN.` : '')
   );
   gateOnApExhausted(ctx);
 }

@@ -35,6 +35,8 @@ export type PrefabMetadata = {
   w?: number;
   h?: number;
   anchors: PrefabAnchorsSpec;
+  /** M7: reusable patrol waypoint lists, assigned to nearest drone anchor. */
+  patrolPaths?: PrefabAnchor[][];
 };
 
 /**
@@ -50,4 +52,5 @@ export type ParsedPrefab = {
   h: number;
   tiles: Uint8Array;
   anchors: PrefabAnchorsSpec;
+  patrolPaths: PrefabAnchor[][];
 };

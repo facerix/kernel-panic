@@ -18,7 +18,14 @@ import { Razor } from '../../../src/game/archetypes/Razor.js';
 import { Tech } from '../../../src/game/archetypes/Tech.js';
 import { Grid } from '../../../src/game/Grid.js';
 import { World } from '../../../src/game/World.js';
-import { FACTION, AP_COST, BASE_HIT_CHANCE, TARGETING_BONUS } from '../../../src/game/constants.js';
+import {
+  FACTION,
+  AP_COST,
+  BASE_HIT_CHANCE,
+  DODGE_CHANCE,
+  DODGE_BONUS,
+  TARGETING_BONUS,
+} from '../../../src/game/constants.js';
 import { ITEM_ID } from '../../../src/game/items.js';
 import type { EntityInit, LootableEntity } from '../../../src/game/Entity.js';
 
@@ -341,6 +348,21 @@ test('Tech.baseHitChance is 0.75', () => {
   assert.equal(t.baseHitChance, 0.75);
 });
 
+test('Crew.baseDodgeChance defaults to DODGE_CHANCE', () => {
+  const c = new Crew({ ...baseProps });
+  assert.equal(c.baseDodgeChance, DODGE_CHANCE);
+});
+
+test('Razor.baseDodgeChance is 0.35', () => {
+  const r = new Razor({ id: 'r', x: 0, y: 0 });
+  assert.equal(r.baseDodgeChance, 0.35);
+});
+
+test('Merc.baseDodgeChance uses the crew default', () => {
+  const m = new Merc({ id: 'm', x: 0, y: 0 });
+  assert.equal(m.baseDodgeChance, DODGE_CHANCE);
+});
+
 test('Crew.maxHitBonus is 1 − baseHitChance', () => {
   const m = new Merc({ id: 'm', x: 0, y: 0 });
   assert.equal(m.maxHitBonus, 1 - 0.8); // 0.2
@@ -377,4 +399,24 @@ test('applyGear applies full bonus when below cap', () => {
   assert.equal(r.gear!.hitBonus, TARGETING_BONUS);
   r.applyGear(ITEM_ID.TARGETING_CHIP);
   assert.equal(r.gear!.hitBonus, TARGETING_BONUS * 2);
+});
+
+test('Crew.maxDodgeBonus is 1 − baseDodgeChance', () => {
+  const r = new Razor({ id: 'r', x: 0, y: 0 });
+  assert.equal(r.maxDodgeBonus, 1 - 0.35);
+  const m = new Merc({ id: 'm', x: 0, y: 0 });
+  assert.equal(m.maxDodgeBonus, 1 - DODGE_CHANCE);
+});
+
+test('applyGear caps dodgeBonus so base + bonus cannot exceed 1.0 (Razor)', () => {
+  const r = new Razor({ id: 'r', x: 0, y: 0 });
+  for (let i = 0; i < 7; i++) r.applyGear(ITEM_ID.REFLEX_WEAVE);
+  assert.equal(r.gear!.dodgeBonus, r.maxDodgeBonus);
+  assert.ok(r.baseDodgeChance + r.gear!.dodgeBonus <= 1);
+});
+
+test('applyGear(REFLEX_WEAVE) sets dodgeBonus', () => {
+  const m = new Merc({ id: 'm', x: 0, y: 0 });
+  m.applyGear(ITEM_ID.REFLEX_WEAVE);
+  assert.equal(m.gear!.dodgeBonus, DODGE_BONUS);
 });

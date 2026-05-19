@@ -10,15 +10,17 @@ import {
   snapshot,
   snapshotCampaign,
 } from '../../../src/game/persistence.js';
-import { FACTION } from '../../../src/game/constants.js';
+import { FACTION, SALVAGE_TO_CRED_RATE } from '../../../src/game/constants.js';
 import { buildCrewMember } from '../../../src/game/archetypes/index.js';
 import { Rng } from '../../../src/rng.js';
 
 const fakeContract = (overrides = {}) => ({
   seed: 12345,
   objective: OBJECTIVES.REACH_EXIT,
+  difficulty: 'standard',
   threatCount: 1,
   label: 'test job',
+  reward: { credits: 0, repDelta: 0 },
   ...overrides,
 });
 
@@ -112,6 +114,20 @@ test('restore preserves drone AI state (mode + lastKnownTarget + patrol index)',
   assert.equal(restoredDrone.patrolIndex, 1);
 });
 
+test('restore throws on a drone patrolIndex past the waypoint list', () => {
+  // Regression: takeTurnSteps dereferences patrolWaypoints[patrolIndex]
+  // without a guard. A corrupt / stale index must fail loudly at restore,
+  // not crash mid-turn.
+  const run = freshCombatRun(0xbad1);
+  const drone = [...run.world.entities.values()].find(e => e.faction === FACTION.CORP);
+  assert.ok(drone, 'expected at least one drone for threatCount=1');
+  const rec = snapshot(run);
+  const droneRec = rec.entities.find(e => e.id === drone.id);
+  assert.ok(droneRec?.drone, 'expected drone record');
+  droneRec.drone.patrolIndex = droneRec.drone.patrolWaypoints.length + 5;
+  assert.throws(() => restore(rec), /patrolIndex/);
+});
+
 test('restore preserves turnNumber and currentFaction', () => {
   const run = freshCombatRun(11);
   run.queue.endTurn(run.world);
@@ -171,6 +187,7 @@ test('snapshot without a Run instance throws TypeError', () => {
 test('campaign snapshot/restore round-trips campaign scope', () => {
   const campaign = new Campaign({ seed: 0xface });
   campaign.salvage = 7;
+  campaign.credits = 90;
   campaign.rep = 62;
   campaign.meta = { expandedCatalog: true };
   campaign.crew[1].flatlined = true;
@@ -181,6 +198,7 @@ test('campaign snapshot/restore round-trips campaign scope', () => {
 
   assert.deepEqual(recB, recA);
   assert.equal(restored.salvage, 7);
+  assert.equal(restored.credits, 90);
   assert.equal(restored.rep, 62);
   assert.deepEqual(restored.meta, { expandedCatalog: true });
   assert.equal(restored.crew[1].flatlined, true);
@@ -193,11 +211,34 @@ test('campaign snapshot captures an active briefing job', () => {
   assert.equal(rec.type, 'campaign');
   assert.equal(rec.activeRun.state, 'BRIEFING');
   assert.equal(rec.activeRun.contract.label, 'briefing job');
+  assert.equal(rec.activeRun.contract.reward.credits, 0);
 
   const restored = restoreCampaign(rec);
   assert.equal(restored.activeRun.state, 'BRIEFING');
   assert.equal(restored.activeRun.contract.label, 'briefing job');
   assert.equal(restored.activeRun.crewMember.id, campaign.crew[2].id);
+});
+
+test('restoreCampaign restores legacy snapshots without credits as zero', () => {
+  const campaign = new Campaign({ seed: 0xc0de, salvage: 4, credits: 70 });
+  const rec = snapshotCampaign(campaign) as Record<string, unknown>;
+  delete rec.credits;
+  const restored = restoreCampaign(rec);
+  assert.equal(restored.salvage, 4);
+  assert.equal(restored.credits, 0);
+});
+
+test('restoreCampaign migrates legacy active-run salvage rewards to Creds', () => {
+  const campaign = new Campaign({ seed: 0xbeef });
+  campaign.deployCrewMember(campaign.crew[2].id, fakeContract({ label: 'legacy reward' }));
+  const rec = snapshotCampaign(campaign) as Record<string, unknown>;
+  const activeRun = rec.activeRun as { contract: { reward: Record<string, unknown> } };
+  activeRun.contract.reward = { salvage: 6, repDelta: 2 };
+
+  const restored = restoreCampaign(rec);
+
+  assert.equal(restored.activeRun!.contract.reward.credits, 6 * SALVAGE_TO_CRED_RATE);
+  assert.equal(restored.activeRun!.contract.reward.repDelta, 2);
 });
 
 test('restoreCampaign throws on corrupt campaign records', () => {
@@ -206,6 +247,7 @@ test('restoreCampaign throws on corrupt campaign records', () => {
   assert.throws(() => restoreCampaign({ ...rec, type: 'run' }), /campaign/);
   assert.throws(() => restoreCampaign({ ...rec, crew: [] }), /crew/);
   assert.throws(() => restoreCampaign({ ...rec, salvage: -1 }), /salvage/);
+  assert.throws(() => restoreCampaign({ ...rec, credits: -1 }), /credits/);
   assert.throws(() => restoreCampaign({ ...rec, rep: 101 }), /rep/);
 });
 
@@ -227,9 +269,21 @@ test('restoreCampaign normalizes over-capped hitBonus in crew gear', () => {
   rec.crew[0].gear = { maxHpBonus: 0, hitBonus: 0.5 };
   const restored = restoreCampaign(rec);
   const member = restored.crew[0];
-  assert.ok(member.gear!.hitBonus <= member.maxHitBonus,
-    `hitBonus ${member.gear!.hitBonus} should be ≤ maxHitBonus ${member.maxHitBonus}`);
+  assert.ok(
+    member.gear!.hitBonus <= member.maxHitBonus,
+    `hitBonus ${member.gear!.hitBonus} should be ≤ maxHitBonus ${member.maxHitBonus}`
+  );
   assert.equal(member.gear!.hitBonus, member.maxHitBonus);
+});
+
+test('restoreCampaign normalizes over-capped dodgeBonus in crew gear', () => {
+  const campaign = new Campaign({ seed: 42 });
+  const rec = snapshotCampaign(campaign);
+  rec.crew[0].gear = { maxHpBonus: 0, hitBonus: 0, dodgeBonus: 0.9 };
+  const restored = restoreCampaign(rec);
+  const member = restored.crew[0];
+  assert.ok(member.gear!.dodgeBonus <= member.maxDodgeBonus);
+  assert.equal(member.gear!.dodgeBonus, member.maxDodgeBonus);
 });
 
 test('restoreCampaign preserves valid hitBonus below cap', () => {
@@ -246,6 +300,8 @@ test('restore normalizes over-capped hitBonus in run entity gear', () => {
   run.player.gear!.hitBonus = 0.5; // corrupt: exceeds Merc's 0.2 cap
   const rec = snapshot(run);
   const { player } = restore(rec);
-  assert.ok(player.gear!.hitBonus <= player.maxHitBonus,
-    `hitBonus ${player.gear!.hitBonus} should be ≤ maxHitBonus ${player.maxHitBonus}`);
+  assert.ok(
+    player.gear!.hitBonus <= player.maxHitBonus,
+    `hitBonus ${player.gear!.hitBonus} should be ≤ maxHitBonus ${player.maxHitBonus}`
+  );
 });

@@ -84,12 +84,13 @@ export const COVER_HIT_PENALTY = 0.3;
 export const RANGED_DAMAGE = 1;
 
 /**
- * Melee combat. V1 keeps it deterministic — adjacency + AP buys a guaranteed
- * hit. Hit-chance can grow back when archetype kits (parry, dodge) land.
- * Damage is flat; bumped above ranged because melee requires standing on the
- * target's tile (a real positional cost).
+ * Melee combat. M7 adds a defender dodge roll so point-blank attacks keep
+ * tension without becoming mushy. Damage is bumped above the old V1 value to
+ * compensate for misses: when the blade connects, it should matter.
  */
-export const MELEE_DAMAGE = 2;
+export const DODGE_CHANCE = 0.2;
+export const COVER_DODGE_BONUS = 0.1;
+export const MELEE_DAMAGE = 3;
 
 /**
  * Vault (Merc perk). Breach-and-clear slam: hop over cover, body-check a
@@ -135,14 +136,30 @@ export const STIM_HEAL = 2;
 export const SMOKE_RADIUS = 2;
 export const SMOKE_DURATION_TURNS = 1;
 export const TARGETING_BONUS = 0.1;
+export const DODGE_BONUS = 0.1;
+export const SALVAGE_TO_CRED_RATE = 10;
 
 export const SHOP_COST = Object.freeze({
-  STIM: 2,
-  SMOKE_CHARGE: 3,
-  ARMOUR_PLATING: 6,
-  TARGETING_CHIP: 8,
-  EXPANDED_CATALOG: 15,
+  STIM: 20,
+  SMOKE_CHARGE: 30,
+  ARMOUR_PLATING: 60,
+  TARGETING_CHIP: 80,
+  REFLEX_WEAVE: 80,
+  EXPANDED_CATALOG: 150,
+  BETTER_CONTRACTS: 180,
 });
+
+/**
+ * Curator contract tiers (M8). `threatCount` is stored directly on each
+ * generated contract; difficulty drives civilian caps and patrol pressure.
+ */
+export const CONTRACT_DIFFICULTY = Object.freeze({
+  STANDARD: 'standard',
+  ELEVATED: 'elevated',
+  CRITICAL: 'critical',
+});
+
+export type ContractDifficulty = (typeof CONTRACT_DIFFICULTY)[keyof typeof CONTRACT_DIFFICULTY];
 
 export const NOISE_RADIUS = Object.freeze({
   MOVE: 3,
@@ -159,14 +176,31 @@ export const NOISE_RADIUS = Object.freeze({
 export const REP = Object.freeze({
   MIN: 0,
   MAX: 100,
-  START: 50,
+  START: 20,
   /** Rep thresholds for NeutralCivilian behaviour. */
   NEUTRAL_IDLE_THRESHOLD: 70,
   NEUTRAL_FLEE_THRESHOLD: 30,
+  /** Rep threshold for recruitment (M6). */
+  RECRUIT_THRESHOLD: 65,
   /** Rep adjustments. */
   CLEAN_COMPLETION_BONUS: 10,
   CIVILIAN_KILL_PENALTY: -20,
   ALARM_PENALTY: -5,
+});
+
+/**
+ * Recruitment parameters (M6). Controls candidate pool size, campaign-start
+ * picks, and archetype weight distribution.
+ */
+export const RECRUIT = Object.freeze({
+  /** Mid-campaign: minimum recruits offered per hub visit (when Rep gate met). */
+  POOL_MIN: 1,
+  /** Mid-campaign: maximum recruits offered per hub visit. */
+  POOL_MAX: 2,
+  /** Campaign start: number of candidates generated. */
+  INITIAL_CANDIDATES: 3,
+  /** Campaign start: number the player must pick. */
+  INITIAL_PICKS: 2,
 });
 
 /**

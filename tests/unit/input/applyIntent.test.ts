@@ -5,7 +5,12 @@ import { Grid } from '../../../src/game/Grid.js';
 import { World } from '../../../src/game/World.js';
 import { TurnQueue } from '../../../src/game/TurnQueue.js';
 import { EventBus } from '../../../src/game/events.js';
-import { TILE, FACTION, SALVAGE_PER_IMPROVISED_TURRET } from '../../../src/game/constants.js';
+import {
+  TILE,
+  FACTION,
+  MELEE_DAMAGE,
+  SALVAGE_PER_IMPROVISED_TURRET,
+} from '../../../src/game/constants.js';
 import { Merc } from '../../../src/game/archetypes/Merc.js';
 import { Razor } from '../../../src/game/archetypes/Razor.js';
 import { Tech } from '../../../src/game/archetypes/Tech.js';
@@ -203,7 +208,7 @@ test('melee intent still resolves adjacent strikes (for AI / replay, not player 
     log.some(l => l.includes('slashes')),
     'melee intent should log a strike'
   );
-  assert.equal(drone.hp, hpBefore - 2, 'MELEE_DAMAGE');
+  assert.equal(drone.hp, hpBefore - MELEE_DAMAGE, 'MELEE_DAMAGE');
 });
 
 // --- Vault body-check + knockback (via the unified `special` intent) -----

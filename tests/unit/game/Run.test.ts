@@ -13,8 +13,10 @@ import { Rng } from '../../../src/rng.js';
 const fakeContract = (overrides = {}) => ({
   seed: 12345,
   objective: OBJECTIVES.REACH_EXIT,
+  difficulty: 'standard',
   threatCount: 1,
   label: 'test job',
+  reward: { credits: 0, repDelta: 0 },
   ...overrides,
 });
 
@@ -45,6 +47,20 @@ test('legal transition chain: BRIEFING → COMBAT → RESULT', () => {
   assert.equal(run.state, RUN_STATE.RESULT);
 });
 
+test('enterCombat passes contract threat and difficulty into map generation', () => {
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 42 });
+  run.enterBriefing(
+    fakeContract({
+      difficulty: 'critical',
+      threatCount: 4,
+      reward: { credits: 80, repDelta: 10, recruit: true },
+    })
+  );
+  run.enterCombat();
+  const drones = [...run.world.entities.values()].filter(entity => entity.id.startsWith('drone-'));
+  assert.equal(drones.length, 4);
+});
+
 test('illegal transitions throw — fresh Run rejects combat/result before briefing', () => {
   const run = new Run({ crewMember: makeCrew('merc'), seed: 1 });
   assert.throws(() => run.enterCombat(), /illegal/);
@@ -65,7 +81,12 @@ test('enterBriefing rejects malformed contracts', () => {
   assert.throws(() => run.enterBriefing(null));
   assert.throws(() => run.enterBriefing({ ...fakeContract(), seed: -1 }));
   assert.throws(() => run.enterBriefing({ ...fakeContract(), objective: 'nuke-everything' }));
+  assert.throws(() => run.enterBriefing({ ...fakeContract(), difficulty: 'meltdown' }));
   assert.throws(() => run.enterBriefing({ ...fakeContract(), threatCount: -1 }));
+  assert.throws(() => run.enterBriefing({ ...fakeContract(), reward: null }));
+  assert.throws(() =>
+    run.enterBriefing({ ...fakeContract(), reward: { credits: -1, repDelta: 0 } })
+  );
   assert.throws(() => run.enterBriefing({ ...fakeContract(), label: '' }));
 });
 
@@ -293,7 +314,16 @@ test('civilian:harmed emitted when player damages a NEUTRAL entity', () => {
   const player = run.player!;
   let nx = -1;
   let ny = -1;
-  for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,-1],[1,-1],[-1,1]]) {
+  for (const [dx, dy] of [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+    [1, 1],
+    [-1, -1],
+    [1, -1],
+    [-1, 1],
+  ]) {
     const cx = player.x + dx;
     const cy = player.y + dy;
     if (world.grid.isPassable(cx, cy) && !world.entityAt(cx, cy)) {
@@ -330,7 +360,7 @@ test('civilian:harmed emitted when player damages a NEUTRAL entity', () => {
   const payload = harmed[0] as Record<string, unknown>;
   assert.equal(payload.killed, false);
   assert.equal(payload.target, neutral);
-  assert.equal((run.telemetry.civilianHarms as number), 1);
+  assert.equal(run.telemetry.civilianHarms as number, 1);
 });
 
 test('civilian:harmed does NOT fire when a CORP entity is killed', () => {
