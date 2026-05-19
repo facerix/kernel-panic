@@ -14,7 +14,7 @@ When an item lands, gets reclassified, or develops new context, edit it in place
 
 ## ▶ Phase 2 candidates
 
-- **Corpse positions aren't memorised.** Live and dead entities follow the same "we don't track where things were" rule — duck out of LOS and the corpse vanishes from memory until you can see the tile again. Logically a corpse doesn't move, so memorising them would be more honest. **(→ M3: load-bearing for the salvage loop — players must be able to navigate back to a corpse they saw fall. `VisionField.memorisedCorpses` map + dim render pass.)**
+- **Corpse positions aren't memorised.** Live and dead entities follow the same "we don't track where things were" rule — duck out of LOS and the corpse vanishes from memory until you can see the tile again. Logically a corpse doesn't move, so memorising them would be more honest. **(→ M3: load-bearing for the salvage loop — players must be able to navigate back to a corpse they saw fall. `VisionField.memorisedCorpses` map + dim render pass.)** **Phase 2.5 M4** additionally targets **removing salvaged drone corpses from the map**; after that ships, revisit whether memorised corpses are still required for navigation honesty.
 - ~~**NEUTRAL faction is shootable by anyone.**~~ **(→ Closed in M5.)** `civilian:harmed` event emitted on neutral hit; Rep penalty applied; drones and turrets now exclude NEUTRAL from targeting. Consequence is legible in the feed and the Hub status bar.
 
 ## ▶ Phase 3 candidates
@@ -22,7 +22,7 @@ When an item lands, gets reclassified, or develops new context, edit it in place
 - **Cyberspace / Matrix layer.** Jack-in mechanic, second layered grid, ICE AI (Probes, Sparks, Guardians), CCTV PIP window showing physical body status while jacked in. Originally Blueprint Phase 2; moved to Phase 3 so Phase 2 deepens Meatspace first.
 - **Decker archetype.** Cyberspace specialist. Deferred alongside the Matrix layer — design the environment before designing who navigates it.
 - **Full Rep NPC ally behaviour.** Phase 2 (M5) lays the groundwork: Rep meter, NPC taxonomy, behavior tiers. Phase 3 adds the payoff: high-rep neutrals become Human Shields or information sources, as described in the blueprint.
-- **Typed salvage components.** Phase 2 uses a generic `salvage: number` counter. Typed components (CPU chips, wiring, servos combining into different recipes) would add crafting depth but are out of scope until the Phase 2 economy is validated in play.
+- **Typed salvage components.** Phase 2 uses a generic `salvage: number` counter. **Intro scope (typed categories + Finn integration) moves to [phase-2.5-plan.md](phase-2.5-plan.md) M4.** Deep multi-recipe crafting and Matrix-adjacent sinks may remain Phase 3+.
 
 ## ◇ Monitored
 

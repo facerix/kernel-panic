@@ -1,6 +1,6 @@
 # Phase 2 Plan — Street Level
 
-Living plan for Phase 2 of Kernel Panic. Source of truth for milestone scope, current progress, and decisions locked in during design. See [phase-1-plan.md](phase-1-plan.md) for Phase 1 history, [kernel-panic-v1-blueprint.md](kernel-panic-v1-blueprint.md) for the overall design vision, and [game-overview.md](game-overview.md) for the elevator pitch.
+Living plan for Phase 2 of Kernel Panic. Source of truth for milestone scope, current progress, and decisions locked in during design. See [phase-1-plan.md](phase-1-plan.md) for Phase 1 history, [kernel-panic-v1-blueprint.md](kernel-panic-v1-blueprint.md) for the overall design vision, and [game-overview.md](game-overview.md) for the elevator pitch. Post–M8 Meatspace depth (M1–M6) lives in [phase-2.5-plan.md](phase-2.5-plan.md) (**target `v0.2.5`**).
 
 ## Current status
 
@@ -18,9 +18,11 @@ Living plan for Phase 2 of Kernel Panic. Source of truth for milestone scope, cu
 
 **Phase 2 complete** when *all three* of:
 
-1. Every milestone box ticked ✅ (above).
+1. Every milestone box ticked ✅ (above) — **M0 through M8**.
 2. Full campaign loop playable offline on iOS Safari + Chrome desktop: Hub crew management → contract selection → job deployment → combat → extract or flatline → return to Hub, with Finn shop, Rep meter, and recruitment visible.
-3. `v0.2.0` tagged in git.
+3. `v0.2.0` tagged in git (M8 / major Phase 2 slice: job board, contract tiers, full loop).
+
+**Release tagging:** Phase 2 closes at **`v0.2.0`**. Phase 2.5 (contract objectives through breaching / location memory) — see [phase-2.5-plan.md](phase-2.5-plan.md), target **`v0.2.5`**.
 
 Test count at Phase 2 start: **409 passing** (end of Phase 1 / M8).
 
