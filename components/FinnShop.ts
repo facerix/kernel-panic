@@ -361,8 +361,8 @@ class FinnShop extends HTMLElement {
       atMaxHit: (member.gear?.hitBonus ?? 0) >= member.maxHitBonus,
       atMaxDodge: (member.gear?.dodgeBonus ?? 0) >= member.maxDodgeBonus,
     }));
-    this.#credits = balances.credits;
-    this.#salvage = balances.salvage;
+    this.#credits = balances.credits ?? 0;
+    this.#salvage = balances.salvage ?? 0;
     this.#phase = 'browse';
     this.#pendingItem = null;
     this.#selectedIndex = 0;

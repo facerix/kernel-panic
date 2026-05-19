@@ -1250,7 +1250,7 @@ function statusLine(modeHint: Mode): string {
   } else {
     if (!campaign) return stateLabel();
     const repLabel = REP_LABEL.find(b => campaign!.rep >= b.min)?.label ?? 'UNKNOWN';
-    identity = `CREW ${campaign.crew.filter(member => !member.flatlined).length}/${campaign.crew.length} CREDS ${campaign.credits} SALVAGE ${campaign.salvage} REP ${campaign.rep} (${repLabel})`;
+    identity = `CREW ${campaign.crew.filter(member => !member.flatlined).length}/${campaign.crew.length} CREDS ${campaign.credits ?? 0} SALVAGE ${campaign.salvage ?? 0} REP ${campaign.rep} (${repLabel})`;
   }
   if (!run.queue) return stateLabel();
   const statsInner =
