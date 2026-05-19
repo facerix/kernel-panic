@@ -57,11 +57,16 @@ export class NeutralCivilian extends Entity {
   }
 
   /**
-   * One turn of neutral behaviour. Returns a log of actions taken.
+   * Neutral turn — the aftermath-phase equivalent of `takeTurnSteps`.
+   *
+   * Named separately because the signature differs: NeutralCivilian needs
+   * campaign `rep` context (the corp AI methods don't), and the return is
+   * a single step-or-null rather than a generator. The pipeline calls this
+   * during Phase 2 of `runPlayerAftermathSteps`.
    *
    * @param context.rep — current campaign Rep value, passed by the pipeline.
    */
-  act(world: World, rng: Rng, { rep }: NeutralCivilianTurnContext): NeutralCivilianTurnStep | null {
+  takeAftermathStep(world: World, rng: Rng, { rep }: NeutralCivilianTurnContext): NeutralCivilianTurnStep | null {
     if (!this.alive) return null;
     if (!Number.isFinite(rep)) {
       throw new TypeError(`NeutralCivilian.act: rep must be a finite number, got ${rep}`);
@@ -119,17 +124,10 @@ export class NeutralCivilian extends Entity {
       // Cornered — nowhere to flee.
       return { type: 'neutral-cornered' };
     }
-    // Move without spending AP from the pool (neutral movement is free — they
-    // have maxAp=1 for the Entity contract but don't participate in AP economy).
-    // Direct position update + emit, not world.moveEntity (which debits AP).
-    const from = { x: this.x, y: this.y };
-    this.x += bestDx;
-    this.y += bestDy;
-    world.events?.emit(EVENT.ENTITY_MOVED, {
-      entity: this,
-      from,
-      to: { x: this.x, y: this.y },
-    });
+    // Free movement — no AP cost. `relocateEntity` validates bounds,
+    // passability, and occupancy atomically, preventing two civilians from
+    // fleeing to the same tile (the old direct-mutation was a TOCTOU).
+    world.relocateEntity(this, this.x + bestDx, this.y + bestDy);
     return { type: 'neutral-flee', to: { x: this.x, y: this.y } };
   }
 

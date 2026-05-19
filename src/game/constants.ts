@@ -109,16 +109,6 @@ export const VAULT_DAMAGE = 2;
 export const SIGHT_RANGE = 8;
 
 /**
- * Noise radii (Euclidean tiles) for actions that emit `noise` events. The
- * blueprint's stealth loop pivots on this: louder actions reach more drones,
- * Slide is intentionally silent, ranged fire is the loudest signature in
- * V1. Tunable so a future suppressor / silenced loadout is one constant.
- *
- * Sentries within radius (and not in ENGAGE) latch onto the origin as
- * `lastKnownTarget`; same-faction noise is filtered at the listener so
- * drones don't investigate each other's footsteps.
- */
-/**
  * Salvage parameters. Phase 2 salvage is generic units (no typed components).
  * Drone corpses drop a random amount in [DROP_MIN, DROP_MAX]; improvised
  * turrets cost IMPROVISED_TURRET_COST units from the crew member's inventory.
@@ -161,6 +151,16 @@ export const CONTRACT_DIFFICULTY = Object.freeze({
 
 export type ContractDifficulty = (typeof CONTRACT_DIFFICULTY)[keyof typeof CONTRACT_DIFFICULTY];
 
+/**
+ * Noise radii (Euclidean tiles) for actions that emit `noise` events. The
+ * blueprint's stealth loop pivots on this: louder actions reach more drones,
+ * Slide is intentionally silent, ranged fire is the loudest signature in
+ * V1. Tunable so a future suppressor / silenced loadout is one constant.
+ *
+ * Sentries within radius (and not in ENGAGE) latch onto the origin as
+ * `lastKnownTarget`; same-faction noise is filtered at the listener so
+ * drones don't investigate each other's footsteps.
+ */
 export const NOISE_RADIUS = Object.freeze({
   MOVE: 3,
   MELEE: 5,

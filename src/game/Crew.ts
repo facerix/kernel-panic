@@ -80,6 +80,7 @@ export class Crew extends Entity {
   flatlined: boolean;
   inventory: Inventory | null;
   gear: Gear | null;
+  // not a valid archetype; Crew is essentially an abstract base class for all player-controlled entities
   archetype: string = 'CrewMember';
 
   /**

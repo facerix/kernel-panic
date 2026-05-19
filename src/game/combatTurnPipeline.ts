@@ -237,7 +237,7 @@ export function* runPlayerAftermathSteps(
   for (const entity of world.entities.values()) {
     if (!(entity instanceof NeutralCivilian)) continue;
     if (!entity.alive) continue;
-    const step = entity.act(world, rng, { rep });
+    const step = entity.takeAftermathStep(world, rng, { rep });
     if (step) {
       yield { type: 'neutral-civilian', entity, step };
     }

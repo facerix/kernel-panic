@@ -45,7 +45,7 @@ test('NeutralCivilian idles at rep ≥ NEUTRAL_IDLE_THRESHOLD', () => {
   world.addEntity(civ);
   world.addEntity(player);
 
-  const step = civ.act(world, new Rng(1), { rep: REP.NEUTRAL_IDLE_THRESHOLD });
+  const step = civ.takeAftermathStep(world, new Rng(1), { rep: REP.NEUTRAL_IDLE_THRESHOLD });
   assert.ok(step);
   assert.equal(step.type, 'neutral-idle');
   // Position unchanged.
@@ -63,7 +63,7 @@ test('NeutralCivilian flees one tile away from player at mid rep', () => {
   world.addEntity(civ);
   world.addEntity(player);
 
-  const step = civ.act(world, new Rng(1), { rep: 50 });
+  const step = civ.takeAftermathStep(world, new Rng(1), { rep: 50 });
   assert.ok(step);
   assert.equal(step.type, 'neutral-flee');
   // Should have moved away from the player (increasing x distance).
@@ -86,7 +86,7 @@ test('NeutralCivilian reports cornered when no flee tile is available', () => {
   world.addEntity(civ);
   world.addEntity(player);
 
-  const step = civ.act(world, new Rng(1), { rep: 50 });
+  const step = civ.takeAftermathStep(world, new Rng(1), { rep: 50 });
   assert.ok(step);
   assert.equal(step.type, 'neutral-cornered');
   assert.equal(civ.x, 1, 'position unchanged when cornered');
@@ -103,7 +103,7 @@ test('NeutralCivilian flee emits entity:moved', () => {
   const moved: unknown[] = [];
   bus.on(EVENT.ENTITY_MOVED, (p: unknown) => moved.push(p));
 
-  civ.act(world, new Rng(1), { rep: 50 });
+  civ.takeAftermathStep(world, new Rng(1), { rep: 50 });
   assert.equal(moved.length, 1, 'flee should emit entity:moved');
 });
 
@@ -119,7 +119,7 @@ test('NeutralCivilian emits noise at rep < NEUTRAL_FLEE_THRESHOLD', () => {
   const noises: unknown[] = [];
   bus.on(EVENT.NOISE, (p: unknown) => noises.push(p));
 
-  const step = civ.act(world, new Rng(1), { rep: REP.NEUTRAL_FLEE_THRESHOLD - 1 });
+  const step = civ.takeAftermathStep(world, new Rng(1), { rep: REP.NEUTRAL_FLEE_THRESHOLD - 1 });
   assert.ok(step);
   assert.equal(step.type, 'neutral-panic');
   assert.equal(noises.length, 1);
@@ -137,7 +137,7 @@ test('NeutralCivilian returns null when no player is visible', () => {
   world.addEntity(civ);
   // No player on the map at all.
 
-  const step = civ.act(world, new Rng(1), { rep: 10 });
+  const step = civ.takeAftermathStep(world, new Rng(1), { rep: 10 });
   assert.equal(step, null, 'no action without a visible player');
 });
 
@@ -149,13 +149,42 @@ test('NeutralCivilian returns null when dead', () => {
   world.addEntity(player);
   civ.damage(1); // kill
 
-  const step = civ.act(world, new Rng(1), { rep: 10 });
+  const step = civ.takeAftermathStep(world, new Rng(1), { rep: 10 });
   assert.equal(step, null, 'dead civilian does nothing');
 });
 
-test('NeutralCivilian.act throws on non-finite rep', () => {
+test('NeutralCivilian.takeAftermathStep throws on non-finite rep', () => {
   const { world } = makeWorld();
   const civ = new NeutralCivilian({ id: 'nciv-0', x: 3, y: 3 });
   world.addEntity(civ);
-  assert.throws(() => civ.act(world, new Rng(1), { rep: NaN }), /finite/);
+  assert.throws(() => civ.takeAftermathStep(world, new Rng(1), { rep: NaN }), /finite/);
+});
+
+// --- #3 adversarial review: TOCTOU — two civilians cannot flee to the same tile
+
+test('two civilians fleeing toward the same tile do not collide', () => {
+  // Player at (0,3). Two civilians at (2,3) and (2,4) — both want to flee
+  // rightward. The best tile for both is (3,3) or (3,4) depending on layout,
+  // but the key point: the second civilian must see the first's move.
+  const grid = new Grid(6, 6, TILE.FLOOR);
+  const bus = new EventBus();
+  const world = new World(grid, { events: bus });
+
+  const player = makePlayer(0, 3);
+  const civA = new NeutralCivilian({ id: 'nciv-a', x: 2, y: 3 });
+  const civB = new NeutralCivilian({ id: 'nciv-b', x: 2, y: 4 });
+  world.addEntity(player);
+  world.addEntity(civA);
+  world.addEntity(civB);
+
+  // Both flee at mid rep.
+  civA.takeAftermathStep(world, new Rng(1), { rep: 50 });
+  civB.takeAftermathStep(world, new Rng(2), { rep: 50 });
+
+  // They must not occupy the same tile.
+  assert.notDeepEqual(
+    { x: civA.x, y: civA.y },
+    { x: civB.x, y: civB.y },
+    `civilians collided at (${civA.x},${civA.y})`
+  );
 });

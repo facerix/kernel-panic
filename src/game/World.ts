@@ -159,6 +159,42 @@ export class World {
    * inaudible). Listeners on `entity:moved` always fire either way; vision
    * recompute and AI hooks can't be opted out of by mistake.
    */
+  /**
+   * Move an entity to an absolute position without AP cost or noise.
+   * Validates bounds, passability, and occupancy — crashes on violations
+   * (same contract as `moveEntity`). Emits `ENTITY_MOVED` so vision
+   * recompute and AI hooks still fire.
+   *
+   * Use cases: vault knockback, neutral civilian flee — movements that are
+   * mechanically free but must still update the world consistently.
+   */
+  relocateEntity(entity: Entity, x: number, y: number) {
+    if (!Number.isInteger(x) || !Number.isInteger(y)) {
+      throw new TypeError(`relocateEntity requires integer coords, got (${x}, ${y})`);
+    }
+    if (!entity.alive) {
+      throw new Error(`Cannot relocate dead entity ${entity.id}`);
+    }
+    if (!this.grid.inBounds(x, y)) {
+      throw new Error(`relocateEntity: (${x}, ${y}) is out of bounds`);
+    }
+    if (!this.grid.isPassable(x, y)) {
+      throw new Error(`relocateEntity: (${x}, ${y}) is not passable`);
+    }
+    const blocker = this.entityAt(x, y);
+    if (blocker && blocker !== entity) {
+      throw new Error(`relocateEntity: (${x}, ${y}) is occupied by ${blocker.id}`);
+    }
+    const from = { x: entity.x, y: entity.y };
+    entity.x = x;
+    entity.y = y;
+    this.events?.emit(EVENT.ENTITY_MOVED, {
+      entity,
+      from,
+      to: { x: entity.x, y: entity.y },
+    });
+  }
+
   moveEntity(entity: Entity, dx: number, dy: number, options: { silent?: boolean } = {}) {
     const check = this.canMoveEntity(entity, dx, dy);
     if (!check.ok) {

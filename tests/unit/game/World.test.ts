@@ -234,6 +234,68 @@ test('World.moveEntity { silent: true } suppresses noise but still emits entity:
   assert.deepEqual(noises, [], 'silent suppresses the noise emit');
 });
 
+// --- relocateEntity (free-move without AP cost) ---
+
+test('World.relocateEntity moves entity without AP cost', () => {
+  const w = new World(new Grid(5, 5));
+  const p = makePlayer(2, 2, { maxAp: 4 });
+  w.addEntity(p);
+  const apBefore = p.ap;
+  w.relocateEntity(p, 4, 4);
+  assert.equal(p.x, 4);
+  assert.equal(p.y, 4);
+  assert.equal(p.ap, apBefore, 'relocate must not debit AP');
+});
+
+test('World.relocateEntity emits entity:moved', async () => {
+  const { EventBus, EVENT } = await import('../../../src/game/events.js');
+  const bus = new EventBus();
+  const w = new World(new Grid(5, 5), { events: bus });
+  const p = makePlayer(2, 2);
+  w.addEntity(p);
+  const events: unknown[] = [];
+  bus.on(EVENT.ENTITY_MOVED, payload => events.push(payload));
+  w.relocateEntity(p, 4, 3);
+  assert.equal(events.length, 1);
+  assert.deepEqual((events[0] as Record<string, unknown>).from, { x: 2, y: 2 });
+  assert.deepEqual((events[0] as Record<string, unknown>).to, { x: 4, y: 3 });
+});
+
+test('World.relocateEntity throws on occupied tile', () => {
+  const w = new World(new Grid(5, 5));
+  const p = makePlayer(2, 2);
+  const d = new Entity({ id: 'd', x: 3, y: 3, faction: FACTION.CORP, glyph: 'd' });
+  w.addEntity(p);
+  w.addEntity(d);
+  assert.throws(() => w.relocateEntity(p, 3, 3), /occupied/i);
+  assert.equal(p.x, 2, 'position unchanged on failure');
+  assert.equal(p.y, 2);
+});
+
+test('World.relocateEntity throws on impassable tile', () => {
+  const g = new Grid(5, 5);
+  g.setTile(3, 3, TILE.WALL);
+  const w = new World(g);
+  const p = makePlayer(2, 2);
+  w.addEntity(p);
+  assert.throws(() => w.relocateEntity(p, 3, 3), /passable/i);
+});
+
+test('World.relocateEntity throws on out-of-bounds', () => {
+  const w = new World(new Grid(5, 5));
+  const p = makePlayer(2, 2);
+  w.addEntity(p);
+  assert.throws(() => w.relocateEntity(p, 10, 10), /out of bounds/i);
+});
+
+test('World.relocateEntity throws on dead entity', () => {
+  const w = new World(new Grid(5, 5));
+  const p = makePlayer(2, 2);
+  w.addEntity(p);
+  p.alive = false;
+  assert.throws(() => w.relocateEntity(p, 3, 3), /dead/i);
+});
+
 test('World.blockerKeys excludes dead entities', () => {
   const w = new World(new Grid(5, 5));
   const p = makePlayer(1, 1);

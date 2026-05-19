@@ -44,7 +44,12 @@ export function countVisibleCorpEntities(
   return n;
 }
 
-const corpNoiseForTurn = new Map();
+const corpNoiseForTurn = new Map<number, string>();
+
+/** Reset the per-turn status message cache. Call between runs. */
+export function resetCorpTurnStatusCache(): void {
+  corpNoiseForTurn.clear();
+}
 /**
  * Plain-text line body after the "CORP" label (no HTML).
  * If any corp entities are visible, we show a specific status text.
@@ -63,7 +68,7 @@ export function corpTurnStatusBody(visibleCorpCount: number, turnNumber: number)
   }
 
   if (corpNoiseForTurn.has(turnNumber)) {
-    return corpNoiseForTurn.get(turnNumber);
+    return corpNoiseForTurn.get(turnNumber)!;
   }
   // not using Rng here because which message is shown doesn't need to be re-playable for a given seed.
   const messageForUnseenCorp =

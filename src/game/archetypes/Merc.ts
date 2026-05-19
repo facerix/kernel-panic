@@ -1,6 +1,5 @@
 import { Crew } from '../Crew.js';
 import { TILE, AP_COST } from '../constants.js';
-import { EVENT } from '../events.js';
 import type { CrewInit } from '../Crew.js';
 import type { World } from '../World.js';
 
@@ -131,31 +130,19 @@ export class Merc extends Crew {
       throw new Error(`Illegal vault for ${this.id}: ${check.reason}`);
     }
 
-    const from = { x: this.x, y: this.y };
     const occupant = check.occupant;
 
-    // Knockback hostile before Merc lands.
+    // Knockback hostile before Merc lands. `relocateEntity` validates
+    // bounds/passability/occupancy and emits ENTITY_MOVED — no silent
+    // bypasses. (#7 adversarial review)
     if (occupant) {
-      const kbFrom = { x: occupant.x, y: occupant.y };
-      occupant.x += dx;
-      occupant.y += dy;
-      world.events?.emit(EVENT.ENTITY_MOVED, {
-        entity: occupant,
-        from: kbFrom,
-        to: { x: occupant.x, y: occupant.y },
-      });
+      world.relocateEntity(occupant, occupant.x + dx, occupant.y + dy);
     }
 
     this.spendAp(AP_COST.VAULT);
-    this.x += 2 * dx;
-    this.y += 2 * dy;
-    // Emit ENTITY_MOVED so vision recompute and AI hooks pick the vault up
-    // like any other reposition.
-    world.events?.emit(EVENT.ENTITY_MOVED, {
-      entity: this,
-      from,
-      to: { x: this.x, y: this.y },
-    });
+    // Merc lands where the hostile was (or on the empty tile).
+    // `relocateEntity` handles bounds/occupancy checks + event emission.
+    world.relocateEntity(this, this.x + 2 * dx, this.y + 2 * dy);
 
     return { occupant };
   }

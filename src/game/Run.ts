@@ -46,6 +46,7 @@ import { Tech } from './archetypes/Tech.js';
 import { Turret } from './Turret.js';
 import { CorpDrone } from './ai/CorpDrone.js';
 import { CorpCivilian } from './entities/CorpCivilian.js';
+import { resetCorpTurnStatusCache } from './corpTurnStatusCopy.js';
 import { NeutralCivilian } from './entities/NeutralCivilian.js';
 import { isContractDifficulty, isObjective } from './hub/Curator.js';
 import { buildMap } from './procgen/mapBuild.js';
@@ -445,6 +446,12 @@ export class Run {
         });
       }
     }
+    // Unbind dead drones from the event bus immediately so their NOISE/ALARM
+    // handlers stop firing for the rest of the run. (#6 adversarial review)
+    if (killed && target instanceof CorpDrone) {
+      target.unbind();
+    }
+
     // M3: assign loot to killed hostiles. The loot roll uses the Run's own
     // Rng so it's deterministic on the contract seed.
     const lootTarget = target as Partial<LootableEntity>;
@@ -472,6 +479,7 @@ export class Run {
         if (typeof maybeBound.unbind === 'function') maybeBound.unbind();
       }
     }
+    resetCorpTurnStatusCache();
     this.world = null;
     this.queue = null;
     this.player = null;
