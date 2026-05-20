@@ -7,7 +7,12 @@ Living plan for the post–Phase 2 slice of Kernel Panic: **contract objectives*
 | Milestone | Status |
 |---|---|
 | M1 — Contract objectives (label-driven run variety) | ✅ Done |
-| M2 — Richer combat mechanics (objectives + pressure) | 🔲 Planned |
+| M2 — Richer combat mechanics (objectives + pressure) | 🔲 Planned (see M2.1–M2.5) |
+| M2.1 — Alarm cadence & feedback | 🔲 Planned |
+| M2.2 — Interactables & terminal slice | 🔲 Planned |
+| M2.3 — Environmental hazard tiles | 🔲 Planned |
+| M2.4 — Corp stationary hostiles | 🔲 Planned |
+| M2.5 — Locked doors & access gating | 🔲 Planned |
 | M3 — Campaign history / chronicle | 🔲 Planned |
 | M4 — Salvage revision + typed salvage + field consumables | 🔲 Planned |
 | M5 — Hub, economy, Rep, crew tuning | 🔲 Planned |
@@ -15,7 +20,7 @@ Living plan for the post–Phase 2 slice of Kernel Panic: **contract objectives*
 
 **Phase 2.5** is complete when:
 
-1. Every milestone in the table above is ✅.
+1. Every milestone in the table above is ✅ (M2 rolls up automatically when M2.1–M2.5 are all ✅).
 2. Full campaign loop from Phase 2 remains playable offline on iOS Safari + Chrome desktop: Hub → contract selection → job deployment → combat → extract or flatline → return to Hub, with Finn shop, Rep meter, recruitment, and new systems (objectives, chronicle, salvage types, shop tabs, breaching, etc.) integrated per milestone specs.
 3. `v0.2.5` tagged in git.
 
@@ -86,15 +91,138 @@ Additional `CONTRACT_LABELS` / families to build out:
 
 **Goal:** Build on M1 contract objectives with Meatspace systems called out in the pitch and blueprint: **noise / alarm cadence**, **terminal-slice tension**, **environmental hazards**, **new corp hostiles**, and **access gating** that sets up M6 breaching.
 
-**Scope (initial spec):**
+**M2 is complete when M2.1–M2.5 are all ✅.** Slices are ordered by dependency; M2.3 and M2.4 can ship in parallel after M2.1.
 
-- **Noise / alarm:** Cooldowns and clearer escalation / de-escalation so alarm is a tunable pressure layer, not only a binary spike. Player-facing feedback in log and/or diagnostics.
-- **Terminal / slice:** Interactions that can raise alarm; support **alarm deactivation** (second terminal, slice completion, or timed window — exact rule per objective family TBD at implementation).
-- **Hazard tiles:** e.g. persistent or turn-scoped tiles that affect LOS, movement cost, or damage — supports Retrieve-in-risk-zone fiction from M1.
-- **Additional corp hostiles:** e.g. **stationary turrets** (corp-aligned, distinct from player Tech turrets) and other low-scope entities that increase map variety without ballooning AI surface area.
-- **Locked doors:** Must be **unlocked** (key, hack, objective flag) or **breached**; full **breach interaction** and destructible geometry land in **M6** — M2 may ship doors as blockers + unlock flags so maps and objectives can depend on them early.
+```mermaid
+flowchart LR
+  M21[M2.1 Alarm cadence]
+  M22[M2.2 Interactables + terminals]
+  M25[M2.5 Locked doors]
+  M23[M2.3 Hazard tiles]
+  M24[M2.4 Corp turrets]
+  M21 --> M22
+  M22 --> M25
+  M21 -.-> M23
+  M21 -.-> M24
+```
 
-**Acceptance (when implemented):** At least one new hostile type and one hazard type in procgen or prefabs; alarm cooldown / deactivation path testable on a golden-path contract; locked doors integrated with pathing and objectives; snapshot-safe state for new entities and door flags.
+| Slice | Delivers | Objective families touched (when wired) |
+|-------|----------|-------------------------------------------|
+| **M2.1** | Tunable alarm pressure + feedback | All (ambient pressure) |
+| **M2.2** | Interactable props; terminal slice loop | Terminal / slice; alarm on/off |
+| **M2.3** | Hazard tiles on the grid | Retrieve (+ hazard flavor) |
+| **M2.4** | Corp-aligned stationary hostiles | Sweep / clear; general pressure |
+| **M2.5** | Locked doors + unlock flags (no breach) | Retrieve, dual-site, handoff routing |
+
+**Cross-cutting rule:** Each slice replaces the matching **permissive** branch in `isObjectiveSatisfied` (M1 placeholder returns `true`) when its mechanics land — avoid a single end-loaded “objectives” PR.
+
+**Out of scope for all of M2:** breaching charges, destructible walls, location-keyed map reuse (**M6**); exact Rep/AP economy tuning (**M5**); new contract labels (**M1** pool only).
+
+---
+
+#### M2.1 — Alarm cadence & feedback 🔲
+
+**Goal:** Turn the M5 **binary alarm latch** into a **tunable pressure layer**: cooldowns, clearer escalation / de-escalation, and player-facing feedback — without yet requiring new map props.
+
+**Scope:**
+
+- Extend `world` alarm state beyond `alarmActive` boolean (e.g. level, cooldown ticks, or “quiet window” counter — pick one model at implementation).
+- Corp turn / civilian behaviour respects the new model (drones still ENGAGE on alert; define whether partial de-escalation reduces spawn pressure or only UI).
+- Log and/or diagnostics surface transitions (`> ALERT: …`, status bar, existing CRT tint hooks).
+
+**Acceptance:**
+
+- Unit tests for raise → hold → cool-down / deactivate transitions and snapshot round-trip.
+- Pre-M5 saves still restore with safe defaults.
+- No new procgen entities required in this slice.
+
+---
+
+#### M2.2 — Interactables & terminal slice 🔲
+
+**Depends on:** M2.1 (terminals should hook a real alarm model, not only the old latch).
+
+**Goal:** Shared **interactable** entity type for objective props; first full loop for **Terminal / slice** contracts.
+
+**Scope:**
+
+- `Interactable` (or equivalent) base: adjacency interact, AP cost, serialised state (`secured`, `sliced`, `armed`, etc.).
+- **Terminal** variant: interact can **raise alarm** (per M2.1 rules); **deactivate** via second terminal, slice completion flag, or timed quiet window (pick per prefab/objective params).
+- At least one **prefab or procgen** placement tied to a `terminal-slice` contract golden path.
+- Wire `OBJECTIVES.TERMINAL_SLICE` in `isObjectiveSatisfied` to real state (not permissive `true`).
+
+**Acceptance:**
+
+- Golden-path test: start terminal-slice contract → interact → objective satisfied only when slice rules met; alarm side effects assertable.
+- Snapshot includes interactable ids + flags; restore round-trip.
+- Handoff / retrieve interactables can stub on the same base in a follow-up diff inside this slice if small; otherwise defer extra families to the slice that needs them (e.g. M2.5 for door-linked retrieve).
+
+---
+
+#### M2.3 — Environmental hazard tiles 🔲
+
+**Depends on:** M2.1 recommended (hazards may tick alarm or block “quiet” windows); can ship in parallel with M2.2 / M2.4.
+
+**Goal:** Grid tiles (or tile-attached state) that change **LOS**, **movement cost**, and/or **damage** — supports M1 “risky zone” fiction (e.g. Glassed clinic).
+
+**Scope:**
+
+- Hazard representation on `Grid` / `World` (persistent vs turn-scoped — at least one).
+- Integration with pathfinding, LOS, and optional end-of-turn damage.
+- One hazard type in a **prefab or procgen** cluster (smoke, “glass” debris palette, or hot zone — name at implementation).
+- Wire `OBJECTIVES.RETRIEVE` (or a hazard-gated retrieve param) when a contract explicitly needs “secure pickup in hazard zone”; otherwise document as optional param.
+
+**Acceptance:**
+
+- Tests: movement cost / LOS / damage on a fixed mini-map fixture.
+- Snapshot hazard tile state; migration default for old saves = no hazards.
+- Renderer shows hazard distinctly (glyph or tint) on at least one golden path.
+
+---
+
+#### M2.4 — Corp stationary hostiles 🔲
+
+**Depends on:** M2.1 recommended (turret fire may respect alarm); can ship in parallel with M2.2 / M2.3.
+
+**Goal:** **Corp-aligned stationary turrets** (distinct from player Tech deployables) and minimal AI surface — no new patrol graphs.
+
+**Scope:**
+
+- `CorpTurret` (or equivalent): fixed facing or sector LOS, corp faction, damage on player turn or corp turn (match existing turret cadence conventions).
+- Placement in at least one **prefab** (e.g. server-farm / security checkpoint) or procgen rule.
+- Wire `OBJECTIVES.SWEEP` quota when contract params include turret nodes (optional in this slice if sweep still drone-only — document which quota types exist after ship).
+
+**Acceptance:**
+
+- Unit tests: LOS, firing, destruction, blocks pathing if designed as blocking.
+- `ARCHETYPE_FACTORY` + snapshot round-trip; drones do not treat turrets as civilians.
+- One playtest map where alarm + turret pressure coexist without soft-lock.
+
+---
+
+#### M2.5 — Locked doors & access gating 🔲
+
+**Depends on:** M2.2 (door **unlock** via terminal interact or shared interactable flags).
+
+**Goal:** **Locked doors** as pathing blockers with **unlock** paths; sets up M6 **breach** without shipping charges or wall deletion here.
+
+**Scope:**
+
+- `Door` entity or tile flag: closed = impassable for pathing; open = floor.
+- Unlock sources: objective flag, keyed interactable, adjacent **hack terminal** (reuse M2.2 interactable).
+- **No** breaching charges, **no** destructible geometry (**M6**).
+- Prefab with at least one door gating a route (e.g. security checkpoint).
+- Wire objectives that need gating (`retrieve`, `dual-site`, `handoff`) when params include `doorId` / `requiresUnlock` — otherwise permissive until params exist.
+
+**Acceptance:**
+
+- Pathfinding tests: closed door blocks, open door allows; A* invalidates when door toggles mid-run.
+- Snapshot door open/locked state; restore round-trip.
+- Golden path: door closed at start → unlock via interact → reach exit or secondary objective.
+
+---
+
+**M2 rollup acceptance (when all subs ✅):** At least one new hostile type (M2.4) and one hazard type (M2.3) in procgen or prefabs; alarm cooldown / deactivation path testable on a terminal-slice contract (M2.1 + M2.2); locked doors integrated with pathing and at least one objective (M2.5); snapshot-safe state for interactables, hazards, turrets, and doors.
 
 ---
 
