@@ -363,6 +363,8 @@ class KeyHelp extends HTMLElement {
     const universalTiles = h('dl', { className: 'rows' }, [
       h('dt', { textContent: '#' }),
       h('dd', { textContent: 'wall' }),
+      h('dt', { textContent: '=' }),
+      h('dd', { textContent: 'cover' }),
       h('dt', { textContent: '¤' }),
       h('dd', { textContent: 'exit' }),
     ]);
@@ -375,10 +377,10 @@ class KeyHelp extends HTMLElement {
       h('dd', { textContent: 'Crew terminal' }),
     ]);
     const combatTiles = h('dl', { className: 'rows' }, [
-      h('dt', { textContent: '=' }),
-      h('dd', { textContent: 'cover (some protection from shots)' }),
       h('dt', { textContent: '░' }),
       h('dd', { textContent: 'smoke' }),
+      h('dt', { textContent: '‡' }),
+      h('dd', { textContent: 'terminal' }),
     ]);
 
     const children = [
