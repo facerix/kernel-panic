@@ -1,7 +1,9 @@
 import { Turret, type TurretAutoFireResult } from './Turret.js';
 import { NeutralCivilian } from './entities/NeutralCivilian.js';
 import { entityLabel } from './Entity.js';
-import { REP } from './constants.js';
+import { TILE, HAZARD_DAMAGE, REP } from './constants.js';
+import { EVENT } from './events.js';
+import type { Entity } from './Entity.js';
 import type { NeutralCivilianTurnStep } from '../types.js';
 import type { World } from './World.js';
 import type { Rng } from '../rng.js';
@@ -35,7 +37,17 @@ export type NeutralCivilianAftermathStep = {
   step: NeutralCivilianTurnStep;
 };
 
-export type PlayerAftermathStep = TurretAftermathStep | NeutralCivilianAftermathStep;
+export type HazardAftermathStep = {
+  type: 'hazard-damage';
+  entity: Entity;
+  damage: number;
+  killed: boolean;
+};
+
+export type PlayerAftermathStep =
+  | TurretAftermathStep
+  | NeutralCivilianAftermathStep
+  | HazardAftermathStep;
 
 /**
  * Whether an aftermath step should emit player-facing log lines.
@@ -55,6 +67,12 @@ export function isPlayerAftermathStepLogVisible(
     return isTileVisible(turret.x, turret.y);
   }
   if (step.type === 'neutral-civilian') {
+    return isTileVisible(step.entity.x, step.entity.y);
+  }
+  if (step.type === 'hazard-damage') {
+    // Hazard damage to the player is always visible; other entities only when
+    // the tile is in current LOS.
+    if (step.entity.id === playerId) return true;
     return isTileVisible(step.entity.x, step.entity.y);
   }
   return true;
@@ -242,6 +260,34 @@ export function* runPlayerAftermathSteps(
       yield { type: 'neutral-civilian', entity, step };
     }
   }
+
+  // Phase 3: environmental hazard damage
+  // Every live entity standing on a HAZARD tile takes flat damage. Emits
+  // ENTITY_DAMAGED so Run's death-detection listener fires normally, and
+  // HAZARD_DAMAGE for presentation (shell log lines, flash effects).
+  for (const entity of world.entities.values()) {
+    if (!entity.alive) continue;
+    if (world.grid.tileAt(entity.x, entity.y) !== TILE.HAZARD) continue;
+    const damage = HAZARD_DAMAGE;
+    entity.hp = Math.max(0, entity.hp - damage);
+    const killed = entity.hp <= 0;
+    if (killed) entity.alive = false;
+    world.events?.emit(EVENT.ENTITY_DAMAGED, {
+      attacker: null,
+      target: entity,
+      damage,
+      killed,
+      source: 'hazard',
+    });
+    world.events?.emit(EVENT.HAZARD_DAMAGE, {
+      entity,
+      damage,
+      killed,
+      x: entity.x,
+      y: entity.y,
+    });
+    yield { type: 'hazard-damage', entity, damage, killed };
+  }
 }
 
 /**
@@ -272,6 +318,9 @@ export function formatPlayerAftermathStepLogLines(step: PlayerAftermathStep) {
   }
   if (step.type === 'neutral-civilian') {
     return formatNeutralCivilianLine(step.entity, step.step);
+  }
+  if (step.type === 'hazard-damage') {
+    return formatHazardDamageLine(step);
   }
   return [];
 }
@@ -396,6 +445,12 @@ function formatNeutralCivilianLine(
     default:
       return [];
   }
+}
+
+function formatHazardDamageLine(step: HazardAftermathStep): string[] {
+  const label = entityLabel(step.entity);
+  const line = `${label} takes ${step.damage} hazard damage.${step.killed ? ` ${label.toUpperCase()} DOWN.` : ''}`;
+  return [line];
 }
 
 function formatTurretAutofireLine(turret: Turret, action: TurretAutoFireResult) {

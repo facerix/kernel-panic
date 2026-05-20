@@ -379,6 +379,8 @@ class KeyHelp extends HTMLElement {
     const combatTiles = h('dl', { className: 'rows' }, [
       h('dt', { textContent: '░' }),
       h('dd', { textContent: 'smoke' }),
+      h('dt', { textContent: '▓' }),
+      h('dd', { textContent: 'hazard (1 dmg/turn)' }),
       h('dt', { textContent: '‡' }),
       h('dd', { textContent: 'terminal' }),
     ]);

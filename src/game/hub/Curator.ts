@@ -138,7 +138,7 @@ const OBJECTIVE_BY_LABEL: Readonly<Record<string, ContractObjective>> = Object.f
     kind: OBJECTIVES.DUAL_SITE,
     title: 'Dual-site sampling bores',
     briefing: 'Tap both sampling bores and return with the material.',
-    params: Object.freeze({ target: 'sampling-bore', count: 2 }),
+    params: Object.freeze({ target: 'sampling-bore', count: 2, hazardFlavor: 'tainted-water' }),
   }),
   'Ghost auction ledger': Object.freeze({
     kind: OBJECTIVES.RETRIEVE,

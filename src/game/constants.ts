@@ -20,6 +20,7 @@ export const TILE = Object.freeze({
   COVER: 2,
   EXIT: 3,
   SMOKE: 4,
+  HAZARD: 5,
 });
 
 export const FACTION = Object.freeze({
@@ -115,6 +116,14 @@ export const SIGHT_RANGE = 8;
  * Drone corpses drop a random amount in [DROP_MIN, DROP_MAX]; improvised
  * turrets cost IMPROVISED_TURRET_COST units from the crew member's inventory.
  */
+/**
+ * Hazard tile damage. Flat 1 HP per turn for any entity standing on a hazard
+ * tile at the end of a round (resolved during player aftermath). Same damage
+ * as a ranged shot — enough to punish loitering but survivable for a healthy
+ * entity.
+ */
+export const HAZARD_DAMAGE = 1;
+
 export const SALVAGE_DROP_MIN = 1;
 export const SALVAGE_DROP_MAX = 3;
 export const SALVAGE_PER_IMPROVISED_TURRET = 2;

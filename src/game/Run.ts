@@ -36,7 +36,7 @@ import { Rng } from '../rng.js';
 import { World } from './World.js';
 import { TurnQueue } from './TurnQueue.js';
 import { EventBus, EVENT } from './events.js';
-import { FACTION, SALVAGE_DROP_MIN, SALVAGE_DROP_MAX } from './constants.js';
+import { FACTION, TILE, SALVAGE_DROP_MIN, SALVAGE_DROP_MAX } from './constants.js';
 import { Entity, type LootableEntity } from './Entity.js';
 import { Hostile } from './Hostile.js';
 import { Crew } from './Crew.js';
@@ -515,17 +515,25 @@ export class Run {
 
   #placeObjectiveInteractables(): void {
     if (!this.world || !this.player || !this.contract || !this.exitTile) return;
-    if (this.contract.objective.kind !== OBJECTIVES.TERMINAL_SLICE) return;
-    const anchor = findInteractableAnchor(this.world, this.player, this.exitTile, this.rng);
-    this.world.addEntity(
-      new Terminal({
-        id: 'terminal-0',
-        x: anchor.x,
-        y: anchor.y,
-        label: this.contract.objective.title,
-        raisesAlarm: true,
-      })
-    );
+    if (this.contract.objective.kind === OBJECTIVES.TERMINAL_SLICE) {
+      const anchor = findInteractableAnchor(this.world, this.player, this.exitTile, this.rng);
+      this.world.addEntity(
+        new Terminal({
+          id: 'terminal-0',
+          x: anchor.x,
+          y: anchor.y,
+          label: this.contract.objective.title,
+          raisesAlarm: true,
+        })
+      );
+    }
+    // M2.3: Place hazard cluster near a future pickup anchor when hazardFlavor
+    // is set (e.g. "Glassed clinic data dump"). The cluster is placed around a
+    // candidate anchor point biased away from spawn/exit.
+    if (this.contract.objective.params?.hazardFlavor) {
+      const anchor = findInteractableAnchor(this.world, this.player, this.exitTile, this.rng);
+      placeHazardCluster(this.world, anchor, this.rng);
+    }
   }
 }
 
@@ -669,6 +677,37 @@ function findInteractableAnchor(
   if (notExitAdjacent.length > 0) return rng.pick(notExitAdjacent);
 
   return rng.pick(candidates);
+}
+
+/**
+ * Place a cluster of HAZARD tiles near `center`. Stomps FLOOR tiles only —
+ * walls, cover, exit, and tiles occupied by entities are left alone. The
+ * cluster is a diamond/cross shape (center + cardinal neighbours) with a
+ * random subset of diagonal neighbours, giving an organic 5–9 tile footprint.
+ *
+ * Exported for testing.
+ */
+export function placeHazardCluster(world: World, center: GridPoint, rng: Rng): number {
+  const candidates: GridPoint[] = [center];
+  // Cardinal neighbours (always included when legal)
+  for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+    candidates.push({ x: center.x + dx, y: center.y + dy });
+  }
+  // Diagonal neighbours (randomly included for organic shape)
+  for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+    if (rng.next() < 0.5) {
+      candidates.push({ x: center.x + dx, y: center.y + dy });
+    }
+  }
+  let placed = 0;
+  for (const { x, y } of candidates) {
+    if (!world.grid.inBounds(x, y)) continue;
+    if (world.grid.tileAt(x, y) !== TILE.FLOOR) continue;
+    if (world.entityAt(x, y)) continue;
+    world.grid.setTile(x, y, TILE.HAZARD);
+    placed++;
+  }
+  return placed;
 }
 
 function hasAdjacentPassableTile(world: World, x: number, y: number): boolean {

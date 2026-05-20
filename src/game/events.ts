@@ -30,6 +30,7 @@ export const EVENT = Object.freeze({
   ALARM_CHANGED: 'alarm:changed',
   CIVILIAN_HARMED: 'civilian:harmed',
   REP_CHANGED: 'rep:changed',
+  HAZARD_DAMAGE: 'hazard:damage',
 });
 
 const KNOWN_TYPES = new Set<string>(Object.values(EVENT));

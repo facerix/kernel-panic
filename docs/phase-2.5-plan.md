@@ -10,7 +10,7 @@ Living plan for the post–Phase 2 slice of Kernel Panic: **contract objectives*
 | M2 — Richer combat mechanics (objectives + pressure) | 🔲 Planned (see M2.1–M2.10) |
 | M2.1 — Alarm cadence & feedback | ✅ Done |
 | M2.2 — Interactables & terminal slice | ✅ Done |
-| M2.3 — Environmental hazard tiles | 🔲 Planned |
+| M2.3 — Environmental hazard tiles | ✅ Done |
 | M2.4 — Corp stationary hostiles + sweep quota | 🔲 Planned |
 | M2.5 — Locked doors & access gating | 🔲 Planned |
 | M2.6 — Retrieve pickup objectives | 🔲 Planned |
@@ -223,7 +223,7 @@ Each row is the **owner** for replacing the permissive `isObjectiveSatisfied` br
 
 ---
 
-#### M2.3 — Environmental hazard tiles 🔲
+#### M2.3 — Environmental hazard tiles ✅
 
 **Depends on:** M2.1 recommended (hazards may tick alarm or block “quiet” windows); can ship in parallel with M2.2 / M2.4.
 
@@ -242,6 +242,16 @@ Each row is the **owner** for replacing the permissive `isObjectiveSatisfied` br
 - Snapshot hazard tile state; migration default for old saves = no hazards.
 - Renderer shows hazard distinctly (glyph or tint) on at least one golden path.
 - Golden path pairs with M2.6: retrieve pickup in a hazard-adjacent tile cluster (can land in same PR if both slices ready).
+
+**Implementation notes:**
+
+- `TILE.HAZARD = 5` — passable, does not block LOS; serializes as part of the grid's `Uint8Array` so old saves (no value 5 in tile data) default to no hazards with no migration.
+- `HAZARD_DAMAGE = 1` constant (tuneable); glyph `▓` in `#d45a3a` (orange-red, distinct from smoke `░`). Added to `<key-help>` combat tile legend.
+- Hazard damage resolves during **player aftermath** (Phase 3 of `runPlayerAftermathSteps`, after turrets and civilian reactions): every live entity on a `TILE.HAZARD` cell takes flat damage. Emits `ENTITY_DAMAGED` (source: `'hazard'`, attacker: `null`) for Run death-detection, plus a new `HAZARD_DAMAGE` event for presentation.
+- `HazardAftermathStep` added to the `PlayerAftermathStep` union; log formatting and LOS-gated visibility follow the same patterns as turret autofire.
+- `placeHazardCluster(world, center, rng)` stamps a 5–9 tile diamond/cross of HAZARD onto FLOOR-only unoccupied tiles. Called from `Run.#placeObjectiveInteractables` when `contract.objective.params.hazardFlavor` is present (today: “Glassed clinic data dump”). M2.6 will co-locate a retrieve pickup at or near this cluster.
+- A* pathfinding (`Pathfinding.ts`) and LOS (`LineOfSight.ts`) needed no changes — `Grid.isPassable` already drives both, and HAZARD was added to the passable set.
+- 19 new unit tests in `tests/unit/game/hazard.test.ts`: grid passability, LOS transparency, movement, damage per turn, kill, events, dead-entity skip, multi-entity, log formatting, visibility gating, cluster placement (including wall/entity/edge-of-map guards), snapshot round-trip, and palette glyph.
 
 ---
 

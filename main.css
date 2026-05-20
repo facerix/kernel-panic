@@ -236,6 +236,18 @@ main {
     color: #ff7a66;
   }
 
+  .hazard-tag {
+    color: #d45a3a;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    animation: hazard-pulse 1.2s ease-in-out infinite;
+  }
+
+  @keyframes hazard-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
+  }
+
   .objective-tag .done {
     color: #7dff9d;
     font-weight: 700;

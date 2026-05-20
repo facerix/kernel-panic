@@ -25,7 +25,7 @@ import { Campaign, CAMPAIGN_STATE, willEndCampaignOnThisDeath } from '/src/game/
 import { RUN_STATE, isObjectiveSatisfied } from '/src/game/Run.js';
 import { restoreCampaign, snapshotCampaign } from '/src/game/persistence.js';
 import { runCorpTurn as driveCorpTurn } from '/src/game/corpTurnDriver.js';
-import { FACTION, AP_COST, REP, REP_LABEL, SALVAGE_TO_CRED_RATE } from '/src/game/constants.js';
+import { FACTION, AP_COST, TILE, REP, REP_LABEL, SALVAGE_TO_CRED_RATE } from '/src/game/constants.js';
 import {
   advanceFromPlayerTurn,
   drivePlayerAftermath,
@@ -1285,13 +1285,18 @@ function statusLine(modeHint: Mode): string {
         : alarm?.phase === 'cooldown'
           ? `<span class="alert-tag">COOL ${alarm.cooldownTurnsRemaining}</span>`
           : '';
+    const onHazard =
+      run.world && run.player && run.world.grid.tileAt(run.player.x, run.player.y) === TILE.HAZARD;
+    const hazardTag = onHazard
+      ? '<span class="hazard-tag">▓ HAZARD — move or take damage</span>'
+      : '';
     const lockTag =
       run.queue.currentFaction === FACTION.CORP
         ? '<span class="control-lock">CORP TURN - controls locked</span>'
         : '';
     identity = `${escapeHtml(run.player?.callsign ?? run.archetype)} ${escapeHtml(run.archetype.toUpperCase())}`;
     aphp = `AP ${player.ap}/${player.maxAp} HP ${player.hp}/${player.maxHp}`;
-    context = joinStatusParts([lockTag, objectiveTag, salvageTag, alertTag]);
+    context = joinStatusParts([lockTag, hazardTag, objectiveTag, salvageTag, alertTag]);
   } else {
     if (!campaign) return stateLabel();
     const repLabel = REP_LABEL.find(b => campaign!.rep >= b.min)?.label ?? 'UNKNOWN';
