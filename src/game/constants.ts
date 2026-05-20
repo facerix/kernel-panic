@@ -28,6 +28,8 @@ export const FACTION = Object.freeze({
   NEUTRAL: 'neutral',
 });
 
+export const TERMINAL_GLYPH = '‡';
+
 /** Numeric tile id — one of the `TILE` values. */
 export type TileId = (typeof TILE)[keyof typeof TILE];
 

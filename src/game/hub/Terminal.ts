@@ -11,10 +11,8 @@
  */
 
 import { Entity } from '../Entity.js';
-import { FACTION } from '../constants.js';
+import { FACTION, TERMINAL_GLYPH } from '../constants.js';
 import type { EntityInit } from '../Entity.js';
-
-const TERMINAL_GLYPH = '‡';
 
 type TerminalInit = Omit<EntityInit, 'faction' | 'glyph' | 'maxAp' | 'maxHp' | 'id' | 'x' | 'y'> & {
   id?: string;

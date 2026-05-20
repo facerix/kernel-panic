@@ -68,6 +68,8 @@ export type ApplyIntentContext = {
   advanceTurn: () => void;
   resetInputModes: () => void;
   onPlayerAction: (actionName: string) => void;
+  canExit?: () => boolean;
+  exitBlockedMessage?: () => string;
 };
 
 const KNOWN_INTENT_TYPES = new Set([
@@ -186,6 +188,11 @@ function doMove(intent: Intent, ctx: ApplyIntentContext) {
   }
   world.moveEntity(player, intent.dx!, intent.dy!);
   if (world.grid.tileAt(nx, ny) === TILE.EXIT) {
+    if (ctx.canExit && !ctx.canExit()) {
+      log(`> ${ctx.exitBlockedMessage?.() ?? 'Complete your objective before extraction.'}`);
+      gateOnApExhausted(ctx);
+      return;
+    }
     log(`> ${entityLabel(player)} moved to (${nx}, ${ny}) — EXIT REACHED.`);
     ctx.onPlayerAction(PLAYER_ACTIONS.REACHED_EXIT);
     return;

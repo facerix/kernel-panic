@@ -22,7 +22,7 @@ import { serviceWorkerManager } from '/src/ServiceWorkerManager.js';
 import dataStore from '/src/DataStore.js';
 
 import { Campaign, CAMPAIGN_STATE, willEndCampaignOnThisDeath } from '/src/game/Campaign.js';
-import { RUN_STATE } from '/src/game/Run.js';
+import { RUN_STATE, isObjectiveSatisfied } from '/src/game/Run.js';
 import { restoreCampaign, snapshotCampaign } from '/src/game/persistence.js';
 import { runCorpTurn as driveCorpTurn } from '/src/game/corpTurnDriver.js';
 import { FACTION, AP_COST, REP, REP_LABEL, SALVAGE_TO_CRED_RATE } from '/src/game/constants.js';
@@ -789,6 +789,14 @@ function handleIntent(intent: Intent): void {
     log: (line: string) => flash(line),
     advanceTurn,
     resetInputModes,
+    canExit: () => {
+      if (!isRun(run) || !run.contract) return true;
+      return isObjectiveSatisfied(run.contract, run.world);
+    },
+    exitBlockedMessage: () => {
+      if (!isRun(run) || !run.contract) return 'Complete your objective before extraction.';
+      return `Complete objective first: ${run.contract.objective.title}.`;
+    },
     onPlayerAction: (actionName: string) => {
       switch (actionName) {
         case PLAYER_ACTIONS.INVENTORY:
@@ -1014,7 +1022,19 @@ function handleCombatInteract(): void {
       }
     }
   }
-  flash('Nothing to loot nearby.');
+
+  const interactable = run.world.adjacentInteractables(player)[0];
+  if (interactable) {
+    const result = interactable.interact(run.world, player);
+    flash(result.message);
+    paint();
+    if (result.ok && player.ap === 0) {
+      advanceTurn();
+    }
+    return;
+  }
+
+  flash('Nothing to interact with nearby.');
 }
 
 // onJackIn removed — combat entry is handled in onBriefingDeploy.
@@ -1255,6 +1275,7 @@ function statusLine(modeHint: Mode): string {
       throw new Error('[shell] combat status requires an active run');
     }
     const salvageTag = run.player?.inventory ? ` SAL:${run.player.inventory.salvage}` : '';
+    const objectiveTag = objectiveStatusTag(run);
     const alarm = run.world?.alarm;
     const alertTag =
       alarm?.phase === 'alert'
@@ -1262,7 +1283,7 @@ function statusLine(modeHint: Mode): string {
         : alarm?.phase === 'cooldown'
           ? ` <span class="alert-tag">[COOL:${alarm.cooldownTurnsRemaining}]</span>`
           : '';
-    identity = `${run.player?.callsign ?? run.archetype} ${run.archetype.toUpperCase()}${salvageTag}${alertTag}`;
+    identity = `${run.player?.callsign ?? run.archetype} ${run.archetype.toUpperCase()}${salvageTag}${alertTag}${objectiveTag}`;
     aphp = `AP ${player.ap}/${player.maxAp} HP ${player.hp}/${player.maxHp}`;
   } else {
     if (!campaign) return stateLabel();
@@ -1309,6 +1330,12 @@ function statusLine(modeHint: Mode): string {
   return stats + upper + lower;
 }
 
+function objectiveStatusTag(run: Run): string {
+  if (!run.contract || !run.world) return '';
+  const done = isObjectiveSatisfied(run.contract, run.world);
+  return ` OBJ:${run.contract.objective.title} [${done ? 'DONE' : 'TODO'}]`;
+}
+
 /**
  * Player-facing nudge for whatever interactable is within reach. Computed
  * fresh every paint so it always reflects the *current* player position
@@ -1351,6 +1378,10 @@ function proximityHint(): string {
             return 'SALVAGE nearby — press [Space] to loot.';
           }
         }
+      }
+      const interactable = run.world.adjacentInteractables(p)[0];
+      if (interactable) {
+        return `${interactable.label.toUpperCase()} nearby — press [Space] to interact.`;
       }
     }
     if (run.exitTile && isChebyshevAdjacent(run.player, run.exitTile)) {

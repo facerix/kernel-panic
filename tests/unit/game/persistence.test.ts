@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { Campaign } from '../../../src/game/Campaign.js';
 import { Run } from '../../../src/game/Run.js';
 import { OBJECTIVES } from '../../../src/game/hub/Curator.js';
+import { Terminal } from '../../../src/game/entities/Terminal.js';
 import {
   restore,
   restoreCampaign,
@@ -28,10 +29,38 @@ const fakeContract = (overrides = {}) => ({
   ...overrides,
 });
 
+const terminalSliceContract = (overrides = {}) =>
+  fakeContract({
+    objective: {
+      kind: OBJECTIVES.TERMINAL_SLICE,
+      title: 'Slice server rack',
+      briefing: 'Reach the server terminal, complete the slice, then extract.',
+      params: { target: 'server-rack', count: 1 },
+    },
+    label: 'terminal test job',
+    ...overrides,
+  });
+
 function makeCrew(archetype = 'razor') {
   return buildCrewMember(archetype, { x: 0, y: 0 }, new Rng(100), {
     id: `crew-${archetype}`,
   });
+}
+
+function relocateAdjacentTo(run, entity) {
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      if (dx === 0 && dy === 0) continue;
+      const x = entity.x + dx;
+      const y = entity.y + dy;
+      if (!run.world.grid.inBounds(x, y)) continue;
+      if (!run.world.grid.isPassable(x, y)) continue;
+      if (run.world.entityAt(x, y)) continue;
+      run.world.relocateEntity(run.player, x, y);
+      return;
+    }
+  }
+  throw new Error(`No adjacent passable tile for ${entity.id}`);
 }
 
 function freshCombatRun(seed = 1, archetype = 'razor') {
@@ -140,6 +169,28 @@ test('restore preserves turnNumber and currentFaction', () => {
   const { queue } = restore(rec);
   assert.equal(queue.turnNumber, run.queue.turnNumber);
   assert.equal(queue.currentFaction, run.queue.currentFaction);
+});
+
+test('snapshot/restore round-trips terminal interactable state', () => {
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 0x51ced });
+  run.enterBriefing(terminalSliceContract());
+  run.enterCombat();
+  const terminal = [...run.world.entities.values()].find(e => e instanceof Terminal);
+  assert.ok(terminal, 'expected a terminal interactable');
+
+  relocateAdjacentTo(run, terminal);
+  terminal.interact(run.world, run.player);
+
+  const rec = snapshot(run);
+  const terminalRec = rec.entities.find(e => e.id === terminal.id);
+  assert.equal(terminalRec.terminal?.sliced, true);
+  assert.equal(terminalRec.terminal?.armed, false);
+
+  const { world: restoredWorld } = restore(rec);
+  const restoredTerminal = [...restoredWorld.entities.values()].find(e => e instanceof Terminal);
+  assert.ok(restoredTerminal, 'expected restored terminal');
+  assert.equal(restoredTerminal.sliced, true);
+  assert.equal(restoredTerminal.armed, false);
 });
 
 test('snapshot/restore round-trips alarm cadence state', () => {

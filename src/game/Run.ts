@@ -46,6 +46,8 @@ import { Tech } from './archetypes/Tech.js';
 import { Turret } from './Turret.js';
 import { CorpDrone } from './ai/CorpDrone.js';
 import { CorpCivilian } from './entities/CorpCivilian.js';
+import { Interactable } from './entities/Interactable.js';
+import { Terminal } from './entities/Terminal.js';
 import { resetCorpTurnStatusCache } from './corpTurnStatusCopy.js';
 import { NeutralCivilian } from './entities/NeutralCivilian.js';
 import {
@@ -86,6 +88,7 @@ export type EntityArchetypeId =
   | 'drone'
   | 'corp-civilian'
   | 'neutral-civilian'
+  | 'terminal'
   | 'entity';
 
 export type RunTelemetry = {
@@ -130,6 +133,12 @@ export type RunEntitySnapshot = {
     range: number;
     attackDamage: number;
     ownerId: string | null;
+  };
+  terminal?: {
+    label: string;
+    sliced: boolean;
+    armed: boolean;
+    raisesAlarm: boolean;
   };
 };
 
@@ -296,6 +305,7 @@ export class Run {
     }
     this.queue = new TurnQueue([FACTION.PLAYER, FACTION.CORP]);
     this.exitTile = { ...map.exitTile };
+    this.#placeObjectiveInteractables();
     this.state = RUN_STATE.COMBAT;
     this._reattachCombatListeners();
   }
@@ -439,7 +449,11 @@ export class Run {
     }
     // M5: emit civilian:harmed when a NEUTRAL entity takes damage from the
     // player (or the player's turret). The shell subscribes and adjusts Rep.
-    if (target.faction === FACTION.NEUTRAL && target !== this.player) {
+    if (
+      target.faction === FACTION.NEUTRAL &&
+      target !== this.player &&
+      !(target instanceof Interactable)
+    ) {
       const isPlayerSource =
         attacker === this.player ||
         (attacker instanceof Turret && attacker.ownerId === this.player.id);
@@ -477,7 +491,7 @@ export class Run {
       if (!this.contract) {
         throw new Error('Run.#onEntityMoved: exit reached without an active contract');
       }
-      if (!isObjectiveSatisfied(this.contract)) return;
+      if (!isObjectiveSatisfied(this.contract, this.world)) return;
       this.telemetry.cause = 'exit-reached';
       this.enterResult({ outcome: OUTCOME.EXIT });
     }
@@ -498,15 +512,34 @@ export class Run {
     this.exitTile = null;
     this.bus = null;
   }
+
+  #placeObjectiveInteractables(): void {
+    if (!this.world || !this.player || !this.contract || !this.exitTile) return;
+    if (this.contract.objective.kind !== OBJECTIVES.TERMINAL_SLICE) return;
+    const anchor = findInteractableAnchor(this.world, this.player, this.exitTile, this.rng);
+    this.world.addEntity(
+      new Terminal({
+        id: 'terminal-0',
+        x: anchor.x,
+        y: anchor.y,
+        label: this.contract.objective.title,
+        raisesAlarm: true,
+      })
+    );
+  }
 }
 
-export function isObjectiveSatisfied(contract: Contract): boolean {
+export function isObjectiveSatisfied(contract: Contract, world?: World | null): boolean {
   const kind = contract.objective.kind;
   switch (kind) {
     case OBJECTIVES.REACH_EXIT:
     case OBJECTIVES.RETRIEVE:
     case OBJECTIVES.HANDOFF:
+      // M1 only carries objective intent through contract generation, UI, and
+      // saves. M2 replaces these permissive cases with family-specific state.
+      return true;
     case OBJECTIVES.TERMINAL_SLICE:
+      return isTerminalSliceSatisfied(contract, world);
     case OBJECTIVES.DENY:
     case OBJECTIVES.SWEEP:
     case OBJECTIVES.DUAL_SITE:
@@ -569,6 +602,14 @@ function snapshotEntity(entity: Entity): RunEntitySnapshot {
       ownerId: entity.ownerId,
     };
   }
+  if (entity instanceof Terminal) {
+    base.terminal = {
+      label: entity.label,
+      sliced: entity.sliced,
+      armed: entity.armed,
+      raisesAlarm: entity.raisesAlarm,
+    };
+  }
   return base;
 }
 
@@ -580,8 +621,76 @@ function archetypeOf(entity: Entity): EntityArchetypeId {
   if (entity instanceof CorpDrone) return 'drone';
   if (entity instanceof CorpCivilian) return 'corp-civilian';
   if (entity instanceof NeutralCivilian) return 'neutral-civilian';
+  if (entity instanceof Terminal) return 'terminal';
   if (entity instanceof Entity) return 'entity';
   throw new Error(`archetypeOf: cannot classify entity ${(entity as Entity | undefined)?.id}`);
+}
+
+function isTerminalSliceSatisfied(contract: Contract, world?: World | null): boolean {
+  if (!world) return false;
+  const countParam = contract.objective.params?.count;
+  const required = Number.isInteger(countParam) && Number(countParam) > 0 ? Number(countParam) : 1;
+  let sliced = 0;
+  for (const entity of world.entities.values()) {
+    if (entity instanceof Terminal && entity.sliced) sliced++;
+  }
+  return sliced >= required;
+}
+
+function findInteractableAnchor(
+  world: World,
+  player: Entity,
+  exitTile: GridPoint,
+  rng: Rng
+): GridPoint {
+  const candidates: GridPoint[] = [];
+  for (let y = 1; y < world.grid.height - 1; y++) {
+    for (let x = 1; x < world.grid.width - 1; x++) {
+      if (!world.grid.isPassable(x, y)) continue;
+      if (x === player.x && y === player.y) continue;
+      if (x === exitTile.x && y === exitTile.y) continue;
+      if (world.entityAt(x, y)) continue;
+      if (!hasAdjacentPassableTile(world, x, y)) continue;
+      candidates.push({ x, y });
+    }
+  }
+  if (candidates.length === 0) {
+    throw new Error('Run: terminal-slice contract has no legal terminal anchor');
+  }
+  const remote = candidates.filter(
+    candidate =>
+      chebyshev(candidate, exitTile) > 1 &&
+      manhattan(candidate, exitTile) >= 6 &&
+      manhattan(candidate, player) >= 4
+  );
+  if (remote.length > 0) return rng.pick(remote);
+
+  const notExitAdjacent = candidates.filter(candidate => chebyshev(candidate, exitTile) > 1);
+  if (notExitAdjacent.length > 0) return rng.pick(notExitAdjacent);
+
+  return rng.pick(candidates);
+}
+
+function hasAdjacentPassableTile(world: World, x: number, y: number): boolean {
+  const offsets = [
+    { dx: -1, dy: 0 },
+    { dx: 1, dy: 0 },
+    { dx: 0, dy: -1 },
+    { dx: 0, dy: 1 },
+  ];
+  return offsets.some(({ dx, dy }) => {
+    const tx = x + dx;
+    const ty = y + dy;
+    return world.grid.inBounds(tx, ty) && world.grid.isPassable(tx, ty) && !world.entityAt(tx, ty);
+  });
+}
+
+function manhattan(a: GridPoint, b: GridPoint): number {
+  return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+}
+
+function chebyshev(a: GridPoint, b: GridPoint): number {
+  return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
 }
 
 function archetypeOfCrew(entity: Entity): CrewArchetypeId {

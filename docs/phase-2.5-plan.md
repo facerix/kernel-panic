@@ -9,7 +9,7 @@ Living plan for the post–Phase 2 slice of Kernel Panic: **contract objectives*
 | M1 — Contract objectives (label-driven run variety) | ✅ Done |
 | M2 — Richer combat mechanics (objectives + pressure) | 🔲 Planned (see M2.1–M2.5) |
 | M2.1 — Alarm cadence & feedback | ✅ Done |
-| M2.2 — Interactables & terminal slice | 🔲 Planned |
+| M2.2 — Interactables & terminal slice | ✅ Done |
 | M2.3 — Environmental hazard tiles | 🔲 Planned |
 | M2.4 — Corp stationary hostiles | 🔲 Planned |
 | M2.5 — Locked doors & access gating | 🔲 Planned |
@@ -146,7 +146,7 @@ flowchart LR
 
 ---
 
-#### M2.2 — Interactables & terminal slice 🔲
+#### M2.2 — Interactables & terminal slice ✅
 
 **Depends on:** M2.1 (terminals should hook a real alarm model, not only the old latch).
 
@@ -164,6 +164,15 @@ flowchart LR
 - Golden-path test: start terminal-slice contract → interact → objective satisfied only when slice rules met; alarm side effects assertable.
 - Snapshot includes interactable ids + flags; restore round-trip.
 - Handoff / retrieve interactables can stub on the same base in a follow-up diff inside this slice if small; otherwise defer extra families to the slice that needs them (e.g. M2.5 for door-linked retrieve).
+
+**Implementation notes:**
+
+- Added `Interactable` base plus `Terminal` variant with adjacency checks, AP cost, serialised state (`sliced`, `armed`, `raisesAlarm`), and player-facing result copy.
+- Terminal-slice contracts now place a deterministic but varied `terminal-0` objective prop during `Run.enterCombat`, biased away from spawn and extraction when the map allows it.
+- Combat `Space` interaction still prioritises salvage, then adjacent interactables; terminal interaction slices the prop, trips the M2.1 alarm cadence, and can auto-advance on AP exhaustion.
+- Combat status now includes the active objective title and `[TODO]` / `[DONE]` completion marker; blocked extraction logs a “complete objective first” message instead of silently refusing.
+- `Run.isObjectiveSatisfied(contract, world)` now gates `OBJECTIVES.TERMINAL_SLICE` on sliced terminal count; other M1 objective families remain permissive until their slices land.
+- Run snapshots round-trip terminal state and legacy/non-terminal saves remain unaffected.
 
 ---
 

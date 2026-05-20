@@ -1,5 +1,6 @@
 import { AP_COST, NOISE_RADIUS } from './constants.js';
 import { EVENT } from './events.js';
+import { Interactable } from './entities/Interactable.js';
 import type { Grid } from './Grid.js';
 import type { Entity, LootableEntity } from './Entity.js';
 import type { EventBus } from './events.js';
@@ -208,6 +209,23 @@ export class World {
         return e as LootableEntity;
     }
     return null;
+  }
+
+  interactableAt(x: number, y: number): Interactable | null {
+    const entity = this.entityAt(x, y);
+    return entity instanceof Interactable ? entity : null;
+  }
+
+  adjacentInteractables(actor: Entity): Interactable[] {
+    const interactables: Interactable[] = [];
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (dx === 0 && dy === 0) continue;
+        const entity = this.interactableAt(actor.x + dx, actor.y + dy);
+        if (entity) interactables.push(entity);
+      }
+    }
+    return interactables;
   }
 
   /**

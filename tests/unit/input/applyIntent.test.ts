@@ -107,6 +107,32 @@ test('move into a wall is denied (logs MOVE DENIED, no mutation)', () => {
   assert.ok(log.some(l => l.includes('MOVE DENIED')));
 });
 
+test('move onto exit logs objective block when canExit says no', () => {
+  const { ctx, log, player, calls, world } = buildCtx({ placeDrone: false });
+  world.grid.setTile(2, 3, TILE.EXIT);
+  ctx.canExit = () => false;
+  ctx.exitBlockedMessage = () => 'Complete objective first: Slice server rack.';
+
+  applyIntent({ type: 'move', dx: 0, dy: 1 }, ctx);
+
+  assert.equal(player.x, 2);
+  assert.equal(player.y, 3);
+  assert.equal(calls.reachedExit, 0);
+  assert.equal(calls.advanceTurn, 0);
+  assert.ok(log.some(l => l.includes('Complete objective first')));
+});
+
+test('move onto exit reaches exit when canExit allows it', () => {
+  const { ctx, log, calls, world } = buildCtx({ placeDrone: false });
+  world.grid.setTile(2, 3, TILE.EXIT);
+  ctx.canExit = () => true;
+
+  applyIntent({ type: 'move', dx: 0, dy: 1 }, ctx);
+
+  assert.equal(calls.reachedExit, 1);
+  assert.ok(log.some(l => l.includes('EXIT REACHED')));
+});
+
 test('special intent routes to Vault on a Merc and lands two tiles away', () => {
   // Cover is at (3,2); player at (2,2) — special dx=1 should land at (4,2).
   // applyIntent.doSpecial dispatches by capability check on the live player.

@@ -5,12 +5,12 @@
  * the exit door.
  *
  * Layout (12×8, walls outline the room, `D` is the exit door,
- * `C` is the Curator, `F` is Finn the fence, `T` is the loadout Terminal,
+ * `C` is the Curator, `F` is Finn the fence, `‡` is the loadout Terminal,
  * `@` is the player spawn):
  *
  *   ############
  *   #..........#
- *   #.C..F...T.#
+ *   #.C..F...‡.#
  *   #..........#
  *   #..........#
  *   #.....@....#

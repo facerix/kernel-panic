@@ -43,6 +43,7 @@ import { Turret } from './Turret.js';
 import { CorpDrone, DRONE_STATE } from './ai/CorpDrone.js';
 import { CorpCivilian } from './entities/CorpCivilian.js';
 import { NeutralCivilian } from './entities/NeutralCivilian.js';
+import { Terminal } from './entities/Terminal.js';
 import { Run, RUN_STATE } from './Run.js';
 import { Campaign, CAMPAIGN_STATE } from './Campaign.js';
 import { normalizeObjective } from './hub/Curator.js';
@@ -52,6 +53,7 @@ import type { TurretInit } from './Turret.js';
 import type { CorpDroneProps } from './ai/CorpDrone.js';
 import type { CorpCivilianInit } from './entities/CorpCivilian.js';
 import type { NeutralCivilianInit } from './entities/NeutralCivilian.js';
+import type { TerminalInit } from './entities/Terminal.js';
 import type { EntityInit } from './Entity.js';
 import type { FactionId } from './constants.js';
 import type {
@@ -68,7 +70,13 @@ import type { CampaignMeta, CampaignState } from './Campaign.js';
 const ARCHETYPE_KEY = Symbol.for('kernel-panic.archetype');
 
 type RestoreEntityProps = Partial<
-  CrewInit & TurretInit & CorpDroneProps & CorpCivilianInit & NeutralCivilianInit & EntityInit
+  CrewInit &
+    TurretInit &
+    CorpDroneProps &
+    CorpCivilianInit &
+    NeutralCivilianInit &
+    EntityInit &
+    TerminalInit
 > & {
   id: string;
   x: number;
@@ -89,6 +97,7 @@ const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) =
     'corp-civilian': (props: RestoreEntityProps) => new CorpCivilian(props as CorpCivilianInit),
     'neutral-civilian': (props: RestoreEntityProps) =>
       new NeutralCivilian(props as NeutralCivilianInit),
+    terminal: (props: RestoreEntityProps) => new Terminal(props as TerminalInit),
     // Generic fallback so a future `Entity` subclass (NPCs, items) doesn't break
     // the round-trip when the full archetype landed but the loader hasn't.
     entity: (props: RestoreEntityProps) =>
@@ -406,6 +415,15 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
     }
     if (rec.turret.ownerId !== undefined) entityProps.ownerId = rec.turret.ownerId;
   }
+  if (rec.archetype === 'terminal' && rec.terminal) {
+    entityProps.label = rec.terminal.label;
+    entityProps.sliced = rec.terminal.sliced;
+    entityProps.armed = rec.terminal.armed;
+    entityProps.raisesAlarm = rec.terminal.raisesAlarm;
+  }
+  if (rec.archetype === 'terminal' && !rec.terminal) {
+    throw new TypeError(`restore: terminal entity ${rec.id} requires terminal state`);
+  }
   const entity = factory(entityProps);
   // Re-apply the live HP / AP / alive / stealth state. We can't pass current
   // HP through the constructor (Entity always starts at full health), so we
@@ -478,6 +496,24 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
         throw new RangeError(`restore: drone ${rec.id} patrolIndex=${idx} out of [0, ${len})`);
       }
       entity.patrolIndex = len > 0 ? idx : 0;
+    }
+  }
+
+  if (rec.archetype === 'terminal' && rec.terminal) {
+    if (!(entity instanceof Terminal)) {
+      throw new Error(`restore: terminal entity ${rec.id} did not restore as Terminal`);
+    }
+    if (typeof rec.terminal.label !== 'string' || rec.terminal.label.length === 0) {
+      throw new TypeError(`restore: terminal ${rec.id} label must be a non-empty string`);
+    }
+    if (typeof rec.terminal.sliced !== 'boolean') {
+      throw new TypeError(`restore: terminal ${rec.id} sliced must be boolean`);
+    }
+    if (typeof rec.terminal.armed !== 'boolean') {
+      throw new TypeError(`restore: terminal ${rec.id} armed must be boolean`);
+    }
+    if (typeof rec.terminal.raisesAlarm !== 'boolean') {
+      throw new TypeError(`restore: terminal ${rec.id} raisesAlarm must be boolean`);
     }
   }
 

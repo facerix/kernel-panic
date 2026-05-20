@@ -1,10 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { Run, RUN_STATE, OUTCOME } from '../../../src/game/Run.js';
+import { Run, RUN_STATE, OUTCOME, isObjectiveSatisfied } from '../../../src/game/Run.js';
 import { OBJECTIVES } from '../../../src/game/hub/Curator.js';
 import { FACTION, SALVAGE_DROP_MIN, SALVAGE_DROP_MAX } from '../../../src/game/constants.js';
 import { Entity } from '../../../src/game/Entity.js';
+import { Terminal } from '../../../src/game/entities/Terminal.js';
 import { EVENT } from '../../../src/game/events.js';
 import { Turret } from '../../../src/game/Turret.js';
 import { buildCrewMember } from '../../../src/game/archetypes/index.js';
@@ -24,10 +25,38 @@ const fakeContract = (overrides = {}) => ({
   ...overrides,
 });
 
+const terminalSliceContract = (overrides = {}) =>
+  fakeContract({
+    objective: {
+      kind: OBJECTIVES.TERMINAL_SLICE,
+      title: 'Slice server rack',
+      briefing: 'Reach the server terminal, complete the slice, then extract.',
+      params: { target: 'server-rack', count: 1 },
+    },
+    label: 'terminal test job',
+    ...overrides,
+  });
+
 function makeCrew(archetype = 'razor') {
   return buildCrewMember(archetype, { x: 0, y: 0 }, new Rng(100), {
     id: `crew-${archetype}`,
   });
+}
+
+function relocateAdjacentTo(run, entity) {
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      if (dx === 0 && dy === 0) continue;
+      const x = entity.x + dx;
+      const y = entity.y + dy;
+      if (!run.world.grid.inBounds(x, y)) continue;
+      if (!run.world.grid.isPassable(x, y)) continue;
+      if (run.world.entityAt(x, y)) continue;
+      run.world.relocateEntity(run.player, x, y);
+      return;
+    }
+  }
+  throw new Error(`No adjacent passable tile for ${entity.id}`);
 }
 
 test('Run starts with state=null and a deployed crew member', () => {
@@ -63,6 +92,42 @@ test('enterCombat passes contract threat and difficulty into map generation', ()
   run.enterCombat();
   const drones = [...run.world.entities.values()].filter(entity => entity.id.startsWith('drone-'));
   assert.equal(drones.length, 4);
+});
+
+test('terminal-slice contract spawns a terminal and gates objective satisfaction', () => {
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 42 });
+  run.enterBriefing(terminalSliceContract());
+  run.enterCombat();
+
+  const terminal = [...run.world.entities.values()].find(entity => entity instanceof Terminal);
+  assert.ok(terminal, 'terminal-slice combat map should include a terminal');
+  assert.equal(terminal.glyph, '‡');
+  assert.ok(
+    Math.max(Math.abs(terminal.x - run.exitTile.x), Math.abs(terminal.y - run.exitTile.y)) > 1,
+    'terminal should not spawn adjacent to extraction'
+  );
+  assert.equal(isObjectiveSatisfied(run.contract, run.world), false);
+
+  relocateAdjacentTo(run, terminal);
+  const result = terminal.interact(run.world, run.player);
+
+  assert.equal(result.ok, true);
+  assert.equal(terminal.sliced, true);
+  assert.equal(run.world.alarm.phase, 'alert');
+  assert.equal(isObjectiveSatisfied(run.contract, run.world), true);
+});
+
+test('terminal-slice terminal placement varies across contract seeds', () => {
+  const positions = new Set();
+  for (let seed = 100; seed < 112; seed++) {
+    const run = new Run({ crewMember: makeCrew('razor'), seed });
+    run.enterBriefing(terminalSliceContract({ seed }));
+    run.enterCombat();
+    const terminal = [...run.world.entities.values()].find(entity => entity instanceof Terminal);
+    assert.ok(terminal, 'terminal-slice combat map should include a terminal');
+    positions.add(`${terminal.x},${terminal.y}`);
+  }
+  assert.ok(positions.size > 1, 'terminal placement should vary across contract seeds');
 });
 
 test('illegal transitions throw — fresh Run rejects combat/result before briefing', () => {

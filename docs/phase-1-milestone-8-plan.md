@@ -38,7 +38,7 @@ src/game/
   hub/
     SafeSpace.js               — buildHub() → { grid, playerSpawn, curatorSpawn, terminalSpawn, exitTile }
     Curator.js                 — Entity subclass; faction NEUTRAL; generateContract(rng) → { seed, objective, threatCount }
-    Terminal.js                — Entity subclass; faction NEUTRAL, immobile, glyph 'T'; interact re-opens character select
+    Terminal.js                — Entity subclass; faction NEUTRAL, immobile, glyph '‡'; interact re-opens character select
   archetypes.js                — ARCHETYPES registry: { id, name, glyph, blurb, perks, baseStats }; one entry each for Merc and Razor
 
 src/input/
