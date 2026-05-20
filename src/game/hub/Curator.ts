@@ -344,6 +344,26 @@ export function normalizeObjective(value: unknown): ContractObjective {
   return cloneObjective(candidate as ContractObjective);
 }
 
+/**
+ * Throws if `CONTRACT_LABELS` and `OBJECTIVE_BY_LABEL` drift apart. Called from
+ * unit tests so label additions fail fast without duplicating the mapping table.
+ */
+export function assertLabelObjectiveRegistryInSync(): void {
+  const labels = new Set(CONTRACT_LABELS);
+  for (const label of CONTRACT_LABELS) {
+    const objective = OBJECTIVE_BY_LABEL[label];
+    if (!objective) {
+      throw new Error(`Curator: no objective mapping for contract label "${label}"`);
+    }
+    normalizeObjective(objective);
+  }
+  for (const label of Object.keys(OBJECTIVE_BY_LABEL)) {
+    if (!labels.has(label)) {
+      throw new Error(`Curator: objective mapping for unknown contract label "${label}"`);
+    }
+  }
+}
+
 export function isContractDifficulty(value: string): value is ContractDifficulty {
   return (Object.values(CONTRACT_DIFFICULTY) as string[]).includes(value);
 }

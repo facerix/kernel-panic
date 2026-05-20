@@ -8,19 +8,12 @@ import {
   SALVAGE_TO_CRED_RATE,
   TILE,
 } from '../../../../src/game/constants.js';
-import { Curator, OBJECTIVES, isObjective } from '../../../../src/game/hub/Curator.js';
+import {
+  Curator,
+  assertLabelObjectiveRegistryInSync,
+  isObjective,
+} from '../../../../src/game/hub/Curator.js';
 import { buildHub } from '../../../../src/game/hub/SafeSpace.js';
-
-const EXPECTED_OBJECTIVE_KIND_BY_LABEL = Object.freeze({
-  'Sublevel 3 cache': OBJECTIVES.RETRIEVE,
-  'Vuong Holdings server farm': OBJECTIVES.TERMINAL_SLICE,
-  'Black market dropoff — Pier 9': OBJECTIVES.HANDOFF,
-  'Glassed clinic data dump': OBJECTIVES.RETRIEVE,
-  'Spinning Fox warehouse': OBJECTIVES.DENY,
-  'Matsuda payroll mirror': OBJECTIVES.DUAL_SITE,
-  'Transit authority dead drop': OBJECTIVES.RETRIEVE,
-  'Harbor node sweep': OBJECTIVES.SWEEP,
-});
 
 test('Curator constructs with NEUTRAL faction and zero AP', () => {
   const c = new Curator({ x: 2, y: 3 });
@@ -70,22 +63,8 @@ test('contract objective is in the known set and threatCount > 0', () => {
   assert.ok(Number.isInteger(contract.reward.repDelta));
 });
 
-test('contract labels deterministically map to objective families', () => {
-  const seen = new Set();
-  for (let seed = 0; seed < 200; seed++) {
-    const contracts = new Curator().generateContracts(new Rng(seed));
-    for (const contract of contracts) {
-      const label = contract.label.replace(/^\/\/ /, '');
-      const expectedKind = EXPECTED_OBJECTIVE_KIND_BY_LABEL[label];
-      assert.equal(contract.objective.kind, expectedKind, `${label} should map to ${expectedKind}`);
-      seen.add(label);
-    }
-  }
-  assert.deepEqual(
-    [...seen].sort(),
-    Object.keys(EXPECTED_OBJECTIVE_KIND_BY_LABEL).sort(),
-    'test should exercise every current contract label'
-  );
+test('contract label pool matches objective registry', () => {
+  assertLabelObjectiveRegistryInSync();
 });
 
 test('different Rng states yield different seeds (no constant return)', () => {
