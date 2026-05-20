@@ -116,6 +116,8 @@ flowchart LR
 
 **Cross-cutting rule:** Each slice replaces the matching **permissive** branch in `isObjectiveSatisfied` (M1 placeholder returns `true`) when its mechanics land — avoid a single end-loaded “objectives” PR.
 
+**Remember for every subtask:** When you add new combat glyphs, add them to the key help overlay as well, so players know what to look for.
+
 **Out of scope for all of M2:** breaching charges, destructible walls, location-keyed map reuse (**M6**); exact Rep/AP economy tuning (**M5**); new contract labels (**M1** pool only).
 
 ---

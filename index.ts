@@ -1263,41 +1263,52 @@ function statusLine(modeHint: Mode): string {
   if (run.state !== RUN_STATE.COMBAT) {
     corpToneActivityBody = null;
   }
-  const aim = modeHint && modeHint !== MODE.IDLE ? `  |  AIM: ${modeHint}` : '';
+  const aim = modeHint && modeHint !== MODE.IDLE ? `AIM ${modeHint}` : '';
   const player = run.player;
   if (!player) return stateLabel();
+  if (!run.queue) return stateLabel();
   const stealthTag = player.stealthed ? ' [CLOAKED]' : '';
   let identity;
   let aphp = '';
   let turnInfo = '';
+  let context = '';
   if (run.state === RUN_STATE.COMBAT) {
     if (!isRun(run)) {
       throw new Error('[shell] combat status requires an active run');
     }
-    const salvageTag = run.player?.inventory ? ` SAL:${run.player.inventory.salvage}` : '';
+    const salvageTag = run.player?.inventory ? `SAL ${run.player.inventory.salvage}` : '';
     const objectiveTag = objectiveStatusTag(run);
     const alarm = run.world?.alarm;
     const alertTag =
       alarm?.phase === 'alert'
-        ? ` <span class="alert-tag">[ALERT:${alarm.holdTurnsRemaining}]</span>`
+        ? `<span class="alert-tag">ALERT ${alarm.holdTurnsRemaining}</span>`
         : alarm?.phase === 'cooldown'
-          ? ` <span class="alert-tag">[COOL:${alarm.cooldownTurnsRemaining}]</span>`
+          ? `<span class="alert-tag">COOL ${alarm.cooldownTurnsRemaining}</span>`
           : '';
-    identity = `${run.player?.callsign ?? run.archetype} ${run.archetype.toUpperCase()}${salvageTag}${alertTag}${objectiveTag}`;
+    const lockTag =
+      run.queue.currentFaction === FACTION.CORP
+        ? '<span class="control-lock">CORP TURN - controls locked</span>'
+        : '';
+    identity = `${escapeHtml(run.player?.callsign ?? run.archetype)} ${escapeHtml(run.archetype.toUpperCase())}`;
     aphp = `AP ${player.ap}/${player.maxAp} HP ${player.hp}/${player.maxHp}`;
+    context = joinStatusParts([lockTag, objectiveTag, salvageTag, alertTag]);
   } else {
     if (!campaign) return stateLabel();
     const repLabel = REP_LABEL.find(b => campaign!.rep >= b.min)?.label ?? 'UNKNOWN';
-    identity = `CREW ${campaign.crew.filter(member => !member.flatlined).length}/${campaign.crew.length} CREDS ${campaign.credits ?? 0} SALVAGE ${campaign.salvage ?? 0} REP ${campaign.rep} (${repLabel})`;
+    identity = `CREW ${campaign.crew.filter(member => !member.flatlined).length}/${campaign.crew.length} CREDS ${campaign.credits ?? 0} SALVAGE ${campaign.salvage ?? 0} REP ${campaign.rep} (${escapeHtml(repLabel)})`;
   }
-  if (!run.queue) return stateLabel();
   turnInfo =
     run.state === RUN_STATE.COMBAT
-      ? `  |  TURN ${run.queue.turnNumber} (${run.queue.currentFaction.toUpperCase()})${aim}`
+      ? joinStatusParts([
+          `TURN ${run.queue.turnNumber}`,
+          escapeHtml(run.queue.currentFaction.toUpperCase()),
+          aim,
+        ])
       : '';
-  const statsInner = `${stateLabel()}  |  ${identity} ` + `${aphp}${stealthTag}` + `${turnInfo}`;
+  const statsInner = joinStatusParts([stateLabel(), identity, `${aphp}${stealthTag}`, turnInfo]);
   const stats = `<span class="game-shell__stats">${statsInner}</span>`;
-  // Two activity rows below the stats line. Ephemeral, non-logged status
+  const contextRow = `<span class="game-shell__context">${context}</span>`;
+  // Two activity rows below the stable status rows. Ephemeral, non-logged status
   // (proximity hints, corp mood) takes the upper slot when present,
   // bumping the previous action line; otherwise both rows show the last
   // two action logs. The reserved heights keep geometry constant.
@@ -1327,13 +1338,38 @@ function statusLine(modeHint: Mode): string {
     ? ephemeral
     : `<span class="game-shell__activity">${prevActionLine ?? ''}</span>`;
   const lower = `<span class="game-shell__activity">${lastActionLine ?? ''}</span>`;
-  return stats + upper + lower;
+  return stats + contextRow + upper + lower;
 }
 
 function objectiveStatusTag(run: Run): string {
   if (!run.contract || !run.world) return '';
   const done = isObjectiveSatisfied(run.contract, run.world);
-  return ` OBJ:${run.contract.objective.title} [${done ? 'DONE' : 'TODO'}]`;
+  return `<span class="objective-tag">OBJ ${escapeHtml(run.contract.objective.title)} <span class="${done ? 'done' : 'todo'}">[${done ? 'DONE' : 'TODO'}]</span></span>`;
+}
+
+function joinStatusParts(parts: Array<string | null | undefined>): string {
+  return parts
+    .filter(part => part && part.trim().length > 0)
+    .join(' <span class="status-sep">|</span> ');
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, char => {
+    switch (char) {
+      case '&':
+        return '&amp;';
+      case '<':
+        return '&lt;';
+      case '>':
+        return '&gt;';
+      case '"':
+        return '&quot;';
+      case "'":
+        return '&#39;';
+      default:
+        return char;
+    }
+  });
 }
 
 /**

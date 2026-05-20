@@ -111,7 +111,7 @@ export function applyIntent(intent: Intent, ctx: ApplyIntentContext) {
   const { player, queue, log, advanceTurn, resetInputModes } = ctx;
 
   if (queue.currentFaction !== FACTION.PLAYER && intent.type !== 'cancel') {
-    log('> NOT YOUR TURN — press . to wait.');
+    log('> CORP TURN — controls locked until security finishes.');
     return;
   }
 

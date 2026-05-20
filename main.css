@@ -197,10 +197,10 @@ main {
   flex-direction: column;
   gap: 0.2em;
 
-  /* Three reserved rows: stats + two activity lines. Each row holds its
+  /* Four reserved rows: stats, context, and two activity lines. Each row holds its
    * own line so toggling text never reflows the canvas above. When a
    * proximity hint is active it takes the upper activity slot (`.hint`);
-   * otherwise both show rolling action logs. Stats never wraps — at
+   * otherwise both show rolling action logs. Stable rows never wrap — at
    * narrow viewports it ellipsizes rather than spilling. */
   .game-shell__stats {
     color: #6ae8c8;
@@ -208,12 +208,38 @@ main {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
 
-    .alert-tag {
-      color: #ff4d4d;
-      font-weight: 700;
-      letter-spacing: 0.1em;
-    }
+  .game-shell__context {
+    color: #b8f5e2;
+    height: 1.1rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    opacity: 0.92;
+  }
+
+  .status-sep {
+    margin: 0 0.55em;
+    opacity: 0.55;
+  }
+
+  .alert-tag,
+  .control-lock,
+  .objective-tag .todo {
+    font-weight: 700;
+    letter-spacing: 0.1em;
+  }
+
+  .alert-tag,
+  .control-lock {
+    color: #ff7a66;
+  }
+
+  .objective-tag .done {
+    color: #7dff9d;
+    font-weight: 700;
+    letter-spacing: 0.1em;
   }
 
   .game-shell__activity {
