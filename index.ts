@@ -1250,13 +1250,16 @@ function statusLine(modeHint: Mode): string {
     const alertTag = run.world?.alarmActive ? ' <span class="alert-tag">[ALERT]</span>' : '';
     identity = `${run.player?.callsign ?? run.archetype} ${run.archetype.toUpperCase()}${salvageTag}${alertTag}`;
     aphp = `AP ${player.ap}/${player.maxAp} HP ${player.hp}/${player.maxHp}`;
-    turnInfo = `  |  TURN ${run.queue.turnNumber} (${run.queue.currentFaction.toUpperCase()})${aim}`;
   } else {
     if (!campaign) return stateLabel();
     const repLabel = REP_LABEL.find(b => campaign!.rep >= b.min)?.label ?? 'UNKNOWN';
     identity = `CREW ${campaign.crew.filter(member => !member.flatlined).length}/${campaign.crew.length} CREDS ${campaign.credits ?? 0} SALVAGE ${campaign.salvage ?? 0} REP ${campaign.rep} (${repLabel})`;
   }
   if (!run.queue) return stateLabel();
+  turnInfo =
+    run.state === RUN_STATE.COMBAT
+      ? `  |  TURN ${run.queue.turnNumber} (${run.queue.currentFaction.toUpperCase()})${aim}`
+      : '';
   const statsInner = `${stateLabel()}  |  ${identity} ` + `${aphp}${stealthTag}` + `${turnInfo}`;
   const stats = `<span class="game-shell__stats">${statsInner}</span>`;
   // Two activity rows below the stats line. Ephemeral, non-logged status
