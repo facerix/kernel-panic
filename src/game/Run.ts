@@ -48,6 +48,8 @@ import { CorpDrone } from './ai/CorpDrone.js';
 import { CorpCivilian } from './entities/CorpCivilian.js';
 import { Interactable } from './entities/Interactable.js';
 import { Terminal } from './entities/Terminal.js';
+import { CorpTurret } from './entities/CorpTurret.js';
+import { RelayNode } from './entities/RelayNode.js';
 import { resetCorpTurnStatusCache } from './corpTurnStatusCopy.js';
 import { NeutralCivilian } from './entities/NeutralCivilian.js';
 import {
@@ -89,6 +91,8 @@ export type EntityArchetypeId =
   | 'corp-civilian'
   | 'neutral-civilian'
   | 'terminal'
+  | 'corp-turret'
+  | 'relay-node'
   | 'entity';
 
 export type RunTelemetry = {
@@ -139,6 +143,13 @@ export type RunEntitySnapshot = {
     sliced: boolean;
     armed: boolean;
     raisesAlarm: boolean;
+  };
+  corpTurret?: {
+    range: number;
+    attackDamage: number;
+  };
+  relayNode?: {
+    label: string;
   };
 };
 
@@ -527,6 +538,10 @@ export class Run {
         })
       );
     }
+    // M2.4: Place sweep targets (relay nodes or corp turrets) for sweep contracts.
+    if (this.contract.objective.kind === OBJECTIVES.SWEEP) {
+      this.#placeSweepTargets();
+    }
     // M2.3: Place hazard cluster near a future pickup anchor when hazardFlavor
     // is set (e.g. "Glassed clinic data dump"). The cluster is placed around a
     // candidate anchor point biased away from spawn/exit.
@@ -534,6 +549,66 @@ export class Run {
       const anchor = findInteractableAnchor(this.world, this.player, this.exitTile, this.rng);
       placeHazardCluster(this.world, anchor, this.rng);
     }
+  }
+
+  /**
+   * Place sweep-objective entities based on the sweep quota type:
+   *   - relay-node: 3 RelayNode entities spread across the map.
+   *   - turret: 2 CorpTurret entities at defensible positions.
+   *   - drone-all: 1 CorpTurret for ambient pressure (drones are already placed).
+   */
+  #placeSweepTargets(): void {
+    if (!this.world || !this.player || !this.contract || !this.exitTile) return;
+    const quota = sweepQuotaType(this.contract);
+    switch (quota) {
+      case SWEEP_QUOTA.RELAY_NODE: {
+        const count = 3;
+        for (let i = 0; i < count; i++) {
+          const anchor = findInteractableAnchor(
+            this.world, this.player, this.exitTile, this.rng
+          );
+          this.world.addEntity(
+            new RelayNode({
+              id: `relay-node-${i}`,
+              x: anchor.x,
+              y: anchor.y,
+              label: this.contract.objective.params?.target as string ?? 'Relay node',
+            })
+          );
+        }
+        // Add one corp turret for pressure alongside relay nodes.
+        this.#placeCorpTurret(0);
+        break;
+      }
+      case SWEEP_QUOTA.TURRET: {
+        const count = 2;
+        for (let i = 0; i < count; i++) {
+          this.#placeCorpTurret(i);
+        }
+        break;
+      }
+      case SWEEP_QUOTA.DRONE_ALL:
+      default: {
+        // Drones are already placed by enterCombat; add one corp turret
+        // for ambient pressure.
+        this.#placeCorpTurret(0);
+        break;
+      }
+    }
+  }
+
+  #placeCorpTurret(index: number): void {
+    if (!this.world || !this.player || !this.exitTile) return;
+    const anchor = findInteractableAnchor(
+      this.world, this.player, this.exitTile, this.rng
+    );
+    this.world.addEntity(
+      new CorpTurret({
+        id: `corp-turret-${index}`,
+        x: anchor.x,
+        y: anchor.y,
+      })
+    );
   }
 }
 
@@ -549,11 +624,12 @@ export function isObjectiveSatisfied(contract: Contract, world?: World | null): 
     case OBJECTIVES.TERMINAL_SLICE:
       return isTerminalSliceSatisfied(contract, world);
     case OBJECTIVES.DENY:
-    case OBJECTIVES.SWEEP:
     case OBJECTIVES.DUAL_SITE:
       // M1 only carries objective intent through contract generation, UI, and
       // saves. M2 replaces these permissive cases with family-specific state.
       return true;
+    case OBJECTIVES.SWEEP:
+      return isSweepSatisfied(contract, world);
     default: {
       const exhaustive: never = kind;
       throw new Error(`Run.isObjectiveSatisfied: unknown objective kind "${exhaustive}"`);
@@ -618,6 +694,17 @@ function snapshotEntity(entity: Entity): RunEntitySnapshot {
       raisesAlarm: entity.raisesAlarm,
     };
   }
+  if (entity instanceof CorpTurret) {
+    base.corpTurret = {
+      range: entity.range,
+      attackDamage: entity.attackDamage,
+    };
+  }
+  if (entity instanceof RelayNode) {
+    base.relayNode = {
+      label: entity.label,
+    };
+  }
   return base;
 }
 
@@ -630,6 +717,8 @@ function archetypeOf(entity: Entity): EntityArchetypeId {
   if (entity instanceof CorpCivilian) return 'corp-civilian';
   if (entity instanceof NeutralCivilian) return 'neutral-civilian';
   if (entity instanceof Terminal) return 'terminal';
+  if (entity instanceof CorpTurret) return 'corp-turret';
+  if (entity instanceof RelayNode) return 'relay-node';
   if (entity instanceof Entity) return 'entity';
   throw new Error(`archetypeOf: cannot classify entity ${(entity as Entity | undefined)?.id}`);
 }
@@ -643,6 +732,76 @@ function isTerminalSliceSatisfied(contract: Contract, world?: World | null): boo
     if (entity instanceof Terminal && entity.sliced) sliced++;
   }
   return sliced >= required;
+}
+
+/**
+ * Sweep quota types:
+ *   - `drone-all`:   All CorpDrone entities dead.
+ *   - `relay-node`:  All RelayNode entities dead (or a params.count subset).
+ *   - `turret`:      All CorpTurret entities dead (or a params.count subset).
+ *
+ * The quota type is inferred from `params.sweepTarget` (explicit) or
+ * `params.target` (label-driven default). If no recognizable target is set,
+ * falls back to `drone-all` — kill every drone on the map.
+ */
+export const SWEEP_QUOTA = Object.freeze({
+  DRONE_ALL: 'drone-all',
+  RELAY_NODE: 'relay-node',
+  TURRET: 'turret',
+});
+
+function sweepQuotaType(contract: Contract): string {
+  const target = (contract.objective.params?.sweepTarget ??
+    contract.objective.params?.target) as string | undefined;
+  if (!target) return SWEEP_QUOTA.DRONE_ALL;
+  if (target === 'relay-node' || target === 'skybridge-relay') return SWEEP_QUOTA.RELAY_NODE;
+  if (target === 'turret' || target === 'corp-turret') return SWEEP_QUOTA.TURRET;
+  return SWEEP_QUOTA.DRONE_ALL;
+}
+
+function isSweepSatisfied(contract: Contract, world?: World | null): boolean {
+  if (!world) return false;
+  const quota = sweepQuotaType(contract);
+  switch (quota) {
+    case SWEEP_QUOTA.DRONE_ALL: {
+      for (const entity of world.entities.values()) {
+        if (entity instanceof CorpDrone && entity.alive) return false;
+      }
+      return true;
+    }
+    case SWEEP_QUOTA.RELAY_NODE: {
+      const countParam = contract.objective.params?.count;
+      if (Number.isInteger(countParam) && Number(countParam) > 0) {
+        // Explicit count: need at least N relay nodes destroyed.
+        let destroyed = 0;
+        for (const entity of world.entities.values()) {
+          if (entity instanceof RelayNode && !entity.alive) destroyed++;
+        }
+        return destroyed >= Number(countParam);
+      }
+      // No count: all relay nodes on the map must be dead.
+      for (const entity of world.entities.values()) {
+        if (entity instanceof RelayNode && entity.alive) return false;
+      }
+      return true;
+    }
+    case SWEEP_QUOTA.TURRET: {
+      const countParam = contract.objective.params?.count;
+      if (Number.isInteger(countParam) && Number(countParam) > 0) {
+        let destroyed = 0;
+        for (const entity of world.entities.values()) {
+          if (entity instanceof CorpTurret && !entity.alive) destroyed++;
+        }
+        return destroyed >= Number(countParam);
+      }
+      for (const entity of world.entities.values()) {
+        if (entity instanceof CorpTurret && entity.alive) return false;
+      }
+      return true;
+    }
+    default:
+      return true;
+  }
 }
 
 function findInteractableAnchor(

@@ -39,7 +39,7 @@ test('corpTurnStatusBody: random message is stable for full turn', () => {
 });
 
 test('corpTurnStatusBody: one visible', () => {
-  assert.match(corpTurnStatusBody(1), /drone/i);
+  assert.match(corpTurnStatusBody(1), /corp asset/i);
 });
 
 test('corpTurnStatusBody: several visible', () => {

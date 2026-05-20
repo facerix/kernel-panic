@@ -124,6 +124,24 @@ export const SIGHT_RANGE = 8;
  */
 export const HAZARD_DAMAGE = 1;
 
+/**
+ * Corp turret parameters. Stationary CORP-faction hostile that fires at
+ * PLAYER entities during the corp turn. Range matches the player turret
+ * (TURRET_RANGE) so the threat is symmetric; damage is flat 1 to match
+ * drone/turret convention. HP is lower than a drone — they're infrastructure,
+ * not combatants, and the player needs a fast way to neutralize a firing lane.
+ */
+export const CORP_TURRET_RANGE = 4;
+export const CORP_TURRET_DAMAGE = 1;
+export const CORP_TURRET_HP = 2;
+
+/**
+ * Relay node parameters. Destructible CORP-faction entity used as a sweep
+ * target. Low HP — one ranged hit or melee strike takes it down. No AI,
+ * no movement, no attack.
+ */
+export const RELAY_NODE_HP = 1;
+
 export const SALVAGE_DROP_MIN = 1;
 export const SALVAGE_DROP_MAX = 3;
 export const SALVAGE_PER_IMPROVISED_TURRET = 2;

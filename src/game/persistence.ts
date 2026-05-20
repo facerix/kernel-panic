@@ -44,6 +44,8 @@ import { CorpDrone, DRONE_STATE } from './ai/CorpDrone.js';
 import { CorpCivilian } from './entities/CorpCivilian.js';
 import { NeutralCivilian } from './entities/NeutralCivilian.js';
 import { Terminal } from './entities/Terminal.js';
+import { CorpTurret } from './entities/CorpTurret.js';
+import { RelayNode } from './entities/RelayNode.js';
 import { Run, RUN_STATE } from './Run.js';
 import { Campaign, CAMPAIGN_STATE } from './Campaign.js';
 import { normalizeObjective } from './hub/Curator.js';
@@ -54,6 +56,8 @@ import type { CorpDroneProps } from './ai/CorpDrone.js';
 import type { CorpCivilianInit } from './entities/CorpCivilian.js';
 import type { NeutralCivilianInit } from './entities/NeutralCivilian.js';
 import type { TerminalInit } from './entities/Terminal.js';
+import type { CorpTurretInit } from './entities/CorpTurret.js';
+import type { RelayNodeInit } from './entities/RelayNode.js';
 import type { EntityInit } from './Entity.js';
 import type { FactionId } from './constants.js';
 import type {
@@ -76,7 +80,9 @@ type RestoreEntityProps = Partial<
     CorpCivilianInit &
     NeutralCivilianInit &
     EntityInit &
-    TerminalInit
+    TerminalInit &
+    CorpTurretInit &
+    RelayNodeInit
 > & {
   id: string;
   x: number;
@@ -98,6 +104,8 @@ const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) =
     'neutral-civilian': (props: RestoreEntityProps) =>
       new NeutralCivilian(props as NeutralCivilianInit),
     terminal: (props: RestoreEntityProps) => new Terminal(props as TerminalInit),
+    'corp-turret': (props: RestoreEntityProps) => new CorpTurret(props as CorpTurretInit),
+    'relay-node': (props: RestoreEntityProps) => new RelayNode(props as RelayNodeInit),
     // Generic fallback so a future `Entity` subclass (NPCs, items) doesn't break
     // the round-trip when the full archetype landed but the loader hasn't.
     entity: (props: RestoreEntityProps) =>
@@ -414,6 +422,15 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
       entityProps.attackDamage = rec.turret.attackDamage;
     }
     if (rec.turret.ownerId !== undefined) entityProps.ownerId = rec.turret.ownerId;
+  }
+  if (rec.archetype === 'corp-turret' && rec.corpTurret) {
+    if (Number.isInteger(rec.corpTurret.range)) entityProps.range = rec.corpTurret.range;
+    if (Number.isInteger(rec.corpTurret.attackDamage)) {
+      entityProps.attackDamage = rec.corpTurret.attackDamage;
+    }
+  }
+  if (rec.archetype === 'relay-node') {
+    entityProps.label = rec.relayNode?.label ?? 'Relay node';
   }
   if (rec.archetype === 'terminal' && rec.terminal) {
     entityProps.label = rec.terminal.label;

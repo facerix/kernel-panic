@@ -11,7 +11,7 @@ Living plan for the post–Phase 2 slice of Kernel Panic: **contract objectives*
 | M2.1 — Alarm cadence & feedback | ✅ Done |
 | M2.2 — Interactables & terminal slice | ✅ Done |
 | M2.3 — Environmental hazard tiles | ✅ Done |
-| M2.4 — Corp stationary hostiles + sweep quota | 🔲 Planned |
+| M2.4 — Corp stationary hostiles + sweep quota | ✅ Done |
 | M2.5 — Locked doors & access gating | 🔲 Planned |
 | M2.6 — Retrieve pickup objectives | 🔲 Planned |
 | M2.7 — Handoff contact objectives | 🔲 Planned |
@@ -255,7 +255,7 @@ Each row is the **owner** for replacing the permissive `isObjectiveSatisfied` br
 
 ---
 
-#### M2.4 — Corp stationary hostiles + sweep objectives 🔲
+#### M2.4 — Corp stationary hostiles + sweep objectives ✅
 
 **Depends on:** M2.1 recommended (turret fire may respect alarm); can ship in parallel with M2.2 / M2.3. **Owns** `OBJECTIVES.SWEEP`.
 
@@ -279,6 +279,21 @@ Each row is the **owner** for replacing the permissive `isObjectiveSatisfied` br
 - One playtest map where alarm + turret pressure coexist without soft-lock.
 - Golden-path test: `sweep` contract → quota met only after clears → extract allowed; partial clear blocks extract.
 - Post-ship doc note in this section: which quota types exist (`drone-all`, `relay-count`, `turret-count`, etc.).
+
+**Implementation notes:**
+
+- **`CorpTurret`** (`src/game/entities/CorpTurret.ts`): Extends `Hostile`, CORP faction, glyph `$`. Fires during the **corp turn** via `takeTurnSteps` (same corp turn driver as drones). Stationary — only acquires targets and fires, never moves. Uses `acquireTarget` (inherited from Hostile) for LOS + range checks, `resolveRanged` for shots. Constants: `CORP_TURRET_RANGE = 4`, `CORP_TURRET_DAMAGE = 1`, `CORP_TURRET_HP = 2`. Placed by `Run.#placeSweepTargets` for sweep contracts, and as ambient pressure.
+- **`RelayNode`** (`src/game/entities/RelayNode.ts`): Extends `Entity` (not Hostile), CORP faction, glyph `~`. Destructible target for relay-node sweep quotas. `RELAY_NODE_HP = 1` — one shot takes it down. Player can target with ranged or melee attacks (CORP faction is a valid fire target via `canFireRanged`). Not targeted by player turrets (turrets only fire at `Hostile` instances).
+- **Sweep quota types** (all three shipped):
+  - `drone-all`: All `CorpDrone` entities on the map must be dead. Default fallback when `params.target` is unrecognized or absent.
+  - `relay-node`: All `RelayNode` entities dead (or `params.count` if specified). Triggered by `params.target` = `'relay-node'` or `'skybridge-relay'`.
+  - `turret`: All `CorpTurret` entities dead (or `params.count` if specified). Triggered by `params.target` = `'turret'` or `'corp-turret'`.
+- **`isObjectiveSatisfied`**: `OBJECTIVES.SWEEP` case now dispatches to `isSweepSatisfied` which reads `sweepQuotaType(contract)` to select the correct quota check. No longer permissive.
+- **Placement**: `Run.#placeSweepTargets` places entities based on quota type: relay-node → 3 RelayNodes + 1 CorpTurret; turret → 2 CorpTurrets; drone-all → 1 CorpTurret (drones already placed by `enterCombat`). Uses `findInteractableAnchor` for placement (same bias-away-from-spawn/exit logic as terminals).
+- **Snapshot**: `RunEntitySnapshot` gains `corpTurret?: { range, attackDamage }` and `relayNode?: { label }`. `ARCHETYPE_FACTORY` entries for `'corp-turret'` and `'relay-node'` in `persistence.ts`.
+- **Entity labels**: `kindFromId` recognizes `corp-turret-*` → `'Turret'` and `relay-node-*` → `'Relay'`. Combat log shows `[Corp]Turret` and `[Corp]Relay`.
+- **Key help**: `$` (corp turret) and `~` (relay node) added to combat tile legend in `<key-help>`.
+- 41 new unit tests in `CorpTurret.test.ts` and `sweep.test.ts`: construction, targeting, LOS, firing, destruction, snapshot round-trip, entity labels, all three sweep quota types (drone-all, relay-node, turret), count params, golden-path extract gating.
 
 ---
 

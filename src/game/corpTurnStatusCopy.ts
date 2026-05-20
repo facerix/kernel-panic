@@ -64,7 +64,7 @@ export function corpTurnStatusBody(visibleCorpCount: number, turnNumber: number)
     return 'Multiple hostiles in sight — units repositioning.';
   }
   if (visibleCorpCount === 1) {
-    return 'A security drone moves in your sightline.';
+    return 'A corp asset is active in your sightline.';
   }
 
   if (corpNoiseForTurn.has(turnNumber)) {
