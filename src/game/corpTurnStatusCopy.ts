@@ -143,6 +143,8 @@ export function formatCorpTurnStep(
       return `${actorLabel} clears lead — resuming patrol.`;
     case 'investigate-abandoned':
       return `${actorLabel} abandons pursuit — resuming patrol.`;
+    case 'alarm':
+      return `${actorLabel} trips the facility alarm — corp net hot.`;
     // Patrol movement and waypoint chatter are noise; skip them.
     case 'move-patrol':
     case 'patrol-arrived':

@@ -19,20 +19,130 @@ import type { EventBus } from './events.js';
 export type WorldOptions = {
   events?: EventBus | null;
 };
+
+export const ALARM_PHASE = Object.freeze({
+  QUIET: 'quiet',
+  ALERT: 'alert',
+  COOLDOWN: 'cooldown',
+});
+
+export const ALARM_CADENCE = Object.freeze({
+  HOLD_TURNS: 2,
+  COOLDOWN_TURNS: 2,
+});
+
+export type AlarmPhase = (typeof ALARM_PHASE)[keyof typeof ALARM_PHASE];
+
+export type AlarmState = {
+  phase: AlarmPhase;
+  level: 0 | 1;
+  holdTurnsRemaining: number;
+  cooldownTurnsRemaining: number;
+  triggers: number;
+};
+
+export type AlarmRaiseContext = {
+  source?: Entity | null;
+  target?: Entity | null;
+  origin?: { x: number; y: number } | null;
+};
+
 export class World {
   grid: Grid;
   entities: Map<string, Entity>;
   events: EventBus | null;
 
-  /** Map-wide alarm latch. Once raised by a CorpCivilian, stays true for the run. */
-  alarmActive: boolean;
+  /** Tunable alarm cadence. `alarmActive` remains as the legacy alert-phase view. */
+  alarm: AlarmState;
 
   constructor(grid: Grid, options: WorldOptions = {}) {
     if (!grid) throw new TypeError('World requires a grid');
     this.grid = grid;
     this.entities = new Map();
     this.events = options.events ?? null;
-    this.alarmActive = false;
+    this.alarm = quietAlarm();
+  }
+
+  get alarmActive(): boolean {
+    return this.alarm.phase === ALARM_PHASE.ALERT;
+  }
+
+  set alarmActive(value: boolean) {
+    if (value) {
+      this.alarm = alertAlarm(this.alarm.triggers);
+      return;
+    }
+    this.alarm = quietAlarm(this.alarm.triggers);
+  }
+
+  raiseAlarm(context: AlarmRaiseContext = {}): boolean {
+    if (this.alarm.phase === ALARM_PHASE.ALERT) return false;
+    const previous = { ...this.alarm };
+    this.alarm = alertAlarm(previous.triggers + 1);
+    this.events?.emit(EVENT.ALARM, {
+      ...context,
+      previous,
+      alarm: this.snapshotAlarm(),
+    });
+    this.events?.emit(EVENT.ALARM_CHANGED, {
+      transition: 'raised',
+      previous,
+      alarm: this.snapshotAlarm(),
+    });
+    return true;
+  }
+
+  tickAlarm(): AlarmState {
+    const previous = { ...this.alarm };
+    if (this.alarm.phase === ALARM_PHASE.ALERT) {
+      if (this.alarm.holdTurnsRemaining > 1) {
+        this.alarm = {
+          ...this.alarm,
+          holdTurnsRemaining: this.alarm.holdTurnsRemaining - 1,
+        };
+        return this.snapshotAlarm();
+      }
+      this.alarm = {
+        phase: ALARM_PHASE.COOLDOWN,
+        level: 0,
+        holdTurnsRemaining: 0,
+        cooldownTurnsRemaining: ALARM_CADENCE.COOLDOWN_TURNS,
+        triggers: this.alarm.triggers,
+      };
+      this.#emitAlarmChanged('cooldown', previous);
+      return this.snapshotAlarm();
+    }
+
+    if (this.alarm.phase === ALARM_PHASE.COOLDOWN) {
+      if (this.alarm.cooldownTurnsRemaining > 1) {
+        this.alarm = {
+          ...this.alarm,
+          cooldownTurnsRemaining: this.alarm.cooldownTurnsRemaining - 1,
+        };
+        return this.snapshotAlarm();
+      }
+      this.alarm = quietAlarm(this.alarm.triggers);
+      this.#emitAlarmChanged('quiet', previous);
+      return this.snapshotAlarm();
+    }
+
+    return this.snapshotAlarm();
+  }
+
+  snapshotAlarm(): AlarmState {
+    return { ...this.alarm };
+  }
+
+  restoreAlarm(alarm: AlarmState): void {
+    this.alarm = normalizeAlarmState(alarm);
+  }
+
+  #emitAlarmChanged(transition: 'cooldown' | 'quiet', previous: AlarmState): void {
+    this.events?.emit(EVENT.ALARM_CHANGED, {
+      transition,
+      previous,
+      alarm: this.snapshotAlarm(),
+    });
   }
 
   addEntity(entity: Entity) {
@@ -220,4 +330,72 @@ export class World {
       });
     }
   }
+}
+
+function quietAlarm(triggers = 0): AlarmState {
+  return {
+    phase: ALARM_PHASE.QUIET,
+    level: 0,
+    holdTurnsRemaining: 0,
+    cooldownTurnsRemaining: 0,
+    triggers,
+  };
+}
+
+function alertAlarm(triggers: number): AlarmState {
+  return {
+    phase: ALARM_PHASE.ALERT,
+    level: 1,
+    holdTurnsRemaining: ALARM_CADENCE.HOLD_TURNS,
+    cooldownTurnsRemaining: 0,
+    triggers,
+  };
+}
+
+function normalizeAlarmState(alarm: AlarmState): AlarmState {
+  if (!alarm || typeof alarm !== 'object') {
+    throw new TypeError('World.restoreAlarm requires an alarm state object');
+  }
+  if (!Object.values(ALARM_PHASE).includes(alarm.phase)) {
+    throw new Error(`World.restoreAlarm: unknown alarm phase "${alarm.phase}"`);
+  }
+  if (alarm.level !== 0 && alarm.level !== 1) {
+    throw new RangeError(`World.restoreAlarm: level must be 0 or 1, got ${alarm.level}`);
+  }
+  if (!Number.isInteger(alarm.holdTurnsRemaining) || alarm.holdTurnsRemaining < 0) {
+    throw new RangeError('World.restoreAlarm: holdTurnsRemaining must be a non-negative integer');
+  }
+  if (!Number.isInteger(alarm.cooldownTurnsRemaining) || alarm.cooldownTurnsRemaining < 0) {
+    throw new RangeError(
+      'World.restoreAlarm: cooldownTurnsRemaining must be a non-negative integer'
+    );
+  }
+  if (!Number.isInteger(alarm.triggers) || alarm.triggers < 0) {
+    throw new RangeError('World.restoreAlarm: triggers must be a non-negative integer');
+  }
+  if (alarm.phase === ALARM_PHASE.QUIET) {
+    return quietAlarm(alarm.triggers);
+  }
+  if (alarm.phase === ALARM_PHASE.ALERT) {
+    if (alarm.level !== 1 || alarm.holdTurnsRemaining < 1) {
+      throw new Error('World.restoreAlarm: alert phase requires level 1 and hold turns');
+    }
+    return {
+      phase: ALARM_PHASE.ALERT,
+      level: 1,
+      holdTurnsRemaining: alarm.holdTurnsRemaining,
+      cooldownTurnsRemaining: 0,
+      triggers: alarm.triggers,
+    };
+  }
+  if (alarm.level !== 0 || alarm.cooldownTurnsRemaining < 1) {
+    throw new Error('World.restoreAlarm: cooldown phase requires level 0 and cooldown turns');
+  }
+  return {
+    phase: ALARM_PHASE.COOLDOWN,
+    level: 0,
+    holdTurnsRemaining: 0,
+    cooldownTurnsRemaining: alarm.cooldownTurnsRemaining,
+    triggers: alarm.triggers,
+  };
 }

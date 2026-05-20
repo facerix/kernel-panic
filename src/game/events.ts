@@ -27,6 +27,7 @@ export const EVENT = Object.freeze({
   NOISE: 'noise',
   TURN_ENDED: 'turn:ended',
   ALARM: 'alarm',
+  ALARM_CHANGED: 'alarm:changed',
   CIVILIAN_HARMED: 'civilian:harmed',
   REP_CHANGED: 'rep:changed',
 });

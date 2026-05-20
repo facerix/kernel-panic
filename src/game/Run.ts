@@ -59,6 +59,7 @@ import type { Contract } from './hub/Curator.js';
 import type { FactionId } from './constants.js';
 import type { GridPoint } from '../types.js';
 import type { Inventory, Gear } from './Crew.js';
+import type { AlarmState } from './World.js';
 
 export const RUN_STATE = Object.freeze({
   BRIEFING: 'BRIEFING',
@@ -146,7 +147,9 @@ export type RunSnapshot = {
   grid: { w: number; h: number; tiles: number[] };
   entities: RunEntitySnapshot[];
   telemetry: RunTelemetry;
-  /** Map-wide alarm latch. Missing in pre-M5 saves → defaults to false. */
+  /** M2.1 alarm cadence. Missing in older saves → defaults to quiet. */
+  alarm?: AlarmState;
+  /** Legacy M5 map-wide alarm latch. Missing in pre-M5 saves → defaults to false. */
   alarmActive?: boolean;
 };
 
@@ -352,6 +355,7 @@ export class Run {
       },
       entities: Array.from(world.entities.values()).map(snapshotEntity),
       telemetry: { ...this.telemetry },
+      alarm: world.snapshotAlarm(),
       alarmActive: world.alarmActive,
     };
   }

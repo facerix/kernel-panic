@@ -250,7 +250,11 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
   run.state = record.state;
   run.bus = new EventBus();
   run.world = new World(grid, { events: run.bus });
-  run.world.alarmActive = record.alarmActive ?? false;
+  if (record.alarm) {
+    run.world.restoreAlarm(record.alarm);
+  } else {
+    run.world.alarmActive = record.alarmActive ?? false;
+  }
 
   const factionOrder = [FACTION.PLAYER, FACTION.CORP];
   if (record.currentFaction !== FACTION.PLAYER && record.currentFaction !== FACTION.CORP) {

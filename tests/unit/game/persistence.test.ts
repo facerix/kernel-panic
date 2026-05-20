@@ -142,6 +142,31 @@ test('restore preserves turnNumber and currentFaction', () => {
   assert.equal(queue.currentFaction, run.queue.currentFaction);
 });
 
+test('snapshot/restore round-trips alarm cadence state', () => {
+  const run = freshCombatRun(0xa1a12);
+  run.world.raiseAlarm({ origin: { x: run.player.x, y: run.player.y } });
+  run.world.tickAlarm();
+
+  const rec = snapshot(run);
+  assert.equal(rec.alarm.phase, 'alert');
+  assert.equal(rec.alarm.holdTurnsRemaining, 1);
+
+  const { world: restoredWorld } = restore(rec);
+  assert.deepEqual(restoredWorld.alarm, run.world.alarm);
+  assert.equal(restoredWorld.alarmActive, true);
+});
+
+test('restore migrates legacy alarmActive run snapshots into alarm state', () => {
+  const run = freshCombatRun(0xa1a13);
+  const rec = snapshot(run);
+  delete rec.alarm;
+  rec.alarmActive = true;
+
+  const { world: restoredWorld } = restore(rec);
+  assert.equal(restoredWorld.alarm.phase, 'alert');
+  assert.equal(restoredWorld.alarmActive, true);
+});
+
 test('restore throws on corrupt run records', () => {
   const run = freshCombatRun(1);
   const missingRng = snapshot(run);

@@ -34,7 +34,8 @@ export class TurnQueue {
   endTurn(world: World) {
     const previous = this.currentFaction;
     this.index = (this.index + 1) % this.factionOrder.length;
-    if (this.index === 0) {
+    const advancedRound = this.index === 0;
+    if (advancedRound) {
       this.turnNumber += 1;
     }
     const incoming = this.currentFaction;
@@ -42,6 +43,9 @@ export class TurnQueue {
       if (e.alive && e.faction === incoming) {
         e.refreshAp();
       }
+    }
+    if (advancedRound) {
+      world.tickAlarm();
     }
     world.events?.emit(EVENT.TURN_ENDED, {
       previous,

@@ -8,7 +8,7 @@ Living plan for the post–Phase 2 slice of Kernel Panic: **contract objectives*
 |---|---|
 | M1 — Contract objectives (label-driven run variety) | ✅ Done |
 | M2 — Richer combat mechanics (objectives + pressure) | 🔲 Planned (see M2.1–M2.5) |
-| M2.1 — Alarm cadence & feedback | 🔲 Planned |
+| M2.1 — Alarm cadence & feedback | ✅ Done |
 | M2.2 — Interactables & terminal slice | 🔲 Planned |
 | M2.3 — Environmental hazard tiles | 🔲 Planned |
 | M2.4 — Corp stationary hostiles | 🔲 Planned |
@@ -120,7 +120,7 @@ flowchart LR
 
 ---
 
-#### M2.1 — Alarm cadence & feedback 🔲
+#### M2.1 — Alarm cadence & feedback ✅
 
 **Goal:** Turn the M5 **binary alarm latch** into a **tunable pressure layer**: cooldowns, clearer escalation / de-escalation, and player-facing feedback — without yet requiring new map props.
 
@@ -135,6 +135,14 @@ flowchart LR
 - Unit tests for raise → hold → cool-down / deactivate transitions and snapshot round-trip.
 - Pre-M5 saves still restore with safe defaults.
 - No new procgen entities required in this slice.
+
+**Implementation notes:**
+
+- `World.alarm` now tracks `quiet → alert → cooldown → quiet`; `alarmActive` remains as a legacy/readability alias for the active alert phase.
+- The cadence ticks once per full player/corp round from `TurnQueue.endTurn`: 2 rounds alert hold, then 2 rounds cooldown.
+- `World.raiseAlarm()` suppresses duplicate alarms during the alert hold so Rep penalties do not stack every civilian tick; a new alarm can fire after the cadence returns quiet.
+- Run snapshots persist the full alarm state and still migrate legacy `alarmActive` saves.
+- Shell feedback now shows `[ALERT:n]` / `[COOL:n]` in combat status and logs alarm cooldown / quiet transitions.
 
 ---
 

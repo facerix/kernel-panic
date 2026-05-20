@@ -219,6 +219,65 @@ test('World.moveEntity emits a noise event with MOVE radius', async () => {
   assert.deepEqual(noises[0].origin, { x: 3, y: 2 }, 'noise origin is the post-move tile');
 });
 
+test('World alarm defaults quiet and inactive', () => {
+  const w = new World(new Grid(5, 5));
+  assert.equal(w.alarm.phase, 'quiet');
+  assert.equal(w.alarm.level, 0);
+  assert.equal(w.alarmActive, false);
+});
+
+test('World.raiseAlarm enters alert phase and emits one alarm event', async () => {
+  const { EventBus, EVENT } = await import('../../../src/game/events.js');
+  const bus = new EventBus();
+  const w = new World(new Grid(5, 5), { events: bus });
+  const alarms = [];
+  bus.on(EVENT.ALARM, payload => alarms.push(payload));
+
+  const raised = w.raiseAlarm({ origin: { x: 2, y: 2 } });
+  const duplicate = w.raiseAlarm({ origin: { x: 3, y: 3 } });
+
+  assert.equal(raised, true);
+  assert.equal(duplicate, false, 'alert phase suppresses duplicate alarm penalties');
+  assert.equal(alarms.length, 1);
+  assert.equal(w.alarm.phase, 'alert');
+  assert.equal(w.alarm.level, 1);
+  assert.equal(w.alarm.holdTurnsRemaining, 2);
+  assert.equal(w.alarmActive, true);
+});
+
+test('World alarm ticks from alert to cooldown to quiet', async () => {
+  const { EventBus, EVENT } = await import('../../../src/game/events.js');
+  const bus = new EventBus();
+  const w = new World(new Grid(5, 5), { events: bus });
+  const transitions = [];
+  bus.on(EVENT.ALARM_CHANGED, payload => transitions.push(payload));
+
+  w.raiseAlarm();
+  w.tickAlarm();
+  assert.equal(w.alarm.phase, 'alert');
+  assert.equal(w.alarm.holdTurnsRemaining, 1);
+  assert.equal(w.alarmActive, true);
+
+  w.tickAlarm();
+  assert.equal(w.alarm.phase, 'cooldown');
+  assert.equal(w.alarm.cooldownTurnsRemaining, 2);
+  assert.equal(w.alarmActive, false);
+
+  w.tickAlarm();
+  assert.equal(w.alarm.phase, 'cooldown');
+  assert.equal(w.alarm.cooldownTurnsRemaining, 1);
+
+  w.tickAlarm();
+  assert.equal(w.alarm.phase, 'quiet');
+  assert.equal(w.alarm.level, 0);
+  assert.equal(w.alarmActive, false);
+
+  assert.deepEqual(
+    transitions.map(t => t.transition),
+    ['raised', 'cooldown', 'quiet']
+  );
+});
+
 test('World.moveEntity { silent: true } suppresses noise but still emits entity:moved', async () => {
   const { EventBus, EVENT } = await import('../../../src/game/events.js');
   const bus = new EventBus();

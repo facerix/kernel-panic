@@ -1155,6 +1155,14 @@ function attachRepListeners(): void {
       if (!campaign) return;
       const actual = campaign.adjustRep(REP.ALARM_PENALTY);
       flash(`REP ${actual >= 0 ? '+' : ''}${actual}: facility alarm triggered.`);
+    }),
+    run.bus.on(EVENT.ALARM_CHANGED, payload => {
+      const transition = (payload as { transition?: string } | undefined)?.transition;
+      if (transition === 'cooldown') {
+        flash('ALERT: heat tapering — corp net entering cooldown.');
+      } else if (transition === 'quiet') {
+        flash('ALERT: facility net quiet.');
+      }
     })
   );
 }
@@ -1247,7 +1255,13 @@ function statusLine(modeHint: Mode): string {
       throw new Error('[shell] combat status requires an active run');
     }
     const salvageTag = run.player?.inventory ? ` SAL:${run.player.inventory.salvage}` : '';
-    const alertTag = run.world?.alarmActive ? ' <span class="alert-tag">[ALERT]</span>' : '';
+    const alarm = run.world?.alarm;
+    const alertTag =
+      alarm?.phase === 'alert'
+        ? ` <span class="alert-tag">[ALERT:${alarm.holdTurnsRemaining}]</span>`
+        : alarm?.phase === 'cooldown'
+          ? ` <span class="alert-tag">[COOL:${alarm.cooldownTurnsRemaining}]</span>`
+          : '';
     identity = `${run.player?.callsign ?? run.archetype} ${run.archetype.toUpperCase()}${salvageTag}${alertTag}`;
     aphp = `AP ${player.ap}/${player.maxAp} HP ${player.hp}/${player.maxHp}`;
   } else {

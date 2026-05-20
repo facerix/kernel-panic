@@ -4,10 +4,10 @@
  * crew member; if visible, emits an `alarm` event that transitions all
  * subscribed CorpDrones to ENGAGE.
  *
- * The alarm is a **map-wide latch** stored on `world.alarmActive`. Once any
- * CorpCivilian triggers it, the facility stays on alert for the rest of the
- * run. Additional civilians that see the player will not re-emit (no
- * stacking Rep penalties).
+ * The alarm is a **map-wide cadence** stored on `world.alarm`. Once any
+ * CorpCivilian triggers it, the facility stays alert for a short hold window,
+ * then cools down. Additional civilians that see the player during the alert
+ * window will not re-emit (no stacking Rep penalties).
  *
  * Does not extend `Hostile` — it never fires, never chases. The alarm is
  * the only combat-relevant action. Killing a CorpCivilian does NOT cost Rep
@@ -21,7 +21,6 @@
 import { Entity, type EntityInit } from '../Entity.js';
 import { FACTION, SIGHT_RANGE } from '../constants.js';
 import { hasLineOfSight, withinRange } from '../LineOfSight.js';
-import { EVENT } from '../events.js';
 import type { TurnActionStep, TurnActionSteps } from '../../types.js';
 import type { World } from '../World.js';
 import type { Rng } from '../../rng.js';
@@ -61,13 +60,12 @@ export class CorpCivilian extends Entity {
 
     const target = this.#findPlayerTarget(world);
     if (target) {
-      world.alarmActive = true;
-      world.events?.emit(EVENT.ALARM, {
+      const raised = world.raiseAlarm({
         source: this,
         target,
         origin: { x: this.x, y: this.y },
       });
-      yield { type: 'alarm', target: target.id };
+      if (raised) yield { type: 'alarm', target: target.id };
     }
   }
 
