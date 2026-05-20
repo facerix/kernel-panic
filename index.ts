@@ -1240,6 +1240,8 @@ function statusLine(modeHint: Mode): string {
   if (!player) return stateLabel();
   const stealthTag = player.stealthed ? ' [CLOAKED]' : '';
   let identity;
+  let aphp = '';
+  let turnInfo = '';
   if (run.state === RUN_STATE.COMBAT) {
     if (!isRun(run)) {
       throw new Error('[shell] combat status requires an active run');
@@ -1247,16 +1249,15 @@ function statusLine(modeHint: Mode): string {
     const salvageTag = run.player?.inventory ? ` SAL:${run.player.inventory.salvage}` : '';
     const alertTag = run.world?.alarmActive ? ' <span class="alert-tag">[ALERT]</span>' : '';
     identity = `${run.player?.callsign ?? run.archetype} ${run.archetype.toUpperCase()}${salvageTag}${alertTag}`;
+    aphp = `AP ${player.ap}/${player.maxAp} HP ${player.hp}/${player.maxHp}`;
+    turnInfo = `  |  TURN ${run.queue.turnNumber} (${run.queue.currentFaction.toUpperCase()})${aim}`;
   } else {
     if (!campaign) return stateLabel();
     const repLabel = REP_LABEL.find(b => campaign!.rep >= b.min)?.label ?? 'UNKNOWN';
     identity = `CREW ${campaign.crew.filter(member => !member.flatlined).length}/${campaign.crew.length} CREDS ${campaign.credits ?? 0} SALVAGE ${campaign.salvage ?? 0} REP ${campaign.rep} (${repLabel})`;
   }
   if (!run.queue) return stateLabel();
-  const statsInner =
-    `${stateLabel()}  |  ${identity} ` +
-    `AP ${player.ap}/${player.maxAp} HP ${player.hp}/${player.maxHp}${stealthTag}` +
-    `  |  TURN ${run.queue.turnNumber} (${run.queue.currentFaction.toUpperCase()})${aim}`;
+  const statsInner = `${stateLabel()}  |  ${identity} ` + `${aphp}${stealthTag}` + `${turnInfo}`;
   const stats = `<span class="game-shell__stats">${statsInner}</span>`;
   // Two activity rows below the stats line. Ephemeral, non-logged status
   // (proximity hints, corp mood) takes the upper slot when present,
