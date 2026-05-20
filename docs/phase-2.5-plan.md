@@ -7,12 +7,17 @@ Living plan for the post–Phase 2 slice of Kernel Panic: **contract objectives*
 | Milestone | Status |
 |---|---|
 | M1 — Contract objectives (label-driven run variety) | ✅ Done |
-| M2 — Richer combat mechanics (objectives + pressure) | 🔲 Planned (see M2.1–M2.5) |
+| M2 — Richer combat mechanics (objectives + pressure) | 🔲 Planned (see M2.1–M2.10) |
 | M2.1 — Alarm cadence & feedback | ✅ Done |
 | M2.2 — Interactables & terminal slice | ✅ Done |
 | M2.3 — Environmental hazard tiles | 🔲 Planned |
-| M2.4 — Corp stationary hostiles | 🔲 Planned |
+| M2.4 — Corp stationary hostiles + sweep quota | 🔲 Planned |
 | M2.5 — Locked doors & access gating | 🔲 Planned |
+| M2.6 — Retrieve pickup objectives | 🔲 Planned |
+| M2.7 — Handoff contact objectives | 🔲 Planned |
+| M2.8 — Deny / destroy objectives | 🔲 Planned |
+| M2.9 — Dual-site sync objectives | 🔲 Planned |
+| M2.10 — `turnLimit` objective gating | 🔲 Planned |
 | M3 — Campaign history / chronicle | 🔲 Planned |
 | M4 — Salvage revision + typed salvage + field consumables | 🔲 Planned |
 | M5 — Hub, economy, Rep, crew tuning | 🔲 Planned |
@@ -20,7 +25,7 @@ Living plan for the post–Phase 2 slice of Kernel Panic: **contract objectives*
 
 **Phase 2.5** is complete when:
 
-1. Every milestone in the table above is ✅ (M2 rolls up automatically when M2.1–M2.5 are all ✅).
+1. Every milestone in the table above is ✅ (M2 rolls up automatically when M2.1–M2.10 are all ✅).
 2. Full campaign loop from Phase 2 remains playable offline on iOS Safari + Chrome desktop: Hub → contract selection → job deployment → combat → extract or flatline → return to Hub, with Finn shop, Rep meter, recruitment, and new systems (objectives, chronicle, salvage types, shop tabs, breaching, etc.) integrated per milestone specs.
 3. `v0.2.5` tagged in git.
 
@@ -91,30 +96,70 @@ Additional `CONTRACT_LABELS` / families to build out:
 
 **Goal:** Build on M1 contract objectives with Meatspace systems called out in the pitch and blueprint: **noise / alarm cadence**, **terminal-slice tension**, **environmental hazards**, **new corp hostiles**, and **access gating** that sets up M6 breaching.
 
-**M2 is complete when M2.1–M2.5 are all ✅.** Slices are ordered by dependency; M2.3 and M2.4 can ship in parallel after M2.1.
+**M2 is complete when M2.1–M2.10 are all ✅.** Infrastructure slices (M2.1–M2.5) and objective-family slices (M2.6–M2.9) can interleave after M2.2; **M2.10** lands after the family owner for any contract that ships with `params.turnLimit` (see below). See dependency notes per slice.
 
 ```mermaid
 flowchart LR
-  M21[M2.1 Alarm cadence]
-  M22[M2.2 Interactables + terminals]
-  M25[M2.5 Locked doors]
-  M23[M2.3 Hazard tiles]
-  M24[M2.4 Corp turrets]
+  M21[M2.1 Alarm]
+  M22[M2.2 Interactables]
+  M26[M2.6 Retrieve]
+  M27[M2.7 Handoff]
+  M28[M2.8 Deny]
+  M29[M2.9 Dual-site]
+  M210[M2.10 turnLimit]
+  M25[M2.5 Doors]
+  M23[M2.3 Hazards]
+  M24[M2.4 Turrets + sweep]
   M21 --> M22
+  M22 --> M26
+  M22 --> M27
+  M22 --> M28
+  M22 --> M29
   M22 --> M25
+  M22 --> M210
+  M29 --> M210
   M21 -.-> M23
   M21 -.-> M24
+  M26 -.-> M23
+  M24 -.-> M29
 ```
 
-| Slice | Delivers | Objective families touched (when wired) |
-|-------|----------|-------------------------------------------|
-| **M2.1** | Tunable alarm pressure + feedback | All (ambient pressure) |
-| **M2.2** | Interactable props; terminal slice loop | Terminal / slice; alarm on/off |
-| **M2.3** | Hazard tiles on the grid | Retrieve (+ hazard flavor) |
-| **M2.4** | Corp-aligned stationary hostiles | Sweep / clear; general pressure |
-| **M2.5** | Locked doors + unlock flags (no breach) | Retrieve, dual-site, handoff routing |
+#### `OBJECTIVES.*` ownership (Curator kinds → M2 slice)
 
-**Cross-cutting rule:** Each slice replaces the matching **permissive** branch in `isObjectiveSatisfied` (M1 placeholder returns `true`) when its mechanics land — avoid a single end-loaded “objectives” PR.
+Each row is the **owner** for replacing the permissive `isObjectiveSatisfied` branch and shipping at least one golden-path test. Slices may add optional params (hazards, doors) without owning the kind.
+
+| `OBJECTIVES` kind | Owner slice | Notes |
+|-------------------|-------------|-------|
+| `terminal-slice` | **M2.2** ✅ | Slice + alarm; `turnLimit` enforced by **M2.10** |
+| `retrieve` | **M2.6** | Pickup / `secured` loop; M2.3 adds hazard *flavor* only |
+| `handoff` | **M2.7** | Contact or drop-box interact; M2.5 optional `doorId` gating |
+| `deny` | **M2.8** | Destroy or disable marked prop(s) |
+| `sweep` | **M2.4** | Drone quota and/or relay-node entities; documents quota types after ship |
+| `dual-site` | **M2.9** | Two objective interactables (`params.count`); M2.5 optional routing |
+| `reach-exit` | — | **Not in label pool**; save migration only — no M2 slice |
+
+#### Param modifiers (not separate kinds)
+
+| Param | Owner slice | Applies when |
+|-------|-------------|--------------|
+| `turnLimit` | **M2.10** | `contract.objective.params.turnLimit` is a positive number (e.g. **Sentinel maintenance window** → `terminal-slice` with `turnLimit: 15` in `Curator.ts`) |
+| `hazardFlavor` | **M2.3** | Retrieve labels with risky-zone fiction |
+| `doorId` / `requiresUnlock` | **M2.5** | Routing for M2.6–M2.9 contracts |
+
+| Slice | Delivers | Objective kinds owned |
+|-------|----------|-------------------------|
+| **M2.1** | Tunable alarm pressure + feedback | (ambient — all families) |
+| **M2.2** | `Interactable` base; **terminal-slice** loop | `terminal-slice` |
+| **M2.3** | Hazard tiles on the grid | (modifier for `retrieve` + hazard params) |
+| **M2.4** | Corp turrets + **sweep** completion | `sweep` |
+| **M2.5** | Locked doors + unlock flags (no breach) | (routing modifier — not a kind owner) |
+| **M2.6** | Pickup / cache / dead-drop retrieve | `retrieve` |
+| **M2.7** | Neutral contact handoff | `handoff` |
+| **M2.8** | Deny / destroy interactables or props | `deny` |
+| **M2.9** | Dual-site pads / mirrors | `dual-site` |
+| **M2.10** | **`turnLimit` deadline** on combat turns | (modifier — any kind with `params.turnLimit`) |
+
+**Cross-cutting rule:** Each **owner** slice replaces the matching **permissive** branch in `isObjectiveSatisfied` (M1 placeholder returns `true`) when its mechanics land — avoid a single end-loaded “objectives” PR. M2.3 and M2.5 may tighten retrieve / handoff / dual-site further via params but do not satisfy M2 rollup without M2.6–M2.9. **M2.10** layers on top of family owners: when `turnLimit` is present, satisfaction also requires the objective to be complete **before** the budget expires (see M2.10).
 
 **Remember for every subtask:** When you add new combat glyphs, add them to the key help overlay as well, so players know what to look for.
 
@@ -165,7 +210,7 @@ flowchart LR
 
 - Golden-path test: start terminal-slice contract → interact → objective satisfied only when slice rules met; alarm side effects assertable.
 - Snapshot includes interactable ids + flags; restore round-trip.
-- Handoff / retrieve interactables can stub on the same base in a follow-up diff inside this slice if small; otherwise defer extra families to the slice that needs them (e.g. M2.5 for door-linked retrieve).
+- Handoff / retrieve / deny / dual-site families deferred to **M2.6–M2.9** (not M2.5 alone).
 
 **Implementation notes:**
 
@@ -189,33 +234,41 @@ flowchart LR
 - Hazard representation on `Grid` / `World` (persistent vs turn-scoped — at least one).
 - Integration with pathfinding, LOS, and optional end-of-turn damage.
 - One hazard type in a **prefab or procgen** cluster (smoke, “glass” debris palette, or hot zone — name at implementation).
-- Wire `OBJECTIVES.RETRIEVE` (or a hazard-gated retrieve param) when a contract explicitly needs “secure pickup in hazard zone”; otherwise document as optional param.
+- At least one **retrieve** contract with `hazardFlavor` (or equivalent param) places a hazard cluster near the pickup (see **M2.6** for pickup placement). Does **not** own `OBJECTIVES.RETRIEVE` satisfaction — that is **M2.6**.
 
 **Acceptance:**
 
 - Tests: movement cost / LOS / damage on a fixed mini-map fixture.
 - Snapshot hazard tile state; migration default for old saves = no hazards.
 - Renderer shows hazard distinctly (glyph or tint) on at least one golden path.
+- Golden path pairs with M2.6: retrieve pickup in a hazard-adjacent tile cluster (can land in same PR if both slices ready).
 
 ---
 
-#### M2.4 — Corp stationary hostiles 🔲
+#### M2.4 — Corp stationary hostiles + sweep objectives 🔲
 
-**Depends on:** M2.1 recommended (turret fire may respect alarm); can ship in parallel with M2.2 / M2.3.
+**Depends on:** M2.1 recommended (turret fire may respect alarm); can ship in parallel with M2.2 / M2.3. **Owns** `OBJECTIVES.SWEEP`.
 
-**Goal:** **Corp-aligned stationary turrets** (distinct from player Tech deployables) and minimal AI surface — no new patrol graphs.
+**Goal:** **Corp-aligned stationary turrets** (distinct from player Tech deployables), minimal AI surface, and a real **sweep / clear** completion loop for contracts that use `sweep` (Harbor node sweep, Skybridge relay blind, etc.).
 
 **Scope:**
 
 - `CorpTurret` (or equivalent): fixed facing or sector LOS, corp faction, damage on player turn or corp turn (match existing turret cadence conventions).
 - Placement in at least one **prefab** (e.g. server-farm / security checkpoint) or procgen rule.
-- Wire `OBJECTIVES.SWEEP` quota when contract params include turret nodes (optional in this slice if sweep still drone-only — document which quota types exist after ship).
+- **Sweep quota model** (document after ship): at minimum one of —
+  - **Drone quota:** all corp drones on the map eliminated before extract; or
+  - **Relay nodes:** tagged interactable or destructible props (`params.target`, e.g. `relay-node`, `skybridge-relay`) cleared per count.
+- Turret destruction counts toward sweep when `params` say so; otherwise turrets are pressure only.
+- Wire `OBJECTIVES.SWEEP` in `isObjectiveSatisfied` to the chosen quota (not permissive `true`).
+- Procgen or prefab placement for at least one `sweep` label golden path.
 
 **Acceptance:**
 
 - Unit tests: LOS, firing, destruction, blocks pathing if designed as blocking.
 - `ARCHETYPE_FACTORY` + snapshot round-trip; drones do not treat turrets as civilians.
 - One playtest map where alarm + turret pressure coexist without soft-lock.
+- Golden-path test: `sweep` contract → quota met only after clears → extract allowed; partial clear blocks extract.
+- Post-ship doc note in this section: which quota types exist (`drone-all`, `relay-count`, `turret-count`, etc.).
 
 ---
 
@@ -231,17 +284,136 @@ flowchart LR
 - Unlock sources: objective flag, keyed interactable, adjacent **hack terminal** (reuse M2.2 interactable).
 - **No** breaching charges, **no** destructible geometry (**M6**).
 - Prefab with at least one door gating a route (e.g. security checkpoint).
-- Wire objectives that need gating (`retrieve`, `dual-site`, `handoff`) when params include `doorId` / `requiresUnlock` — otherwise permissive until params exist.
+- Optional **routing modifier** for M2.6–M2.9 contracts: when `params` include `doorId` / `requiresUnlock`, objective props or extract path sit behind a locked door until unlock. Does **not** replace M2.6–M2.9 `isObjectiveSatisfied` branches by itself.
 
 **Acceptance:**
 
 - Pathfinding tests: closed door blocks, open door allows; A* invalidates when door toggles mid-run.
 - Snapshot door open/locked state; restore round-trip.
-- Golden path: door closed at start → unlock via interact → reach exit or secondary objective.
+- Golden path: door closed at start → unlock via interact → reach exit or reach a gated objective prop (paired with at least one M2.6–M2.9 contract in playtest).
 
 ---
 
-**M2 rollup acceptance (when all subs ✅):** At least one new hostile type (M2.4) and one hazard type (M2.3) in procgen or prefabs; alarm cooldown / deactivation path testable on a terminal-slice contract (M2.1 + M2.2); locked doors integrated with pathing and at least one objective (M2.5); snapshot-safe state for interactables, hazards, turrets, and doors.
+#### M2.6 — Retrieve pickup objectives 🔲
+
+**Depends on:** M2.2 (`Interactable` base, combat `Space` interact). M2.3 optional for hazard-flavored retrieve labels.
+
+**Goal:** Full loop for **`OBJECTIVES.RETRIEVE`**: find pickup prop → interact to **secure** → extract. Covers Curator labels mapped to retrieve (cache, clinic records, dead drop, auction ledger, etc.) via `params.target`.
+
+**Scope:**
+
+- **Pickup** interactable variant (or `Interactable` with `secured` semantics): adjacency interact, AP cost, serialised `secured` flag; distinct glyph from terminals.
+- `Run.enterCombat` places objective pickup from contract `params.target` (deterministic placement like `terminal-0`, biased away from spawn/extract when possible).
+- Wire `OBJECTIVES.RETRIEVE` in `isObjectiveSatisfied`: satisfied when required pickup(s) secured (support `params.count` if ever > 1).
+- At least one golden-path label (e.g. **Sublevel 3 cache** or **Transit authority dead drop**).
+
+**Acceptance:**
+
+- Golden-path test: retrieve contract → interact pickup → `[DONE]` only after secured → extract allowed.
+- Snapshot pickup id + `secured`; restore round-trip.
+- M1 acceptance: one golden-path test for **retrieve** family (closes deferred M1 bullet).
+- New combat glyph in key help if pickup uses a new glyph.
+
+---
+
+#### M2.7 — Handoff contact objectives 🔲
+
+**Depends on:** M2.2. M2.5 optional for door-gated contacts.
+
+**Goal:** Full loop for **`OBJECTIVES.HANDOFF`**: locate neutral **contact** or drop-box entity → interact to complete transfer → extract. Covers Pier 9, Cryo convoy manifest, etc.
+
+**Scope:**
+
+- **Contact** interactable or thin NEUTRAL NPC: adjacency interact sets `handoffComplete` (or equivalent); may consume a carried item flag if retrieve+handoff chains are added later — out of scope unless a label requires it.
+- Placement from `params.contact` / `params.target`; golden path for at least one handoff label.
+- Wire `OBJECTIVES.HANDOFF` in `isObjectiveSatisfied` (not permissive `true`).
+
+**Acceptance:**
+
+- Golden-path test: handoff contract → interact contact → objective satisfied → extract.
+- Snapshot contact state; restore round-trip.
+- M1 acceptance: one golden-path test for **handoff** family.
+- Key help entry if contact uses a new glyph.
+
+---
+
+#### M2.8 — Deny / destroy objectives 🔲
+
+**Depends on:** M2.2 and/or combat damage on props. M2.4 optional if deny targets are turret-like.
+
+**Goal:** Full loop for **`OBJECTIVES.DENY`**: find marked object → **destroy or disable** (interact or reduce HP to zero) → extract. Covers Spinning Fox shipment, Basement floodgate, etc.
+
+**Scope:**
+
+- **Deny target** prop: destructible interactable or entity with HP; interact may arm alarm (per M2.1) on some prefabs.
+- `isObjectiveSatisfied` checks destroyed/disabled state from `params.target` (and `params.count` if multiple).
+- At least one golden-path deny label in prefab or procgen.
+
+**Acceptance:**
+
+- Golden-path test: deny contract → disable/destroy target → extract gated until complete.
+- Snapshot deny-target state; restore round-trip.
+- M1 acceptance: one golden-path test for **deny** family.
+- Key help if new deny-target glyph.
+
+**Out of scope:** breaching charges / wall demolition (**M6** extends deny fiction only).
+
+---
+
+#### M2.9 — Dual-site sync objectives 🔲
+
+**Depends on:** M2.2. M2.5 optional for routing between sites. M2.4 optional if a “site” is a relay node.
+
+**Goal:** Full loop for **`OBJECTIVES.DUAL_SITE`**: interact **N** objective pads (`params.count`, default 2, order-free unless params specify sequence) → extract. Covers Matsuda payroll mirror, Yutani water table tap, etc.
+
+**Scope:**
+
+- Multiple objective interactables (`mirror-0`, `mirror-1`, …) placed per contract seed; shared `params.target` flavor.
+- `isObjectiveSatisfied` counts secured/completed pads vs `params.count`.
+- Golden path for at least one dual-site label.
+
+**Acceptance:**
+
+- Golden-path test: dual-site contract → both pads complete (any order unless param says otherwise) → extract.
+- Snapshot all pad ids + flags; restore round-trip.
+- M1 acceptance: one golden-path test for **dual-site** family.
+- Key help if pad glyph differs from pickup/terminal.
+
+---
+
+#### M2.10 — `turnLimit` objective gating 🔲
+
+**Depends on:** M2.2 (combat turn pipeline + `isObjectiveSatisfied` integration). For each contract label that ships with `params.turnLimit`, also depends on that label’s **family owner** slice (M2.2 for **Sentinel maintenance window** today; M2.6–M2.9 if future labels add `turnLimit` to retrieve, dual-site, etc.).
+
+**Goal:** Enforce M1 **timed pressure** for contracts that set `objective.params.turnLimit`: the player must complete the family-specific objective within the budget; expiry **blocks** clean objective completion and extract gating (same path as incomplete objectives).
+
+**Scope:**
+
+- **Turn counter:** Persist combat **rounds elapsed** (or player turns — pick one at implementation and document in implementation notes; count must match player-facing “turns left” copy).
+- Start budget from `contract.objective.params.turnLimit` when present and finite; omit param = no timer (unchanged behaviour).
+- **`isObjectiveSatisfied`:** For timed contracts, return `false` if the family-specific checks fail **or** if the budget is exhausted before the family checks first become true. Once satisfied within the budget, remain satisfied for the rest of the run (wandering after completion does not re-arm the timer).
+- **Extract / shell:** Status shows remaining budget (e.g. `[TURN:n]` alongside `[TODO]` / `[DONE]`); on expiry log a clear line (e.g. maintenance window closed) and keep extract blocked until objective is met — expired timed contracts cannot be “completed” retroactively.
+- **Failure outcome on expiry:** Default = objective permanently failed for that run (extract blocked; payout rules follow existing incomplete-objective handling). Escalating spawns on expiry are **out of scope** unless trivial to hook from M2.1 alarm — document if deferred.
+- Golden path: **Sentinel maintenance window** (`terminal-slice`, `turnLimit: 15`) — slice before limit → extract allowed; fixture test that simulates limit+1 rounds without slice → `isObjectiveSatisfied` false.
+- When a non–terminal-slice label gains `turnLimit` in `Curator.ts`, add a matching golden-path test in the same PR as that label’s family owner (M2.6–M2.9) or in M2.10 if the family owner is already ✅.
+
+**Acceptance:**
+
+- Unit tests: under budget + family met → satisfied; over budget without family met → false; family met before expiry → still satisfied after expiry.
+- Snapshot includes turn counter / expiry flag (or derivable rounds elapsed); restore round-trip; pre-M2.10 saves default to no timer.
+- Briefing or contract-select surfaces turn limit when param present (one line, e.g. “Window: N rounds”).
+- M1 **Timed pressure** row satisfied for at least one shipped label.
+
+**Out of scope:** Rep penalties for slow jobs (**M5**); new `turnLimit` labels beyond the existing Curator pool (**M1**).
+
+---
+
+**M2 rollup acceptance (when all subs ✅):**
+
+- Every **owner** row in the `OBJECTIVES.*` ownership table is ✅ (all kinds in the Curator pool except `reach-exit` have non-permissive `isObjectiveSatisfied` + golden-path test).
+- **M2.10** ✅ for every Curator label that currently sets `params.turnLimit` (today: **Sentinel maintenance window**).
+- Infrastructure: alarm cadence (M2.1), hazards in at least one prefab (M2.3), corp turrets (M2.4), locked doors on at least one routed path (M2.5).
+- Snapshot-safe state for interactables (all variants), hazards, turrets, doors, per-kind objective flags, and turn-limit state.
 
 ---
 
