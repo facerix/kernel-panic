@@ -66,7 +66,11 @@ export class NeutralCivilian extends Entity {
    *
    * @param context.rep — current campaign Rep value, passed by the pipeline.
    */
-  takeAftermathStep(world: World, rng: Rng, { rep }: NeutralCivilianTurnContext): NeutralCivilianTurnStep | null {
+  takeAftermathStep(
+    world: World,
+    rng: Rng,
+    { rep }: NeutralCivilianTurnContext
+  ): NeutralCivilianTurnStep | null {
     if (!this.alive) return null;
     if (!Number.isFinite(rep)) {
       throw new TypeError(`NeutralCivilian.act: rep must be a finite number, got ${rep}`);

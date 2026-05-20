@@ -12,7 +12,11 @@ import { Rng } from '../../../src/rng.js';
 
 const fakeContract = (overrides = {}) => ({
   seed: 12345,
-  objective: OBJECTIVES.REACH_EXIT,
+  objective: {
+    kind: OBJECTIVES.REACH_EXIT,
+    title: 'Extract clean',
+    briefing: 'Reach the exit.',
+  },
   difficulty: 'standard',
   threatCount: 1,
   label: 'test job',
@@ -81,6 +85,9 @@ test('enterBriefing rejects malformed contracts', () => {
   assert.throws(() => run.enterBriefing(null));
   assert.throws(() => run.enterBriefing({ ...fakeContract(), seed: -1 }));
   assert.throws(() => run.enterBriefing({ ...fakeContract(), objective: 'nuke-everything' }));
+  assert.throws(() =>
+    run.enterBriefing({ ...fakeContract(), objective: { kind: 'retrieve', title: '' } })
+  );
   assert.throws(() => run.enterBriefing({ ...fakeContract(), difficulty: 'meltdown' }));
   assert.throws(() => run.enterBriefing({ ...fakeContract(), threatCount: -1 }));
   assert.throws(() => run.enterBriefing({ ...fakeContract(), reward: null }));

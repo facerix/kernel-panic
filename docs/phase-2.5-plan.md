@@ -6,7 +6,7 @@ Living plan for the post–Phase 2 slice of Kernel Panic: **contract objectives*
 
 | Milestone | Status |
 |---|---|
-| M1 — Contract objectives (label-driven run variety) | 🔲 Planned |
+| M1 — Contract objectives (label-driven run variety) | ✅ Done |
 | M2 — Richer combat mechanics (objectives + pressure) | 🔲 Planned |
 | M3 — Campaign history / chronicle | 🔲 Planned |
 | M4 — Salvage revision + typed salvage + field consumables | 🔲 Planned |
@@ -21,7 +21,7 @@ Living plan for the post–Phase 2 slice of Kernel Panic: **contract objectives*
 
 ## Milestones — detail
 
-### M1 — Contract objectives (label-driven run variety) 🔲
+### M1 — Contract objectives (label-driven run variety) ✅
 
 **Goal:** Each contract already rolls a **label**, **difficulty**, and **reward**; add a **randomly assigned objective** (or objective *family*) so the same tactical map loop supports different completion pressures. Labels stay flavor-first; the Curator rolls an `objective` (and optional parameters) alongside `seed` / tier so saves stay deterministic. UI (`<contract-select>`, `<run-briefing>`) surfaces objective text, not only `// label`.
 
@@ -56,7 +56,7 @@ Labels are **suggestive**, not 1:1 locked forever — the table is the default t
 
 #### Additional label ideas (same pool style)
 
-Flavor-only strings for future `CONTRACT_LABELS` rotation (assign families when rolled):
+Additional `CONTRACT_LABELS` / families to build out:
 
 - **Ransomware sinkhole — District 4** — Terminal / slice (isolate payload).
 - **Cryo convoy manifest** — Retrieve (manifest pickup) or Handoff (deliver to journalist NPC).
@@ -72,6 +72,13 @@ Flavor-only strings for future `CONTRACT_LABELS` rotation (assign families when 
 - `generateContracts` assigns objective **deterministically** from `rng` + label (or explicit joint roll).
 - Briefing + job board show **objective line**; completion logic in `Run` / shell respects objective before payout (exact rules refined in M2).
 - Tests: Curator snapshot shape + persistence round-trip for new objective fields; at least one golden-path objective test per family (as mechanics land).
+
+#### Implementation notes
+
+- Contracts now carry `objective: { kind, title, briefing, params? }` instead of a flat objective string; old `"reach-exit"` saves migrate at restore.
+- `Curator.generateContracts` maps each current label deterministically to an objective family, and throws if a future label lacks a mapping.
+- `<contract-select>` shows the short objective title; `<run-briefing>` shows the longer briefing line.
+- `Run` now gates extraction through `isObjectiveSatisfied(contract)`, currently permissive for all M1 families so M2 can replace it with family-specific state.
 
 ---
 

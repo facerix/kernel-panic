@@ -10,7 +10,7 @@
  *     archetype, seed,
  *     turnNumber, currentFaction,
  *     rng:        { seed, state },
- *     contract:   { seed, objective, threatCount, label } | null,
+ *     contract:   { seed, objective, difficulty, threatCount, label, reward } | null,
  *     exitTile:   { x, y } | null,
  *     grid:       { w, h, tiles: number[] },          // plain array of u8 bytes
  *     entities:   [{ archetype, id, x, y, faction, hp, maxHp, ap, maxAp,
@@ -45,6 +45,7 @@ import { CorpCivilian } from './entities/CorpCivilian.js';
 import { NeutralCivilian } from './entities/NeutralCivilian.js';
 import { Run, RUN_STATE } from './Run.js';
 import { Campaign, CAMPAIGN_STATE } from './Campaign.js';
+import { normalizeObjective } from './hub/Curator.js';
 import type { CrewInit } from './Crew.js';
 import type { Inventory, Gear } from './Crew.js';
 import type { TurretInit } from './Turret.js';
@@ -652,6 +653,7 @@ function normalizeContract(
   if (!reward) {
     return {
       ...raw,
+      objective: normalizeObjective(raw.objective),
       reward: { credits: 0, repDelta: 0 },
     };
   }
@@ -669,6 +671,7 @@ function normalizeContract(
   }
   return {
     ...raw,
+    objective: normalizeObjective(raw.objective),
     reward: {
       credits,
       repDelta: repDelta as number,

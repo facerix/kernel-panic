@@ -15,7 +15,11 @@ import { SALVAGE_TO_CRED_RATE, SHOP_COST } from '../../../src/game/constants.js'
 
 const fakeContract = (overrides = {}) => ({
   seed: 12345,
-  objective: OBJECTIVES.REACH_EXIT,
+  objective: {
+    kind: OBJECTIVES.REACH_EXIT,
+    title: 'Extract clean',
+    briefing: 'Reach the exit.',
+  },
   difficulty: 'standard',
   threatCount: 1,
   label: 'test job',

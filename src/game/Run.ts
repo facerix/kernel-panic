@@ -48,7 +48,12 @@ import { CorpDrone } from './ai/CorpDrone.js';
 import { CorpCivilian } from './entities/CorpCivilian.js';
 import { resetCorpTurnStatusCache } from './corpTurnStatusCopy.js';
 import { NeutralCivilian } from './entities/NeutralCivilian.js';
-import { isContractDifficulty, isObjective } from './hub/Curator.js';
+import {
+  OBJECTIVES,
+  cloneObjective,
+  isContractDifficulty,
+  normalizeObjective,
+} from './hub/Curator.js';
 import { buildMap } from './procgen/mapBuild.js';
 import type { Contract } from './hub/Curator.js';
 import type { FactionId } from './constants.js';
@@ -232,8 +237,7 @@ export class Run {
     if (this.state !== null) {
       throw new Error(`Run.enterBriefing: illegal transition from ${this.state}`);
     }
-    validateContract(contract);
-    this.contract = { ...contract };
+    this.contract = normalizeContractForRun(contract);
     this.state = RUN_STATE.BRIEFING;
   }
 
@@ -339,7 +343,7 @@ export class Run {
       turnNumber: queue.turnNumber,
       currentFaction: queue.currentFaction,
       rng: { seed: this.rng.seed, state: this.rng.state },
-      contract: this.contract ? { ...this.contract } : null,
+      contract: this.contract ? cloneContract(this.contract) : null,
       exitTile: this.exitTile ? { ...this.exitTile } : null,
       grid: {
         w: world.grid.width,
@@ -466,6 +470,10 @@ export class Run {
     if (this.state !== RUN_STATE.COMBAT) return;
     if (entity !== this.player || !this.exitTile) return;
     if (to.x === this.exitTile.x && to.y === this.exitTile.y) {
+      if (!this.contract) {
+        throw new Error('Run.#onEntityMoved: exit reached without an active contract');
+      }
+      if (!isObjectiveSatisfied(this.contract)) return;
       this.telemetry.cause = 'exit-reached';
       this.enterResult({ outcome: OUTCOME.EXIT });
     }
@@ -485,6 +493,26 @@ export class Run {
     this.player = null;
     this.exitTile = null;
     this.bus = null;
+  }
+}
+
+export function isObjectiveSatisfied(contract: Contract): boolean {
+  const kind = contract.objective.kind;
+  switch (kind) {
+    case OBJECTIVES.REACH_EXIT:
+    case OBJECTIVES.RETRIEVE:
+    case OBJECTIVES.HANDOFF:
+    case OBJECTIVES.TERMINAL_SLICE:
+    case OBJECTIVES.DENY:
+    case OBJECTIVES.SWEEP:
+    case OBJECTIVES.DUAL_SITE:
+      // M1 only carries objective intent through contract generation, UI, and
+      // saves. M2 replaces these permissive cases with family-specific state.
+      return true;
+    default: {
+      const exhaustive: never = kind;
+      throw new Error(`Run.isObjectiveSatisfied: unknown objective kind "${exhaustive}"`);
+    }
   }
 }
 
@@ -575,24 +603,23 @@ function freshTelemetry(archetype: CrewArchetypeId, seed: number): RunTelemetry 
   };
 }
 
-function validateContract(contract: unknown): asserts contract is Contract {
+function normalizeContractForRun(contract: unknown): Contract {
   if (!contract || typeof contract !== 'object') {
     throw new TypeError('contract must be an object');
   }
   const candidate = contract as Partial<Contract>;
   const seed = candidate.seed;
   const threatCount = candidate.threatCount;
+  const difficulty = candidate.difficulty;
   if (!Number.isInteger(seed) || seed === undefined || seed < 0) {
     throw new TypeError(`contract.seed must be a non-negative integer, got ${seed}`);
   }
-  if (!isObjective(candidate.objective ?? '')) {
-    throw new Error(`contract.objective "${candidate.objective}" is not a known objective`);
-  }
+  const objective = normalizeObjective(candidate.objective);
   if (!Number.isInteger(threatCount) || threatCount === undefined || threatCount < 0) {
     throw new TypeError(`contract.threatCount must be a non-negative integer, got ${threatCount}`);
   }
-  if (!isContractDifficulty(candidate.difficulty ?? '')) {
-    throw new Error(`contract.difficulty "${candidate.difficulty}" is not a known difficulty`);
+  if (!difficulty || !isContractDifficulty(difficulty)) {
+    throw new Error(`contract.difficulty "${difficulty}" is not a known difficulty`);
   }
   if (!candidate.reward || typeof candidate.reward !== 'object') {
     throw new TypeError('contract.reward must be an object');
@@ -609,6 +636,26 @@ function validateContract(contract: unknown): asserts contract is Contract {
   if (typeof candidate.label !== 'string' || candidate.label.length === 0) {
     throw new TypeError('contract.label must be a non-empty string');
   }
+  return {
+    seed,
+    objective,
+    difficulty,
+    threatCount,
+    label: candidate.label,
+    reward: {
+      credits: candidate.reward.credits,
+      repDelta: candidate.reward.repDelta,
+      ...(candidate.reward.recruit === true ? { recruit: true as const } : {}),
+    },
+  };
+}
+
+function cloneContract(contract: Contract): Contract {
+  return {
+    ...contract,
+    objective: cloneObjective(contract.objective),
+    reward: { ...contract.reward },
+  };
 }
 
 function makeRunId(seed: number): string {

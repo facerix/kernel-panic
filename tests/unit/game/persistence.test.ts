@@ -16,7 +16,11 @@ import { Rng } from '../../../src/rng.js';
 
 const fakeContract = (overrides = {}) => ({
   seed: 12345,
-  objective: OBJECTIVES.REACH_EXIT,
+  objective: {
+    kind: OBJECTIVES.REACH_EXIT,
+    title: 'Extract clean',
+    briefing: 'Reach the exit.',
+  },
   difficulty: 'standard',
   threatCount: 1,
   label: 'test job',
@@ -239,6 +243,19 @@ test('restoreCampaign migrates legacy active-run salvage rewards to Creds', () =
 
   assert.equal(restored.activeRun!.contract.reward.credits, 6 * SALVAGE_TO_CRED_RATE);
   assert.equal(restored.activeRun!.contract.reward.repDelta, 2);
+});
+
+test('restoreCampaign migrates legacy string objectives to objective records', () => {
+  const campaign = new Campaign({ seed: 0xbeef });
+  campaign.deployCrewMember(campaign.crew[2].id, fakeContract({ label: 'legacy objective' }));
+  const rec = snapshotCampaign(campaign) as Record<string, unknown>;
+  const activeRun = rec.activeRun as { contract: { objective: unknown } };
+  activeRun.contract.objective = OBJECTIVES.REACH_EXIT;
+
+  const restored = restoreCampaign(rec);
+
+  assert.equal(restored.activeRun!.contract.objective.kind, OBJECTIVES.REACH_EXIT);
+  assert.equal(typeof restored.activeRun!.contract.objective.briefing, 'string');
 });
 
 test('restoreCampaign throws on corrupt campaign records', () => {

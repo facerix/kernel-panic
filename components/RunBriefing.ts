@@ -19,14 +19,10 @@
 
 import { h } from '/src/domUtils.js';
 import CrewList from '/components/CrewList.js';
+import { cloneObjective } from '/src/game/hub/Curator.js';
 import type { Crew as CrewMember } from '/src/game/Crew.js';
 import type { Contract } from '/src/game/hub/Curator.js';
 
-const OBJECTIVE_COPY = Object.freeze({
-  'reach-exit': 'Reach exit (¤) with stolen data.',
-});
-
-type Objective = keyof typeof OBJECTIVE_COPY;
 type BriefingCells = {
   target: HTMLElement;
   difficulty: HTMLElement;
@@ -191,10 +187,6 @@ function hexSeed(seed: number) {
   return `0x${n}`;
 }
 
-function objectiveCopy(objective: Objective) {
-  return OBJECTIVE_COPY[objective] ?? objective ?? '?';
-}
-
 function threatCopy(count: number) {
   if (!Number.isInteger(count)) return '?';
   if (count === 0) return 'No hostiles detected';
@@ -311,7 +303,7 @@ class RunBriefing extends HTMLElement {
     if (!contract || typeof contract !== 'object') {
       throw new TypeError('<run-briefing>.setContract requires a contract object');
     }
-    this.#contract = { ...contract };
+    this.#contract = cloneContract(contract);
     if (this.#ready) this.#renderContract();
   }
 
@@ -356,7 +348,7 @@ class RunBriefing extends HTMLElement {
     this.#cells.seed.textContent = hexSeed(c.seed);
     this.#cells.threat.textContent = threatCopy(c.threatCount);
     this.#cells.reward.textContent = rewardCopy(c);
-    this.#cells.objective.textContent = objectiveCopy(c.objective);
+    this.#cells.objective.textContent = c.objective?.briefing ?? '?';
   }
 
   #handleKey(evt: KeyboardEvent) {
@@ -386,10 +378,18 @@ class RunBriefing extends HTMLElement {
     if (!this.#contract || !this.#selectedMember || this.#selectedMember.flatlined) return;
     this.dispatchEvent(
       new CustomEvent('deploy', {
-        detail: { memberId: this.#selectedMember.id, contract: { ...this.#contract } },
+        detail: { memberId: this.#selectedMember.id, contract: cloneContract(this.#contract) },
       })
     );
   }
+}
+
+function cloneContract(contract: Contract): Contract {
+  return {
+    ...contract,
+    objective: cloneObjective(contract.objective),
+    reward: { ...contract.reward },
+  };
 }
 
 customElements.define('run-briefing', RunBriefing);
