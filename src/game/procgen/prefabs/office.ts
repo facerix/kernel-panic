@@ -3,7 +3,7 @@
  * back wall. Footprint 5×4 (fits inside MIN_LEAF=6 with 1-tile buffer for a
  * doorway carve).
  *
- * Glyphs: `.` floor, `#` wall, `+` cover.
+ * Glyphs: `.` floor, `#` wall, `=` cover.
  *
  * The drone anchor sits centred along the top corridor; waypoints walk a
  * short patrol so the player gets a visible LOS check on entry.
@@ -13,7 +13,7 @@ import type { PrefabAscii, PrefabMetadata } from './types.js';
 
 export const ASCII: PrefabAscii = `
 .....
-.+.+.
+.=.=.
 .....
 .....
 `;

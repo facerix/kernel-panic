@@ -40,7 +40,7 @@ export type PrefabMetadata = {
 };
 
 /**
- * Newline-separated rows of authoring glyphs (`.`, `#`, `+`, …). Leading and
+ * Newline-separated rows of authoring glyphs (`.`, `#`, `=`, …). Leading and
  * trailing blank lines are stripped by `parsePrefab`.
  */
 export type PrefabAscii = string;

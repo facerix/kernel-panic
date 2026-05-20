@@ -9,9 +9,9 @@ import type { PrefabAscii, PrefabMetadata } from './types.js';
 
 export const ASCII: PrefabAscii = `
 .....
-.+.+.
+.=.=.
 .....
-.+.+.
+.=.=.
 .....
 `;
 

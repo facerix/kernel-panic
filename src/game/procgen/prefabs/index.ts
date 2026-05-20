@@ -11,7 +11,7 @@
  * ASCII glyph map:
  *   `.`  TILE.FLOOR
  *   `#`  TILE.WALL
- *   `+`  TILE.COVER
+ *   `=`  TILE.COVER
  *
  * Drone anchors, optional waypoints, and exit candidate tiles are declared
  * separately in the `anchors` object so prefab authors aren't squeezing
@@ -47,7 +47,7 @@ export type {
 const GLYPH_TO_TILE = Object.freeze({
   '.': TILE.FLOOR,
   '#': TILE.WALL,
-  '+': TILE.COVER,
+  '=': TILE.COVER,
 });
 
 /**
