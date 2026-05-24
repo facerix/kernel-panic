@@ -44,6 +44,7 @@ import { CorpDrone, DRONE_STATE } from './ai/CorpDrone.js';
 import { CorpCivilian } from './entities/CorpCivilian.js';
 import { NeutralCivilian } from './entities/NeutralCivilian.js';
 import { Terminal } from './entities/Terminal.js';
+import { Pickup } from './entities/Pickup.js';
 import { CorpTurret } from './entities/CorpTurret.js';
 import { RelayNode } from './entities/RelayNode.js';
 import { Run, RUN_STATE } from './Run.js';
@@ -56,6 +57,7 @@ import type { CorpDroneProps } from './ai/CorpDrone.js';
 import type { CorpCivilianInit } from './entities/CorpCivilian.js';
 import type { NeutralCivilianInit } from './entities/NeutralCivilian.js';
 import type { TerminalInit } from './entities/Terminal.js';
+import type { PickupInit } from './entities/Pickup.js';
 import type { CorpTurretInit } from './entities/CorpTurret.js';
 import type { RelayNodeInit } from './entities/RelayNode.js';
 import type { EntityInit } from './Entity.js';
@@ -81,6 +83,7 @@ type RestoreEntityProps = Partial<
     NeutralCivilianInit &
     EntityInit &
     TerminalInit &
+    PickupInit &
     CorpTurretInit &
     RelayNodeInit
 > & {
@@ -104,6 +107,7 @@ const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) =
     'neutral-civilian': (props: RestoreEntityProps) =>
       new NeutralCivilian(props as NeutralCivilianInit),
     terminal: (props: RestoreEntityProps) => new Terminal(props as TerminalInit),
+    pickup: (props: RestoreEntityProps) => new Pickup(props as PickupInit),
     'corp-turret': (props: RestoreEntityProps) => new CorpTurret(props as CorpTurretInit),
     'relay-node': (props: RestoreEntityProps) => new RelayNode(props as RelayNodeInit),
     // Generic fallback so a future `Entity` subclass (NPCs, items) doesn't break
@@ -438,8 +442,16 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
     entityProps.armed = rec.terminal.armed;
     entityProps.raisesAlarm = rec.terminal.raisesAlarm;
   }
+  if (rec.archetype === 'pickup' && rec.pickup) {
+    entityProps.label = rec.pickup.label;
+    entityProps.secured = rec.pickup.secured;
+    entityProps.armed = rec.pickup.armed;
+  }
   if (rec.archetype === 'terminal' && !rec.terminal) {
     throw new TypeError(`restore: terminal entity ${rec.id} requires terminal state`);
+  }
+  if (rec.archetype === 'pickup' && !rec.pickup) {
+    throw new TypeError(`restore: pickup entity ${rec.id} requires pickup state`);
   }
   const entity = factory(entityProps);
   // Re-apply the live HP / AP / alive / stealth state. We can't pass current
@@ -531,6 +543,20 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
     }
     if (typeof rec.terminal.raisesAlarm !== 'boolean') {
       throw new TypeError(`restore: terminal ${rec.id} raisesAlarm must be boolean`);
+    }
+  }
+  if (rec.archetype === 'pickup' && rec.pickup) {
+    if (!(entity instanceof Pickup)) {
+      throw new Error(`restore: pickup entity ${rec.id} did not restore as Pickup`);
+    }
+    if (typeof rec.pickup.label !== 'string' || rec.pickup.label.length === 0) {
+      throw new TypeError(`restore: pickup ${rec.id} label must be a non-empty string`);
+    }
+    if (typeof rec.pickup.secured !== 'boolean') {
+      throw new TypeError(`restore: pickup ${rec.id} secured must be boolean`);
+    }
+    if (typeof rec.pickup.armed !== 'boolean') {
+      throw new TypeError(`restore: pickup ${rec.id} armed must be boolean`);
     }
   }
 

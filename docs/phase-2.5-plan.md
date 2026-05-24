@@ -12,7 +12,7 @@ Living plan for the post–Phase 2 slice of Kernel Panic: **contract objectives*
 | M2.2 — Interactables & terminal slice | ✅ Done |
 | M2.3 — Environmental hazard tiles | ✅ Done |
 | M2.4 — Corp stationary hostiles + sweep quota | ✅ Done |
-| M2.5 — Retrieve pickup objectives | 🔲 Planned |
+| M2.5 — Retrieve pickup objectives | ✅ Done |
 | M2.6 — Handoff contact objectives | 🔲 Planned |
 | M2.7 — Deny / destroy objectives | 🔲 Planned |
 | M2.8 — Dual-site sync objectives | 🔲 Planned |
@@ -303,7 +303,7 @@ Each row is the **owner** for replacing the permissive `isObjectiveSatisfied` br
 
 ---
 
-#### M2.5 — Retrieve pickup objectives 🔲
+#### M2.5 — Retrieve pickup objectives ✅
 
 **Depends on:** M2.2 (`Interactable` base, combat `Space` interact). M2.3 optional for hazard-flavored retrieve labels.
 
@@ -322,6 +322,15 @@ Each row is the **owner** for replacing the permissive `isObjectiveSatisfied` br
 - Snapshot pickup id + `secured`; restore round-trip.
 - M1 acceptance: one golden-path test for **retrieve** family (closes deferred M1 bullet).
 - New combat glyph in key help if pickup uses a new glyph.
+
+**Implementation notes:**
+
+- Added `Pickup` interactable variant with `!` glyph, adjacency/AP interaction, `secured` / `armed` state, repeat-interact guard, neutral entity label, and combat key-help legend entry.
+- Retrieve contracts now place deterministic objective pickups during `Run.enterCombat`; `params.count` places and requires multiple pickups, while `params.target` drives the pickup label.
+- `Run.isObjectiveSatisfied` now gates `OBJECTIVES.RETRIEVE` on secured `Pickup` count instead of the old permissive M1 branch; extraction remains blocked until the retrieve loop is complete.
+- Hazard-flavored retrieve contracts co-locate the hazard cluster around the first pickup anchor, preserving the M2.3 risky-zone flavor while making the pickup the center of the play loop.
+- Run snapshots serialize pickup label / secured / armed state and restore them as `Pickup` entities.
+- New `tests/unit/game/retrieve.test.ts` covers construction, interaction, objective count gating, golden-path extraction gating, hazard adjacency, entity label, and persistence round-trip.
 
 ---
 
