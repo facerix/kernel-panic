@@ -13,7 +13,7 @@ Living plan for the post–Phase 2 slice of Kernel Panic: **contract objectives*
 | M2.3 — Environmental hazard tiles | ✅ Done |
 | M2.4 — Corp stationary hostiles + sweep quota | ✅ Done |
 | M2.5 — Retrieve pickup objectives | ✅ Done |
-| M2.6 — Handoff contact objectives | 🔲 Planned |
+| M2.6 — Handoff contact objectives | ✅ Done |
 | M2.7 — Deny / destroy objectives | 🔲 Planned |
 | M2.8 — Dual-site sync objectives | 🔲 Planned |
 | M2.9 — `turnLimit` objective gating | 🔲 Planned |
@@ -334,7 +334,7 @@ Each row is the **owner** for replacing the permissive `isObjectiveSatisfied` br
 
 ---
 
-#### M2.6 — Handoff contact objectives 🔲
+#### M2.6 — Handoff contact objectives ✅
 
 **Depends on:** M2.2. M6 optional for door-gated contacts.
 
@@ -342,7 +342,7 @@ Each row is the **owner** for replacing the permissive `isObjectiveSatisfied` br
 
 **Scope:**
 
-- **Contact** interactable or thin NEUTRAL NPC: adjacency interact sets `handoffComplete` (or equivalent); may consume a carried item flag if retrieve+handoff chains are added later — out of scope unless a label requires it.
+- **Contact** interactable or thin NEUTRAL NPC, based on contract details: adjacency interact sets `handoffComplete` (or equivalent); may consume a carried item flag if retrieve+handoff chains are added later — out of scope unless a label requires it.
 - Placement from `params.contact` / `params.target`; golden path for at least one handoff label.
 - Wire `OBJECTIVES.HANDOFF` in `isObjectiveSatisfied` (not permissive `true`).
 
@@ -352,6 +352,14 @@ Each row is the **owner** for replacing the permissive `isObjectiveSatisfied` br
 - Snapshot contact state; restore round-trip.
 - M1 acceptance: one golden-path test for **handoff** family.
 - Key help entry if contact uses a new glyph.
+
+**Implementation notes:**
+
+- Added `Contact` interactable variant with `&` glyph, adjacency/AP interaction, `handoffComplete` state, repeat-interact guard, neutral entity label, and combat key-help legend entry.
+- Handoff contracts now place deterministic neutral contacts during `Run.enterCombat`; `params.contact` supplies authored contact names and `params.target` is used as a fallback label source.
+- `Run.isObjectiveSatisfied` now gates `OBJECTIVES.HANDOFF` on completed contact handoff count instead of the old permissive M1 branch; extraction remains blocked until the transfer is complete.
+- Run snapshots serialize contact label / `handoffComplete` / armed state and restore them as `Contact` entities.
+- New `tests/unit/game/handoff.test.ts` covers construction, interaction, objective count gating, Pier 9 golden-path extraction gating, target-derived labels, entity label, and persistence round-trip.
 
 ---
 

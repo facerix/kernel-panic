@@ -49,6 +49,7 @@ import { CorpCivilian } from './entities/CorpCivilian.js';
 import { Interactable } from './entities/Interactable.js';
 import { Terminal } from './entities/Terminal.js';
 import { Pickup } from './entities/Pickup.js';
+import { Contact } from './entities/Contact.js';
 import { CorpTurret } from './entities/CorpTurret.js';
 import { RelayNode } from './entities/RelayNode.js';
 import { resetCorpTurnStatusCache } from './corpTurnStatusCopy.js';
@@ -93,6 +94,7 @@ export type EntityArchetypeId =
   | 'neutral-civilian'
   | 'terminal'
   | 'pickup'
+  | 'contact'
   | 'corp-turret'
   | 'relay-node'
   | 'entity';
@@ -149,6 +151,11 @@ export type RunEntitySnapshot = {
   pickup?: {
     label: string;
     secured: boolean;
+    armed: boolean;
+  };
+  contact?: {
+    label: string;
+    handoffComplete: boolean;
     armed: boolean;
   };
   corpTurret?: {
@@ -562,6 +569,20 @@ export class Run {
         }
       }
     }
+    if (this.contract.objective.kind === OBJECTIVES.HANDOFF) {
+      const count = objectiveCount(this.contract);
+      for (let i = 0; i < count; i++) {
+        const anchor = findInteractableAnchor(this.world, this.player, this.exitTile, this.rng);
+        this.world.addEntity(
+          new Contact({
+            id: `contact-${i}`,
+            x: anchor.x,
+            y: anchor.y,
+            label: contactLabel(this.contract, i, count),
+          })
+        );
+      }
+    }
     // M2.4: Place sweep targets (relay nodes or corp turrets) for sweep contracts.
     if (this.contract.objective.kind === OBJECTIVES.SWEEP) {
       this.#placeSweepTargets();
@@ -639,12 +660,13 @@ export function isObjectiveSatisfied(contract: Contract, world?: World | null): 
   const kind = contract.objective.kind;
   switch (kind) {
     case OBJECTIVES.REACH_EXIT:
-    case OBJECTIVES.HANDOFF:
       // M1 only carries objective intent through contract generation, UI, and
       // saves. M2 replaces these permissive cases with family-specific state.
       return true;
     case OBJECTIVES.RETRIEVE:
       return isRetrieveSatisfied(contract, world);
+    case OBJECTIVES.HANDOFF:
+      return isHandoffSatisfied(contract, world);
     case OBJECTIVES.TERMINAL_SLICE:
       return isTerminalSliceSatisfied(contract, world);
     case OBJECTIVES.DENY:
@@ -725,6 +747,13 @@ function snapshotEntity(entity: Entity): RunEntitySnapshot {
       armed: entity.armed,
     };
   }
+  if (entity instanceof Contact) {
+    base.contact = {
+      label: entity.label,
+      handoffComplete: entity.handoffComplete,
+      armed: entity.armed,
+    };
+  }
   if (entity instanceof CorpTurret) {
     base.corpTurret = {
       range: entity.range,
@@ -749,6 +778,7 @@ function archetypeOf(entity: Entity): EntityArchetypeId {
   if (entity instanceof NeutralCivilian) return 'neutral-civilian';
   if (entity instanceof Terminal) return 'terminal';
   if (entity instanceof Pickup) return 'pickup';
+  if (entity instanceof Contact) return 'contact';
   if (entity instanceof CorpTurret) return 'corp-turret';
   if (entity instanceof RelayNode) return 'relay-node';
   if (entity instanceof Entity) return 'entity';
@@ -775,6 +805,16 @@ function isRetrieveSatisfied(contract: Contract, world?: World | null): boolean 
   return secured >= required;
 }
 
+function isHandoffSatisfied(contract: Contract, world?: World | null): boolean {
+  if (!world) return false;
+  const required = objectiveCount(contract);
+  let completed = 0;
+  for (const entity of world.entities.values()) {
+    if (entity instanceof Contact && entity.handoffComplete) completed++;
+  }
+  return completed >= required;
+}
+
 function objectiveCount(contract: Contract): number {
   const countParam = contract.objective.params?.count;
   return Number.isInteger(countParam) && Number(countParam) > 0 ? Number(countParam) : 1;
@@ -785,6 +825,17 @@ function pickupLabel(contract: Contract, index: number, count: number): string {
   const base =
     typeof target === 'string' && target.length > 0
       ? targetLabel(target)
+      : contract.objective.title;
+  return count > 1 ? `${base} ${index + 1}` : base;
+}
+
+function contactLabel(contract: Contract, index: number, count: number): string {
+  const contact = contract.objective.params?.contact;
+  const target = contract.objective.params?.target;
+  const source = typeof contact === 'string' && contact.length > 0 ? contact : target;
+  const base =
+    typeof source === 'string' && source.length > 0
+      ? targetLabel(source)
       : contract.objective.title;
   return count > 1 ? `${base} ${index + 1}` : base;
 }

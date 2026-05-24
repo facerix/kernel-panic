@@ -385,6 +385,8 @@ class KeyHelp extends HTMLElement {
       h('dd', { textContent: 'terminal' }),
       h('dt', { textContent: '!' }),
       h('dd', { textContent: 'objective pickup' }),
+      h('dt', { textContent: '&' }),
+      h('dd', { textContent: 'handoff contact' }),
       h('dt', { textContent: '$' }),
       h('dd', { textContent: 'corp turret' }),
       h('dt', { textContent: '~' }),

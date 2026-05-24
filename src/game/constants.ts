@@ -31,6 +31,7 @@ export const FACTION = Object.freeze({
 
 export const TERMINAL_GLYPH = '‡';
 export const PICKUP_GLYPH = '!';
+export const CONTACT_GLYPH = '&';
 
 /** Numeric tile id — one of the `TILE` values. */
 export type TileId = (typeof TILE)[keyof typeof TILE];
