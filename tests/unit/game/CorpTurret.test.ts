@@ -73,14 +73,8 @@ describe('CorpTurret', () => {
   });
 
   it('throws on invalid range', () => {
-    assert.throws(
-      () => new CorpTurret({ id: 'ct', x: 1, y: 1, range: 0 }),
-      /positive integer/
-    );
-    assert.throws(
-      () => new CorpTurret({ id: 'ct', x: 1, y: 1, range: -1 }),
-      /positive integer/
-    );
+    assert.throws(() => new CorpTurret({ id: 'ct', x: 1, y: 1, range: 0 }), /positive integer/);
+    assert.throws(() => new CorpTurret({ id: 'ct', x: 1, y: 1, range: -1 }), /positive integer/);
   });
 
   it('throws on invalid attackDamage', () => {

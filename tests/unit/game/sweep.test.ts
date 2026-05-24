@@ -21,11 +21,7 @@ import { Merc } from '../../../src/game/archetypes/Merc.js';
 import { Run, isObjectiveSatisfied, SWEEP_QUOTA } from '../../../src/game/Run.js';
 import { OBJECTIVES } from '../../../src/game/hub/Curator.js';
 import { restore } from '../../../src/game/persistence.js';
-import {
-  FACTION,
-  TILE,
-  RELAY_NODE_HP,
-} from '../../../src/game/constants.js';
+import { FACTION, TILE, RELAY_NODE_HP } from '../../../src/game/constants.js';
 import type { Contract } from '../../../src/game/hub/Curator.js';
 
 function makeGrid(w = 12, h = 12): Grid {

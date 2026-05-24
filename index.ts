@@ -25,7 +25,14 @@ import { Campaign, CAMPAIGN_STATE, willEndCampaignOnThisDeath } from '/src/game/
 import { RUN_STATE, isObjectiveSatisfied } from '/src/game/Run.js';
 import { restoreCampaign, snapshotCampaign } from '/src/game/persistence.js';
 import { runCorpTurn as driveCorpTurn } from '/src/game/corpTurnDriver.js';
-import { FACTION, AP_COST, TILE, REP, REP_LABEL, SALVAGE_TO_CRED_RATE } from '/src/game/constants.js';
+import {
+  FACTION,
+  AP_COST,
+  TILE,
+  REP,
+  REP_LABEL,
+  SALVAGE_TO_CRED_RATE,
+} from '/src/game/constants.js';
 import {
   advanceFromPlayerTurn,
   drivePlayerAftermath,

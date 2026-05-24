@@ -564,15 +564,13 @@ export class Run {
       case SWEEP_QUOTA.RELAY_NODE: {
         const count = 3;
         for (let i = 0; i < count; i++) {
-          const anchor = findInteractableAnchor(
-            this.world, this.player, this.exitTile, this.rng
-          );
+          const anchor = findInteractableAnchor(this.world, this.player, this.exitTile, this.rng);
           this.world.addEntity(
             new RelayNode({
               id: `relay-node-${i}`,
               x: anchor.x,
               y: anchor.y,
-              label: this.contract.objective.params?.target as string ?? 'Relay node',
+              label: (this.contract.objective.params?.target as string) ?? 'Relay node',
             })
           );
         }
@@ -599,9 +597,7 @@ export class Run {
 
   #placeCorpTurret(index: number): void {
     if (!this.world || !this.player || !this.exitTile) return;
-    const anchor = findInteractableAnchor(
-      this.world, this.player, this.exitTile, this.rng
-    );
+    const anchor = findInteractableAnchor(this.world, this.player, this.exitTile, this.rng);
     this.world.addEntity(
       new CorpTurret({
         id: `corp-turret-${index}`,
@@ -751,8 +747,9 @@ export const SWEEP_QUOTA = Object.freeze({
 });
 
 function sweepQuotaType(contract: Contract): string {
-  const target = (contract.objective.params?.sweepTarget ??
-    contract.objective.params?.target) as string | undefined;
+  const target = (contract.objective.params?.sweepTarget ?? contract.objective.params?.target) as
+    | string
+    | undefined;
   if (!target) return SWEEP_QUOTA.DRONE_ALL;
   if (target === 'relay-node' || target === 'skybridge-relay') return SWEEP_QUOTA.RELAY_NODE;
   if (target === 'turret' || target === 'corp-turret') return SWEEP_QUOTA.TURRET;
@@ -849,11 +846,21 @@ function findInteractableAnchor(
 export function placeHazardCluster(world: World, center: GridPoint, rng: Rng): number {
   const candidates: GridPoint[] = [center];
   // Cardinal neighbours (always included when legal)
-  for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+  for (const [dx, dy] of [
+    [-1, 0],
+    [1, 0],
+    [0, -1],
+    [0, 1],
+  ]) {
     candidates.push({ x: center.x + dx, y: center.y + dy });
   }
   // Diagonal neighbours (randomly included for organic shape)
-  for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+  for (const [dx, dy] of [
+    [-1, -1],
+    [1, -1],
+    [-1, 1],
+    [1, 1],
+  ]) {
     if (rng.next() < 0.5) {
       candidates.push({ x: center.x + dx, y: center.y + dy });
     }

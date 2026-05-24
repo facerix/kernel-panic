@@ -18,10 +18,7 @@ import { RELAY_NODE_HP } from '../constants.js';
 
 export const RELAY_NODE_GLYPH = '~';
 
-export interface RelayNodeInit extends Omit<
-  EntityInit,
-  'faction' | 'glyph' | 'maxAp'
-> {
+export interface RelayNodeInit extends Omit<EntityInit, 'faction' | 'glyph' | 'maxAp'> {
   label?: string;
 }
 
