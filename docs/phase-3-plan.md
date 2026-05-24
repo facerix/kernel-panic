@@ -116,7 +116,7 @@ Implementation notes TBD after Clock type is chosen. Multiple types may coexist 
 - **Archetype definition:** Stats, AP costs, base loadout. Comparable to Merc/Razor/Tech in Meatspace capability but not optimized for it.
 - **Signature ability — Drone Override Hack:** Target a corp drone within range; spend AP to attempt override. On success, drone switches to PLAYER faction for N turns (or until destroyed). Reuses existing drone AI with faction flip. Failure may trigger alarm (M2.1 cadence).
 - **Cyberspace stats:** The Decker has Cyberspace-specific attributes (e.g. RAM, intrusion strength, ICE resistance) used in P3.M3. Other archetypes cannot jack in (or can with severe penalties — TBD).
-- **Recruitment flow:** Triggered at Act 1 → Act 2 transition. Hub gains a new interaction point (or existing fixer/Curator introduces the Decker). Player accepts or defers recruitment.
+- **Recruitment flow:** Triggered at Act 1 → Act 2 transition. Uses the **progressive Hub reveal** system from Phase 2.5 M5: Curator message introduces the Decker on Hub entry when rep threshold is met and `deckerRecruited` flag is unset. Same pattern as Finn's introduction and Terminal explanation — the Hub grows with the campaign.
 - **Deployment:** The Decker is deployable as a solo operator on any contract (Meatspace only on non-Cyberspace contracts). On Cyberspace contracts, the Decker is one of the dual-deploy pair (see P3.M4).
 
 **Acceptance:**

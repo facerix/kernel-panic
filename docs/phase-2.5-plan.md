@@ -492,10 +492,17 @@ Phase 2.5 milestones that follow (M4–M7) retain their original numbering for c
 - **Finn’s shop:** **Richer economy** built around **salvage component types** from M4 (buy/sell/recipes or exchange rates TBD).
 - **Shop UI:** **Salvage selling** is a **separate visual tab** from **consumable / gear purchases** (clearer mental model than a single scroll list).
 - **Contract access:** Remove the **”better-contracts”** meta upgrade from the shop; replace with a **simple Rep-tier gate** (e.g. higher Rep unlocks **more lucrative** or **higher-tier** job rolls). Exact thresholds and tier names TBD.
+- **Progressive Hub reveals:** Hub features are introduced **diegetically** via Curator messages as campaign state warrants — not all at once on the first visit. The Hub grows with the player.
+  - Campaign save tracks **Hub reveal flags** (e.g. `finnIntroduced`, `terminalExplained`). Each flag is set once when its Curator message fires; messages never repeat.
+  - On Hub entry, check campaign state against trigger conditions and fire the first unseen introduction that qualifies. One message per Hub visit (don't stack).
+  - **Finn introduction:** Trigger = player has returned from at least one run with salvage or creds. Curator message introduces Finn and his shop. Before this trigger, Finn's waypoint is **absent from the Hub map** — the shop literally isn't there yet.
+  - **Terminal / recruitment introduction:** Trigger = recruitable crew members are available (e.g. after run 2–3, per existing recruitment timing). Curator message explains the Terminal's crew management function. The Terminal can be present on the Hub map from the start (it's plausible scenery), but the Curator's message is the prompt to *use* it.
+  - **Pattern reuse:** Phase 3 reuses this system for Decker recruitment (P3.M2) — same Curator message mechanic, new trigger (top rep tier reached), new flag (`deckerRecruited`).
+  - Curator messages are short (1–3 lines of flavor text) and double as system hints. Exact copy TBD per reveal.
 
-**Phase 3 awareness:** Rep tiers should define at least one **top tier** that is reachable but not trivially so in a typical campaign (~10–12 runs). Phase 3 will gate Decker recruitment and Score access at this tier. M5 does **not** implement arc gating — it establishes the tier thresholds that Phase 3 hooks into.
+**Phase 3 awareness:** Rep tiers should define at least one **top tier** that is reachable but not trivially so in a typical campaign (~10–12 runs). Phase 3 will gate Decker recruitment and Score access at this tier. M5 does **not** implement arc gating — it establishes the tier thresholds that Phase 3 hooks into. The progressive Hub reveal system (above) is reused by P3.M2 for Decker introduction.
 
-**Acceptance (when implemented):** Clinic usable in Hub; Finn tabs + typed-salvage pricing; Rep gate drives contract generation or filtering; top rep tier defined and reachable; tests for gate boundaries and snapshot persistence of new prefs/campaign fields.
+**Acceptance (when implemented):** Clinic usable in Hub; Finn tabs + typed-salvage pricing; Rep gate drives contract generation or filtering; top rep tier defined and reachable; progressive Hub reveals fire correctly (Finn absent until trigger, Terminal explained on recruit availability); Hub reveal flags persist in campaign save and don't re-fire; tests for gate boundaries, reveal trigger conditions, and snapshot persistence of new campaign fields.
 
 ---
 
