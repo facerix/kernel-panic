@@ -32,6 +32,7 @@ export const FACTION = Object.freeze({
 export const TERMINAL_GLYPH = '‡';
 export const PICKUP_GLYPH = '!';
 export const CONTACT_GLYPH = '&';
+export const DENY_TARGET_GLYPH = 'X';
 
 /** Numeric tile id — one of the `TILE` values. */
 export type TileId = (typeof TILE)[keyof typeof TILE];
@@ -143,6 +144,7 @@ export const CORP_TURRET_HP = 2;
  * no movement, no attack.
  */
 export const RELAY_NODE_HP = 1;
+export const DENY_TARGET_HP = 2;
 
 export const SALVAGE_DROP_MIN = 1;
 export const SALVAGE_DROP_MAX = 3;

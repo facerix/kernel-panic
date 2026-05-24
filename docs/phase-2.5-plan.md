@@ -14,7 +14,7 @@ Living plan for the post–Phase 2 slice of Kernel Panic: **contract objectives*
 | M2.4 — Corp stationary hostiles + sweep quota | ✅ Done |
 | M2.5 — Retrieve pickup objectives | ✅ Done |
 | M2.6 — Handoff contact objectives | ✅ Done |
-| M2.7 — Deny / destroy objectives | 🔲 Planned |
+| M2.7 — Deny / destroy objectives | ✅ Done |
 | M2.8 — Dual-site sync objectives | 🔲 Planned |
 | M2.9 — `turnLimit` objective gating | 🔲 Planned |
 | M2.10 — Contract recipe generator | 🔲 Planned |
@@ -363,7 +363,7 @@ Each row is the **owner** for replacing the permissive `isObjectiveSatisfied` br
 
 ---
 
-#### M2.7 — Deny / destroy objectives 🔲
+#### M2.7 — Deny / destroy objectives ✅
 
 **Depends on:** M2.2 and/or combat damage on props. M2.4 optional if deny targets are turret-like.
 
@@ -381,6 +381,15 @@ Each row is the **owner** for replacing the permissive `isObjectiveSatisfied` br
 - Snapshot deny-target state; restore round-trip.
 - M1 acceptance: one golden-path test for **deny** family.
 - Key help if new deny-target glyph.
+
+**Implementation notes:**
+
+- Added `DenyTarget` destructible CORP-faction objective prop with `X` glyph, 2 HP, no AP/AI, and zero melee dodge so the existing combat rules can destroy it without a neutral-prop attack exception.
+- Deny contracts now place deterministic deny targets during `Run.enterCombat`; `params.target` supplies the label and `params.count` places / requires multiple targets.
+- `Run.isObjectiveSatisfied` now gates `OBJECTIVES.DENY` on destroyed `DenyTarget` count instead of the old permissive M1 branch; extraction remains blocked until the target is destroyed.
+- Run snapshots serialize deny target labels and restore live/dead deny targets as `DenyTarget` entities.
+- Added `X` to the combat key-help legend.
+- New `tests/unit/game/deny.test.ts` covers construction, combat targetability, destruction, objective count gating, golden-path extraction gating, entity label, and persistence round-trip.
 
 **Out of scope:** breaching charges / wall demolition (**M7** extends deny fiction only).
 

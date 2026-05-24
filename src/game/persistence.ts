@@ -46,6 +46,7 @@ import { NeutralCivilian } from './entities/NeutralCivilian.js';
 import { Terminal } from './entities/Terminal.js';
 import { Pickup } from './entities/Pickup.js';
 import { Contact } from './entities/Contact.js';
+import { DenyTarget } from './entities/DenyTarget.js';
 import { CorpTurret } from './entities/CorpTurret.js';
 import { RelayNode } from './entities/RelayNode.js';
 import { Run, RUN_STATE } from './Run.js';
@@ -60,6 +61,7 @@ import type { NeutralCivilianInit } from './entities/NeutralCivilian.js';
 import type { TerminalInit } from './entities/Terminal.js';
 import type { PickupInit } from './entities/Pickup.js';
 import type { ContactInit } from './entities/Contact.js';
+import type { DenyTargetInit } from './entities/DenyTarget.js';
 import type { CorpTurretInit } from './entities/CorpTurret.js';
 import type { RelayNodeInit } from './entities/RelayNode.js';
 import type { EntityInit } from './Entity.js';
@@ -87,6 +89,7 @@ type RestoreEntityProps = Partial<
     TerminalInit &
     PickupInit &
     ContactInit &
+    DenyTargetInit &
     CorpTurretInit &
     RelayNodeInit
 > & {
@@ -112,6 +115,7 @@ const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) =
     terminal: (props: RestoreEntityProps) => new Terminal(props as TerminalInit),
     pickup: (props: RestoreEntityProps) => new Pickup(props as PickupInit),
     contact: (props: RestoreEntityProps) => new Contact(props as ContactInit),
+    'deny-target': (props: RestoreEntityProps) => new DenyTarget(props as DenyTargetInit),
     'corp-turret': (props: RestoreEntityProps) => new CorpTurret(props as CorpTurretInit),
     'relay-node': (props: RestoreEntityProps) => new RelayNode(props as RelayNodeInit),
     // Generic fallback so a future `Entity` subclass (NPCs, items) doesn't break
@@ -456,6 +460,9 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
     entityProps.handoffComplete = rec.contact.handoffComplete;
     entityProps.armed = rec.contact.armed;
   }
+  if (rec.archetype === 'deny-target') {
+    entityProps.label = rec.denyTarget?.label ?? 'Deny target';
+  }
   if (rec.archetype === 'terminal' && !rec.terminal) {
     throw new TypeError(`restore: terminal entity ${rec.id} requires terminal state`);
   }
@@ -464,6 +471,9 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
   }
   if (rec.archetype === 'contact' && !rec.contact) {
     throw new TypeError(`restore: contact entity ${rec.id} requires contact state`);
+  }
+  if (rec.archetype === 'deny-target' && !rec.denyTarget) {
+    throw new TypeError(`restore: deny target entity ${rec.id} requires deny target state`);
   }
   const entity = factory(entityProps);
   // Re-apply the live HP / AP / alive / stealth state. We can't pass current
@@ -583,6 +593,14 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
     }
     if (typeof rec.contact.armed !== 'boolean') {
       throw new TypeError(`restore: contact ${rec.id} armed must be boolean`);
+    }
+  }
+  if (rec.archetype === 'deny-target' && rec.denyTarget) {
+    if (!(entity instanceof DenyTarget)) {
+      throw new Error(`restore: deny target entity ${rec.id} did not restore as DenyTarget`);
+    }
+    if (typeof rec.denyTarget.label !== 'string' || rec.denyTarget.label.length === 0) {
+      throw new TypeError(`restore: deny target ${rec.id} label must be a non-empty string`);
     }
   }
 

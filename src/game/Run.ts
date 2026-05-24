@@ -50,6 +50,7 @@ import { Interactable } from './entities/Interactable.js';
 import { Terminal } from './entities/Terminal.js';
 import { Pickup } from './entities/Pickup.js';
 import { Contact } from './entities/Contact.js';
+import { DenyTarget } from './entities/DenyTarget.js';
 import { CorpTurret } from './entities/CorpTurret.js';
 import { RelayNode } from './entities/RelayNode.js';
 import { resetCorpTurnStatusCache } from './corpTurnStatusCopy.js';
@@ -95,6 +96,7 @@ export type EntityArchetypeId =
   | 'terminal'
   | 'pickup'
   | 'contact'
+  | 'deny-target'
   | 'corp-turret'
   | 'relay-node'
   | 'entity';
@@ -157,6 +159,9 @@ export type RunEntitySnapshot = {
     label: string;
     handoffComplete: boolean;
     armed: boolean;
+  };
+  denyTarget?: {
+    label: string;
   };
   corpTurret?: {
     range: number;
@@ -583,6 +588,20 @@ export class Run {
         );
       }
     }
+    if (this.contract.objective.kind === OBJECTIVES.DENY) {
+      const count = objectiveCount(this.contract);
+      for (let i = 0; i < count; i++) {
+        const anchor = findInteractableAnchor(this.world, this.player, this.exitTile, this.rng);
+        this.world.addEntity(
+          new DenyTarget({
+            id: `deny-target-${i}`,
+            x: anchor.x,
+            y: anchor.y,
+            label: objectiveTargetLabel(this.contract, i, count),
+          })
+        );
+      }
+    }
     // M2.4: Place sweep targets (relay nodes or corp turrets) for sweep contracts.
     if (this.contract.objective.kind === OBJECTIVES.SWEEP) {
       this.#placeSweepTargets();
@@ -670,6 +689,7 @@ export function isObjectiveSatisfied(contract: Contract, world?: World | null): 
     case OBJECTIVES.TERMINAL_SLICE:
       return isTerminalSliceSatisfied(contract, world);
     case OBJECTIVES.DENY:
+      return isDenySatisfied(contract, world);
     case OBJECTIVES.DUAL_SITE:
       // M1 only carries objective intent through contract generation, UI, and
       // saves. M2 replaces these permissive cases with family-specific state.
@@ -754,6 +774,11 @@ function snapshotEntity(entity: Entity): RunEntitySnapshot {
       armed: entity.armed,
     };
   }
+  if (entity instanceof DenyTarget) {
+    base.denyTarget = {
+      label: entity.label,
+    };
+  }
   if (entity instanceof CorpTurret) {
     base.corpTurret = {
       range: entity.range,
@@ -779,6 +804,7 @@ function archetypeOf(entity: Entity): EntityArchetypeId {
   if (entity instanceof Terminal) return 'terminal';
   if (entity instanceof Pickup) return 'pickup';
   if (entity instanceof Contact) return 'contact';
+  if (entity instanceof DenyTarget) return 'deny-target';
   if (entity instanceof CorpTurret) return 'corp-turret';
   if (entity instanceof RelayNode) return 'relay-node';
   if (entity instanceof Entity) return 'entity';
@@ -815,18 +841,23 @@ function isHandoffSatisfied(contract: Contract, world?: World | null): boolean {
   return completed >= required;
 }
 
+function isDenySatisfied(contract: Contract, world?: World | null): boolean {
+  if (!world) return false;
+  const required = objectiveCount(contract);
+  let destroyed = 0;
+  for (const entity of world.entities.values()) {
+    if (entity instanceof DenyTarget && !entity.alive) destroyed++;
+  }
+  return destroyed >= required;
+}
+
 function objectiveCount(contract: Contract): number {
   const countParam = contract.objective.params?.count;
   return Number.isInteger(countParam) && Number(countParam) > 0 ? Number(countParam) : 1;
 }
 
 function pickupLabel(contract: Contract, index: number, count: number): string {
-  const target = contract.objective.params?.target;
-  const base =
-    typeof target === 'string' && target.length > 0
-      ? targetLabel(target)
-      : contract.objective.title;
-  return count > 1 ? `${base} ${index + 1}` : base;
+  return objectiveTargetLabel(contract, index, count);
 }
 
 function contactLabel(contract: Contract, index: number, count: number): string {
@@ -836,6 +867,15 @@ function contactLabel(contract: Contract, index: number, count: number): string 
   const base =
     typeof source === 'string' && source.length > 0
       ? targetLabel(source)
+      : contract.objective.title;
+  return count > 1 ? `${base} ${index + 1}` : base;
+}
+
+function objectiveTargetLabel(contract: Contract, index: number, count: number): string {
+  const target = contract.objective.params?.target;
+  const base =
+    typeof target === 'string' && target.length > 0
+      ? targetLabel(target)
       : contract.objective.title;
   return count > 1 ? `${base} ${index + 1}` : base;
 }
