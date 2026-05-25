@@ -348,7 +348,10 @@ class RunBriefing extends HTMLElement {
     this.#cells.seed.textContent = hexSeed(c.seed);
     this.#cells.threat.textContent = threatCopy(c.threatCount);
     this.#cells.reward.textContent = rewardCopy(c);
-    this.#cells.objective.textContent = c.objective?.briefing ?? '?';
+    const turnLimit = c.objective?.params?.turnLimit;
+    const window =
+      Number.isInteger(turnLimit) && Number(turnLimit) > 0 ? ` Window: ${turnLimit} turns.` : '';
+    this.#cells.objective.textContent = `${c.objective?.briefing ?? '?'}${window}`;
   }
 
   #handleKey(evt: KeyboardEvent) {

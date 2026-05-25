@@ -150,6 +150,7 @@ function kindFromId(id: string): string {
   if (id.startsWith('pickup')) return 'Pickup';
   if (id.startsWith('contact')) return 'Contact';
   if (id.startsWith('deny-target')) return 'Deny';
+  if (id.startsWith('sync-pad')) return 'Sync Pad';
   if (id.startsWith('corp-turret')) return 'Turret';
   if (id.startsWith('relay-node')) return 'Relay';
   if (id.includes('turret')) return 'Turret';

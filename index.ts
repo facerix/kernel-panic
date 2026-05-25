@@ -22,7 +22,7 @@ import { serviceWorkerManager } from '/src/ServiceWorkerManager.js';
 import dataStore from '/src/DataStore.js';
 
 import { Campaign, CAMPAIGN_STATE, willEndCampaignOnThisDeath } from '/src/game/Campaign.js';
-import { RUN_STATE, isObjectiveSatisfied } from '/src/game/Run.js';
+import { RUN_STATE } from '/src/game/Run.js';
 import { restoreCampaign, snapshotCampaign } from '/src/game/persistence.js';
 import { runCorpTurn as driveCorpTurn } from '/src/game/corpTurnDriver.js';
 import {
@@ -798,7 +798,7 @@ function handleIntent(intent: Intent): void {
     resetInputModes,
     canExit: () => {
       if (!isRun(run) || !run.contract) return true;
-      return isObjectiveSatisfied(run.contract, run.world);
+      return run.canExtract();
     },
     exitBlockedMessage: () => {
       if (!isRun(run) || !run.contract) return 'Complete your objective before extraction.';
@@ -1049,20 +1049,23 @@ function handleCombatInteract(): void {
 function onNewRunRequested(): void {
   if (!campaign) return;
   if (pendingJobResult) {
-    const { outcome } = pendingJobResult;
+    const jobResult = pendingJobResult;
+    const { outcome } = jobResult;
     pendingJobResult = null;
     // M3: extract salvage from the deployed crew member's inventory on exit.
     const member = campaign.deployedMemberId
       ? campaign.getCrewMember(campaign.deployedMemberId)
       : null;
     const salvage = member?.inventory?.salvage ?? 0;
+    const objectiveComplete =
+      outcome === 'exit' ? jobResult.telemetry.objectiveComplete !== false : false;
     // M5: clean completion bonus — must run *before* `onJobEnd` so `enterHub` →
     // `generateRecruits()` sees the updated Rep (M6 recruitment gates at 65).
-    if (outcome === 'exit' && civilianHarmsThisJob === 0) {
+    if (outcome === 'exit' && objectiveComplete && civilianHarmsThisJob === 0) {
       const actual = campaign.adjustRep(REP.CLEAN_COMPLETION_BONUS);
       flash(`REP +${actual}: clean extraction — no civilian casualties.`);
     }
-    campaign.onJobEnd({ outcome, salvage });
+    campaign.onJobEnd({ outcome, salvage, completed: objectiveComplete });
     if (campaign.state === CAMPAIGN_STATE.ENDED) {
       dataStore.deleteCampaign();
       startFreshCampaign();
@@ -1190,6 +1193,12 @@ function attachRepListeners(): void {
       } else if (transition === 'quiet') {
         flash('ALERT: facility net quiet.');
       }
+    }),
+    run.bus.on(EVENT.OBJECTIVE_TIMER_EXPIRED, payload => {
+      const contract = (payload as { contract?: { objective?: { title?: string } } } | undefined)
+        ?.contract;
+      const title = contract?.objective?.title ?? 'objective';
+      flash(`WINDOW CLOSED: ${title} can no longer be completed cleanly.`);
     })
   );
 }
@@ -1355,8 +1364,11 @@ function statusLine(modeHint: Mode): string {
 
 function objectiveStatusTag(run: Run): string {
   if (!run.contract || !run.world) return '';
-  const done = isObjectiveSatisfied(run.contract, run.world);
-  return `<span class="objective-tag">OBJ ${escapeHtml(run.contract.objective.title)} <span class="${done ? 'done' : 'todo'}">[${done ? 'DONE' : 'TODO'}]</span></span>`;
+  const done = run.isObjectiveSatisfied();
+  const remaining = run.objectiveTurnsRemaining();
+  const turnTag =
+    remaining === null || done ? '' : ` <span class="todo">[TURN:${remaining}]</span>`;
+  return `<span class="objective-tag">OBJ ${escapeHtml(run.contract.objective.title)} <span class="${done ? 'done' : 'todo'}">[${done ? 'DONE' : 'TODO'}]</span>${turnTag}</span>`;
 }
 
 function joinStatusParts(parts: Array<string | null | undefined>): string {

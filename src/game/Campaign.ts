@@ -261,7 +261,15 @@ export class Campaign {
     return this.activeRun;
   }
 
-  onJobEnd({ outcome, salvage = 0 }: { outcome?: Outcome; salvage?: number } = {}): void {
+  onJobEnd({
+    outcome,
+    salvage = 0,
+    completed = outcome === OUTCOME.EXIT,
+  }: {
+    outcome?: Outcome;
+    salvage?: number;
+    completed?: boolean;
+  } = {}): void {
     if (this.state !== CAMPAIGN_STATE.COMBAT || !this.activeRun || !this.deployedMemberId) {
       throw new Error(`Campaign.onJobEnd: no active job from ${this.state}`);
     }
@@ -271,15 +279,20 @@ export class Campaign {
     if (!Number.isInteger(salvage) || salvage < 0) {
       throw new RangeError(`Campaign.onJobEnd: salvage must be a non-negative integer`);
     }
+    if (typeof completed !== 'boolean') {
+      throw new TypeError(`Campaign.onJobEnd: completed must be boolean`);
+    }
 
     if (outcome === OUTCOME.DEATH) {
       this.flatlineMember(this.deployedMemberId);
     } else {
-      const reward = this.activeRun.contract?.reward;
       this.salvage += salvage;
-      this.credits += reward?.credits ?? 0;
-      if (reward) this.adjustRep(reward.repDelta);
-      if (reward?.recruit) this.pendingRecruitReward = true;
+      if (completed) {
+        const reward = this.activeRun.contract?.reward;
+        this.credits += reward?.credits ?? 0;
+        if (reward) this.adjustRep(reward.repDelta);
+        if (reward?.recruit) this.pendingRecruitReward = true;
+      }
     }
     // Clear job-scoped salvage (extracted or forfeited on death).
     // Consumables persist in the crew member's inventory until used —

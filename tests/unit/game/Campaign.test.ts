@@ -103,6 +103,24 @@ test('onJobEnd with EXIT applies contract Cred and Rep rewards without spending 
   assert.equal(campaign.rep, 27); // 20 start + 7 repDelta
 });
 
+test('onJobEnd with incomplete EXIT extracts salvage but skips contract rewards', () => {
+  const campaign = new Campaign({ seed: 42 });
+  const member = campaign.crew[1];
+  const contract = fakeContract({
+    reward: { credits: 60, repDelta: 7, recruit: true },
+  });
+  const run = campaign.deployCrewMember(member.id, contract);
+  run.enterCombat();
+  campaign.onJobEnd({ outcome: OUTCOME.EXIT, salvage: 4, completed: false });
+  assert.equal(campaign.state, CAMPAIGN_STATE.HUB);
+  assert.equal(campaign.salvage, 4);
+  assert.equal(campaign.credits, 0);
+  assert.equal(campaign.rep, 20);
+  assert.equal(campaign.pendingRecruitReward, false);
+  assert.equal(campaign.availableRecruits.length, 0);
+  assert.equal(member.flatlined, false);
+});
+
 test('critical contract recruit reward creates a recruit lead without Rep gate', () => {
   const campaign = new Campaign({ seed: 42, rep: 20 });
   const member = campaign.crew[1];

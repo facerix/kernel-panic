@@ -47,6 +47,7 @@ import { Terminal } from './entities/Terminal.js';
 import { Pickup } from './entities/Pickup.js';
 import { Contact } from './entities/Contact.js';
 import { DenyTarget } from './entities/DenyTarget.js';
+import { SyncPad } from './entities/SyncPad.js';
 import { CorpTurret } from './entities/CorpTurret.js';
 import { RelayNode } from './entities/RelayNode.js';
 import { Run, RUN_STATE } from './Run.js';
@@ -62,6 +63,7 @@ import type { TerminalInit } from './entities/Terminal.js';
 import type { PickupInit } from './entities/Pickup.js';
 import type { ContactInit } from './entities/Contact.js';
 import type { DenyTargetInit } from './entities/DenyTarget.js';
+import type { SyncPadInit } from './entities/SyncPad.js';
 import type { CorpTurretInit } from './entities/CorpTurret.js';
 import type { RelayNodeInit } from './entities/RelayNode.js';
 import type { EntityInit } from './Entity.js';
@@ -74,6 +76,7 @@ import type {
   RunSnapshot,
   RunState,
   RunTelemetry,
+  ObjectiveTimerSnapshot,
 } from './Run.js';
 import type { CampaignMeta, CampaignState } from './Campaign.js';
 
@@ -90,6 +93,7 @@ type RestoreEntityProps = Partial<
     PickupInit &
     ContactInit &
     DenyTargetInit &
+    SyncPadInit &
     CorpTurretInit &
     RelayNodeInit
 > & {
@@ -116,6 +120,7 @@ const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) =
     pickup: (props: RestoreEntityProps) => new Pickup(props as PickupInit),
     contact: (props: RestoreEntityProps) => new Contact(props as ContactInit),
     'deny-target': (props: RestoreEntityProps) => new DenyTarget(props as DenyTargetInit),
+    'sync-pad': (props: RestoreEntityProps) => new SyncPad(props as SyncPadInit),
     'corp-turret': (props: RestoreEntityProps) => new CorpTurret(props as CorpTurretInit),
     'relay-node': (props: RestoreEntityProps) => new RelayNode(props as RelayNodeInit),
     // Generic fallback so a future `Entity` subclass (NPCs, items) doesn't break
@@ -276,6 +281,7 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
   run.contract = normalizeContract(record.contract);
   run.exitTile = record.exitTile ? { ...record.exitTile } : null;
   run.telemetry = { ...record.telemetry };
+  run.objectiveTimer = normalizeObjectiveTimer(record.objectiveTimer);
   run.state = record.state;
   run.bus = new EventBus();
   run.world = new World(grid, { events: run.bus });
@@ -463,6 +469,11 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
   if (rec.archetype === 'deny-target') {
     entityProps.label = rec.denyTarget?.label ?? 'Deny target';
   }
+  if (rec.archetype === 'sync-pad' && rec.syncPad) {
+    entityProps.label = rec.syncPad.label;
+    entityProps.synced = rec.syncPad.synced;
+    entityProps.armed = rec.syncPad.armed;
+  }
   if (rec.archetype === 'terminal' && !rec.terminal) {
     throw new TypeError(`restore: terminal entity ${rec.id} requires terminal state`);
   }
@@ -474,6 +485,9 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
   }
   if (rec.archetype === 'deny-target' && !rec.denyTarget) {
     throw new TypeError(`restore: deny target entity ${rec.id} requires deny target state`);
+  }
+  if (rec.archetype === 'sync-pad' && !rec.syncPad) {
+    throw new TypeError(`restore: sync pad entity ${rec.id} requires sync pad state`);
   }
   const entity = factory(entityProps);
   // Re-apply the live HP / AP / alive / stealth state. We can't pass current
@@ -601,6 +615,20 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
     }
     if (typeof rec.denyTarget.label !== 'string' || rec.denyTarget.label.length === 0) {
       throw new TypeError(`restore: deny target ${rec.id} label must be a non-empty string`);
+    }
+  }
+  if (rec.archetype === 'sync-pad' && rec.syncPad) {
+    if (!(entity instanceof SyncPad)) {
+      throw new Error(`restore: sync pad entity ${rec.id} did not restore as SyncPad`);
+    }
+    if (typeof rec.syncPad.label !== 'string' || rec.syncPad.label.length === 0) {
+      throw new TypeError(`restore: sync pad ${rec.id} label must be a non-empty string`);
+    }
+    if (typeof rec.syncPad.synced !== 'boolean') {
+      throw new TypeError(`restore: sync pad ${rec.id} synced must be boolean`);
+    }
+    if (typeof rec.syncPad.armed !== 'boolean') {
+      throw new TypeError(`restore: sync pad ${rec.id} armed must be boolean`);
     }
   }
 
@@ -804,6 +832,54 @@ function normalizeContract(
       repDelta: repDelta as number,
       ...(reward.recruit === true ? { recruit: true as const } : {}),
     },
+  };
+}
+
+function normalizeObjectiveTimer(timer: unknown): ObjectiveTimerSnapshot {
+  if (timer === undefined || timer === null) return freshObjectiveTimer();
+  if (!timer || typeof timer !== 'object' || Array.isArray(timer)) {
+    throw new TypeError('restore: objectiveTimer must be an object');
+  }
+  const candidate = timer as Partial<ObjectiveTimerSnapshot>;
+  if (typeof candidate.completedWithinLimit !== 'boolean') {
+    throw new TypeError('restore: objectiveTimer.completedWithinLimit must be boolean');
+  }
+  if (typeof candidate.expired !== 'boolean') {
+    throw new TypeError('restore: objectiveTimer.expired must be boolean');
+  }
+  if (
+    candidate.completedTurn !== null &&
+    candidate.completedTurn !== undefined &&
+    (!Number.isInteger(candidate.completedTurn) || candidate.completedTurn < 1)
+  ) {
+    throw new RangeError('restore: objectiveTimer.completedTurn must be null or turn >= 1');
+  }
+  if (
+    candidate.expiredTurn !== null &&
+    candidate.expiredTurn !== undefined &&
+    (!Number.isInteger(candidate.expiredTurn) || candidate.expiredTurn < 1)
+  ) {
+    throw new RangeError('restore: objectiveTimer.expiredTurn must be null or turn >= 1');
+  }
+  if (typeof candidate.expiryAnnounced !== 'boolean') {
+    throw new TypeError('restore: objectiveTimer.expiryAnnounced must be boolean');
+  }
+  return {
+    completedWithinLimit: candidate.completedWithinLimit,
+    expired: candidate.expired,
+    completedTurn: candidate.completedTurn ?? null,
+    expiredTurn: candidate.expiredTurn ?? null,
+    expiryAnnounced: candidate.expiryAnnounced,
+  };
+}
+
+function freshObjectiveTimer(): ObjectiveTimerSnapshot {
+  return {
+    completedWithinLimit: false,
+    expired: false,
+    completedTurn: null,
+    expiredTurn: null,
+    expiryAnnounced: false,
   };
 }
 

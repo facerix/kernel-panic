@@ -51,6 +51,7 @@ import { Terminal } from './entities/Terminal.js';
 import { Pickup } from './entities/Pickup.js';
 import { Contact } from './entities/Contact.js';
 import { DenyTarget } from './entities/DenyTarget.js';
+import { SyncPad } from './entities/SyncPad.js';
 import { CorpTurret } from './entities/CorpTurret.js';
 import { RelayNode } from './entities/RelayNode.js';
 import { resetCorpTurnStatusCache } from './corpTurnStatusCopy.js';
@@ -97,6 +98,7 @@ export type EntityArchetypeId =
   | 'pickup'
   | 'contact'
   | 'deny-target'
+  | 'sync-pad'
   | 'corp-turret'
   | 'relay-node'
   | 'entity';
@@ -111,8 +113,18 @@ export type RunTelemetry = {
   hpAtDeath: number | null;
   hpAtDamage?: number;
   cause: string | null;
+  objectiveComplete?: boolean;
+  objectiveExpired?: boolean;
   outcome: Outcome | null;
   [key: string]: unknown;
+};
+
+export type ObjectiveTimerSnapshot = {
+  completedWithinLimit: boolean;
+  expired: boolean;
+  completedTurn: number | null;
+  expiredTurn: number | null;
+  expiryAnnounced: boolean;
 };
 
 export type RunEntitySnapshot = {
@@ -163,6 +175,11 @@ export type RunEntitySnapshot = {
   denyTarget?: {
     label: string;
   };
+  syncPad?: {
+    label: string;
+    synced: boolean;
+    armed: boolean;
+  };
   corpTurret?: {
     range: number;
     attackDamage: number;
@@ -190,6 +207,8 @@ export type RunSnapshot = {
   alarm?: AlarmState;
   /** Legacy M5 map-wide alarm latch. Missing in pre-M5 saves → defaults to false. */
   alarmActive?: boolean;
+  /** M2.9 turn-limit objective state. Missing in older saves → fresh timer state. */
+  objectiveTimer?: ObjectiveTimerSnapshot;
 };
 
 export type RunResult = {
@@ -233,6 +252,7 @@ export class Run {
   contract: Contract | null;
   exitTile: GridPoint | null;
   telemetry: RunTelemetry;
+  objectiveTimer: ObjectiveTimerSnapshot;
   onPersist: ((record: RunSnapshot) => void) | null;
   onResult: ((result: RunResult) => void) | null;
   _busUnsubs: (() => void)[];
@@ -267,6 +287,7 @@ export class Run {
     this.contract = null;
     this.exitTile = null;
     this.telemetry = freshTelemetry(this.archetype, this.seed);
+    this.objectiveTimer = freshObjectiveTimer();
     this.onPersist = (onPersist as ((record: RunSnapshot) => void) | undefined) ?? null;
     this.onResult = (onResult as ((result: RunResult) => void) | undefined) ?? null;
 
@@ -280,6 +301,7 @@ export class Run {
       throw new Error(`Run.enterBriefing: illegal transition from ${this.state}`);
     }
     this.contract = normalizeContractForRun(contract);
+    this.objectiveTimer = freshObjectiveTimer();
     this.state = RUN_STATE.BRIEFING;
   }
 
@@ -336,6 +358,7 @@ export class Run {
     this.queue = new TurnQueue([FACTION.PLAYER, FACTION.CORP]);
     this.exitTile = { ...map.exitTile };
     this.#placeObjectiveInteractables();
+    this.objectiveTimer = freshObjectiveTimer();
     this.state = RUN_STATE.COMBAT;
     this._reattachCombatListeners();
   }
@@ -375,6 +398,9 @@ export class Run {
     if (!this.state) {
       throw new Error('Run.snapshot: no run state to capture');
     }
+    if (this.state === RUN_STATE.COMBAT) {
+      this.#refreshObjectiveTimerState();
+    }
     const world = this.world;
     const queue = this.queue;
     return {
@@ -397,7 +423,23 @@ export class Run {
       telemetry: { ...this.telemetry },
       alarm: world.snapshotAlarm(),
       alarmActive: world.alarmActive,
+      objectiveTimer: { ...this.objectiveTimer },
     };
+  }
+
+  isObjectiveSatisfied(): boolean {
+    return this.#refreshObjectiveTimerState();
+  }
+
+  canExtract(): boolean {
+    if (!this.contract) return false;
+    if (this.isObjectiveSatisfied()) return true;
+    return this.#isTimedObjectiveExpired();
+  }
+
+  objectiveTurnsRemaining(): number | null {
+    if (!this.contract || !this.queue) return null;
+    return objectiveTurnsRemaining(this.contract, this.queue.turnNumber);
   }
 
   /**
@@ -451,6 +493,7 @@ export class Run {
       throw new Error('Run.#onTurnEnded: COMBAT state without a TurnQueue');
     }
     this.telemetry.turn = this.queue.turnNumber;
+    this.#refreshObjectiveTimerState();
     if (!this.onPersist) return;
     this.onPersist(this.snapshot());
   }
@@ -521,9 +564,19 @@ export class Run {
       if (!this.contract) {
         throw new Error('Run.#onEntityMoved: exit reached without an active contract');
       }
-      if (!isObjectiveSatisfied(this.contract, this.world)) return;
-      this.telemetry.cause = 'exit-reached';
-      this.enterResult({ outcome: OUTCOME.EXIT });
+      const objectiveComplete = this.isObjectiveSatisfied();
+      const objectiveExpired = this.#isTimedObjectiveExpired();
+      if (!objectiveComplete && !objectiveExpired) return;
+      this.telemetry.cause = objectiveComplete
+        ? 'exit-reached'
+        : 'exit-reached-objective-incomplete';
+      this.enterResult({
+        outcome: OUTCOME.EXIT,
+        telemetry: {
+          objectiveComplete,
+          objectiveExpired,
+        },
+      });
     }
   }
 
@@ -602,6 +655,23 @@ export class Run {
         );
       }
     }
+    if (this.contract.objective.kind === OBJECTIVES.DUAL_SITE) {
+      const count = dualSiteObjectiveCount(this.contract);
+      for (let i = 0; i < count; i++) {
+        const anchor = findInteractableAnchor(this.world, this.player, this.exitTile, this.rng);
+        this.world.addEntity(
+          new SyncPad({
+            id: `sync-pad-${i}`,
+            x: anchor.x,
+            y: anchor.y,
+            label: objectiveTargetLabel(this.contract, i, count),
+          })
+        );
+        if (i === 0 && this.contract.objective.params?.hazardFlavor) {
+          placeHazardCluster(this.world, anchor, this.rng);
+        }
+      }
+    }
     // M2.4: Place sweep targets (relay nodes or corp turrets) for sweep contracts.
     if (this.contract.objective.kind === OBJECTIVES.SWEEP) {
       this.#placeSweepTargets();
@@ -611,6 +681,7 @@ export class Run {
     // candidate anchor point biased away from spawn/exit.
     if (
       this.contract.objective.kind !== OBJECTIVES.RETRIEVE &&
+      this.contract.objective.kind !== OBJECTIVES.DUAL_SITE &&
       this.contract.objective.params?.hazardFlavor
     ) {
       const anchor = findInteractableAnchor(this.world, this.player, this.exitTile, this.rng);
@@ -673,9 +744,82 @@ export class Run {
       })
     );
   }
+
+  #refreshObjectiveTimerState(): boolean {
+    if (!this.contract) return false;
+    const timing = this.#objectiveTimingContext();
+    const satisfied = isObjectiveSatisfied(this.contract, this.world, timing);
+    const limit = turnLimitForContract(this.contract);
+    if (limit === null || !this.queue) return satisfied;
+
+    if (this.objectiveTimer.completedWithinLimit) return true;
+    if (this.objectiveTimer.expired) return false;
+
+    const turnNumber = this.queue.turnNumber;
+    if (satisfied) {
+      this.objectiveTimer.completedWithinLimit = true;
+      this.objectiveTimer.completedTurn = turnNumber;
+      return true;
+    }
+
+    if (isTurnLimitExpired(this.contract, turnNumber)) {
+      this.objectiveTimer.expired = true;
+      this.objectiveTimer.expiredTurn = turnNumber;
+      if (!this.objectiveTimer.expiryAnnounced) {
+        this.objectiveTimer.expiryAnnounced = true;
+        this.world?.events?.emit(EVENT.OBJECTIVE_TIMER_EXPIRED, {
+          contract: cloneContract(this.contract),
+          turnLimit: limit,
+          turnNumber,
+        });
+      }
+    }
+    return false;
+  }
+
+  #objectiveTimingContext(): ObjectiveTiming | undefined {
+    if (!this.contract || !this.queue || turnLimitForContract(this.contract) === null) {
+      return undefined;
+    }
+    return {
+      turnNumber: this.queue.turnNumber,
+      completedWithinLimit: this.objectiveTimer.completedWithinLimit,
+      expired: this.objectiveTimer.expired,
+    };
+  }
+
+  #isTimedObjectiveExpired(): boolean {
+    return (
+      !!this.contract && turnLimitForContract(this.contract) !== null && this.objectiveTimer.expired
+    );
+  }
 }
 
-export function isObjectiveSatisfied(contract: Contract, world?: World | null): boolean {
+export type ObjectiveTiming = {
+  turnNumber?: number;
+  completedWithinLimit?: boolean;
+  expired?: boolean;
+};
+
+export function isObjectiveSatisfied(
+  contract: Contract,
+  world?: World | null,
+  timing?: ObjectiveTiming
+): boolean {
+  if (timing?.completedWithinLimit) return true;
+  if (timing?.expired) return false;
+  const limit = turnLimitForContract(contract);
+  if (
+    limit !== null &&
+    timing?.turnNumber !== undefined &&
+    isTurnLimitExpired(contract, timing.turnNumber)
+  ) {
+    return false;
+  }
+  return isObjectiveFamilySatisfied(contract, world);
+}
+
+function isObjectiveFamilySatisfied(contract: Contract, world?: World | null): boolean {
   const kind = contract.objective.kind;
   switch (kind) {
     case OBJECTIVES.REACH_EXIT:
@@ -691,9 +835,7 @@ export function isObjectiveSatisfied(contract: Contract, world?: World | null): 
     case OBJECTIVES.DENY:
       return isDenySatisfied(contract, world);
     case OBJECTIVES.DUAL_SITE:
-      // M1 only carries objective intent through contract generation, UI, and
-      // saves. M2 replaces these permissive cases with family-specific state.
-      return true;
+      return isDualSiteSatisfied(contract, world);
     case OBJECTIVES.SWEEP:
       return isSweepSatisfied(contract, world);
     default: {
@@ -701,6 +843,25 @@ export function isObjectiveSatisfied(contract: Contract, world?: World | null): 
       throw new Error(`Run.isObjectiveSatisfied: unknown objective kind "${exhaustive}"`);
     }
   }
+}
+
+export function turnLimitForContract(contract: Contract): number | null {
+  const turnLimit = contract.objective.params?.turnLimit;
+  return Number.isInteger(turnLimit) && Number(turnLimit) > 0 ? Number(turnLimit) : null;
+}
+
+export function objectiveTurnsRemaining(contract: Contract, turnNumber: number): number | null {
+  if (!Number.isInteger(turnNumber) || turnNumber < 1) {
+    throw new RangeError(`objectiveTurnsRemaining: turnNumber must be >= 1, got ${turnNumber}`);
+  }
+  const limit = turnLimitForContract(contract);
+  if (limit === null) return null;
+  return Math.max(0, limit - (turnNumber - 1));
+}
+
+function isTurnLimitExpired(contract: Contract, turnNumber: number): boolean {
+  const remaining = objectiveTurnsRemaining(contract, turnNumber);
+  return remaining !== null && remaining <= 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -779,6 +940,13 @@ function snapshotEntity(entity: Entity): RunEntitySnapshot {
       label: entity.label,
     };
   }
+  if (entity instanceof SyncPad) {
+    base.syncPad = {
+      label: entity.label,
+      synced: entity.synced,
+      armed: entity.armed,
+    };
+  }
   if (entity instanceof CorpTurret) {
     base.corpTurret = {
       range: entity.range,
@@ -805,6 +973,7 @@ function archetypeOf(entity: Entity): EntityArchetypeId {
   if (entity instanceof Pickup) return 'pickup';
   if (entity instanceof Contact) return 'contact';
   if (entity instanceof DenyTarget) return 'deny-target';
+  if (entity instanceof SyncPad) return 'sync-pad';
   if (entity instanceof CorpTurret) return 'corp-turret';
   if (entity instanceof RelayNode) return 'relay-node';
   if (entity instanceof Entity) return 'entity';
@@ -851,9 +1020,24 @@ function isDenySatisfied(contract: Contract, world?: World | null): boolean {
   return destroyed >= required;
 }
 
+function isDualSiteSatisfied(contract: Contract, world?: World | null): boolean {
+  if (!world) return false;
+  const required = dualSiteObjectiveCount(contract);
+  let synced = 0;
+  for (const entity of world.entities.values()) {
+    if (entity instanceof SyncPad && entity.synced) synced++;
+  }
+  return synced >= required;
+}
+
 function objectiveCount(contract: Contract): number {
   const countParam = contract.objective.params?.count;
   return Number.isInteger(countParam) && Number(countParam) > 0 ? Number(countParam) : 1;
+}
+
+function dualSiteObjectiveCount(contract: Contract): number {
+  const countParam = contract.objective.params?.count;
+  return Number.isInteger(countParam) && Number(countParam) > 0 ? Number(countParam) : 2;
 }
 
 function pickupLabel(contract: Contract, index: number, count: number): string {
@@ -1076,6 +1260,16 @@ function freshTelemetry(archetype: CrewArchetypeId, seed: number): RunTelemetry 
     hpAtDeath: null,
     cause: null,
     outcome: null,
+  };
+}
+
+function freshObjectiveTimer(): ObjectiveTimerSnapshot {
+  return {
+    completedWithinLimit: false,
+    expired: false,
+    completedTurn: null,
+    expiredTurn: null,
+    expiryAnnounced: false,
   };
 }
 

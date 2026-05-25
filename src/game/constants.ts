@@ -33,6 +33,7 @@ export const TERMINAL_GLYPH = '‡';
 export const PICKUP_GLYPH = '!';
 export const CONTACT_GLYPH = '&';
 export const DENY_TARGET_GLYPH = 'X';
+export const SYNC_PAD_GLYPH = '§';
 
 /** Numeric tile id — one of the `TILE` values. */
 export type TileId = (typeof TILE)[keyof typeof TILE];

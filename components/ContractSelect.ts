@@ -330,7 +330,10 @@ function rewardCopy(contract: Contract): string {
 }
 
 function objectiveCopy(contract: Contract): string {
-  return `OBJ ${contract.objective.title}`;
+  const turnLimit = contract.objective.params?.turnLimit;
+  const window =
+    Number.isInteger(turnLimit) && Number(turnLimit) > 0 ? ` · WINDOW ${turnLimit} turns` : '';
+  return `OBJ ${contract.objective.title}${window}`;
 }
 
 function cloneContract(contract: Contract): Contract {

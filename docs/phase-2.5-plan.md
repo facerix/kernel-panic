@@ -15,8 +15,8 @@ Living plan for the post–Phase 2 slice of Kernel Panic: **contract objectives*
 | M2.5 — Retrieve pickup objectives | ✅ Done |
 | M2.6 — Handoff contact objectives | ✅ Done |
 | M2.7 — Deny / destroy objectives | ✅ Done |
-| M2.8 — Dual-site sync objectives | 🔲 Planned |
-| M2.9 — `turnLimit` objective gating | 🔲 Planned |
+| M2.8 — Dual-site sync objectives | ✅ Done |
+| M2.9 — `turnLimit` objective gating | ✅ Done |
 | M2.10 — Contract recipe generator | 🔲 Planned |
 | M3 — Campaign history / chronicle | ➡️ Deferred to Phase 3 |
 | M4 — Salvage revision + typed salvage + field consumables | 🔲 Planned |
@@ -395,7 +395,7 @@ Each row is the **owner** for replacing the permissive `isObjectiveSatisfied` br
 
 ---
 
-#### M2.8 — Dual-site sync objectives 🔲
+#### M2.8 — Dual-site sync objectives ✅
 
 **Depends on:** M2.2. M6 optional for routing between sites. M2.4 optional if a “site” is a relay node.
 
@@ -414,21 +414,30 @@ Each row is the **owner** for replacing the permissive `isObjectiveSatisfied` br
 - M1 acceptance: one golden-path test for **dual-site** family.
 - Key help if pad glyph differs from pickup/terminal.
 
+**Implementation notes:**
+
+- Added `SyncPad` interactable variant with `§` glyph, adjacency/AP interaction, `synced` / `armed` state, repeat-interact guard, neutral entity label, and combat key-help legend entry.
+- Dual-site contracts now place deterministic sync pads during `Run.enterCombat`; `params.count` places and requires N pads, while omitted `count` defaults to 2 for the family.
+- `Run.isObjectiveSatisfied` now gates `OBJECTIVES.DUAL_SITE` on synced `SyncPad` count instead of the old permissive M1 branch; extraction remains blocked until every required pad is synced. Pad order is free-form.
+- Hazard-flavored dual-site contracts co-locate the hazard cluster around the first sync pad, matching the existing retrieve hazard pattern.
+- Run snapshots serialize sync pad label / `synced` / `armed` state and restore them as `SyncPad` entities.
+- New `tests/unit/game/dualSite.test.ts` covers construction, interaction, objective count gating, Matsuda golden-path extraction gating, hazard adjacency, entity label, and persistence round-trip.
+
 ---
 
-#### M2.9 — `turnLimit` objective gating 🔲
+#### M2.9 — `turnLimit` objective gating ✅
 
 **Depends on:** M2.2 (combat turn pipeline + `isObjectiveSatisfied` integration). For each contract label that ships with `params.turnLimit`, also depends on that label’s **family owner** slice (M2.2 for **Sentinel maintenance window** today; M2.5–M2.8 if future labels add `turnLimit` to retrieve, dual-site, etc.).
 
-**Goal:** Enforce M1 **timed pressure** for contracts that set `objective.params.turnLimit`: the player must complete the family-specific objective within the budget; expiry **blocks** clean objective completion and extract gating (same path as incomplete objectives).
+**Goal:** Enforce M1 **timed pressure** for contracts that set `objective.params.turnLimit`: the player must complete the family-specific objective within the budget; expiry **blocks** clean objective completion but still permits extraction as an incomplete run.
 
 **Scope:**
 
 - **Turn counter:** Persist combat **rounds elapsed** (or player turns — pick one at implementation and document in implementation notes; count must match player-facing “turns left” copy).
 - Start budget from `contract.objective.params.turnLimit` when present and finite; omit param = no timer (unchanged behaviour).
 - **`isObjectiveSatisfied`:** For timed contracts, return `false` if the family-specific checks fail **or** if the budget is exhausted before the family checks first become true. Once satisfied within the budget, remain satisfied for the rest of the run (wandering after completion does not re-arm the timer).
-- **Extract / shell:** Status shows remaining budget (e.g. `[TURN:n]` alongside `[TODO]` / `[DONE]`); on expiry log a clear line (e.g. maintenance window closed) and keep extract blocked until objective is met — expired timed contracts cannot be “completed” retroactively.
-- **Failure outcome on expiry:** Default = objective permanently failed for that run (extract blocked; payout rules follow existing incomplete-objective handling). Escalating spawns on expiry are **out of scope** unless trivial to hook from M2.1 alarm — document if deferred.
+- **Extract / shell:** Status shows remaining budget (e.g. `[TURN:n]` alongside `[TODO]` / `[DONE]`); on expiry log a clear line (e.g. maintenance window closed) and allow extraction as incomplete — expired timed contracts cannot be “completed” retroactively.
+- **Failure outcome on expiry:** Default = objective permanently failed for that run (extract allowed, no full contract payout/recruit/clean-completion reward). Escalating spawns on expiry are **out of scope** unless trivial to hook from M2.1 alarm — document if deferred.
 - Golden path: **Sentinel maintenance window** (`terminal-slice`, `turnLimit: 15`) — slice before limit → extract allowed; fixture test that simulates limit+1 rounds without slice → `isObjectiveSatisfied` false.
 - When a non–terminal-slice label gains `turnLimit` in `Curator.ts`, add a matching golden-path test in the same PR as that label’s family owner (M2.5–M2.8) or in M2.9 if the family owner is already ✅.
 
@@ -440,6 +449,15 @@ Each row is the **owner** for replacing the permissive `isObjectiveSatisfied` br
 - M1 **Timed pressure** row satisfied for at least one shipped label.
 
 **Out of scope:** Rep penalties for slow jobs (**M5**); new `turnLimit` labels beyond the existing Curator pool (**M1**).
+
+**Implementation notes:**
+
+- Turn budget is counted in full combat rounds using `TurnQueue.turnNumber`: turn 1 starts with the full budget, and a `turnLimit: 15` window expires when the queue returns to player control on turn 16 without completion.
+- `Run` now owns persisted `objectiveTimer` state (`completedWithinLimit`, `expired`, completion/expiry turn, and one-shot expiry announcement flag). Pre-M2.9 saves restore to a fresh timer state.
+- `Run.isObjectiveSatisfied()` wraps the family-specific objective checks with timer gating. Completion inside the window latches clean success; expiry before completion latches failure, so later interaction cannot complete the contract retroactively.
+- Expiry emits `objective:timer-expired`; the shell logs a clear “WINDOW CLOSED” line and then allows extraction with `objectiveComplete: false`, skipping contract payout, recruit reward, and clean-completion Rep bonus. Escalating spawns remain deferred.
+- Job board and briefing copy surface timed windows, and combat status shows `[TURN:n]` while a timed objective is still pending.
+- New `tests/unit/game/turnLimit.test.ts` covers remaining-turn math, pure timed satisfaction, under-budget completion persistence, post-expiry retroactive denial, expiry event emission, and snapshot/restore for completed and expired timer states.
 
 ---
 

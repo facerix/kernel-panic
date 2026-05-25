@@ -31,6 +31,7 @@ export const EVENT = Object.freeze({
   CIVILIAN_HARMED: 'civilian:harmed',
   REP_CHANGED: 'rep:changed',
   HAZARD_DAMAGE: 'hazard:damage',
+  OBJECTIVE_TIMER_EXPIRED: 'objective:timer-expired',
 });
 
 const KNOWN_TYPES = new Set<string>(Object.values(EVENT));
