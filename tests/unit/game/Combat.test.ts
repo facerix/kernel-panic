@@ -6,6 +6,8 @@ import { World } from '../../../src/game/World.js';
 import { Entity } from '../../../src/game/Entity.js';
 import { Merc } from '../../../src/game/archetypes/Merc.js';
 import { Razor } from '../../../src/game/archetypes/Razor.js';
+import { RelayNode } from '../../../src/game/entities/RelayNode.js';
+import { CorpTurret } from '../../../src/game/entities/CorpTurret.js';
 import {
   TILE,
   FACTION,
@@ -446,6 +448,31 @@ test('resolveMelee applies COVER_DODGE_BONUS for diagonal corner cover', () => {
   assert.equal(result.inCover, true);
   assert.equal(result.dodgeThreshold, DODGE_CHANCE + COVER_DODGE_BONUS);
   assert.equal(result.dodged, true, 'cover bonus converts this roll into a dodge');
+});
+
+test('resolveMelee never dodges stationary infrastructure even in corner cover', () => {
+  for (const TargetClass of [RelayNode, CorpTurret]) {
+    const g = new Grid(8, 8);
+    const w = new World(g);
+    const attacker = new Entity({
+      id: 'a',
+      x: 3,
+      y: 3,
+      faction: FACTION.PLAYER,
+      glyph: '@',
+    });
+    const target = new TargetClass({ id: 'relay-node-0', x: 4, y: 4 });
+    w.addEntity(attacker);
+    w.addEntity(target);
+    w.grid.setTile(4, 3, TILE.COVER);
+    const result = resolveMelee(w, attacker, target, new StubRng([0]));
+    assert.equal(result.inCover, true);
+    assert.equal(result.dodgeThreshold, 0, `${TargetClass.name} must not gain cover dodge`);
+    assert.equal(result.dodged, false);
+    assert.equal(result.hit, true);
+    assert.equal(result.damage, MELEE_DAMAGE);
+    assert.equal(target.alive, false, `${TargetClass.name} must take the hit`);
+  }
 });
 
 test('resolveMelee crashes if no Rng is supplied (no Math.random fallback)', () => {
