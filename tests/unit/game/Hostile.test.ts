@@ -6,6 +6,7 @@ import { Grid } from '../../../src/game/Grid.js';
 import { Hostile } from '../../../src/game/Hostile.js';
 import { World } from '../../../src/game/World.js';
 import { CorpDrone } from '../../../src/game/ai/CorpDrone.js';
+import { EscortNpc } from '../../../src/game/entities/EscortNpc.js';
 import { FACTION } from '../../../src/game/constants.js';
 import type { Rng } from '../../../src/rng.js';
 
@@ -79,4 +80,19 @@ test('Hostile.acquireTarget honours stealth spotting rules', () => {
 test('Hostile rejects an invalid sightRange', () => {
   assert.throws(() => makeHostile({ sightRange: -1 }), RangeError);
   assert.throws(() => makeHostile({ sightRange: 1.5 }), RangeError);
+});
+
+test('Hostile.isHostileTo ignores escort allies', () => {
+  const hostile = makeHostile();
+  const escort = new EscortNpc({
+    id: 'escort-npc-0',
+    x: 2,
+    y: 2,
+    label: 'Witness',
+    activated: true,
+  });
+  const player = new Entity({ id: 'crew-merc', x: 3, y: 2, faction: FACTION.PLAYER, glyph: '@' });
+
+  assert.equal(hostile.isHostileTo(escort), false);
+  assert.equal(hostile.isHostileTo(player), true);
 });

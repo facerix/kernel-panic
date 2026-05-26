@@ -111,22 +111,23 @@ describe('EscortNpc', () => {
     assert.equal(player.ap, player.maxAp - AP_COST.INTERACT);
   });
 
-  it('is targetable by corp hostiles because it is player-aligned', () => {
+  it('is ignored by corp hostiles despite player faction', () => {
     const world = makeOpenWorld();
-    const player = new Entity({ id: 'crew-merc', x: 6, y: 3, faction: FACTION.PLAYER, glyph: '@' });
+    const player = new Entity({ id: 'crew-merc', x: 4, y: 1, faction: FACTION.PLAYER, glyph: '@' });
     const escort = new EscortNpc({
       id: 'escort-npc-0',
-      x: 2,
-      y: 2,
+      x: 1,
+      y: 4,
       label: 'Witness',
       activated: true,
     });
-    const drone = new CorpDrone({ id: 'drone-0', x: 1, y: 2, maxAp: 3 });
+    const drone = new CorpDrone({ id: 'drone-0', x: 1, y: 1, maxAp: 3 });
     world.addEntity(player);
     world.addEntity(escort);
     world.addEntity(drone);
 
-    assert.equal(drone.acquireTarget(world), escort);
+    assert.equal(drone.isHostileTo(escort), false);
+    assert.equal(drone.acquireTarget(world), player);
   });
 });
 
