@@ -22,6 +22,7 @@ import { snapshot, restore } from '../../../src/game/persistence.js';
 import { buildCrewMember } from '../../../src/game/archetypes/index.js';
 import { EVENT } from '../../../src/game/events.js';
 import { Rng } from '../../../src/rng.js';
+import { testContractContext } from './contractTestUtils.js';
 import type { Contract } from '../../../src/game/hub/Curator.js';
 
 function makeCrew(archetype = 'razor') {
@@ -42,6 +43,7 @@ function makeTimedTerminalContract(turnLimit = 2, overrides: Partial<Contract> =
     difficulty: 'standard',
     threatCount: 1,
     label: 'Sentinel maintenance window',
+    context: testContractContext(OBJECTIVES.TERMINAL_SLICE),
     reward: { credits: 50, repDelta: 5 },
     ...overrides,
   };

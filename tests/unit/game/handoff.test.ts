@@ -21,6 +21,7 @@ import { snapshot, restore } from '../../../src/game/persistence.js';
 import { buildCrewMember } from '../../../src/game/archetypes/index.js';
 import { AP_COST, CONTACT_GLYPH, FACTION, TILE } from '../../../src/game/constants.js';
 import { Rng } from '../../../src/rng.js';
+import { testContractContext } from './contractTestUtils.js';
 import type { Contract } from '../../../src/game/hub/Curator.js';
 
 function makeGrid(w = 12, h = 12): Grid {
@@ -55,6 +56,7 @@ function makeHandoffContract(overrides: Partial<Contract> = {}): Contract {
     difficulty: 'standard',
     threatCount: 1,
     label: 'Black market dropoff — Pier 9',
+    context: testContractContext(OBJECTIVES.HANDOFF),
     reward: { credits: 50, repDelta: 5 },
     ...overrides,
   };

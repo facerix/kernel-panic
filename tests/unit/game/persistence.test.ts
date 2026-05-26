@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { Campaign } from '../../../src/game/Campaign.js';
 import { Run } from '../../../src/game/Run.js';
-import { OBJECTIVES } from '../../../src/game/hub/Curator.js';
+import { buildContractRecipeFixture, OBJECTIVES } from '../../../src/game/hub/Curator.js';
 import { Terminal } from '../../../src/game/entities/Terminal.js';
 import {
   restore,
@@ -11,9 +11,10 @@ import {
   snapshot,
   snapshotCampaign,
 } from '../../../src/game/persistence.js';
-import { FACTION, SALVAGE_TO_CRED_RATE } from '../../../src/game/constants.js';
+import { CONTRACT_DIFFICULTY, FACTION, SALVAGE_TO_CRED_RATE } from '../../../src/game/constants.js';
 import { buildCrewMember } from '../../../src/game/archetypes/index.js';
 import { Rng } from '../../../src/rng.js';
+import { testContractContext } from './contractTestUtils.js';
 
 const fakeContract = (overrides = {}) => ({
   seed: 12345,
@@ -25,6 +26,7 @@ const fakeContract = (overrides = {}) => ({
   difficulty: 'standard',
   threatCount: 1,
   label: 'test job',
+  context: testContractContext(OBJECTIVES.REACH_EXIT),
   reward: { credits: 0, repDelta: 0 },
   ...overrides,
 });
@@ -38,6 +40,7 @@ const terminalSliceContract = (overrides = {}) =>
       params: { target: 'server-rack', count: 1 },
     },
     label: 'terminal test job',
+    context: testContractContext(OBJECTIVES.TERMINAL_SLICE),
     ...overrides,
   });
 
@@ -297,6 +300,27 @@ test('campaign snapshot captures an active briefing job', () => {
   assert.equal(restored.activeRun.state, 'BRIEFING');
   assert.equal(restored.activeRun.contract.label, 'briefing job');
   assert.equal(restored.activeRun.crewMember.id, campaign.crew[2].id);
+});
+
+test('campaign snapshot preserves generated contract context metadata', () => {
+  const campaign = new Campaign({ seed: 0xbeef });
+  const contract = buildContractRecipeFixture({
+    recipeId: 'dual-site-sync',
+    principalId: 'matsuda',
+    siteId: 'contractor-annex',
+    assetId: 'payroll',
+    actionId: 'mirror',
+    difficulty: CONTRACT_DIFFICULTY.STANDARD,
+    seed: 0x1234,
+    arcStage: 'act-1',
+  });
+  campaign.deployCrewMember(campaign.crew[2].id, contract);
+  const rec = snapshotCampaign(campaign);
+
+  const restored = restoreCampaign(rec);
+
+  assert.deepEqual(restored.activeRun!.contract!.context, contract.context);
+  assert.equal(restored.activeRun!.contract!.label, '// Matsuda payroll mirror');
 });
 
 test('restoreCampaign restores legacy snapshots without credits as zero', () => {

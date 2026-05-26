@@ -7,7 +7,7 @@ Living plan for the post–Phase 2 slice of Kernel Panic: **contract objectives*
 | Milestone | Status |
 |---|---|
 | M1 — Contract objectives (label-driven run variety) | ✅ Done |
-| M2 — Richer combat mechanics (objectives + pressure) | 🔲 Planned (see M2.1–M2.10) |
+| M2 — Richer combat mechanics (objectives + pressure) | ✅ Done |
 | M2.1 — Alarm cadence & feedback | ✅ Done |
 | M2.2 — Interactables & terminal slice | ✅ Done |
 | M2.3 — Environmental hazard tiles | ✅ Done |
@@ -17,7 +17,7 @@ Living plan for the post–Phase 2 slice of Kernel Panic: **contract objectives*
 | M2.7 — Deny / destroy objectives | ✅ Done |
 | M2.8 — Dual-site sync objectives | ✅ Done |
 | M2.9 — `turnLimit` objective gating | ✅ Done |
-| M2.10 — Contract recipe generator | 🔲 Planned |
+| M2.10 — Contract recipe generator | ✅ Done |
 | M3 — Campaign history / chronicle | ➡️ Deferred to Phase 3 |
 | M4 — Salvage revision + typed salvage + field consumables | 🔲 Planned |
 | M5 — Hub, economy, Rep, crew tuning | 🔲 Planned |
@@ -60,7 +60,7 @@ Labels are **suggestive**, not 1:1 locked forever — the table is the default t
 | **Sublevel 3 cache** | Buried data stash | **Retrieve** | A **cache** interactable (sublevel tile cluster or hidden room); must **pick up / secure** before exit counts as clean completion (or gates full pay). |
 | **Vuong Holdings server farm** | Corp data center | **Terminal / slice** | One or more **server racks / terminals** to interact with (“slice”); higher tiers could arm **CorpCivilian** alarm pressure. |
 | **Black market dropoff — Pier 9** | Physical handoff | **Handoff** | Spawn a **named neutral contact** (or static “drop box” entity with contact flavor); **interact adjacent** to complete package transfer; exit. |
-| **Glassed clinic data dump** | Salvage from a hit site | **Retrieve** (+ hazard flavor) | **Medical records** or **samples** pickup in a **risky zone** (smoke, broken LOS, or “glass” debris as palette); retrieve then exit. |
+| **Gassed clinic data dump** | Salvage from a hit site | **Retrieve** (+ hazard flavor) | **Medical records** or **samples** pickup in a **risky zone** (smoke, broken LOS, or gas clouds as palette); retrieve then exit. |
 | **Spinning Fox warehouse** | Logistics / storage | **Retrieve** or **Deny** | Either **lift a crate** (retrieve) or **torch/disable shipment** (destroy interactable); tier picks weight. |
 | **Matsuda payroll mirror** | Finance + redundancy | **Dual-site / sync** | **Two mirrors**: interact **payroll terminal** + **off-site mirror** (or two pads); order-free or “sync window” for critical tier. |
 | **Transit authority dead drop** | TA blind handoff | **Retrieve** | **Dead drop** prop (concealed tile); **find + interact** once; then exit — same mechanical skeleton as cache, different fiction. |
@@ -233,7 +233,7 @@ Each row is the **owner** for replacing the permissive `isObjectiveSatisfied` br
 
 **Depends on:** M2.1 recommended (hazards may tick alarm or block “quiet” windows); can ship in parallel with M2.2 / M2.4.
 
-**Goal:** Grid tiles (or tile-attached state) that change **LOS**, **movement cost**, and/or **damage** — supports M1 “risky zone” fiction (e.g. Glassed clinic).
+**Goal:** Grid tiles (or tile-attached state) that change **LOS**, **movement cost**, and/or **damage** — supports M1 “risky zone” fiction (e.g. Gassed clinic).
 
 **Scope:**
 
@@ -255,7 +255,7 @@ Each row is the **owner** for replacing the permissive `isObjectiveSatisfied` br
 - `HAZARD_DAMAGE = 1` constant (tuneable); glyph `▓` in `#d45a3a` (orange-red, distinct from smoke `░`). Added to `<key-help>` combat tile legend.
 - Hazard damage resolves during **player aftermath** (Phase 3 of `runPlayerAftermathSteps`, after turrets and civilian reactions): every live entity on a `TILE.HAZARD` cell takes flat damage. Emits `ENTITY_DAMAGED` (source: `'hazard'`, attacker: `null`) for Run death-detection, plus a new `HAZARD_DAMAGE` event for presentation.
 - `HazardAftermathStep` added to the `PlayerAftermathStep` union; log formatting and LOS-gated visibility follow the same patterns as turret autofire.
-- `placeHazardCluster(world, center, rng)` stamps a 5–9 tile diamond/cross of HAZARD onto FLOOR-only unoccupied tiles. Called from `Run.#placeObjectiveInteractables` when `contract.objective.params.hazardFlavor` is present (today: “Glassed clinic data dump”). M2.5 will co-locate a retrieve pickup at or near this cluster.
+- `placeHazardCluster(world, center, rng)` stamps a 5–9 tile diamond/cross of HAZARD onto FLOOR-only unoccupied tiles. Called from `Run.#placeObjectiveInteractables` when `contract.objective.params.hazardFlavor` is present (today: “Gassed clinic data dump”). M2.5 will co-locate a retrieve pickup at or near this cluster.
 - A* pathfinding (`Pathfinding.ts`) and LOS (`LineOfSight.ts`) needed no changes — `Grid.isPassable` already drives both, and HAZARD was added to the passable set.
 - 19 new unit tests in `tests/unit/game/hazard.test.ts`: grid passability, LOS transparency, movement, damage per turn, kill, events, dead-entity skip, multi-entity, log formatting, visibility gating, cluster placement (including wall/entity/edge-of-map guards), snapshot round-trip, and palette glyph.
 
@@ -461,7 +461,7 @@ Each row is the **owner** for replacing the permissive `isObjectiveSatisfied` br
 
 ---
 
-#### M2.10 — Contract recipe generator 🔲
+#### M2.10 — Contract recipe generator ✅
 
 **Depends on:** M1 objective shape; M2.5–M2.9 recommended so every generated recipe can point at a non-permissive objective family. Can start earlier behind tests if recipes initially cover only already-shipped families.
 
@@ -477,20 +477,30 @@ Each row is the **owner** for replacing the permissive `isObjectiveSatisfied` br
   - system/asset tokens: payroll, clinic records, community power, transit relay, dead drop, water table, auction ledger.
   - action/anomaly tokens: mirror, siphon, blind, override, sinkhole, cache, handoff, burn.
 - Generate contracts by deterministic pipeline: roll difficulty → pick compatible recipe → pick compatible tokens → build objective params → render label/title/briefing → assemble reward/threat as today.
-- Store enough structured flavor metadata in the generated contract, or in a stable debug-only fixture path, to make tests and future chronicle copy inspectable without reverse-parsing `label`.
+- Store enough structured `context` metadata in the generated contract to make tests and future chronicle / arc copy inspectable without reverse-parsing `label`.
 - Keep Curator board uniqueness: no duplicate rendered labels in one draw; if the pool is exhausted, fail loudly in development/tests and use a documented production strategy.
 
 **Acceptance:**
 
 - Unit tests cover every recipe: generated label is non-empty and unique within a seeded board; objective kind is valid; params pass existing objective validation; title and briefing render without unresolved template slots.
 - Determinism test: same seed + same campaign state yields identical contracts; different seeds produce varied but compatible token combinations.
-- Migration / compatibility: existing saved contracts with fixed labels still restore; new runs use recipe-generated contracts.
+- Persistence compatibility: recipe-generated contracts snapshot/restore with required `context`; no `flavor` field migration shim is needed before release.
 - Test at least one example per shipped objective family, including **Matsuda payroll mirror** for `dual-site` and **Block 9 community power siphon** or equivalent for a non-retrieve family.
 - Curator registry sync tests are replaced or extended so adding a recipe without objective coverage fails the suite.
 
 **Phase 3 awareness:** The recipe context (`ContractRecipe` + `ContractLexicon`) should accept an optional **campaign phase** or **arc stage** input so Phase 3 can bias contract generation toward the Score target site and arc-relevant objectives without rewriting the generator. M2.10 does **not** implement arc logic — it exposes the hook.
 
 **Out of scope:** Large content expansion, Rep-tier economy tuning, arc-driven contract steering (Phase 3), and string-parsing gameplay inference. M2.10 may add enough tokens to prove the generator, but M5 owns access/tier gating and later phases can add deeper faction/location corpora.
+
+**Implementation notes:**
+
+- `Curator.generateContracts` now builds new jobs from `CONTRACT_RECIPES` plus `CONTRACT_LEXICON` token pools instead of fixed label → objective lookup. Rendered labels are flavor only; objective kind, title, briefing, and params all come from the typed recipe context.
+- Recipe context axes are split into **principal** (corp / civic authority / rival faction), optional **site**, optional **site state**, **asset**, and **action**. This keeps labels like `Gassed clinic records recovery` from pretending the damaged clinic is an actor.
+- Generated contracts carry required `context` metadata (`recipeId`, principal/site/siteState/asset/action token refs with ids, labels, and groups; `tags`; optional `arcStage`) so future chronicle / Phase 3 arc logic can inspect structured context without parsing `label`.
+- The lexicon now includes additional corp principals (Kestrel Dynamics, Sable-Kline Systems, HelioDyne Combine, Orchid Vector, Northstar Civic, Marrowgate Logistics) plus civic / rival principals (Bayline Transit Authority, District Water Board, Civic Grid Office, Port Warden Bureau, Chrome Choir, Redline Union, Null Saints).
+- The recipe context accepts `arcStage` today and preserves it in generated contract context. M2.10 does not bias on arc stage yet; Phase 3 owns that behavior.
+- Board generation enforces unique rendered labels per visit and throws if the recipe/token pool cannot produce enough unique labels. `assertLabelObjectiveRegistryInSync()` now validates recipe coverage for every shipped non-`reach-exit` objective kind.
+- Tests cover deterministic boards, token variation across seeds, one fixture per objective family, the named `Matsuda payroll mirror` and `Block 9 community power siphon` examples, incompatible-token failure, and generated context persistence through campaign snapshot/restore.
 
 ---
 

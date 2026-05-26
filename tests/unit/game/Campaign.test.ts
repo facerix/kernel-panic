@@ -12,6 +12,7 @@ import { Rng } from '../../../src/rng.js';
 import { OBJECTIVES } from '../../../src/game/hub/Curator.js';
 import { snapshotCampaign, restoreCampaign } from '../../../src/game/persistence.js';
 import { SALVAGE_TO_CRED_RATE, SHOP_COST } from '../../../src/game/constants.js';
+import { testContractContext } from './contractTestUtils.js';
 
 const fakeContract = (overrides = {}) => ({
   seed: 12345,
@@ -23,6 +24,7 @@ const fakeContract = (overrides = {}) => ({
   difficulty: 'standard',
   threatCount: 1,
   label: 'test job',
+  context: testContractContext(OBJECTIVES.REACH_EXIT),
   reward: { credits: 0, repDelta: 0 },
   ...overrides,
 });

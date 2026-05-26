@@ -22,6 +22,7 @@ import { Run, isObjectiveSatisfied, SWEEP_QUOTA } from '../../../src/game/Run.js
 import { OBJECTIVES } from '../../../src/game/hub/Curator.js';
 import { restore } from '../../../src/game/persistence.js';
 import { FACTION, TILE, RELAY_NODE_HP } from '../../../src/game/constants.js';
+import { testContractContext } from './contractTestUtils.js';
 import type { Contract } from '../../../src/game/hub/Curator.js';
 
 function makeGrid(w = 12, h = 12): Grid {
@@ -38,7 +39,11 @@ function makeWorld(w = 12, h = 12): World {
   return new World(makeGrid(w, h), { events: new EventBus() });
 }
 
-function makeSweepContract(target: string, count?: number): Contract {
+function makeSweepContract(
+  target: string,
+  count?: number,
+  overrides: Partial<Contract> = {}
+): Contract {
   return {
     seed: 42,
     objective: {
@@ -53,7 +58,9 @@ function makeSweepContract(target: string, count?: number): Contract {
     difficulty: 'standard',
     threatCount: 2,
     label: '// Test sweep',
+    context: testContractContext(OBJECTIVES.SWEEP),
     reward: { credits: 50, repDelta: 5 },
+    ...overrides,
   };
 }
 
@@ -144,6 +151,7 @@ describe('Sweep objective (drone-all)', () => {
       difficulty: 'standard',
       threatCount: 2,
       label: '// Sweep',
+      context: testContractContext(OBJECTIVES.SWEEP),
       reward: { credits: 50, repDelta: 5 },
     };
     const world = makeWorld();
@@ -297,19 +305,11 @@ describe('Snapshot round-trip', () => {
   it('CorpTurret survives snapshot + restore', () => {
     const merc = new Merc({ id: 'crew-merc', x: 1, y: 1, callsign: 'VIPER' });
     const run = new Run({ crewMember: merc, seed: 99 });
-    const contract: Contract = {
+    const contract = makeSweepContract('relay-node', undefined, {
       seed: 99,
-      objective: {
-        kind: OBJECTIVES.SWEEP,
-        title: 'Sweep',
-        briefing: 'Clear.',
-        params: { target: 'relay-node' },
-      },
-      difficulty: 'standard',
       threatCount: 0,
       label: '// Test',
-      reward: { credits: 50, repDelta: 5 },
-    };
+    });
     run.enterBriefing(contract);
     run.enterCombat();
 
@@ -340,19 +340,11 @@ describe('Snapshot round-trip', () => {
   it('RelayNode survives snapshot + restore', () => {
     const merc = new Merc({ id: 'crew-merc', x: 1, y: 1, callsign: 'VIPER' });
     const run = new Run({ crewMember: merc, seed: 99 });
-    const contract: Contract = {
+    const contract = makeSweepContract('relay-node', undefined, {
       seed: 99,
-      objective: {
-        kind: OBJECTIVES.SWEEP,
-        title: 'Sweep',
-        briefing: 'Clear.',
-        params: { target: 'relay-node' },
-      },
-      difficulty: 'standard',
       threatCount: 0,
       label: '// Test',
-      reward: { credits: 50, repDelta: 5 },
-    };
+    });
     run.enterBriefing(contract);
     run.enterCombat();
 
@@ -380,19 +372,11 @@ describe('Snapshot round-trip', () => {
   it('dead RelayNode restores correctly', () => {
     const merc = new Merc({ id: 'crew-merc', x: 1, y: 1, callsign: 'VIPER' });
     const run = new Run({ crewMember: merc, seed: 99 });
-    const contract: Contract = {
+    const contract = makeSweepContract('relay-node', undefined, {
       seed: 99,
-      objective: {
-        kind: OBJECTIVES.SWEEP,
-        title: 'Sweep',
-        briefing: 'Clear.',
-        params: { target: 'relay-node' },
-      },
-      difficulty: 'standard',
       threatCount: 0,
       label: '// Test',
-      reward: { credits: 50, repDelta: 5 },
-    };
+    });
     run.enterBriefing(contract);
     run.enterCombat();
 

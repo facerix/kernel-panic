@@ -21,6 +21,7 @@ import { snapshot, restore } from '../../../src/game/persistence.js';
 import { buildCrewMember } from '../../../src/game/archetypes/index.js';
 import { AP_COST, FACTION, PICKUP_GLYPH, TILE } from '../../../src/game/constants.js';
 import { Rng } from '../../../src/rng.js';
+import { testContractContext } from './contractTestUtils.js';
 import type { Contract } from '../../../src/game/hub/Curator.js';
 
 function makeGrid(w = 12, h = 12): Grid {
@@ -55,6 +56,7 @@ function makeRetrieveContract(overrides: Partial<Contract> = {}): Contract {
     difficulty: 'standard',
     threatCount: 1,
     label: 'Sublevel 3 cache',
+    context: testContractContext(OBJECTIVES.RETRIEVE),
     reward: { credits: 50, repDelta: 5 },
     ...overrides,
   };
@@ -225,12 +227,12 @@ describe('retrieve runs', () => {
     const run = new Run({ crewMember: makeCrew('razor'), seed: 44 });
     run.enterBriefing(
       makeRetrieveContract({
-        label: 'Glassed clinic data dump',
+        label: 'Gassed clinic data dump',
         objective: {
           kind: OBJECTIVES.RETRIEVE,
           title: 'Secure clinic records',
-          briefing: 'Recover the records from the glassed clinic.',
-          params: { target: 'clinic-records', hazardFlavor: 'glass-debris' },
+          briefing: 'Recover the records from the gassed clinic.',
+          params: { target: 'clinic-records', hazardFlavor: 'suppression-gas' },
         },
       })
     );

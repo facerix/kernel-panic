@@ -10,6 +10,7 @@ import { EVENT } from '../../../src/game/events.js';
 import { Turret } from '../../../src/game/Turret.js';
 import { buildCrewMember } from '../../../src/game/archetypes/index.js';
 import { Rng } from '../../../src/rng.js';
+import { testContractContext } from './contractTestUtils.js';
 
 const fakeContract = (overrides = {}) => ({
   seed: 12345,
@@ -21,6 +22,7 @@ const fakeContract = (overrides = {}) => ({
   difficulty: 'standard',
   threatCount: 1,
   label: 'test job',
+  context: testContractContext(OBJECTIVES.REACH_EXIT),
   reward: { credits: 0, repDelta: 0 },
   ...overrides,
 });
@@ -34,6 +36,7 @@ const terminalSliceContract = (overrides = {}) =>
       params: { target: 'server-rack', count: 1 },
     },
     label: 'terminal test job',
+    context: testContractContext(OBJECTIVES.TERMINAL_SLICE),
     ...overrides,
   });
 
@@ -160,6 +163,7 @@ test('enterBriefing rejects malformed contracts', () => {
     run.enterBriefing({ ...fakeContract(), reward: { credits: -1, repDelta: 0 } })
   );
   assert.throws(() => run.enterBriefing({ ...fakeContract(), label: '' }));
+  assert.throws(() => run.enterBriefing({ ...fakeContract(), context: null }));
 });
 
 test('enterResult rejects unknown outcomes', () => {

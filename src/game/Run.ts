@@ -60,6 +60,7 @@ import {
   OBJECTIVES,
   cloneObjective,
   isContractDifficulty,
+  normalizeContractContext,
   normalizeObjective,
 } from './hub/Curator.js';
 import { buildMap } from './procgen/mapBuild.js';
@@ -677,7 +678,7 @@ export class Run {
       this.#placeSweepTargets();
     }
     // M2.3: Place hazard cluster near a future pickup anchor when hazardFlavor
-    // is set (e.g. "Glassed clinic data dump"). The cluster is placed around a
+    // is set (e.g. "Gassed clinic data dump"). The cluster is placed around a
     // candidate anchor point biased away from spawn/exit.
     if (
       this.contract.objective.kind !== OBJECTIVES.RETRIEVE &&
@@ -1306,12 +1307,14 @@ function normalizeContractForRun(contract: unknown): Contract {
   if (typeof candidate.label !== 'string' || candidate.label.length === 0) {
     throw new TypeError('contract.label must be a non-empty string');
   }
+  const context = normalizeContractContext(candidate.context);
   return {
     seed,
     objective,
     difficulty,
     threatCount,
     label: candidate.label,
+    context,
     reward: {
       credits: candidate.reward.credits,
       repDelta: candidate.reward.repDelta,
@@ -1324,6 +1327,7 @@ function cloneContract(contract: Contract): Contract {
   return {
     ...contract,
     objective: cloneObjective(contract.objective),
+    context: normalizeContractContext(contract.context),
     reward: { ...contract.reward },
   };
 }
