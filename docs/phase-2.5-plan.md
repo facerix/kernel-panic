@@ -7,7 +7,7 @@ Living plan for the post–Phase 2 slice of Kernel Panic: **contract objectives*
 | Milestone | Status |
 |---|---|
 | M1 — Contract objectives (label-driven run variety) | ✅ Done |
-| M2 — Richer combat mechanics (objectives + pressure) | ✅ Done |
+| M2 — Richer combat mechanics (objectives + pressure) | 🔲 Extended (M2.11–M2.12 planned) |
 | M2.1 — Alarm cadence & feedback | ✅ Done |
 | M2.2 — Interactables & terminal slice | ✅ Done |
 | M2.3 — Environmental hazard tiles | ✅ Done |
@@ -18,6 +18,8 @@ Living plan for the post–Phase 2 slice of Kernel Panic: **contract objectives*
 | M2.8 — Dual-site sync objectives | ✅ Done |
 | M2.9 — `turnLimit` objective gating | ✅ Done |
 | M2.10 — Contract recipe generator | ✅ Done |
+| M2.11 — Recon / exhaustive mapping objectives | 🔲 Planned |
+| M2.12 — Escort / extract NPC objectives | 🔲 Planned |
 | M3 — Campaign history / chronicle | ➡️ Deferred to Phase 3 |
 | M4 — Salvage revision + typed salvage + field consumables | 🔲 Planned |
 | M5 — Hub, economy, Rep, crew tuning | 🔲 Planned |
@@ -26,7 +28,7 @@ Living plan for the post–Phase 2 slice of Kernel Panic: **contract objectives*
 
 **Phase 2.5** is complete when:
 
-1. Every milestone in the table above is ✅ except M3 (deferred). M2 rolls up automatically when M2.1–M2.10 are all ✅.
+1. Every milestone in the table above is ✅ except M3 (deferred). M2 rolls up automatically when M2.1–M2.12 are all ✅.
 2. Full campaign loop from Phase 2 remains playable offline on iOS Safari + Chrome desktop: Hub → contract selection → job deployment → combat → extract or flatline → return to Hub, with Finn shop, Rep meter, recruitment, and new systems (objectives, salvage types, shop tabs, breaching, etc.) integrated per milestone specs.
 3. Phase 3 foundations in place: M2.10 recipe context supports future arc-awareness; M5 rep tiers leave room for Decker recruitment gating; M7 location schema accommodates a designated "Score target" site.
 4. `v0.2.5` tagged in git.
@@ -49,6 +51,8 @@ Living plan for the post–Phase 2 slice of Kernel Panic: **contract objectives*
 | **Deny / destroy** | Enter → **destroy marked object(s)** or eliminate a quota → **exit** | Combat, possibly non-drone props |
 | **Sweep / clear** | Enter → **clear threats** or tagged “nodes” (antennas, relays) before extraction counts | Drone count, optional secondary entities |
 | **Dual-site / sync** | Enter → complete **A then B** (or either order) within same floor — e.g. mirror payroll | Two interactables; routing puzzle |
+| **Recon / map** | Enter → exhaustively reveal the location map → **exit** | Fog-of-war, `VisionField`, location memory |
+| **Escort / extract** | Enter → find and activate an allied NPC → keep them following → leave with them at the exit | Interact, player aftermath turn, allied pathing |
 | **Timed pressure** (optional modifier) | Any family + **turn budget** or escalating spawns | Telemetry / shell timer; ties to difficulty |
 
 #### Current `CONTRACT_LABELS` → suggested default objective
@@ -77,6 +81,8 @@ Additional `CONTRACT_LABELS` / families to build out:
 - **Ghost auction ledger** — Retrieve (ledger) + optional Handoff exit contact.
 - **Basement floodgate override** — Deny / destroy (valve or pump) or Terminal sequence.
 - **Skybridge relay blind** — Sweep (relay entities) or Retrieve (blind drop on bridge).
+- **Northstar site survey** — Recon (map the whole floor before extracting).
+- **Clinic witness extraction** — Escort / extract (activate an allied NPC and bring them to the exit).
 
 #### Acceptance (when implemented)
 
@@ -98,7 +104,7 @@ Additional `CONTRACT_LABELS` / families to build out:
 
 **Goal:** Build on M1 contract objectives with Meatspace systems called out in the pitch and blueprint: **noise / alarm cadence**, **terminal-slice tension**, **environmental hazards**, **new corp hostiles**, and **access gating** that sets up M6 breaching.
 
-**M2 is complete when M2.1–M2.10 are all ✅.** Infrastructure slices (M2.1–M2.4) and objective-family slices (M2.5–M2.8) can interleave after M2.2; **M2.9** lands after the family owner for any contract that ships with `params.turnLimit` (see below). **M2.10** then replaces the fixed label registry with typed recipes and compatible token pools. See dependency notes per slice.
+**M2 is complete when M2.1–M2.12 are all ✅.** Infrastructure slices (M2.1–M2.4) and objective-family slices (M2.5–M2.8, M2.11–M2.12) can interleave after their dependencies; **M2.9** lands after the family owner for any contract that ships with `params.turnLimit` (see below). **M2.10** replaces the fixed label registry with typed recipes and compatible token pools; **M2.11–M2.12** extend that recipe layer with two additional objective families. See dependency notes per slice.
 
 ```mermaid
 flowchart LR
@@ -110,6 +116,8 @@ flowchart LR
   M28[M2.8 Dual-site]
   M29[M2.9 turnLimit]
   M210[M2.10 Recipes]
+  M211[M2.11 Recon]
+  M212[M2.12 Escort]
   M23[M2.3 Hazards]
   M24[M2.4 Turrets + sweep]
   M21 --> M22
@@ -128,6 +136,8 @@ flowchart LR
   M27 --> M210
   M28 --> M210
   M29 --> M210
+  M210 --> M211
+  M210 --> M212
 ```
 
 #### `OBJECTIVES.*` ownership (Curator kinds → M2 slice)
@@ -142,6 +152,8 @@ Each row is the **owner** for replacing the permissive `isObjectiveSatisfied` br
 | `deny` | **M2.7** | Destroy or disable marked prop(s) |
 | `sweep` | **M2.4** | Drone quota and/or relay-node entities; documents quota types after ship |
 | `dual-site` | **M2.8** | Two objective interactables (`params.count`); M6 optional routing |
+| `recon` | **M2.11** | Exhaustively reveal the playable location before extract |
+| `escort-extract` | **M2.12** | Activate an allied NPC, have them follow during player aftermath, extract together |
 | `reach-exit` | — | **Not in label pool**; save migration only — no M2 slice |
 
 #### Param modifiers (not separate kinds)
@@ -150,7 +162,7 @@ Each row is the **owner** for replacing the permissive `isObjectiveSatisfied` br
 |-------|-------------|--------------|
 | `turnLimit` | **M2.9** | `contract.objective.params.turnLimit` is a positive number (e.g. **Sentinel maintenance window** → `terminal-slice` with `turnLimit: 15` in `Curator.ts`) |
 | `hazardFlavor` | **M2.3** | Retrieve labels with risky-zone fiction |
-| `doorId` / `requiresUnlock` | **M6** | Routing for M2.5–M2.8 contracts |
+| `doorId` / `requiresUnlock` | **M6** | Routing for M2.5–M2.8 and M2.11–M2.12 contracts |
 
 | Slice | Delivers | Objective kinds owned |
 |-------|----------|-------------------------|
@@ -164,12 +176,14 @@ Each row is the **owner** for replacing the permissive `isObjectiveSatisfied` br
 | **M2.8** | Dual-site pads / mirrors | `dual-site` |
 | **M2.9** | **`turnLimit` deadline** on combat turns | (modifier — any kind with `params.turnLimit`) |
 | **M2.10** | Typed contract recipes + mad-libs label generation | (Curator generation layer — no new kind) |
+| **M2.11** | Exhaustive mapping / recon completion | `recon` |
+| **M2.12** | Allied NPC activation, following, and extraction | `escort-extract` |
 
-**Cross-cutting rule:** Each **owner** slice replaces the matching **permissive** branch in `isObjectiveSatisfied` (M1 placeholder returns `true`) when its mechanics land — avoid a single end-loaded “objectives” PR. M2.3 may tighten retrieve further via hazard params; M6 (doors) may tighten handoff / dual-site via routing params — but neither satisfies M2 rollup without M2.5–M2.8. **M2.9** layers on top of family owners: when `turnLimit` is present, satisfaction also requires the objective to be complete **before** the budget expires (see M2.9).
+**Cross-cutting rule:** Each **owner** slice replaces the matching **permissive** branch in `isObjectiveSatisfied` (M1 placeholder returns `true`) when its mechanics land — avoid a single end-loaded “objectives” PR. M2.3 may tighten retrieve further via hazard params; M6 (doors) may tighten handoff / dual-site / recon / escort via routing params — but neither satisfies M2 rollup without the owned objective slices. **M2.9** layers on top of family owners: when `turnLimit` is present, satisfaction also requires the objective to be complete **before** the budget expires (see M2.9).
 
 **Remember for every subtask:** When you add new combat glyphs, add them to the key help overlay as well, so players know what to look for.
 
-**Out of scope for M2.1–M2.9:** breaching charges, destructible walls, location-keyed map reuse (**M7**); exact Rep/AP economy tuning (**M5**); broad label-pool expansion outside the recipe work in **M2.10**.
+**Out of scope for M2.1–M2.12:** breaching charges, destructible walls, location-keyed map reuse (**M7**); exact Rep/AP economy tuning (**M5**); broad label-pool expansion beyond the recipes needed to prove the shipped objective families.
 
 ---
 
@@ -216,7 +230,7 @@ Each row is the **owner** for replacing the permissive `isObjectiveSatisfied` br
 
 - Golden-path test: start terminal-slice contract → interact → objective satisfied only when slice rules met; alarm side effects assertable.
 - Snapshot includes interactable ids + flags; restore round-trip.
-- Handoff / retrieve / deny / dual-site families deferred to **M2.5–M2.8** (not M2.2 alone).
+- Handoff / retrieve / deny / dual-site families are covered by **M2.5–M2.8**; later objective families (`recon`, `escort-extract`) are covered by **M2.11–M2.12**.
 
 **Implementation notes:**
 
@@ -427,7 +441,7 @@ Each row is the **owner** for replacing the permissive `isObjectiveSatisfied` br
 
 #### M2.9 — `turnLimit` objective gating ✅
 
-**Depends on:** M2.2 (combat turn pipeline + `isObjectiveSatisfied` integration). For each contract label that ships with `params.turnLimit`, also depends on that label’s **family owner** slice (M2.2 for **Sentinel maintenance window** today; M2.5–M2.8 if future labels add `turnLimit` to retrieve, dual-site, etc.).
+**Depends on:** M2.2 (combat turn pipeline + `isObjectiveSatisfied` integration). For each contract label that ships with `params.turnLimit`, also depends on that label’s **family owner** slice (M2.2 for **Sentinel maintenance window** today; M2.5–M2.8 or M2.11–M2.12 if future labels add `turnLimit` to retrieve, dual-site, recon, escort, etc.).
 
 **Goal:** Enforce M1 **timed pressure** for contracts that set `objective.params.turnLimit`: the player must complete the family-specific objective within the budget; expiry **blocks** clean objective completion but still permits extraction as an incomplete run.
 
@@ -439,7 +453,7 @@ Each row is the **owner** for replacing the permissive `isObjectiveSatisfied` br
 - **Extract / shell:** Status shows remaining budget (e.g. `[TURN:n]` alongside `[TODO]` / `[DONE]`); on expiry log a clear line (e.g. maintenance window closed) and allow extraction as incomplete — expired timed contracts cannot be “completed” retroactively.
 - **Failure outcome on expiry:** Default = objective permanently failed for that run (extract allowed, no full contract payout/recruit/clean-completion reward). Escalating spawns on expiry are **out of scope** unless trivial to hook from M2.1 alarm — document if deferred.
 - Golden path: **Sentinel maintenance window** (`terminal-slice`, `turnLimit: 15`) — slice before limit → extract allowed; fixture test that simulates limit+1 rounds without slice → `isObjectiveSatisfied` false.
-- When a non–terminal-slice label gains `turnLimit` in `Curator.ts`, add a matching golden-path test in the same PR as that label’s family owner (M2.5–M2.8) or in M2.9 if the family owner is already ✅.
+- When a non–terminal-slice label gains `turnLimit` in `Curator.ts`, add a matching golden-path test in the same PR as that label’s family owner (M2.5–M2.8, M2.11–M2.12) or in M2.9 if the family owner is already ✅.
 
 **Acceptance:**
 
@@ -504,13 +518,70 @@ Each row is the **owner** for replacing the permissive `isObjectiveSatisfied` br
 
 ---
 
+#### M2.11 — Recon / exhaustive mapping objectives 🔲
+
+**Depends on:** M2.10 (recipes and structured context). Uses the existing fog-of-war / `VisionField` model; M7 location memory can later persist the value of recon across repeat visits, but M2.11 must stand alone on a single run.
+
+**Goal:** Full loop for **`OBJECTIVES.RECON`**: enter a location, reveal the required map area through normal exploration, then extract. This makes information itself the objective and gives stealth / movement builds a contract family that is not just "touch the prop."
+
+**Scope:**
+
+- Add an objective kind such as `recon` and at least one compatible Curator recipe / token path (e.g. **Northstar site survey**, **Port Warden blind map**, **Sublevel 3 layout trace**).
+- Define "exhaustively map" in code as a deterministic percentage over eligible map cells, not as a vague visual state. Recommended baseline: all passable, non-hub combat cells that can reasonably be discovered by player LOS; walls may count only if they have been seen, but unreachable sealed voids must not soft-lock the contract.
+- Track recon progress from `VisionField.seen` or a run-level equivalent and expose a stable `reconMapped/required` counter for tests and UI.
+- Wire `OBJECTIVES.RECON` in `isObjectiveSatisfied`: satisfied only when the required coverage threshold is met. Default threshold should be 100% of eligible cells for the "exhaustive" family; lower thresholds can be a future param if playtesting proves full clear too fussy.
+- Surface progress in combat status and briefing copy (`MAP n/m` or equivalent) so the player can tell whether a dark corner still matters.
+- Recipe context should carry enough site / asset metadata for future Phase 3 casing payoffs without parsing the rendered label.
+
+**Acceptance:**
+
+- Unit tests define eligible-cell counting on fixed maps: floors count, unreachable / non-playable voids do not, and seen-cell changes update progress deterministically.
+- Golden-path test: recon contract → reveal all required cells → objective `[DONE]` → extraction grants normal completion.
+- Partial-path test: reveal less than required coverage → extraction is incomplete or blocked according to the current objective-gating rule.
+- Snapshot / restore preserves enough map knowledge to continue recon progress exactly after reload.
+- Curator recipe tests include at least one recon fixture, and registry sync fails if `recon` exists without recipe coverage.
+
+**Out of scope:** Campaign-level site intelligence bonuses and persistent casing benefits. M7 / Phase 3 can consume recon data later, but M2.11 only proves the objective family inside one job.
+
+---
+
+#### M2.12 — Escort / extract NPC objectives 🔲
+
+**Depends on:** M2.2 (interact/activation), M2.10 (recipes and structured context), and M2.11 recommended so the recipe pool already handles post-M2.10 objective additions. May reuse pathfinding from hostile AI, but the escorted NPC is player-aligned, not neutral or corp.
+
+**Goal:** Full loop for **`OBJECTIVES.ESCORT_EXTRACT`**: locate a player-aligned NPC, activate them through interaction, keep them alive, and extract while they are at or adjacent to the exit with the player.
+
+**Scope:**
+
+- Add an objective kind such as `escort-extract` and at least one compatible Curator recipe / token path (e.g. **Clinic witness extraction**, **Transit whistleblower pickup**, **Redline courier exfil**).
+- Add a new crew-aligned NPC entity (name TBD, e.g. `EscortNpc`, `AllyContact`, or `Extractee`) with:
+  - PLAYER or crew-aligned faction semantics so corp hostiles can target them and player attacks do not treat them as an objective prop.
+  - `activated: boolean` so they remain in place until the player interacts.
+  - Serialised state for label, activation, HP/alive, and any follow target / last-known position fields needed after restore.
+- Activation uses adjacency + `Space` interaction. Before activation, the NPC is stationary and does not follow; after activation, they act during the **player aftermath turn**.
+- Follow behavior runs after the player's committed action and before corp turns: the NPC attempts to move one step toward a valid follow position near the player, using passable unoccupied tiles and existing pathfinding. If no legal step exists, they wait loudly enough for tests/logging to notice; no teleporting or silent fallback.
+- Extraction requires both player and activated living NPC to be on, or adjacent to, the exit according to a documented rule. If the NPC dies, the objective cannot be completed retroactively.
+- Wire `OBJECTIVES.ESCORT_EXTRACT` in `isObjectiveSatisfied`: satisfied only when the NPC is activated, alive, and in extraction position with the player / exit state.
+
+**Acceptance:**
+
+- Unit tests for construction, activation, non-follow before activation, follow-after-activation during player aftermath, blocked-path waiting, hostile targetability, death failure, and snapshot/restore.
+- Golden-path test: escort contract → find NPC → activate → NPC follows across several turns → player reaches exit with NPC → objective complete.
+- Failure-path test: player reaches exit without activated NPC or with NPC too far away → objective incomplete; NPC death makes completion impossible.
+- Key help / tile legend includes the new allied NPC glyph if it is visually distinct.
+- Curator recipe tests include at least one escort/extract fixture, and registry sync fails if `escort-extract` exists without recipe coverage.
+
+**Open design choice:** Whether the escort NPC blocks the player's movement like a normal entity or allows a swap / "make room" action. Default should be normal occupancy until playtesting proves escorts are too sticky; if swap is added, it needs explicit tests.
+
+---
+
 **M2 rollup acceptance (when all subs ✅):**
 
 - Every **owner** row in the `OBJECTIVES.*` ownership table is ✅ (all kinds in the Curator pool except `reach-exit` have non-permissive `isObjectiveSatisfied` + golden-path test).
 - **M2.9** ✅ for every Curator label that currently sets `params.turnLimit` (today: **Sentinel maintenance window**).
-- **M2.10** ✅: Curator uses typed recipes + compatible token pools for new contract generation, with tests proving determinism and objective validity.
+- **M2.10–M2.12** ✅: Curator uses typed recipes + compatible token pools for new contract generation, with tests proving determinism, objective validity, and recipe coverage for recon and escort/extract.
 - Infrastructure: alarm cadence (M2.1), hazards in at least one prefab (M2.3), corp turrets (M2.4). (Locked doors ship separately in M6.)
-- Snapshot-safe state for interactables (all variants), hazards, turrets, doors, per-kind objective flags, and turn-limit state.
+- Snapshot-safe state for interactables (all variants), hazards, turrets, recon map progress, escort NPCs, doors, per-kind objective flags, and turn-limit state.
 
 ---
 
@@ -572,13 +643,13 @@ Phase 2.5 milestones that follow (M4–M7) retain their original numbering for c
 - Unlock sources: objective flag, keyed interactable, adjacent **hack terminal** (reuse M2.2 interactable).
 - **No** breaching charges, **no** destructible geometry (**M7**).
 - Prefab with at least one door gating a route (e.g. security checkpoint).
-- Optional **routing modifier** for M2.5–M2.8 contracts: when `params` include `doorId` / `requiresUnlock`, objective props or extract path sit behind a locked door until unlock. Does **not** replace M2.5–M2.8 `isObjectiveSatisfied` branches by itself.
+- Optional **routing modifier** for M2.5–M2.8 and M2.11–M2.12 contracts: when `params` include `doorId` / `requiresUnlock`, objective props, required map regions, escorted NPCs, or extract paths sit behind a locked door until unlock. Does **not** replace owned `isObjectiveSatisfied` branches by itself.
 
 **Acceptance (when implemented):**
 
 - Pathfinding tests: closed door blocks, open door allows; A* invalidates when door toggles mid-run.
 - Snapshot door open/locked state; restore round-trip.
-- Golden path: door closed at start → unlock via interact → reach exit or reach a gated objective prop (paired with at least one M2.5–M2.8 contract in playtest).
+- Golden path: door closed at start → unlock via interact → reach exit or reach a gated objective prop / region / NPC (paired with at least one objective contract in playtest).
 
 ---
 

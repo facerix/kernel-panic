@@ -23,6 +23,12 @@ When an item lands, gets reclassified, or develops new context, edit it in place
 - **Decker archetype.** Cyberspace specialist. Deferred alongside the Matrix layer — design the environment before designing who navigates it.
 - **Full Rep NPC ally behaviour.** Phase 2 (M5) lays the groundwork: Rep meter, NPC taxonomy, behavior tiers. Phase 3 adds the payoff: high-rep neutrals become Human Shields or information sources, as described in the blueprint.
 - **Typed salvage components.** Phase 2 uses a generic `salvage: number` counter. **Intro scope (typed categories + Finn integration) moves to [phase-2.5-plan.md](phase-2.5-plan.md) M4.** Deep multi-recipe crafting and Matrix-adjacent sinks may remain Phase 3+.
+- **Objective extension backlog beyond Phase 2.5 M2.11–M2.12.** Recon and escort/extract are now planned in [phase-2.5-plan.md](phase-2.5-plan.md), but the M2.10 recipe-builder discussion surfaced additional objective shapes worth preserving:
+  - **Plant / seed / bug:** carry something in, place it at a target, then extract. Fiction: bug a relay, plant evidence, seed malware, place a charge.
+  - **Compound chains:** retrieve then handoff, slice then retrieve, sync then deny, etc. Likely needs a multi-step objective schema rather than more one-kind recipes.
+  - **Clean constraints as modifiers:** no alarm, no civilian harm, no kills, under turn budget. Treat as bonus constraints / payout modifiers unless a future design proves one should be a base objective kind.
+  - **Breach / demolition target:** place or detonate a breach charge at an authored wall or target. Mechanically adjacent to deny/destroy; Phase 2.5 M7 covers breaching foundations.
+  - **Cyberspace / data-layer objectives:** jack in, slice data nodes, open locks, defeat or avoid ICE. Likely Phase 3 dual-layer objective work rather than plain Meatspace recipes.
 
 ## ◇ Monitored
 
