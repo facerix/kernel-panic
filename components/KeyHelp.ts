@@ -286,7 +286,7 @@ class KeyHelp extends HTMLElement {
     const touchDevice = isCoarsePointer();
 
     this.#body.appendChild(this.#buildIntro(touchDevice));
-    this.#body.appendChild(this.#buildTileHints(touchDevice));
+    this.#body.appendChild(this.#buildTileHints());
 
     if (!touchDevice) {
       this.#body.appendChild(this.#buildKeybinds());
@@ -334,7 +334,7 @@ class KeyHelp extends HTMLElement {
       scope === 'hub' ? hubExtra : combatExtra,
       moveHint,
       controlHint,
-    ].filter(Boolean);
+    ].filter(Boolean) as HTMLElement[]; // the filter strips out nulls, but TS can't infer the type
 
     return h('div', { className: 'intro' }, children);
   }
