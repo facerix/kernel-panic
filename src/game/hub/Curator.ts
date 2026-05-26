@@ -32,6 +32,7 @@ export const OBJECTIVES = Object.freeze({
   SWEEP: 'sweep',
   DUAL_SITE: 'dual-site',
   RECON: 'recon',
+  ESCORT_EXTRACT: 'escort-extract',
 });
 
 const KNOWN_OBJECTIVE_KINDS = new Set(Object.values(OBJECTIVES));
@@ -195,6 +196,18 @@ export const CONTRACT_LEXICON = Object.freeze({
     token('site-layout', 'site layout', ['recon', 'infrastructure'], { target: 'site-layout' }),
     token('patrol-map', 'patrol map', ['recon', 'security'], { target: 'patrol-map' }),
     token('service-plan', 'service plan', ['recon', 'data'], { target: 'service-plan' }),
+    token('clinic-witness', 'clinic witness', ['escort', 'medical'], {
+      target: 'clinic-witness',
+      contact: 'clinic witness',
+    }),
+    token('transit-whistleblower', 'transit whistleblower', ['escort', 'civic'], {
+      target: 'transit-whistleblower',
+      contact: 'transit whistleblower',
+    }),
+    token('redline-courier', 'Redline courier', ['escort', 'logistics'], {
+      target: 'redline-courier',
+      contact: 'Redline courier',
+    }),
   ]),
   actions: Object.freeze([
     token('cache', 'cache', ['retrieve']),
@@ -222,6 +235,9 @@ export const CONTRACT_LEXICON = Object.freeze({
     token('survey', 'survey', ['recon']),
     token('trace', 'trace', ['recon']),
     token('map', 'map', ['recon']),
+    token('escort', 'escort', ['escort']),
+    token('extract-person', 'extraction', ['escort']),
+    token('exfil', 'exfil', ['escort']),
   ]),
 });
 
@@ -333,6 +349,24 @@ export const CONTRACT_RECIPES: readonly ContractRecipe[] = Object.freeze([
     briefing: ({ principal, site, asset }) =>
       `Build a complete map of ${possessive(principal.label)} ${asset.label} around ${sitePhrase({ site })}, then extract.`,
     params: ({ asset }) => targetParams(asset),
+  },
+  {
+    id: 'escort-extract',
+    objectiveKind: OBJECTIVES.ESCORT_EXTRACT,
+    tags: Object.freeze(['meatspace', 'escort', 'extraction']),
+    principalGroups: Object.freeze(['corp', 'civic', 'rival']),
+    siteGroups: Object.freeze(['street', 'medical', 'infrastructure', 'civic', 'logistics']),
+    siteStateGroups: Object.freeze(['normal', 'damaged', 'medical', 'abandoned']),
+    assetGroups: Object.freeze(['escort']),
+    actionGroups: Object.freeze(['escort']),
+    label: tokens => `${sitePhrase(tokens)} ${tokens.asset.label} ${tokens.action.label}`,
+    title: ({ asset }) => `Extract ${noun(asset)}`,
+    briefing: ({ principal, site, asset }) =>
+      `Find ${possessive(principal.label)} ${asset.label} around ${sitePhrase({ site })}, link them up, and reach extraction together.`,
+    params: ({ asset }) => ({
+      ...targetParams(asset),
+      contact: asset.contact ?? asset.label,
+    }),
   },
 ]);
 

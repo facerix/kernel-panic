@@ -153,6 +153,7 @@ function kindFromId(id: string): string {
   if (id.startsWith('sync-pad')) return 'Sync Pad';
   if (id.startsWith('corp-turret')) return 'Turret';
   if (id.startsWith('relay-node')) return 'Relay';
+  if (id.startsWith('escort-npc')) return 'Escort';
   if (id.includes('turret')) return 'Turret';
   if (id.startsWith('crew')) return 'Operative';
   return id;

@@ -161,6 +161,15 @@ test('recipe fixtures cover every shipped objective family', () => {
       difficulty: CONTRACT_DIFFICULTY.STANDARD,
       seed: 7,
     }),
+    buildContractRecipeFixture({
+      recipeId: 'escort-extract',
+      principalId: 'orchid-vector',
+      siteId: 'clinic',
+      assetId: 'clinic-witness',
+      actionId: 'escort',
+      difficulty: CONTRACT_DIFFICULTY.STANDARD,
+      seed: 8,
+    }),
   ];
   const kinds = new Set(fixtures.map(contract => contract.objective.kind));
   for (const kind of [
@@ -171,6 +180,7 @@ test('recipe fixtures cover every shipped objective family', () => {
     OBJECTIVES.SWEEP,
     OBJECTIVES.DUAL_SITE,
     OBJECTIVES.RECON,
+    OBJECTIVES.ESCORT_EXTRACT,
   ]) {
     assert.ok(kinds.has(kind), `missing fixture coverage for ${kind}`);
   }
@@ -228,6 +238,24 @@ test('recipe fixtures produce named compatibility examples', () => {
   assert.deepEqual(northstar.objective.params, { target: 'site-layout' });
   assert.equal(northstar.context.principal.label, 'Northstar Civic');
   assert.equal(northstar.context.site?.label, 'transit hub');
+
+  const witness = buildContractRecipeFixture({
+    recipeId: 'escort-extract',
+    principalId: 'orchid-vector',
+    siteId: 'clinic',
+    assetId: 'clinic-witness',
+    actionId: 'escort',
+    difficulty: CONTRACT_DIFFICULTY.STANDARD,
+    seed: 10,
+  });
+  assert.equal(witness.label, '// clinic clinic witness escort');
+  assert.equal(witness.objective.kind, OBJECTIVES.ESCORT_EXTRACT);
+  assert.deepEqual(witness.objective.params, {
+    target: 'clinic-witness',
+    contact: 'clinic witness',
+  });
+  assert.equal(witness.context.principal.label, 'Orchid Vector');
+  assert.equal(witness.context.site?.label, 'clinic');
 });
 
 test('contract context separates principals from site state', () => {

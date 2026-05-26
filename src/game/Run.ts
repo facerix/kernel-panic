@@ -54,6 +54,7 @@ import { DenyTarget } from './entities/DenyTarget.js';
 import { SyncPad } from './entities/SyncPad.js';
 import { CorpTurret } from './entities/CorpTurret.js';
 import { RelayNode } from './entities/RelayNode.js';
+import { EscortNpc } from './entities/EscortNpc.js';
 import { resetCorpTurnStatusCache } from './corpTurnStatusCopy.js';
 import { NeutralCivilian } from './entities/NeutralCivilian.js';
 import { VisionField } from './Vision.js';
@@ -103,6 +104,7 @@ export type EntityArchetypeId =
   | 'sync-pad'
   | 'corp-turret'
   | 'relay-node'
+  | 'escort-npc'
   | 'entity';
 
 export type RunTelemetry = {
@@ -192,6 +194,11 @@ export type RunEntitySnapshot = {
   };
   relayNode?: {
     label: string;
+  };
+  escortNpc?: {
+    label: string;
+    activated: boolean;
+    armed: boolean;
   };
 };
 
@@ -612,27 +619,38 @@ export class Run {
 
   #onEntityMoved({ entity, to }: EntityMovedPayload): void {
     if (this.state !== RUN_STATE.COMBAT) return;
-    if (entity !== this.player) return;
-    this.#recordCurrentPlayerVision();
     if (!this.exitTile) return;
-    if (to.x === this.exitTile.x && to.y === this.exitTile.y) {
-      if (!this.contract) {
-        throw new Error('Run.#onEntityMoved: exit reached without an active contract');
+    if (entity === this.player) {
+      this.#recordCurrentPlayerVision();
+      if (to.x === this.exitTile.x && to.y === this.exitTile.y) {
+        this.#tryExtractFromExit();
       }
-      const objectiveComplete = this.isObjectiveSatisfied();
-      const objectiveExpired = this.#isTimedObjectiveExpired();
-      if (!objectiveComplete && !objectiveExpired) return;
-      this.telemetry.cause = objectiveComplete
-        ? 'exit-reached'
-        : 'exit-reached-objective-incomplete';
-      this.enterResult({
-        outcome: OUTCOME.EXIT,
-        telemetry: {
-          objectiveComplete,
-          objectiveExpired,
-        },
-      });
+      return;
     }
+    if (
+      entity instanceof EscortNpc &&
+      this.player?.x === this.exitTile.x &&
+      this.player.y === this.exitTile.y
+    ) {
+      this.#tryExtractFromExit();
+    }
+  }
+
+  #tryExtractFromExit(): void {
+    if (!this.contract) {
+      throw new Error('Run.#tryExtractFromExit: exit reached without an active contract');
+    }
+    const objectiveComplete = this.isObjectiveSatisfied();
+    const objectiveExpired = this.#isTimedObjectiveExpired();
+    if (!objectiveComplete && !objectiveExpired) return;
+    this.telemetry.cause = objectiveComplete ? 'exit-reached' : 'exit-reached-objective-incomplete';
+    this.enterResult({
+      outcome: OUTCOME.EXIT,
+      telemetry: {
+        objectiveComplete,
+        objectiveExpired,
+      },
+    });
   }
 
   #tearDownWorld(): void {
@@ -731,12 +749,24 @@ export class Run {
     if (this.contract.objective.kind === OBJECTIVES.SWEEP) {
       this.#placeSweepTargets();
     }
+    if (this.contract.objective.kind === OBJECTIVES.ESCORT_EXTRACT) {
+      const anchor = findInteractableAnchor(this.world, this.player, this.exitTile, this.rng);
+      this.world.addEntity(
+        new EscortNpc({
+          id: 'escort-npc-0',
+          x: anchor.x,
+          y: anchor.y,
+          label: escortNpcLabel(this.contract),
+        })
+      );
+    }
     // M2.3: Place hazard cluster near a future pickup anchor when hazardFlavor
     // is set (e.g. "Gassed clinic data dump"). The cluster is placed around a
     // candidate anchor point biased away from spawn/exit.
     if (
       this.contract.objective.kind !== OBJECTIVES.RETRIEVE &&
       this.contract.objective.kind !== OBJECTIVES.DUAL_SITE &&
+      this.contract.objective.kind !== OBJECTIVES.ESCORT_EXTRACT &&
       this.contract.objective.params?.hazardFlavor
     ) {
       const anchor = findInteractableAnchor(this.world, this.player, this.exitTile, this.rng);
@@ -917,6 +947,8 @@ function isObjectiveFamilySatisfied(
       return isSweepSatisfied(contract, world);
     case OBJECTIVES.RECON:
       return isReconSatisfied(world, objectiveState);
+    case OBJECTIVES.ESCORT_EXTRACT:
+      return isEscortExtractSatisfied(world);
     default: {
       const exhaustive: never = kind;
       throw new Error(`Run.isObjectiveSatisfied: unknown objective kind "${exhaustive}"`);
@@ -1013,7 +1045,17 @@ function asKeySet(keys: ReadonlySet<string> | readonly string[]): ReadonlySet<st
 
 function playerInWorld(world: World): Entity | null {
   for (const entity of world.entities.values()) {
+    if (entity instanceof EscortNpc) continue;
     if (entity.faction === FACTION.PLAYER && entity.alive) return entity;
+  }
+  return null;
+}
+
+function exitTileInWorld(world: World): GridPoint | null {
+  for (let y = 0; y < world.grid.height; y++) {
+    for (let x = 0; x < world.grid.width; x++) {
+      if (world.grid.tileAt(x, y) === TILE.EXIT) return { x, y };
+    }
   }
   return null;
 }
@@ -1122,6 +1164,13 @@ function snapshotEntity(entity: Entity): RunEntitySnapshot {
       label: entity.label,
     };
   }
+  if (entity instanceof EscortNpc) {
+    base.escortNpc = {
+      label: entity.label,
+      activated: entity.activated,
+      armed: entity.armed,
+    };
+  }
   return base;
 }
 
@@ -1140,6 +1189,7 @@ function archetypeOf(entity: Entity): EntityArchetypeId {
   if (entity instanceof SyncPad) return 'sync-pad';
   if (entity instanceof CorpTurret) return 'corp-turret';
   if (entity instanceof RelayNode) return 'relay-node';
+  if (entity instanceof EscortNpc) return 'escort-npc';
   if (entity instanceof Entity) return 'entity';
   throw new Error(`archetypeOf: cannot classify entity ${(entity as Entity | undefined)?.id}`);
 }
@@ -1201,6 +1251,20 @@ function isReconSatisfied(world?: World | null, objectiveState: ObjectiveState =
   return progress.required > 0 && progress.mapped >= progress.required;
 }
 
+function isEscortExtractSatisfied(world?: World | null): boolean {
+  if (!world) return false;
+  const exit = exitTileInWorld(world);
+  if (!exit) return false;
+  const player = playerInWorld(world);
+  if (!player || chebyshev(player, exit) > 1) return false;
+  for (const entity of world.entities.values()) {
+    if (!(entity instanceof EscortNpc)) continue;
+    if (!entity.alive || !entity.activated) return false;
+    return chebyshev(entity, exit) <= 1;
+  }
+  return false;
+}
+
 function objectiveCount(contract: Contract): number {
   const countParam = contract.objective.params?.count;
   return Number.isInteger(countParam) && Number(countParam) > 0 ? Number(countParam) : 1;
@@ -1224,6 +1288,15 @@ function contactLabel(contract: Contract, index: number, count: number): string 
       ? targetLabel(source)
       : contract.objective.title;
   return count > 1 ? `${base} ${index + 1}` : base;
+}
+
+function escortNpcLabel(contract: Contract): string {
+  const contact = contract.objective.params?.contact;
+  const target = contract.objective.params?.target;
+  const source = typeof contact === 'string' && contact.length > 0 ? contact : target;
+  return typeof source === 'string' && source.length > 0
+    ? targetLabel(source)
+    : contract.objective.title;
 }
 
 function objectiveTargetLabel(contract: Contract, index: number, count: number): string {

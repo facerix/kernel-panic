@@ -1,12 +1,17 @@
 import { Turret, type TurretAutoFireResult } from './Turret.js';
 import { NeutralCivilian } from './entities/NeutralCivilian.js';
+import { EscortNpc, type EscortFollowStep } from './entities/EscortNpc.js';
 import { entityLabel } from './Entity.js';
-import { TILE, HAZARD_DAMAGE, REP } from './constants.js';
+import { TILE, HAZARD_DAMAGE, REP, FACTION } from './constants.js';
 import { EVENT } from './events.js';
+import { chebyshev, findPath } from './Pathfinding.js';
 import type { Entity } from './Entity.js';
 import type { NeutralCivilianTurnStep } from '../types.js';
+import type { GridPoint } from '../types.js';
 import type { World } from './World.js';
 import type { Rng } from '../rng.js';
+
+const ESCORT_CATCH_UP_STEPS = 4;
 
 /**
  * Combat turn pipeline.
@@ -44,9 +49,16 @@ export type HazardAftermathStep = {
   killed: boolean;
 };
 
+export type EscortAftermathStep = {
+  type: 'escort-npc';
+  entity: EscortNpc;
+  step: EscortFollowStep;
+};
+
 export type PlayerAftermathStep =
   | TurretAftermathStep
   | NeutralCivilianAftermathStep
+  | EscortAftermathStep
   | HazardAftermathStep;
 
 /**
@@ -67,6 +79,9 @@ export function isPlayerAftermathStepLogVisible(
     return isTileVisible(turret.x, turret.y);
   }
   if (step.type === 'neutral-civilian') {
+    return isTileVisible(step.entity.x, step.entity.y);
+  }
+  if (step.type === 'escort-npc') {
     return isTileVisible(step.entity.x, step.entity.y);
   }
   if (step.type === 'hazard-damage') {
@@ -261,7 +276,16 @@ export function* runPlayerAftermathSteps(
     }
   }
 
-  // Phase 3: environmental hazard damage
+  // Phase 3: activated escort NPCs follow during the player aftermath slice.
+  for (const entity of world.entities.values()) {
+    if (!(entity instanceof EscortNpc)) continue;
+    if (!entity.alive) continue;
+    for (const step of takeEscortFollowSteps(world, entity)) {
+      yield { type: 'escort-npc', entity, step };
+    }
+  }
+
+  // Phase 4: environmental hazard damage
   // Every live entity standing on a HAZARD tile takes flat damage. Emits
   // ENTITY_DAMAGED so Run's death-detection listener fires normally, and
   // HAZARD_DAMAGE for presentation (shell log lines, flash effects).
@@ -318,6 +342,9 @@ export function formatPlayerAftermathStepLogLines(step: PlayerAftermathStep) {
   }
   if (step.type === 'neutral-civilian') {
     return formatNeutralCivilianLine(step.entity, step.step);
+  }
+  if (step.type === 'escort-npc') {
+    return formatEscortNpcLine(step.entity, step.step);
   }
   if (step.type === 'hazard-damage') {
     return formatHazardDamageLine(step);
@@ -453,6 +480,17 @@ function formatHazardDamageLine(step: HazardAftermathStep): string[] {
   return [line];
 }
 
+function formatEscortNpcLine(entity: EscortNpc, step: EscortFollowStep): string[] {
+  const label = entityLabel(entity);
+  if (step.type === 'escort-follow') {
+    return [`${label} follows to (${step.to.x},${step.to.y}).`];
+  }
+  if (step.reason === 'blocked') {
+    return [`${label} waits — path blocked.`];
+  }
+  return [];
+}
+
 function formatTurretAutofireLine(turret: Turret, action: TurretAutoFireResult) {
   const turretLabel = entityLabel(turret);
   if (action.type === 'fire') {
@@ -467,6 +505,78 @@ function formatTurretAutofireLine(turret: Turret, action: TurretAutoFireResult) 
   }
   if (action.reason === 'no-target') {
     return `${turretLabel} scans — no target in range.`;
+  }
+  return null;
+}
+
+function* takeEscortFollowSteps(
+  world: World,
+  escort: EscortNpc
+): Generator<EscortFollowStep, void, undefined> {
+  if (!escort.activated) {
+    yield { type: 'escort-wait', reason: 'inactive' };
+    return;
+  }
+  const player = playerInWorld(world);
+  if (!player) {
+    yield { type: 'escort-wait', reason: 'no-player' };
+    return;
+  }
+
+  for (let i = 0; i < ESCORT_CATCH_UP_STEPS; i++) {
+    if (chebyshev(escort.x, escort.y, player.x, player.y) <= 1) {
+      if (i === 0) yield { type: 'escort-wait', reason: 'adjacent' };
+      return;
+    }
+    const path = shortestPathToPlayerAdjacency(world, escort, player);
+    if (!path || path.length === 0) {
+      yield { type: 'escort-wait', reason: 'blocked' };
+      return;
+    }
+    const next = path[0]!;
+    const from = { x: escort.x, y: escort.y };
+    world.relocateEntity(escort, next.x, next.y);
+    yield { type: 'escort-follow', from, to: { x: escort.x, y: escort.y } };
+  }
+}
+
+function shortestPathToPlayerAdjacency(
+  world: World,
+  escort: EscortNpc,
+  player: Entity
+): GridPoint[] | null {
+  let best: GridPoint[] | null = null;
+  for (const target of adjacentOpenTiles(world, player)) {
+    const path = findPath(world, { x: escort.x, y: escort.y }, target, {
+      allowOccupiedGoal: false,
+    });
+    if (!path) continue;
+    if (!best || path.length < best.length) best = path;
+  }
+  return best;
+}
+
+function adjacentOpenTiles(world: World, center: Entity): GridPoint[] {
+  const tiles: GridPoint[] = [];
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      if (dx === 0 && dy === 0) continue;
+      const x = center.x + dx;
+      const y = center.y + dy;
+      if (!world.grid.inBounds(x, y)) continue;
+      if (!world.grid.isPassable(x, y)) continue;
+      if (world.entityAt(x, y)) continue;
+      tiles.push({ x, y });
+    }
+  }
+  return tiles;
+}
+
+function playerInWorld(world: World): Entity | null {
+  for (const entity of world.entities.values()) {
+    if (entity.faction === FACTION.PLAYER && entity.alive && !(entity instanceof EscortNpc)) {
+      return entity;
+    }
   }
   return null;
 }

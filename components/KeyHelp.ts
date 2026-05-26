@@ -391,6 +391,8 @@ class KeyHelp extends HTMLElement {
         h('dd', { textContent: 'handoff contact' }),
         h('dt', { textContent: 'X' }),
         h('dd', { textContent: 'denial target' }),
+        h('dt', { textContent: 'A' }),
+        h('dd', { textContent: 'escort ally' }),
         h('dt', { textContent: '░' }),
         h('dd', { textContent: 'smoke' }),
         h('dt', { textContent: '!' }),

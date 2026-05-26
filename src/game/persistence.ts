@@ -50,6 +50,7 @@ import { DenyTarget } from './entities/DenyTarget.js';
 import { SyncPad } from './entities/SyncPad.js';
 import { CorpTurret } from './entities/CorpTurret.js';
 import { RelayNode } from './entities/RelayNode.js';
+import { EscortNpc } from './entities/EscortNpc.js';
 import { Run, RUN_STATE } from './Run.js';
 import { Campaign, CAMPAIGN_STATE } from './Campaign.js';
 import { normalizeContractContext, normalizeObjective } from './hub/Curator.js';
@@ -66,6 +67,7 @@ import type { DenyTargetInit } from './entities/DenyTarget.js';
 import type { SyncPadInit } from './entities/SyncPad.js';
 import type { CorpTurretInit } from './entities/CorpTurret.js';
 import type { RelayNodeInit } from './entities/RelayNode.js';
+import type { EscortNpcInit } from './entities/EscortNpc.js';
 import type { EntityInit } from './Entity.js';
 import type { FactionId } from './constants.js';
 import type {
@@ -96,7 +98,8 @@ type RestoreEntityProps = Partial<
     DenyTargetInit &
     SyncPadInit &
     CorpTurretInit &
-    RelayNodeInit
+    RelayNodeInit &
+    EscortNpcInit
 > & {
   id: string;
   x: number;
@@ -124,6 +127,7 @@ const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) =
     'sync-pad': (props: RestoreEntityProps) => new SyncPad(props as SyncPadInit),
     'corp-turret': (props: RestoreEntityProps) => new CorpTurret(props as CorpTurretInit),
     'relay-node': (props: RestoreEntityProps) => new RelayNode(props as RelayNodeInit),
+    'escort-npc': (props: RestoreEntityProps) => new EscortNpc(props as EscortNpcInit),
     // Generic fallback so a future `Entity` subclass (NPCs, items) doesn't break
     // the round-trip when the full archetype landed but the loader hasn't.
     entity: (props: RestoreEntityProps) =>
@@ -452,6 +456,11 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
   if (rec.archetype === 'relay-node') {
     entityProps.label = rec.relayNode?.label ?? 'Relay node';
   }
+  if (rec.archetype === 'escort-npc' && rec.escortNpc) {
+    entityProps.label = rec.escortNpc.label;
+    entityProps.activated = rec.escortNpc.activated;
+    entityProps.armed = rec.escortNpc.armed;
+  }
   if (rec.archetype === 'terminal' && rec.terminal) {
     entityProps.label = rec.terminal.label;
     entityProps.sliced = rec.terminal.sliced;
@@ -490,6 +499,9 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
   }
   if (rec.archetype === 'sync-pad' && !rec.syncPad) {
     throw new TypeError(`restore: sync pad entity ${rec.id} requires sync pad state`);
+  }
+  if (rec.archetype === 'escort-npc' && !rec.escortNpc) {
+    throw new TypeError(`restore: escort NPC entity ${rec.id} requires escort state`);
   }
   const entity = factory(entityProps);
   // Re-apply the live HP / AP / alive / stealth state. We can't pass current
@@ -631,6 +643,20 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
     }
     if (typeof rec.syncPad.armed !== 'boolean') {
       throw new TypeError(`restore: sync pad ${rec.id} armed must be boolean`);
+    }
+  }
+  if (rec.archetype === 'escort-npc' && rec.escortNpc) {
+    if (!(entity instanceof EscortNpc)) {
+      throw new Error(`restore: escort NPC entity ${rec.id} did not restore as EscortNpc`);
+    }
+    if (typeof rec.escortNpc.label !== 'string' || rec.escortNpc.label.length === 0) {
+      throw new TypeError(`restore: escort NPC ${rec.id} label must be a non-empty string`);
+    }
+    if (typeof rec.escortNpc.activated !== 'boolean') {
+      throw new TypeError(`restore: escort NPC ${rec.id} activated must be boolean`);
+    }
+    if (typeof rec.escortNpc.armed !== 'boolean') {
+      throw new TypeError(`restore: escort NPC ${rec.id} armed must be boolean`);
     }
   }
 

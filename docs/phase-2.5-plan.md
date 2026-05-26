@@ -7,7 +7,7 @@ Living plan for the post–Phase 2 slice of Kernel Panic: **contract objectives*
 | Milestone | Status |
 |---|---|
 | M1 — Contract objectives (label-driven run variety) | ✅ Done |
-| M2 — Richer combat mechanics (objectives + pressure) | 🔲 Extended (M2.11–M2.12 planned) |
+| M2 — Richer combat mechanics (objectives + pressure) | ✅ Complete |
 | M2.1 — Alarm cadence & feedback | ✅ Done |
 | M2.2 — Interactables & terminal slice | ✅ Done |
 | M2.3 — Environmental hazard tiles | ✅ Done |
@@ -18,8 +18,8 @@ Living plan for the post–Phase 2 slice of Kernel Panic: **contract objectives*
 | M2.8 — Dual-site sync objectives | ✅ Done |
 | M2.9 — `turnLimit` objective gating | ✅ Done |
 | M2.10 — Contract recipe generator | ✅ Done |
-| M2.11 — Recon / exhaustive mapping objectives | 🔲 Planned |
-| M2.12 — Escort / extract NPC objectives | 🔲 Planned |
+| M2.11 — Recon / exhaustive mapping objectives | ✅ Done |
+| M2.12 — Escort / extract NPC objectives | ✅ Done |
 | M3 — Campaign history / chronicle | ➡️ Deferred to Phase 3 |
 | M4 — Salvage revision + typed salvage + field consumables | 🔲 Planned |
 | M5 — Hub, economy, Rep, crew tuning | 🔲 Planned |
@@ -100,7 +100,7 @@ Additional `CONTRACT_LABELS` / families to build out:
 
 ---
 
-### M2 — Richer combat mechanics (objectives + pressure) 🔲
+### M2 — Richer combat mechanics (objectives + pressure) ✅
 
 **Goal:** Build on M1 contract objectives with Meatspace systems called out in the pitch and blueprint: **noise / alarm cadence**, **terminal-slice tension**, **environmental hazards**, **new corp hostiles**, and **access gating** that sets up M6 breaching.
 
@@ -518,7 +518,7 @@ Each row is the **owner** for replacing the permissive `isObjectiveSatisfied` br
 
 ---
 
-#### M2.11 — Recon / exhaustive mapping objectives 🔲
+#### M2.11 — Recon / exhaustive mapping objectives ✅
 
 **Depends on:** M2.10 (recipes and structured context). Uses the existing fog-of-war / `VisionField` model; M7 location memory can later persist the value of recon across repeat visits, but M2.11 must stand alone on a single run.
 
@@ -545,7 +545,7 @@ Each row is the **owner** for replacing the permissive `isObjectiveSatisfied` br
 
 ---
 
-#### M2.12 — Escort / extract NPC objectives 🔲
+#### M2.12 — Escort / extract NPC objectives ✅
 
 **Depends on:** M2.2 (interact/activation), M2.10 (recipes and structured context), and M2.11 recommended so the recipe pool already handles post-M2.10 objective additions. May reuse pathfinding from hostile AI, but the escorted NPC is player-aligned, not neutral or corp.
 

@@ -6,10 +6,7 @@ export type InteractResult =
   | { ok: true; message: string }
   | { ok: false; reason: string; message: string };
 
-export interface InteractableInit extends Omit<
-  EntityInit,
-  'faction' | 'maxAp' | 'maxHp' | 'glyph'
-> {
+export interface InteractableInit extends Omit<EntityInit, 'faction' | 'maxAp' | 'glyph'> {
   glyph: string;
   label: string;
   secured?: boolean;
@@ -21,13 +18,20 @@ export class Interactable extends Entity {
   secured: boolean;
   armed: boolean;
 
-  constructor({ glyph, label, secured = false, armed = true, ...props }: InteractableInit) {
+  constructor({
+    glyph,
+    label,
+    secured = false,
+    armed = true,
+    maxHp = 1,
+    ...props
+  }: InteractableInit) {
     super({
       ...props,
       faction: FACTION.NEUTRAL,
       glyph,
       maxAp: 0,
-      maxHp: 1,
+      maxHp,
     });
     if (typeof label !== 'string' || label.length === 0) {
       throw new TypeError('Interactable requires a non-empty label');
