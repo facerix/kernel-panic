@@ -99,7 +99,7 @@ describe('DenyTarget', () => {
 
   it('has a player-facing entity label', () => {
     const target = new DenyTarget({ id: 'deny-target-0', x: 5, y: 5, label: 'Shipment' });
-    assert.equal(entityLabel(target), '[Corp]Deny');
+    assert.equal(entityLabel(target), '[Corp]Asset');
   });
 });
 
