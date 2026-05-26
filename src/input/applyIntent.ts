@@ -39,7 +39,7 @@
  * harness assumption.
  */
 
-import { FACTION, SIGHT_RANGE, VAULT_DAMAGE, NOISE_RADIUS, AP_COST } from '../game/constants.js';
+import { FACTION, SIGHT_RANGE, VAULT_DAMAGE, NOISE_RADIUS } from '../game/constants.js';
 import { totalSalvage, formatSalvageCompact } from '../game/salvage.js';
 import { canFireRanged, resolveRanged, canMelee, resolveMelee } from '../game/Combat.js';
 import { hasLineOfSight, withinRange } from '../game/LineOfSight.js';
@@ -223,24 +223,20 @@ function doMove(intent: Intent, ctx: ApplyIntentContext) {
     log(`> ${entityLabel(player)} picks up ${consumablePickup.label}.`);
   }
   // M4.1: stepping onto a lootable corpse auto-salvages it. Parallels the
-  // M4.3 consumable pickup walk-onto path above. If the player can't afford
-  // the INTERACT AP we leave the corpse for next turn (Space-interact still
-  // works) — crashing here would punish a legitimate gameplay state, not a bug.
+  // M4.3 consumable pickup walk-onto path above: movement has already paid AP,
+  // so this route does not charge the standalone interact cost again.
   const corpse =
     player.inventory && player.alive ? world.lootableCorpseAt(player.x, player.y) : null;
   if (corpse) {
-    if (player.canAfford(AP_COST.INTERACT)) {
-      // M4.2: typed salvage. Show the picked-up total + the wallet's
-      // post-pickup compact breakdown so the player sees both the immediate
-      // delta and the running typed total.
-      const amount = totalSalvage(corpse.loot!.salvage);
-      player.collectSalvage(world, corpse);
-      log(
-        `> ${entityLabel(player)} salvages +${amount} — carrying ${formatSalvageCompact(player.inventory!.salvage)}, ${player.ap} AP left.`
-      );
-    } else {
-      log(`> ${entityLabel(player)} stands on salvage — not enough AP to loot this turn.`);
-    }
+    // M4.2: typed salvage. Show the picked-up total + the wallet's
+    // post-pickup compact breakdown so the player sees both the immediate
+    // delta and the running typed total.
+    const amount = totalSalvage(corpse.loot!.salvage);
+    player.collectSalvage(world, corpse, { spendAp: false });
+    ctx.onCorpseSalvaged?.(corpse);
+    log(
+      `> ${entityLabel(player)} salvages +${amount} — carrying ${formatSalvageCompact(player.inventory!.salvage)}, ${player.ap} AP left.`
+    );
   }
   // Intentionally no per-step move line — coordinates + AP spammed the game log.
   gateOnApExhausted(ctx);

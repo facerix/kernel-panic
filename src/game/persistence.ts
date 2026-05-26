@@ -83,6 +83,7 @@ import type {
   RunTelemetry,
   ObjectiveTimerSnapshot,
   MapMemorySnapshot,
+  ObjectiveProgressSnapshot,
 } from './Run.js';
 import type { CampaignMeta, CampaignState } from './Campaign.js';
 
@@ -301,6 +302,9 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
   run.state = record.state;
   run.bus = new EventBus();
   run.world = new World(grid, { events: run.bus });
+  run.world.restoreSecuredPickups(
+    normalizeObjectiveProgress(record.objectiveProgress).securedPickups
+  );
   if (record.alarm) {
     run.world.restoreAlarm(record.alarm);
   } else {
@@ -967,6 +971,23 @@ function normalizeMapMemory(memory: unknown): MapMemorySnapshot | null {
     }
   }
   return { seen: [...candidate.seen] };
+}
+
+function normalizeObjectiveProgress(progress: unknown): ObjectiveProgressSnapshot {
+  if (progress === undefined || progress === null) return { securedPickups: [] };
+  if (!progress || typeof progress !== 'object' || Array.isArray(progress)) {
+    throw new TypeError('restore: objectiveProgress must be an object');
+  }
+  const candidate = progress as Partial<ObjectiveProgressSnapshot>;
+  if (!Array.isArray(candidate.securedPickups)) {
+    throw new TypeError('restore: objectiveProgress.securedPickups must be an array');
+  }
+  for (const id of candidate.securedPickups) {
+    if (typeof id !== 'string' || id.length === 0) {
+      throw new TypeError('restore: objectiveProgress.securedPickups entries must be strings');
+    }
+  }
+  return { securedPickups: [...candidate.securedPickups] };
 }
 
 function freshObjectiveTimer(): ObjectiveTimerSnapshot {

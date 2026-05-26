@@ -20,6 +20,11 @@ export class Pickup extends Interactable {
     if (this.secured) {
       return { ok: false, reason: 'already-secured', message: `${this.label}: already secured.` };
     }
-    return super.interact(world, actor);
+    const result = super.interact(world, actor);
+    if (result.ok) {
+      world.recordSecuredPickup(this.id);
+      world.removeEntity(this.id);
+    }
+    return result;
   }
 }

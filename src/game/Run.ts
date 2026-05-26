@@ -140,6 +140,10 @@ export type MapMemorySnapshot = {
   seen: string[];
 };
 
+export type ObjectiveProgressSnapshot = {
+  securedPickups: string[];
+};
+
 export type RunEntitySnapshot = {
   archetype: EntityArchetypeId;
   id: string;
@@ -233,6 +237,8 @@ export type RunSnapshot = {
   objectiveTimer?: ObjectiveTimerSnapshot;
   /** M2.11 map memory. Missing in older saves → current LOS only. */
   mapMemory?: MapMemorySnapshot;
+  /** M4 pickup unification: removed objective pickups still count as secured. */
+  objectiveProgress?: ObjectiveProgressSnapshot;
 };
 
 export type RunResult = {
@@ -455,6 +461,7 @@ export class Run {
       alarmActive: world.alarmActive,
       objectiveTimer: { ...this.objectiveTimer },
       mapMemory: { seen: this.mapSeenKeys() },
+      objectiveProgress: { securedPickups: world.securedPickupIds() },
     };
   }
 
@@ -1275,11 +1282,11 @@ function isTerminalSliceSatisfied(contract: Contract, world?: World | null): boo
 function isRetrieveSatisfied(contract: Contract, world?: World | null): boolean {
   if (!world) return false;
   const required = objectiveCount(contract);
-  let secured = 0;
+  const secured = new Set(world.securedPickupIds());
   for (const entity of world.entities.values()) {
-    if (entity instanceof Pickup && entity.secured) secured++;
+    if (entity instanceof Pickup && entity.secured) secured.add(entity.id);
   }
-  return secured >= required;
+  return secured.size >= required;
 }
 
 function isHandoffSatisfied(contract: Contract, world?: World | null): boolean {

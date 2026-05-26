@@ -96,7 +96,7 @@ describe('Pickup', () => {
     assert.equal(pickup.armed, true);
   });
 
-  it('secures once, spends AP once, and rejects repeat interaction', () => {
+  it('secures once, removes itself from the world, and rejects repeat interaction', () => {
     const world = makeWorld();
     const player = new Merc({ id: 'crew-merc', x: 4, y: 5 });
     const pickup = new Pickup({ id: 'pickup-0', x: 5, y: 5, label: 'Dead drop' });
@@ -110,6 +110,7 @@ describe('Pickup', () => {
     assert.equal(first.ok, true);
     assert.equal(pickup.secured, true);
     assert.equal(pickup.armed, false);
+    assert.equal(world.entities.has(pickup.id), false);
     assert.equal(player.ap, beforeAp - AP_COST.INTERACT);
     assert.equal(second.ok, false);
     assert.equal(second.reason, 'already-secured');
@@ -125,22 +126,26 @@ describe('Pickup', () => {
 describe('retrieve objective satisfaction', () => {
   it('requires a secured pickup', () => {
     const world = makeWorld();
+    const player = new Merc({ id: 'crew-merc', x: 2, y: 3 });
     const pickup = new Pickup({ id: 'pickup-0', x: 3, y: 3, label: 'Cache' });
+    world.addEntity(player);
     world.addEntity(pickup);
     const contract = makeRetrieveContract();
 
     assert.equal(isObjectiveSatisfied(contract, world), false);
-    pickup.secured = true;
+    pickup.interact(world, player);
     assert.equal(isObjectiveSatisfied(contract, world), true);
   });
 
   it('respects params.count when multiple pickups are required', () => {
     const world = makeWorld();
+    const player = new Merc({ id: 'crew-merc', x: 2, y: 3 });
     const pickups = [
       new Pickup({ id: 'pickup-0', x: 3, y: 3, label: 'Cache 1' }),
       new Pickup({ id: 'pickup-1', x: 4, y: 3, label: 'Cache 2' }),
       new Pickup({ id: 'pickup-2', x: 5, y: 3, label: 'Cache 3' }),
     ];
+    world.addEntity(player);
     for (const pickup of pickups) world.addEntity(pickup);
     const contract = makeRetrieveContract({
       objective: {
@@ -151,9 +156,10 @@ describe('retrieve objective satisfaction', () => {
       },
     });
 
-    pickups[0]!.secured = true;
+    pickups[0]!.interact(world, player);
     assert.equal(isObjectiveSatisfied(contract, world), false);
-    pickups[1]!.secured = true;
+    world.relocateEntity(player, 3, 3);
+    pickups[1]!.interact(world, player);
     assert.equal(isObjectiveSatisfied(contract, world), true);
   });
 });
@@ -190,6 +196,7 @@ describe('retrieve runs', () => {
     relocateAdjacentTo(run, pickup);
     const result = pickup.interact(run.world!, run.player!);
     assert.equal(result.ok, true);
+    assert.equal(run.world!.entities.has(pickup.id), false);
     assert.equal(isObjectiveSatisfied(run.contract!, run.world), true);
 
     run.bus!.emit('entity:moved', {
@@ -253,7 +260,7 @@ describe('retrieve runs', () => {
     assert.ok(adjacentHazards.length > 0, 'hazard-flavored retrieve should have nearby hazards');
   });
 
-  it('snapshot/restore round-trips pickup state', () => {
+  it('snapshot/restore round-trips secured pickup progress without resurrecting the prop', () => {
     const run = new Run({ crewMember: makeCrew('razor'), seed: 45 });
     run.enterBriefing(makeRetrieveContract());
     run.enterCombat();
@@ -265,16 +272,14 @@ describe('retrieve runs', () => {
 
     const rec = snapshot(run);
     const pickupRec = rec.entities.find(entity => entity.id === pickup.id);
-    assert.equal(pickupRec?.archetype, 'pickup');
-    assert.equal(pickupRec?.pickup?.secured, true);
-    assert.equal(pickupRec?.pickup?.armed, false);
+    assert.equal(pickupRec, undefined);
+    assert.deepEqual(rec.objectiveProgress?.securedPickups, [pickup.id]);
 
     const { world: restoredWorld } = restore(rec);
     const restoredPickup = [...restoredWorld.entities.values()].find(
       (entity): entity is Pickup => entity instanceof Pickup
     );
-    assert.ok(restoredPickup, 'expected restored pickup');
-    assert.equal(restoredPickup.secured, true);
-    assert.equal(restoredPickup.armed, false);
+    assert.equal(restoredPickup, undefined);
+    assert.equal(isObjectiveSatisfied(run.contract!, restoredWorld), true);
   });
 });

@@ -54,6 +54,7 @@ export class World {
   grid: Grid;
   entities: Map<string, Entity>;
   events: EventBus | null;
+  securedPickups: Set<string>;
 
   /** Tunable alarm cadence. `alarmActive` remains as the legacy alert-phase view. */
   alarm: AlarmState;
@@ -63,6 +64,7 @@ export class World {
     this.grid = grid;
     this.entities = new Map();
     this.events = options.events ?? null;
+    this.securedPickups = new Set();
     this.alarm = quietAlarm();
   }
 
@@ -168,6 +170,31 @@ export class World {
       throw new Error(`Unknown entity: ${id}`);
     }
     this.entities.delete(id);
+  }
+
+  recordSecuredPickup(id: string): void {
+    if (typeof id !== 'string' || id.length === 0) {
+      throw new TypeError('World.recordSecuredPickup requires a non-empty id');
+    }
+    if (this.securedPickups.has(id)) {
+      throw new Error(`World.recordSecuredPickup: duplicate pickup id "${id}"`);
+    }
+    this.securedPickups.add(id);
+  }
+
+  restoreSecuredPickups(ids: readonly string[]): void {
+    this.securedPickups.clear();
+    for (const id of ids) {
+      this.recordSecuredPickup(id);
+    }
+  }
+
+  securedPickupIds(): string[] {
+    return [...this.securedPickups].sort();
+  }
+
+  securedPickupCount(): number {
+    return this.securedPickups.size;
   }
 
   /**

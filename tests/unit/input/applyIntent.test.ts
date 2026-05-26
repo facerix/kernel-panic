@@ -58,7 +58,14 @@ function buildCtx({ archetype = 'merc', placeDrone = true } = {}) {
   const rng = new Rng(1);
 
   const log = [];
-  const calls = { advanceTurn: 0, resetInputModes: 0, interact: 0, inventory: 0, reachedExit: 0 };
+  const calls = {
+    advanceTurn: 0,
+    resetInputModes: 0,
+    interact: 0,
+    inventory: 0,
+    reachedExit: 0,
+    corpseSalvaged: 0,
+  };
   const ctx = {
     world,
     player,
@@ -86,6 +93,9 @@ function buildCtx({ archetype = 'merc', placeDrone = true } = {}) {
         default:
           throw new Error(`Unknown player action: ${actionName}`);
       }
+    },
+    onCorpseSalvaged: () => {
+      calls.corpseSalvaged++;
     },
   };
   return { ctx, log, calls, drone, world, player, queue };
@@ -126,7 +136,7 @@ test('move onto exit logs objective block when canExit says no', () => {
 });
 
 test('move onto a lootable corpse auto-salvages (M4.1)', () => {
-  const { ctx, log, player, world } = buildCtx({ placeDrone: false });
+  const { ctx, log, player, world, calls } = buildCtx({ placeDrone: false });
   player.initInventory();
   // Drop a dead lootable drone one tile south of the player.
   const drone = new CorpDrone({ id: 'corpse', x: 2, y: 3, maxAp: 3 });
@@ -147,14 +157,15 @@ test('move onto a lootable corpse auto-salvages (M4.1)', () => {
     log.some(l => l.includes('salvages +4')),
     'auto-salvage log line emitted'
   );
-  // MOVE + INTERACT AP were both spent.
-  assert.equal(player.ap, apBefore - 2);
+  assert.equal(calls.corpseSalvaged, 1, 'shell notified to clear corpse memory');
+  assert.equal(player.ap, apBefore - 1, 'only MOVE AP spent; walk-onto salvage is pickup-like');
 });
 
-test('move onto a corpse without INTERACT AP leaves the corpse and logs a hint', () => {
+test('move onto a corpse with 1 AP still salvages after the move spends AP', () => {
   const { ctx, log, player, world } = buildCtx({ placeDrone: false });
   player.initInventory();
-  // Only 1 AP: the move itself will spend it; INTERACT must then be unaffordable.
+  // Only 1 AP: the move spends it, and walk-onto salvage must not require
+  // a second interact AP.
   player.ap = 1;
   const drone = new CorpDrone({ id: 'corpse', x: 2, y: 3, maxAp: 3 });
   world.addEntity(drone);
@@ -165,12 +176,11 @@ test('move onto a corpse without INTERACT AP leaves the corpse and logs a hint',
 
   assert.equal(player.x, 2);
   assert.equal(player.y, 3, 'move still committed');
-  assert.equal(totalSalvage(player.inventory.salvage), 0, 'salvage NOT taken (no AP)');
-  assert.equal(world.entities.has('corpse'), true, 'corpse still in world');
-  assert.equal(drone.loot.salvage.scrap, 2, 'corpse loot untouched');
+  assert.equal(totalSalvage(player.inventory.salvage), 2, 'salvage taken after movement');
+  assert.equal(world.entities.has('corpse'), false, 'corpse removed from world');
   assert.ok(
-    log.some(l => l.includes('stands on salvage')),
-    'low-AP hint logged'
+    log.some(l => l.includes('salvages +2')),
+    'auto-salvage log line emitted'
   );
 });
 
@@ -196,7 +206,7 @@ test('move onto a consumable pickup adds it to inventory and removes the pickup'
   assert.ok(log.some(l => l.includes('picks up Stim')));
 });
 
-test('move onto consumable plus low-AP corpse still collects the consumable only', () => {
+test('move onto consumable plus low-AP corpse collects both pickups', () => {
   const { ctx, log, player, world } = buildCtx({ placeDrone: false });
   player.initInventory();
   player.ap = 1;
@@ -218,10 +228,10 @@ test('move onto consumable plus low-AP corpse still collects the consumable only
 
   assert.equal(player.inventory?.consumables[0]?.id, ITEM_ID.SMOKE_CHARGE);
   assert.equal(world.entities.has('consumable-pickup-0'), false);
-  assert.equal(world.entities.has('corpse'), true, 'corpse still waits for Space-interact');
-  assert.equal(totalSalvage(player.inventory!.salvage), 0);
+  assert.equal(world.entities.has('corpse'), false, 'corpse also collected by move-to-loot');
+  assert.equal(totalSalvage(player.inventory!.salvage), 2);
   assert.ok(log.some(l => l.includes('picks up Smoke Charge')));
-  assert.ok(log.some(l => l.includes('stands on salvage')));
+  assert.ok(log.some(l => l.includes('salvages +2')));
 });
 
 test('move onto exit reaches exit when canExit allows it', () => {

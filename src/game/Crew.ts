@@ -300,7 +300,10 @@ export class Crew extends Entity {
   }
 
   /**
-   * Loot salvage from an adjacent corpse. Costs `AP_COST.INTERACT`.
+   * Loot salvage from an adjacent corpse. Costs `AP_COST.INTERACT` by default.
+   * Walk-onto salvage may pass `{ spendAp: false }` after movement has already
+   * paid AP, matching consumable pickup semantics without weakening the
+   * standalone interact cost.
    *
    * Pre-conditions (all throw on violation — crash > silent fallback):
    *   - `this.inventory` is initialised
@@ -309,17 +312,18 @@ export class Crew extends Entity {
    *   - `targetEntity` has a `loot` object with `salvage > 0`
    *   - `targetEntity` is Chebyshev-adjacent (distance ≤ 1) to this crew member
    *
-   * On commit (M4.1): debits AP, transfers loot.salvage to
+   * On commit (M4.1): debits AP unless `spendAp` is false, transfers loot.salvage to
    * `this.inventory.salvage`, then **removes the stripped corpse from the
    * world entirely** — no phantom tile, no zero-loot lingering corpse.
    * Closes the kaizen "corpse memory / lootability" line for drones; future
    * non-drone lootable entities (if introduced) inherit the same rule.
    */
-  collectSalvage(world: World, targetEntity: LootableEntity) {
+  collectSalvage(world: World, targetEntity: LootableEntity, options: { spendAp?: boolean } = {}) {
+    const spendAp = options.spendAp ?? true;
     if (!this.inventory) {
       throw new Error(`collectSalvage: inventory not initialised for ${this.id}`);
     }
-    if (!this.canAfford(AP_COST.INTERACT)) {
+    if (spendAp && !this.canAfford(AP_COST.INTERACT)) {
       throw new Error(`collectSalvage: insufficient AP for ${this.id}`);
     }
     if (targetEntity.alive) {
@@ -338,7 +342,9 @@ export class Crew extends Entity {
         `collectSalvage: ${targetEntity.id} is not adjacent to ${this.id} (Chebyshev ${Math.max(dx, dy)})`
       );
     }
-    this.spendAp(AP_COST.INTERACT);
+    if (spendAp) {
+      this.spendAp(AP_COST.INTERACT);
+    }
     // M4.2: typed salvage — fold the corpse's typed loot into the crew
     // member's typed wallet, then zero each bucket on the corpse before
     // removing it. Total preserved across the four buckets.
