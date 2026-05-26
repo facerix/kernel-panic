@@ -27,40 +27,57 @@ test('Finn is immobile — refreshAp keeps AP at 0', () => {
   assert.equal(f.canAfford(1), false);
 });
 
-test('Finn.catalog returns the filtered shop catalog', () => {
+test('Finn.catalog at TRUSTED rep returns the full shop catalog', () => {
   const f = new Finn();
-  const items = f.catalog({});
+  const items = f.catalog(85); // TRUSTED tier
   assert.ok(Array.isArray(items));
   assert.ok(items.length > 0);
-  // All base catalog items visible without any meta upgrades.
   const ids = items.map(i => i.id);
   assert.ok(ids.includes(ITEM_ID.STIM));
   assert.ok(ids.includes(ITEM_ID.SMOKE_CHARGE));
+  assert.ok(ids.includes(ITEM_ID.INCENDIARY));
   assert.ok(ids.includes(ITEM_ID.ARMOUR_PLATING));
   assert.ok(ids.includes(ITEM_ID.TARGETING_CHIP));
   assert.ok(ids.includes(ITEM_ID.REFLEX_WEAVE));
-  assert.ok(ids.includes(ITEM_ID.EXPANDED_CATALOG));
-  assert.ok(ids.includes(ITEM_ID.BETTER_CONTRACTS));
 });
 
-test('catalog hides purchased unique meta upgrades', () => {
+test('Finn.catalog at BURNED rep only shows Stim', () => {
   const f = new Finn();
-  const items = f.catalog({ expandedCatalog: true, betterContracts: true });
+  const items = f.catalog(5); // BURNED tier
   const ids = items.map(i => i.id);
-  assert.ok(!ids.includes(ITEM_ID.EXPANDED_CATALOG));
-  assert.ok(!ids.includes(ITEM_ID.BETTER_CONTRACTS));
-  // Other items are still present.
+  assert.equal(items.length, 1);
   assert.ok(ids.includes(ITEM_ID.STIM));
+});
+
+test('Finn.catalog at UNKNOWN rep shows Stim + Smoke + Incendiary', () => {
+  const f = new Finn();
+  const items = f.catalog(25); // UNKNOWN tier
+  const ids = items.map(i => i.id);
+  assert.equal(items.length, 3);
+  assert.ok(ids.includes(ITEM_ID.STIM));
+  assert.ok(ids.includes(ITEM_ID.SMOKE_CHARGE));
+  assert.ok(ids.includes(ITEM_ID.INCENDIARY));
+  assert.ok(!ids.includes(ITEM_ID.ARMOUR_PLATING));
+});
+
+test('Finn.catalog at KNOWN rep adds gear items', () => {
+  const f = new Finn();
+  const items = f.catalog(55); // KNOWN tier
+  const ids = items.map(i => i.id);
+  assert.equal(items.length, 6);
   assert.ok(ids.includes(ITEM_ID.ARMOUR_PLATING));
+  assert.ok(ids.includes(ITEM_ID.TARGETING_CHIP));
+  assert.ok(ids.includes(ITEM_ID.REFLEX_WEAVE));
 });
 
 // ---------------------------------------------------------------------------
 // Item catalog (pure functions)
 // ---------------------------------------------------------------------------
 
-test('getShopCatalog returns all items when meta is empty', () => {
-  const items = getShopCatalog({});
-  assert.equal(items.length, 8);
+test('getShopCatalog returns all items at TRUSTED rep', () => {
+  const items = getShopCatalog(85);
+  // M5.2: 6 items (3 consumables + 3 gear) visible at TRUSTED tier.
+  assert.equal(items.length, 6);
 });
 
 test('getItemById returns the item for a valid id', () => {
@@ -95,8 +112,6 @@ test('catalog item costs are priced in Creds', () => {
   assert.equal(getItemById(ITEM_ID.ARMOUR_PLATING).cost, 60);
   assert.equal(getItemById(ITEM_ID.TARGETING_CHIP).cost, 80);
   assert.equal(getItemById(ITEM_ID.REFLEX_WEAVE).cost, 80);
-  assert.equal(getItemById(ITEM_ID.EXPANDED_CATALOG).cost, 150);
-  assert.equal(getItemById(ITEM_ID.BETTER_CONTRACTS).cost, 180);
 });
 
 // ---------------------------------------------------------------------------

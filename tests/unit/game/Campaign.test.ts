@@ -11,7 +11,7 @@ import { OUTCOME, RUN_STATE } from '../../../src/game/Run.js';
 import { Rng } from '../../../src/rng.js';
 import { OBJECTIVES } from '../../../src/game/hub/Curator.js';
 import { snapshotCampaign, restoreCampaign } from '../../../src/game/persistence.js';
-import { SALVAGE_TO_CRED_RATE, SHOP_COST } from '../../../src/game/constants.js';
+import { SALVAGE_SELL_RATE, SHOP_COST } from '../../../src/game/constants.js';
 import { emptySalvage, makeSalvage, totalSalvage } from '../../../src/game/salvage.js';
 import { testContractContext } from './contractTestUtils.js';
 
@@ -233,20 +233,18 @@ test('Campaign Hub world includes Finn NPC', () => {
 
 // --- M4: Campaign.purchase ------------------------------------------------
 
-test('sellSalvage converts campaign salvage into Creds at the fixed rate', () => {
-  // M4.2: legacy `salvage: 8` migrates to `{ scrap: 8, ... }` via the
-  // constructor's `migrateSalvage` shim — exercising the back-compat path
-  // here keeps the legacy save shape green.
+test('sellSalvage converts campaign salvage into Creds at per-type rates', () => {
+  // M5.2: per-type sell rates. Legacy `salvage: 8` migrates to scrap.
   const campaign = new Campaign({ seed: 42, salvage: 8, credits: 5 });
   campaign.sellSalvage(1);
   assert.equal(totalSalvage(campaign.salvage), 7);
-  assert.equal(campaign.credits, 5 + SALVAGE_TO_CRED_RATE);
+  assert.equal(campaign.credits, 5 + SALVAGE_SELL_RATE.scrap); // 5 + 8 = 13
   campaign.sellSalvage(5);
   assert.equal(totalSalvage(campaign.salvage), 2);
-  assert.equal(campaign.credits, 5 + 6 * SALVAGE_TO_CRED_RATE);
+  assert.equal(campaign.credits, 5 + 6 * SALVAGE_SELL_RATE.scrap); // 5 + 48 = 53
   campaign.sellSalvage(totalSalvage(campaign.salvage));
   assert.equal(totalSalvage(campaign.salvage), 0);
-  assert.equal(campaign.credits, 5 + 8 * SALVAGE_TO_CRED_RATE);
+  assert.equal(campaign.credits, 5 + 8 * SALVAGE_SELL_RATE.scrap); // 5 + 64 = 69
 });
 
 test('sellSalvage throws on invalid quantities and oversell attempts', () => {
@@ -258,32 +256,48 @@ test('sellSalvage throws on invalid quantities and oversell attempts', () => {
   assert.equal(campaign.credits, 0);
 });
 
-test('sellSalvage(quantity, type) sells from a specific bucket (M4.2)', () => {
+test('sellSalvage(quantity, type) sells from a specific bucket at its rate', () => {
   const campaign = new Campaign({ seed: 42, credits: 0 });
   campaign.salvage = makeSalvage({ scrap: 5, chips: 4, bio: 2, data: 1 });
-  // Sell 3 chips specifically — other buckets must be untouched.
+  // Sell 3 chips specifically at the chips rate.
   campaign.sellSalvage(3, 'chips');
   assert.deepEqual(campaign.salvage, makeSalvage({ scrap: 5, chips: 1, bio: 2, data: 1 }));
-  assert.equal(campaign.credits, 3 * SALVAGE_TO_CRED_RATE);
+  assert.equal(campaign.credits, 3 * SALVAGE_SELL_RATE.chips); // 3 * 12 = 36
 
   // Insufficient chips → throws and wallet stays intact.
   assert.throws(() => campaign.sellSalvage(5, 'chips'), /insufficient chips/i);
   assert.equal(campaign.salvage.chips, 1, 'failed typed sell does not partial-debit');
 });
 
-test('untyped sellSalvage draws scrap → chips → bio → data in priority order (M4.2)', () => {
+test('untyped sellSalvage draws scrap → chips → bio → data applying per-type rates', () => {
   const campaign = new Campaign({ seed: 42, credits: 0 });
   campaign.salvage = makeSalvage({ scrap: 2, chips: 2, bio: 2, data: 2 });
-  // Sell 5 total: should drain scrap (2), then chips (2), then 1 from bio.
+  // Sell 5 total: drains scrap (2), then chips (2), then 1 from bio.
+  // Earned: 2*8 (scrap) + 2*12 (chips) + 1*15 (bio) = 16 + 24 + 15 = 55
   campaign.sellSalvage(5);
   assert.deepEqual(campaign.salvage, makeSalvage({ scrap: 0, chips: 0, bio: 1, data: 2 }));
-  assert.equal(campaign.credits, 5 * SALVAGE_TO_CRED_RATE);
+  assert.equal(campaign.credits, 2 * SALVAGE_SELL_RATE.scrap + 2 * SALVAGE_SELL_RATE.chips + 1 * SALVAGE_SELL_RATE.bio);
 });
 
 test('sellSalvage rejects unknown salvage types (M4.2)', () => {
   const campaign = new Campaign({ seed: 42 });
   campaign.salvage = makeSalvage({ scrap: 5 });
   assert.throws(() => campaign.sellSalvage(1, 'nuclear-waste'), /unknown salvage type/i);
+});
+
+test('per-type sell rates are differentiated (M5.2)', () => {
+  // Sell 1 of each type and verify each yields its distinct rate.
+  for (const type of ['scrap', 'chips', 'bio', 'data'] as const) {
+    const campaign = new Campaign({ seed: 42 });
+    campaign.salvage = makeSalvage({ [type]: 1 });
+    campaign.sellSalvage(1, type);
+    assert.equal(campaign.credits, SALVAGE_SELL_RATE[type],
+      `selling 1 ${type} should yield ${SALVAGE_SELL_RATE[type]} Cr`);
+  }
+  // Verify rates are distinct (Data > Bio > Chips > Scrap).
+  assert.ok(SALVAGE_SELL_RATE.data > SALVAGE_SELL_RATE.bio);
+  assert.ok(SALVAGE_SELL_RATE.bio > SALVAGE_SELL_RATE.chips);
+  assert.ok(SALVAGE_SELL_RATE.chips > SALVAGE_SELL_RATE.scrap);
 });
 
 test('sellSalvage is illegal outside HUB state', () => {
@@ -327,25 +341,8 @@ test('purchase applies reflex weave gear bonus', () => {
   assert.equal(member.gear.dodgeBonus, 0.1);
 });
 
-test('purchase sets meta flag for Expanded Catalog', () => {
-  const campaign = new Campaign({ seed: 42, credits: SHOP_COST.EXPANDED_CATALOG });
-  campaign.purchase({ itemId: 'expanded-catalog' });
-  assert.equal(campaign.meta.expandedCatalog, true);
-  assert.equal(campaign.credits, 0);
-});
-
-test('purchase sets meta flag for Better Contracts', () => {
-  const campaign = new Campaign({ seed: 42, credits: SHOP_COST.BETTER_CONTRACTS });
-  campaign.purchase({ itemId: 'better-contracts' });
-  assert.equal(campaign.meta.betterContracts, true);
-  assert.equal(campaign.credits, 0);
-});
-
-test('purchase rejects duplicate unique meta upgrades', () => {
-  const campaign = new Campaign({ seed: 42, credits: SHOP_COST.EXPANDED_CATALOG * 2 });
-  campaign.purchase({ itemId: 'expanded-catalog' });
-  assert.throws(() => campaign.purchase({ itemId: 'expanded-catalog' }), /already purchased/i);
-});
+// M5.1: meta upgrades (expanded-catalog, better-contracts) removed — Rep
+// tiers replace them. Tests for those items removed here.
 
 test('purchase throws on insufficient Creds', () => {
   const campaign = new Campaign({ seed: 42, credits: SHOP_COST.STIM - 1 });
@@ -431,11 +428,14 @@ test('crew gear survives campaign snapshot/restore round-trip', () => {
 });
 
 test('meta state survives campaign snapshot/restore round-trip', () => {
-  const campaign = new Campaign({ seed: 42, credits: SHOP_COST.EXPANDED_CATALOG });
-  campaign.purchase({ itemId: 'expanded-catalog' });
+  // M5.1: meta upgrades removed, but meta is still a plain Record that can
+  // carry arbitrary keys (future features, dead legacy data). Prove the
+  // round-trip preserves whatever is in there.
+  const campaign = new Campaign({ seed: 42 });
+  campaign.meta.customFlag = true;
   const snap = snapshotCampaign(campaign);
   const restored = restoreCampaign(snap);
-  assert.equal(restored.meta.expandedCatalog, true);
+  assert.equal(restored.meta.customFlag, true);
 });
 
 test('consumables survive campaign snapshot/restore round-trip', () => {

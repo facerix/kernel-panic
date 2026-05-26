@@ -171,7 +171,28 @@ export const SMOKE_DURATION_TURNS = 1;
 export const INCENDIARY_THROW_DIST = 3;
 export const TARGETING_BONUS = 0.1;
 export const DODGE_BONUS = 0.1;
+
+/**
+ * Legacy flat salvage-to-Cred rate. Retained for backward-compat references
+ * (e.g. TRUSTED tier rewardFloorBump calculation). New sell paths use the
+ * per-type `SALVAGE_SELL_RATE` instead.
+ */
 export const SALVAGE_TO_CRED_RATE = 10;
+
+/**
+ * M5.2: per-type salvage sell rates. Each salvage type has a distinct
+ * Cred-per-unit value — makes typed salvage economically meaningful.
+ *   Scrap  8 — common, lowest value (drone drops)
+ *   Chips 12 — electronics (terminals, turrets, relays)
+ *   Bio   15 — rare organic samples (clinic/bio pickups)
+ *   Data  18 — informational (dossiers, ledgers, slices)
+ */
+export const SALVAGE_SELL_RATE = Object.freeze({
+  scrap: 8,
+  chips: 12,
+  bio: 15,
+  data: 18,
+} as const);
 
 export const SHOP_COST = Object.freeze({
   STIM: 20,
@@ -180,8 +201,6 @@ export const SHOP_COST = Object.freeze({
   ARMOUR_PLATING: 60,
   TARGETING_CHIP: 80,
   REFLEX_WEAVE: 80,
-  EXPANDED_CATALOG: 150,
-  BETTER_CONTRACTS: 180,
 });
 
 /**
@@ -249,12 +268,117 @@ export const RECRUIT = Object.freeze({
 });
 
 /**
- * Rep qualitative labels, keyed by lower bound. The shell maps `campaign.rep`
- * to the highest bracket whose lower bound the value meets or exceeds.
+ * Rep tier definitions — each tier carries a label, a lower bound, and a
+ * difficulty pool that the Curator uses when rolling contracts. Ordered from
+ * highest to lowest so `repTierForRep(rep)` can do a simple first-match scan.
+ *
+ * M5.1: Replaces the old `better-contracts` meta upgrade. The player's
+ * current Rep now determines the contract difficulty pool directly.
  */
-export const REP_LABEL = Object.freeze([
-  { min: 80, label: 'TRUSTED' },
-  { min: 50, label: 'KNOWN' },
-  { min: 20, label: 'UNKNOWN' },
-  { min: 0, label: 'BURNED' },
+export const REP_TIER = Object.freeze({
+  BURNED: 'BURNED',
+  UNKNOWN: 'UNKNOWN',
+  KNOWN: 'KNOWN',
+  TRUSTED: 'TRUSTED',
+});
+
+export type RepTierId = (typeof REP_TIER)[keyof typeof REP_TIER];
+
+export type RepTierDef = {
+  id: RepTierId;
+  label: string;
+  min: number;
+  pool: readonly ContractDifficulty[];
+  rewardFloorBump: number;
+};
+
+export const REP_TIERS: readonly RepTierDef[] = Object.freeze([
+  Object.freeze({
+    id: REP_TIER.TRUSTED,
+    label: 'TRUSTED',
+    min: 80,
+    pool: Object.freeze([
+      CONTRACT_DIFFICULTY.STANDARD,
+      CONTRACT_DIFFICULTY.STANDARD,
+      CONTRACT_DIFFICULTY.ELEVATED,
+      CONTRACT_DIFFICULTY.ELEVATED,
+      CONTRACT_DIFFICULTY.ELEVATED,
+      CONTRACT_DIFFICULTY.CRITICAL,
+      CONTRACT_DIFFICULTY.CRITICAL,
+      CONTRACT_DIFFICULTY.CRITICAL,
+      CONTRACT_DIFFICULTY.CRITICAL,
+    ]),
+    rewardFloorBump: 2 * SALVAGE_TO_CRED_RATE,
+  }),
+  Object.freeze({
+    id: REP_TIER.KNOWN,
+    label: 'KNOWN',
+    min: 50,
+    pool: Object.freeze([
+      CONTRACT_DIFFICULTY.STANDARD,
+      CONTRACT_DIFFICULTY.STANDARD,
+      CONTRACT_DIFFICULTY.STANDARD,
+      CONTRACT_DIFFICULTY.ELEVATED,
+      CONTRACT_DIFFICULTY.ELEVATED,
+      CONTRACT_DIFFICULTY.ELEVATED,
+      CONTRACT_DIFFICULTY.ELEVATED,
+      CONTRACT_DIFFICULTY.CRITICAL,
+      CONTRACT_DIFFICULTY.CRITICAL,
+    ]),
+    rewardFloorBump: 0,
+  }),
+  Object.freeze({
+    id: REP_TIER.UNKNOWN,
+    label: 'UNKNOWN',
+    min: 20,
+    pool: Object.freeze([
+      CONTRACT_DIFFICULTY.STANDARD,
+      CONTRACT_DIFFICULTY.STANDARD,
+      CONTRACT_DIFFICULTY.STANDARD,
+      CONTRACT_DIFFICULTY.STANDARD,
+      CONTRACT_DIFFICULTY.STANDARD,
+      CONTRACT_DIFFICULTY.ELEVATED,
+      CONTRACT_DIFFICULTY.ELEVATED,
+      CONTRACT_DIFFICULTY.ELEVATED,
+      CONTRACT_DIFFICULTY.CRITICAL,
+    ]),
+    rewardFloorBump: 0,
+  }),
+  Object.freeze({
+    id: REP_TIER.BURNED,
+    label: 'BURNED',
+    min: 0,
+    pool: Object.freeze([
+      CONTRACT_DIFFICULTY.STANDARD,
+      CONTRACT_DIFFICULTY.STANDARD,
+      CONTRACT_DIFFICULTY.STANDARD,
+      CONTRACT_DIFFICULTY.STANDARD,
+      CONTRACT_DIFFICULTY.STANDARD,
+      CONTRACT_DIFFICULTY.STANDARD,
+      CONTRACT_DIFFICULTY.STANDARD,
+      CONTRACT_DIFFICULTY.STANDARD,
+      CONTRACT_DIFFICULTY.STANDARD,
+    ]),
+    rewardFloorBump: 0,
+  }),
 ]);
+
+/**
+ * Return the Rep tier definition for a given Rep value.
+ * Scans from highest to lowest; the first tier whose `min` the value meets
+ * or exceeds is the match. Falls back to BURNED (min 0) if nothing matches
+ * (shouldn't happen unless Rep is negative, which is already clamped).
+ */
+export function repTierForRep(rep: number): RepTierDef {
+  for (const tier of REP_TIERS) {
+    if (rep >= tier.min) return tier;
+  }
+  return REP_TIERS[REP_TIERS.length - 1];
+}
+
+/**
+ * Legacy compat alias — the shell uses `REP_LABEL` to look up the label for a
+ * given Rep. Point it at the new `REP_TIERS` shape so existing call sites work
+ * without changes.
+ */
+export const REP_LABEL = REP_TIERS;

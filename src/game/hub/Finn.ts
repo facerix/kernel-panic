@@ -1,15 +1,14 @@
 /**
- * Finn — Hub fence NPC who trades salvage for gear, consumables, and upgrades.
+ * Finn — Hub fence NPC who trades salvage for gear and consumables.
  *
- * A nod to Gibson's fence archetype: Finn accepts salvage and sells items
- * from a catalog that grows as the player purchases meta-upgrades. Placed in
- * the Hub grid; the player approaches and presses Space (interact) to open
- * the `<finn-shop>` web component.
+ * A nod to Gibson's fence archetype: Finn accepts salvage and sells items.
+ * Placed in the Hub grid; the player approaches and presses Space (interact)
+ * to open the `<finn-shop>` web component.
  *
  * Like the Curator and Terminal, Finn is NEUTRAL faction, immobile, zero AP,
  * and one HP. The interaction is entirely mediated by the shell — Finn's game-
- * logic interface is just `catalog(meta)` which returns the filtered item
- * list the shop UI presents.
+ * logic interface is just `catalog()` which returns the item list the shop UI
+ * presents. M5.1 removed meta upgrades (Rep tiers replace them).
  */
 
 import { Entity } from '../Entity.js';
@@ -38,12 +37,10 @@ export class Finn extends Entity {
   }
 
   /**
-   * Return the shop catalog filtered by the campaign's meta-upgrade state.
-   * The shell passes this to `<finn-shop>.setCatalog()`.
-   *
-   * @param {{ expandedCatalog?: boolean }} meta
+   * Return the shop catalog filtered by the player's current Rep tier.
+   * Higher Rep unlocks more items — see `getShopCatalog` for tier mapping.
    */
-  catalog(meta = {}) {
-    return getShopCatalog(meta);
+  catalog(rep: number = 20) {
+    return getShopCatalog(rep);
   }
 }

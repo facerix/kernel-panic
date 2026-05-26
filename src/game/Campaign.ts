@@ -3,7 +3,7 @@ import { World } from './World.js';
 import { TurnQueue } from './TurnQueue.js';
 import { EventBus } from './events.js';
 import { Entity } from './Entity.js';
-import { FACTION, REP, RECRUIT, SALVAGE_TO_CRED_RATE } from './constants.js';
+import { FACTION, REP, RECRUIT, SALVAGE_SELL_RATE } from './constants.js';
 import {
   SALVAGE_TYPES,
   addSalvage,
@@ -34,10 +34,10 @@ export const CAMPAIGN_STATE = Object.freeze({
 const STARTER_ARCHETYPES = Object.freeze(['merc', 'razor', 'tech']);
 
 export type CampaignState = (typeof CAMPAIGN_STATE)[keyof typeof CAMPAIGN_STATE];
-export type CampaignMeta = Record<string, unknown> & {
-  expandedCatalog?: boolean;
-  betterContracts?: boolean;
-};
+// M5.1: `expandedCatalog` and `betterContracts` removed — Rep tiers replace
+// them. Old saves may still carry those keys as dead data; the type is a
+// plain Record so they don't cause a type error on restore.
+export type CampaignMeta = Record<string, unknown>;
 
 export type CampaignOptions = {
   id?: string;
@@ -360,16 +360,13 @@ export class Campaign {
   }
 
   /**
-   * Sell salvage to Finn for Creds at `SALVAGE_TO_CRED_RATE` per unit.
+   * Sell salvage to Finn for Creds.
    *
-   * M4.2: typed salvage. The `type` argument is optional — when omitted, the
-   * call sells `quantity` units total, drawing from buckets in the
-   * `SALVAGE_TYPES` priority order (scrap → chips → bio → data). This keeps
-   * the legacy "SELL N" Finn buttons working without forcing M5's per-type
-   * UI to land here. When `type` is provided, the call sells exactly that
-   * type and throws if the bucket is short.
-   *
-   * Per-type pricing is uniform today; M5 owns differentiated rates.
+   * M5.2: each salvage type has a distinct Cred-per-unit rate via
+   * `SALVAGE_SELL_RATE`. When `type` is provided, sells exactly that type at
+   * its rate. When omitted, draws from buckets in `SALVAGE_TYPES` priority
+   * order (scrap → chips → bio → data), applying each type's rate as units
+   * are drawn. Throws on all illegal preconditions.
    */
   sellSalvage(quantity: number, type?: SalvageType): void {
     if (this.state !== CAMPAIGN_STATE.HUB) {
@@ -388,13 +385,13 @@ export class Campaign {
         );
       }
       this.salvage[type] -= quantity;
-      this.credits += quantity * SALVAGE_TO_CRED_RATE;
+      this.credits += quantity * SALVAGE_SELL_RATE[type];
       this.#persist();
       return;
     }
-    // Untyped sell — draw from buckets in `SALVAGE_TYPES` order. Crashes
-    // loudly if the total wallet is short so callers can't silently
-    // overdraw.
+    // Untyped sell — draw from buckets in `SALVAGE_TYPES` order, applying
+    // each type's rate as units are drawn. Crashes loudly if the total wallet
+    // is short.
     const have = totalSalvage(this.salvage);
     if (quantity > have) {
       throw new Error(
@@ -402,13 +399,15 @@ export class Campaign {
       );
     }
     let remaining = quantity;
+    let earned = 0;
     for (const t of SALVAGE_TYPES) {
       if (remaining === 0) break;
       const draw = Math.min(this.salvage[t], remaining);
       this.salvage[t] -= draw;
+      earned += draw * SALVAGE_SELL_RATE[t];
       remaining -= draw;
     }
-    this.credits += quantity * SALVAGE_TO_CRED_RATE;
+    this.credits += earned;
     this.#persist();
   }
 

@@ -18,7 +18,7 @@
  */
 
 import { Entity } from '../Entity.js';
-import { CONTRACT_DIFFICULTY, FACTION, SALVAGE_TO_CRED_RATE } from '../constants.js';
+import { CONTRACT_DIFFICULTY, FACTION, REP, repTierForRep } from '../constants.js';
 import type { Rng } from '../../rng.js';
 import type { EntityInit } from '../Entity.js';
 import type { ContractDifficulty } from '../constants.js';
@@ -404,29 +404,8 @@ const DIFFICULTY_SPEC: Readonly<Record<ContractDifficulty, DifficultySpec>> = Ob
   }),
 });
 
-const BASE_DIFFICULTY_POOL: readonly ContractDifficulty[] = Object.freeze([
-  CONTRACT_DIFFICULTY.STANDARD,
-  CONTRACT_DIFFICULTY.STANDARD,
-  CONTRACT_DIFFICULTY.STANDARD,
-  CONTRACT_DIFFICULTY.STANDARD,
-  CONTRACT_DIFFICULTY.STANDARD,
-  CONTRACT_DIFFICULTY.ELEVATED,
-  CONTRACT_DIFFICULTY.ELEVATED,
-  CONTRACT_DIFFICULTY.ELEVATED,
-  CONTRACT_DIFFICULTY.CRITICAL,
-]);
-
-const BETTER_CONTRACTS_POOL: readonly ContractDifficulty[] = Object.freeze([
-  CONTRACT_DIFFICULTY.STANDARD,
-  CONTRACT_DIFFICULTY.STANDARD,
-  CONTRACT_DIFFICULTY.ELEVATED,
-  CONTRACT_DIFFICULTY.ELEVATED,
-  CONTRACT_DIFFICULTY.ELEVATED,
-  CONTRACT_DIFFICULTY.ELEVATED,
-  CONTRACT_DIFFICULTY.CRITICAL,
-  CONTRACT_DIFFICULTY.CRITICAL,
-  CONTRACT_DIFFICULTY.CRITICAL,
-]);
+// M5.1: difficulty pools moved to REP_TIERS in constants.ts. Each Rep tier
+// carries its own pool — the Curator reads `campaign.rep` to select it.
 
 export type Contract = {
   seed: number;
@@ -439,7 +418,7 @@ export type Contract = {
 };
 
 type ContractCampaign =
-  | { meta?: { betterContracts?: boolean }; arcStage?: ContractArcStage | null }
+  | { rep?: number; meta?: Record<string, unknown>; arcStage?: ContractArcStage | null }
   | null
   | undefined;
 
@@ -465,13 +444,18 @@ export class Curator extends Entity {
 
   /**
    * Roll three job-board contracts for the current Hub visit.
+   *
+   * M5.1: The difficulty pool is now driven by the campaign's Rep tier
+   * instead of the old `betterContracts` meta flag. Higher Rep → harder
+   * (more lucrative) contracts. TRUSTED tier also gets a Cred floor bump.
    */
   generateContracts(rng: Rng, campaign?: ContractCampaign): Contract[] {
     if (!rng || typeof rng.next !== 'function') {
       throw new TypeError('Curator.generateContracts requires an Rng');
     }
-    const betterContracts = !!campaign?.meta?.betterContracts;
-    const pool = betterContracts ? BETTER_CONTRACTS_POOL : BASE_DIFFICULTY_POOL;
+    const rep = campaign?.rep ?? REP.START;
+    const tier = repTierForRep(rep);
+    const pool = tier.pool;
     const contracts: Contract[] = [];
     const labelsUsed = new Set<string>();
     const context = contractRecipeContext(campaign);
@@ -481,10 +465,9 @@ export class Curator extends Entity {
       const spec = DIFFICULTY_SPEC[difficulty];
       const recipeContract = generateRecipeContract(rng, labelsUsed, context);
       const seed = rng.intRange(0, 0x7fffffff);
-      const rewardFloorBump = betterContracts ? 2 * SALVAGE_TO_CRED_RATE : 0;
       const credits = rng.intRange(
-        spec.credits.min + rewardFloorBump,
-        spec.credits.max + rewardFloorBump + 1
+        spec.credits.min + tier.rewardFloorBump,
+        spec.credits.max + tier.rewardFloorBump + 1
       );
       const reward: Contract['reward'] = { credits, repDelta: spec.repDelta };
       if (difficulty === CONTRACT_DIFFICULTY.CRITICAL) reward.recruit = true;

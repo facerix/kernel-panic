@@ -327,33 +327,92 @@ test('generateContract throws on missing rng', () => {
   assert.throws(() => new Curator().generateContract(null), /requires an Rng/);
 });
 
-test('better-contracts shifts the board toward elevated/critical tiers and raises Cred floors', () => {
-  const normalCounts = { elevatedOrCritical: 0, credits: 0 };
-  const betterCounts = { elevatedOrCritical: 0, credits: 0 };
-  for (let seed = 0; seed < 200; seed++) {
-    for (const contract of new Curator().generateContracts(new Rng(seed), { meta: {} })) {
-      if (contract.difficulty !== CONTRACT_DIFFICULTY.STANDARD) normalCounts.elevatedOrCritical++;
-      normalCounts.credits += contract.reward.credits;
+// --- M5.1: Rep-tier-driven contract pools ---
+
+test('BURNED tier (rep < 20) produces only STANDARD contracts', () => {
+  for (let seed = 0; seed < 50; seed++) {
+    const contracts = new Curator().generateContracts(new Rng(seed), { rep: 10 });
+    for (const c of contracts) {
+      assert.equal(c.difficulty, CONTRACT_DIFFICULTY.STANDARD,
+        `seed ${seed}: BURNED should only roll STANDARD, got ${c.difficulty}`);
     }
-    for (const contract of new Curator().generateContracts(new Rng(seed), {
-      meta: { betterContracts: true },
-    })) {
-      if (contract.difficulty !== CONTRACT_DIFFICULTY.STANDARD) betterCounts.elevatedOrCritical++;
-      betterCounts.credits += contract.reward.credits;
+  }
+});
+
+test('TRUSTED tier (rep >= 80) shifts board toward elevated/critical and raises Cred floors', () => {
+  const unknownCounts = { elevatedOrCritical: 0, credits: 0 };
+  const trustedCounts = { elevatedOrCritical: 0, credits: 0 };
+  for (let seed = 0; seed < 200; seed++) {
+    // UNKNOWN tier (default)
+    for (const c of new Curator().generateContracts(new Rng(seed), { rep: 20 })) {
+      if (c.difficulty !== CONTRACT_DIFFICULTY.STANDARD) unknownCounts.elevatedOrCritical++;
+      unknownCounts.credits += c.reward.credits;
+    }
+    // TRUSTED tier
+    for (const c of new Curator().generateContracts(new Rng(seed), { rep: 85 })) {
+      if (c.difficulty !== CONTRACT_DIFFICULTY.STANDARD) trustedCounts.elevatedOrCritical++;
+      trustedCounts.credits += c.reward.credits;
       assert.ok(
-        contract.reward.credits >= 20 + 2 * SALVAGE_TO_CRED_RATE,
-        'better-contracts should raise reward floors by 20 Cr'
+        c.reward.credits >= 20 + 2 * SALVAGE_TO_CRED_RATE,
+        'TRUSTED tier should raise reward floors by 20 Cr'
       );
     }
   }
   assert.ok(
-    betterCounts.elevatedOrCritical > normalCounts.elevatedOrCritical,
-    'better-contracts should offer more elevated/critical jobs'
+    trustedCounts.elevatedOrCritical > unknownCounts.elevatedOrCritical,
+    'TRUSTED should offer more elevated/critical jobs than UNKNOWN'
   );
   assert.ok(
-    betterCounts.credits > normalCounts.credits,
-    'better-contracts should improve aggregate Cred rewards'
+    trustedCounts.credits > unknownCounts.credits,
+    'TRUSTED should produce higher aggregate Cred rewards'
   );
+});
+
+test('KNOWN tier (rep 50-79) shifts pool toward elevated/critical vs UNKNOWN', () => {
+  const unknownCounts = { elevatedOrCritical: 0 };
+  const knownCounts = { elevatedOrCritical: 0 };
+  for (let seed = 0; seed < 200; seed++) {
+    for (const c of new Curator().generateContracts(new Rng(seed), { rep: 25 })) {
+      if (c.difficulty !== CONTRACT_DIFFICULTY.STANDARD) unknownCounts.elevatedOrCritical++;
+    }
+    for (const c of new Curator().generateContracts(new Rng(seed), { rep: 60 })) {
+      if (c.difficulty !== CONTRACT_DIFFICULTY.STANDARD) knownCounts.elevatedOrCritical++;
+    }
+  }
+  assert.ok(
+    knownCounts.elevatedOrCritical > unknownCounts.elevatedOrCritical,
+    'KNOWN should offer more elevated/critical jobs than UNKNOWN'
+  );
+});
+
+test('tier boundary transitions: 19→20 and 79→80 produce different pools', () => {
+  // Collect difficulty distributions across many seeds to verify the
+  // boundary produces a statistically different mix.
+  const counts = (rep) => {
+    let elevated = 0;
+    for (let seed = 0; seed < 200; seed++) {
+      for (const c of new Curator().generateContracts(new Rng(seed), { rep })) {
+        if (c.difficulty !== CONTRACT_DIFFICULTY.STANDARD) elevated++;
+      }
+    }
+    return elevated;
+  };
+  // BURNED (19) vs UNKNOWN (20)
+  assert.equal(counts(19), 0, 'rep 19 (BURNED) should produce 0 non-STANDARD');
+  assert.ok(counts(20) > 0, 'rep 20 (UNKNOWN) should produce some non-STANDARD');
+  // KNOWN (79) vs TRUSTED (80) — TRUSTED has more CRITICAL weight
+  assert.ok(counts(80) > counts(79), 'rep 80 (TRUSTED) should produce more non-STANDARD than rep 79 (KNOWN)');
+});
+
+test('no campaign / null campaign defaults to UNKNOWN tier pool', () => {
+  // Should not throw and should produce a mix (not all-STANDARD).
+  let nonStandard = 0;
+  for (let seed = 0; seed < 100; seed++) {
+    for (const c of new Curator().generateContracts(new Rng(seed))) {
+      if (c.difficulty !== CONTRACT_DIFFICULTY.STANDARD) nonStandard++;
+    }
+  }
+  assert.ok(nonStandard > 0, 'null campaign should use UNKNOWN pool (has non-STANDARD)');
 });
 
 test('Curator is immobile — refreshAp keeps ap at 0', () => {

@@ -275,7 +275,7 @@ test('campaign snapshot/restore round-trips campaign scope', () => {
   campaign.salvage = makeSalvage({ scrap: 3, chips: 2, bio: 1, data: 1 });
   campaign.credits = 90;
   campaign.rep = 62;
-  campaign.meta = { expandedCatalog: true };
+  campaign.meta = { someFlag: true };
   campaign.crew[1].flatlined = true;
 
   const recA = snapshotCampaign(campaign);
@@ -287,7 +287,7 @@ test('campaign snapshot/restore round-trips campaign scope', () => {
   assert.equal(totalSalvage(restored.salvage), 7);
   assert.equal(restored.credits, 90);
   assert.equal(restored.rep, 62);
-  assert.deepEqual(restored.meta, { expandedCatalog: true });
+  assert.deepEqual(restored.meta, { someFlag: true });
   assert.equal(restored.crew[1].flatlined, true);
 });
 

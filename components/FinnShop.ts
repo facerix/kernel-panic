@@ -1,23 +1,24 @@
 /**
  * <finn-shop> — modal shop for purchasing items from Finn.
  *
- * Catalog items are grouped by scope (Job / Campaign / Meta). Campaign-scoped
- * items require a target crew member selection. Keyboard-navigable (↑/↓ to
- * browse, Enter to buy, Esc to close).
+ * M5.2: Tabbed UI with SELL and BUY tabs. The SELL tab shows per-type salvage
+ * rows with differentiated pricing; the BUY tab shows consumables and gear
+ * grouped by scope. Keyboard-navigable (←/→ or Tab to switch tabs, ↑/↓ to
+ * browse within, Enter to buy/sell, Esc to close).
  *
  * Events:
  *   - `purchase`      — `{ itemId, targetMemberId? }` — player confirmed a buy.
- *   - `sell-salvage`  — `{ quantity }` — player sold campaign salvage for Creds.
+ *   - `sell-salvage`  — `{ quantity, type }` — player sold N units of a specific type.
  *   - `dismiss`       — player pressed Esc / clicked backdrop.
  */
 
 import { h } from '/src/domUtils.js';
-import { SALVAGE_TO_CRED_RATE } from '/src/game/constants.js';
+import { SALVAGE_SELL_RATE } from '/src/game/constants.js';
 import {
+  SALVAGE_TYPES,
   emptySalvage,
-  formatSalvageCompact,
-  totalSalvage,
   type TypedSalvage,
+  type SalvageType,
 } from '/src/game/salvage.js';
 import { ITEM_ID, ITEM_SCOPE } from '/src/game/items.js';
 import type { Item } from '/src/game/items.js';
@@ -32,6 +33,13 @@ type CrewMemberSnapshot = {
   flatlined: boolean;
   atMaxHit: boolean;
   atMaxDodge: boolean;
+};
+
+const SALVAGE_TYPE_LABELS: Record<SalvageType, string> = {
+  scrap: 'Scrap',
+  chips: 'Chips',
+  bio: 'Bio',
+  data: 'Data',
 };
 
 const CSS = `
@@ -92,27 +100,76 @@ const CSS = `
   letter-spacing: 0.08em;
 }
 
-.sell-panel {
-  border: 1px dashed rgba(0, 217, 165, 0.5);
-  border-radius: 4px;
-  padding: 0.55rem 0.6rem;
-  margin: 0 0 0.7rem;
+.tabs {
   display: grid;
-  gap: 0.45rem;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  margin: 0 0 0.75rem;
+  border: 1px solid var(--shop-border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+button.tab {
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  color: var(--shop-dim);
+  border: none;
+  border-right: 1px solid var(--shop-border);
+  padding: 0.5rem 0.6rem;
+  font: inherit;
+  font-size: 0.82rem;
+  letter-spacing: 0.14em;
+  cursor: pointer;
+  text-transform: uppercase;
+  min-height: 36px;
+}
+
+button.tab:last-child {
+  border-right: none;
+}
+
+button.tab[aria-selected='true'] {
+  background: var(--shop-row-active);
+  color: var(--shop-accent);
+  font-weight: 700;
+}
+
+button.tab:not([aria-selected='true']):hover {
+  background: var(--shop-row-hover);
+}
+
+.sell-row {
+  display: grid;
+  grid-template-columns: 5.5em 3em minmax(0, 1fr) max-content max-content;
+  gap: 0.3rem 0.5rem;
+  align-items: center;
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px dashed rgba(0, 217, 165, 0.2);
+}
+
+.sell-row:last-child {
+  border-bottom: none;
+}
+
+.sell-type-label {
+  color: var(--shop-accent);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  font-size: 0.85rem;
+}
+
+.sell-stock {
+  color: var(--shop-text);
+  font-size: 0.85rem;
+  text-align: right;
 }
 
 .sell-rate {
-  margin: 0;
   color: var(--shop-dim);
   font-size: 0.78rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-.sell-actions {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.4rem;
+  letter-spacing: 0.06em;
 }
 
 button.sell-button {
@@ -122,12 +179,13 @@ button.sell-button {
   color: var(--shop-text);
   border: 1px solid rgba(0, 217, 165, 0.45);
   border-radius: 4px;
-  padding: 0.45rem 0.35rem;
+  padding: 0.35rem 0.5rem;
   font: inherit;
-  font-size: 0.78rem;
-  letter-spacing: 0.08em;
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
   cursor: pointer;
-  min-height: 34px;
+  min-height: 30px;
+  white-space: nowrap;
 }
 
 button.sell-button:disabled {
@@ -284,15 +342,26 @@ button.target-row[aria-current='true'] .cursor {
   letter-spacing: 0.1em;
   margin: 0.9rem 0 0;
 }
+
+.empty-sell {
+  text-align: center;
+  color: var(--shop-dim);
+  font-size: 0.82rem;
+  padding: 0.8rem 0;
+  letter-spacing: 0.08em;
+}
 `;
 
-const SCOPE_LABELS = {
+const SCOPE_LABELS: Record<string, string> = {
   [ITEM_SCOPE.JOB]: 'CONSUMABLES',
   [ITEM_SCOPE.CAMPAIGN]: 'CREW GEAR',
-  [ITEM_SCOPE.META]: 'HUB UPGRADES',
 };
 
-const SCOPE_ORDER = [ITEM_SCOPE.JOB, ITEM_SCOPE.CAMPAIGN, ITEM_SCOPE.META];
+const SCOPE_ORDER = [ITEM_SCOPE.JOB, ITEM_SCOPE.CAMPAIGN];
+
+const TAB_SELL = 'sell';
+const TAB_BUY = 'buy';
+type TabId = typeof TAB_SELL | typeof TAB_BUY;
 
 class FinnShop extends HTMLElement {
   #catalog: Item[] = [];
@@ -303,12 +372,14 @@ class FinnShop extends HTMLElement {
   #panelEl: HTMLElement | null = null;
   #titleEl: HTMLElement | null = null;
   #balanceEl: HTMLElement | null = null;
+  #tabsEl: HTMLElement | null = null;
   #bodyEl: HTMLElement | null = null;
   #hintEl: HTMLElement | null = null;
 
   // Navigation state
+  #activeTab: TabId = TAB_SELL;
   #phase = 'browse'; // 'browse' | 'target'
-  #flatItems: { el: HTMLButtonElement; item: Item }[] = []; // flattened list of purchasable items (for browse nav)
+  #flatItems: { el: HTMLButtonElement; item: Item }[] = [];
   #selectedIndex = 0;
   #pendingItem: Item | null = null;
   #targetButtons: HTMLButtonElement[] = [];
@@ -327,11 +398,13 @@ class FinnShop extends HTMLElement {
 
     this.#titleEl = h('h2', { className: 'title' });
     this.#balanceEl = h('p', { className: 'balance' });
+    this.#tabsEl = h('div', { className: 'tabs' });
     this.#bodyEl = h('div');
     this.#hintEl = h('p', { className: 'hint' });
     this.#panelEl = h('section', { className: 'panel' }, [
       this.#titleEl,
       this.#balanceEl,
+      this.#tabsEl,
       this.#bodyEl,
       this.#hintEl,
     ]);
@@ -339,8 +412,6 @@ class FinnShop extends HTMLElement {
 
     this.#onKeyDown = this.#handleKey.bind(this);
     this.addEventListener('keydown', this.#onKeyDown);
-    // Clicks inside the shadow tree retarget `evt.target` to the host, so
-    // `evt.target === this` would dismiss on every panel click. Use composedPath.
     this.#onBackdrop = evt => {
       if (!evt.composedPath().includes(this.#panelEl as EventTarget)) this.#emit('dismiss');
     };
@@ -351,9 +422,9 @@ class FinnShop extends HTMLElement {
   }
 
   /**
-   * @param {Array} catalog — item descriptors from `Finn.catalog(meta)`
-   * @param {Array} crew — crew member snapshots `{ id, callsign, archetype, hp, maxHp, flatlined }`
-   * @param {{ credits: number, salvage: TypedSalvage }} balances — campaign Cred + typed-salvage balances (M4.2)
+   * @param catalog — item descriptors from `Finn.catalog()`
+   * @param crew — crew member snapshots
+   * @param balances — campaign Cred + typed-salvage balances
    */
   setCatalog(
     catalog: Item[],
@@ -404,11 +475,27 @@ class FinnShop extends HTMLElement {
   #render() {
     if (!this.#ready) return;
     this.#titleEl!.textContent = "── FINN'S SHOP ──";
-    // M4.2: typed salvage. Show the total + compact per-type breakdown.
-    // Per-type sell UI is M5 scope; today's SELL buttons still pump a
-    // quantity and Campaign.sellSalvage draws scrap → chips → bio → data.
-    this.#balanceEl!.textContent = `CREDS ${this.#credits}  SALVAGE ${totalSalvage(this.#salvage)} · ${formatSalvageCompact(this.#salvage)}`;
+    this.#balanceEl!.textContent = `CREDS ${this.#credits}`;
 
+    // Render tabs
+    while (this.#tabsEl!.firstChild) this.#tabsEl!.removeChild(this.#tabsEl!.firstChild);
+    const sellTab = h('button', {
+      type: 'button',
+      className: 'tab',
+      textContent: 'SELL',
+      ariaSelected: this.#activeTab === TAB_SELL ? 'true' : 'false',
+    }) as HTMLButtonElement;
+    sellTab.addEventListener('click', () => this.#switchTab(TAB_SELL));
+    const buyTab = h('button', {
+      type: 'button',
+      className: 'tab',
+      textContent: 'BUY',
+      ariaSelected: this.#activeTab === TAB_BUY ? 'true' : 'false',
+    }) as HTMLButtonElement;
+    buyTab.addEventListener('click', () => this.#switchTab(TAB_BUY));
+    this.#tabsEl!.append(sellTab, buyTab);
+
+    // Render body
     while (this.#bodyEl!.firstChild) this.#bodyEl!.removeChild(this.#bodyEl!.firstChild);
     this.#flatItems = [];
 
@@ -417,9 +504,40 @@ class FinnShop extends HTMLElement {
       return;
     }
 
-    this.#renderSellPanel();
+    if (this.#activeTab === TAB_SELL) {
+      this.#renderSellTab();
+    } else {
+      this.#renderBuyTab();
+    }
+  }
 
-    // Group catalog by scope.
+  #renderSellTab() {
+    const hasAnySalvage = SALVAGE_TYPES.some(t => this.#salvage[t] > 0);
+    if (!hasAnySalvage) {
+      this.#bodyEl!.appendChild(
+        h('p', { className: 'empty-sell', textContent: 'No salvage to sell.' })
+      );
+      this.#hintEl!.textContent = '[ ←/→ tab  ·  Esc close ]';
+      return;
+    }
+
+    for (const type of SALVAGE_TYPES) {
+      const stock = this.#salvage[type];
+      const rate = SALVAGE_SELL_RATE[type];
+      const row = h('div', { className: 'sell-row' });
+      row.append(
+        h('span', { className: 'sell-type-label', textContent: SALVAGE_TYPE_LABELS[type] }),
+        h('span', { className: 'sell-stock', textContent: String(stock) }),
+        h('span', { className: 'sell-rate', textContent: `${rate} Cr/ea` }),
+        this.#sellButton('SELL 1', 1, type, stock),
+        this.#sellButton('ALL', stock, type, stock)
+      );
+      this.#bodyEl!.appendChild(row);
+    }
+    this.#hintEl!.textContent = '[ ←/→ tab  ·  Esc close ]';
+  }
+
+  #renderBuyTab() {
     for (const scope of SCOPE_ORDER) {
       const items = this.#catalog.filter(item => item.scope === scope);
       if (items.length === 0) continue;
@@ -461,37 +579,19 @@ class FinnShop extends HTMLElement {
       );
     }
 
-    this.#hintEl!.textContent = '[ ENTER buy  ·  Esc close ]';
+    this.#hintEl!.textContent = '[ ←/→ tab  ·  ENTER buy  ·  Esc close ]';
   }
 
-  #renderSellPanel() {
-    const panel = h('section', { className: 'sell-panel' });
-    panel.appendChild(
-      h('p', {
-        className: 'sell-rate',
-        textContent: `Sell salvage to Finn · ${SALVAGE_TO_CRED_RATE} Cr each`,
-      })
-    );
-    const actions = h('div', { className: 'sell-actions' });
-    actions.append(
-      this.#sellButton('SELL 1', 1),
-      this.#sellButton('SELL 5', 5),
-      this.#sellButton('SELL ALL', totalSalvage(this.#salvage))
-    );
-    panel.appendChild(actions);
-    this.#bodyEl!.appendChild(panel);
-  }
-
-  #sellButton(label: string, quantity: number): HTMLButtonElement {
+  #sellButton(label: string, quantity: number, type: SalvageType, stock: number): HTMLButtonElement {
     const btn = h('button', {
       type: 'button',
       className: 'sell-button',
       textContent: label,
-      disabled: quantity <= 0 || totalSalvage(this.#salvage) < quantity,
+      disabled: quantity <= 0 || stock < quantity,
     }) as HTMLButtonElement;
     btn.addEventListener('click', () => {
       if (btn.disabled) return;
-      this.#emit('sell-salvage', { quantity });
+      this.#emit('sell-salvage', { quantity, type });
     });
     return btn;
   }
@@ -546,6 +646,16 @@ class FinnShop extends HTMLElement {
     this.#hintEl!.textContent = '[ ENTER confirm  ·  Esc back ]';
   }
 
+  #switchTab(tab: TabId) {
+    if (tab === this.#activeTab) return;
+    this.#activeTab = tab;
+    this.#phase = 'browse';
+    this.#pendingItem = null;
+    this.#selectedIndex = 0;
+    this.#render();
+    queueMicrotask(() => this.#focusSelected());
+  }
+
   #handleKey(evt: KeyboardEvent) {
     if (!this.isOpen) return;
     evt.stopPropagation();
@@ -553,7 +663,6 @@ class FinnShop extends HTMLElement {
     if (evt.key === 'Escape') {
       evt.preventDefault();
       if (this.#phase === 'target') {
-        // Back to browse.
         this.#phase = 'browse';
         this.#pendingItem = null;
         this.#render();
@@ -562,6 +671,25 @@ class FinnShop extends HTMLElement {
         this.#emit('dismiss');
       }
       return;
+    }
+
+    // Tab switching: ←/→ arrows or Tab key
+    if (this.#phase === 'browse') {
+      if (evt.key === 'ArrowLeft' || evt.key === 'a') {
+        evt.preventDefault();
+        this.#switchTab(TAB_SELL);
+        return;
+      }
+      if (evt.key === 'ArrowRight' || evt.key === 'd') {
+        evt.preventDefault();
+        this.#switchTab(TAB_BUY);
+        return;
+      }
+      if (evt.key === 'Tab') {
+        evt.preventDefault();
+        this.#switchTab(this.#activeTab === TAB_SELL ? TAB_BUY : TAB_SELL);
+        return;
+      }
     }
 
     if (evt.key === 'ArrowDown' || evt.key === 's') {
@@ -578,7 +706,7 @@ class FinnShop extends HTMLElement {
       evt.preventDefault();
       if (this.#phase === 'target') {
         this.#confirmTarget(this.#targetIndex);
-      } else {
+      } else if (this.#activeTab === TAB_BUY) {
         this.#selectItem(this.#selectedIndex);
       }
     }
@@ -589,6 +717,7 @@ class FinnShop extends HTMLElement {
       this.#moveTarget(delta);
       return;
     }
+    if (this.#activeTab !== TAB_BUY) return; // sell tab has no keyboard-navigable list
     if (this.#flatItems.length === 0) return;
     let next = this.#selectedIndex;
     for (let i = 0; i < this.#flatItems.length; i++) {
@@ -624,7 +753,6 @@ class FinnShop extends HTMLElement {
     const item = entry.item;
 
     if (item.needsTarget) {
-      // Transition to target selection phase.
       this.#phase = 'target';
       this.#pendingItem = item;
       this.#render();
@@ -635,7 +763,6 @@ class FinnShop extends HTMLElement {
       return;
     }
 
-    // No target needed — purchase immediately (meta upgrades).
     this.#emit('purchase', { itemId: item.id });
   }
 
@@ -674,10 +801,12 @@ class FinnShop extends HTMLElement {
       }
       return false;
     }
-    const entry = this.#flatItems[this.#selectedIndex];
-    if (entry?.el && !entry.el.disabled) {
-      entry.el.focus();
-      return true;
+    if (this.#activeTab === TAB_BUY) {
+      const entry = this.#flatItems[this.#selectedIndex];
+      if (entry?.el && !entry.el.disabled) {
+        entry.el.focus();
+        return true;
+      }
     }
     this.focus();
     return false;

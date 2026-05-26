@@ -32,7 +32,6 @@ import {
   TILE,
   REP,
   REP_LABEL,
-  SALVAGE_TO_CRED_RATE,
   INCENDIARY_THROW_DIST,
 } from '/src/game/constants.js';
 import {
@@ -549,7 +548,7 @@ function onBriefingDeploy(evt: Event) {
 
 function presentFinnShop() {
   if (!campaign || !campaign.finn) return;
-  const catalog = campaign.finn.catalog(campaign.meta);
+  const catalog = campaign.finn.catalog(campaign.rep);
   finnShopEl.setCatalog(catalog, campaign.crew, {
     credits: campaign.credits,
     salvage: campaign.salvage,
@@ -578,17 +577,19 @@ function onFinnPurchase(evt: Event) {
 
 function onFinnSellSalvage(evt: Event) {
   if (!campaign) return;
-  const { quantity } = (evt as CustomEvent<{ quantity?: number }>).detail;
+  const { quantity, type } = (evt as CustomEvent<{ quantity?: number; type?: string }>).detail;
   try {
     if (quantity === undefined) {
       throw new TypeError('sell-salvage quantity is required');
     }
-    campaign.sellSalvage(quantity);
+    const creditsBefore = campaign.credits;
+    campaign.sellSalvage(quantity, type as import('/src/game/salvage.js').SalvageType | undefined);
+    const earned = campaign.credits - creditsBefore;
+    flash(`FINN: Bought ${quantity} salvage for ${earned} Cr.`);
   } catch (err) {
     flash(`SALE FAILED: ${errorMessage(err)}`);
     return;
   }
-  flash(`FINN: Bought ${quantity} salvage for ${quantity * SALVAGE_TO_CRED_RATE} Cr.`);
   presentFinnShop();
 }
 

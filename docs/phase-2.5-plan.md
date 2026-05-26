@@ -26,6 +26,10 @@ Living plan for the post–Phase 2 slice of Kernel Panic: **contract objectives*
 | M4.2 — Typed salvage (Scrap / Chips / Bio / Data) | ✅ Done |
 | M4.3 — Field consumables (smoke / stim / incendiary) | ✅ Done |
 | M5 — Hub, economy, Rep, crew tuning | 🔲 Planned |
+| M5.1 — Rep tiers & contract access gate | ✅ Done |
+| M5.2 — Finn shop tabs + per-type salvage selling | ✅ Done |
+| M5.3 — Hub clinic NPC | 🔲 Planned |
+| M5.4 — Progressive Hub reveals | 🔲 Planned |
 | M6 — Locked doors & access gating | 🔲 Planned |
 | M7 — Breaching, map mutation, location memory | 🔲 Planned |
 
@@ -724,23 +728,169 @@ Phase 2.5 milestones that follow (M4–M7) retain their original numbering for c
 
 **Goal:** Tie **Rep**, **crew attrition**, and **typed salvage** into a coherent Hub loop and shop UX without Cyberspace scope creep.
 
+**M5 is complete when M5.1–M5.4 are all ✅.** Slices ship in order so each builds on the last (Rep tiers drive contract access before shop UI needs to surface tier info; clinic lands after shop restructure; progressive reveals land last since they conditionally hide/show features the other slices ship).
+
+| Slice | Delivers |
+|-------|----------|
+| **M5.1** | Rep tiers & contract access gate (replaces `better-contracts` meta upgrade) |
+| **M5.2** | Finn shop tabs + per-type salvage selling with differentiated rates |
+| **M5.3** | Hub clinic NPC — between-job healing for Creds |
+| **M5.4** | Progressive Hub reveals (diegetic feature introduction) |
+
+**Phase 3 awareness:** Rep tiers should define at least one **top tier** that is reachable but not trivially so in a typical campaign (~10–12 runs). Phase 3 will gate Decker recruitment and Score access at this tier. M5 does **not** implement arc gating — it establishes the tier thresholds that Phase 3 hooks into. The progressive Hub reveal system (M5.4) is reused by P3.M2 for Decker introduction.
+
+**Out of scope for M5:** Crafting recipes, Cyberspace economy sinks, arc-driven contract steering (Phase 3), full NPC ally behaviour beyond clinic (Phase 3).
+
+---
+
+#### M5.1 — Rep tiers & contract access gate ✅
+
+**Goal:** Replace the `better-contracts` meta upgrade with a **Rep-tier-driven** contract generation model. Higher standing with the street means better (harder, more lucrative) jobs — not a one-time shop purchase.
+
 **Scope:**
 
-- **Hub clinic:** A Hub-side way to recover HP or reduce attrition (exact economy: Creds, salvage, or per-visit limit — TBD). Addresses long-standing “no Hub heal” pressure from playtesting notes in [kaizen.md](./kaizen.md).
-- **Finn’s shop:** **Richer economy** built around **salvage component types** from M4 (buy/sell/recipes or exchange rates TBD).
-- **Shop UI:** **Salvage selling** is a **separate visual tab** from **consumable / gear purchases** (clearer mental model than a single scroll list).
-- **Contract access:** Remove the **”better-contracts”** meta upgrade from the shop; replace with a **simple Rep-tier gate** (e.g. higher Rep unlocks **more lucrative** or **higher-tier** job rolls). Exact thresholds and tier names TBD.
-- **Progressive Hub reveals:** Hub features are introduced **diegetically** via Curator messages as campaign state warrants — not all at once on the first visit. The Hub grows with the player.
-  - Campaign save tracks **Hub reveal flags** (e.g. `finnIntroduced`, `terminalExplained`). Each flag is set once when its Curator message fires; messages never repeat.
-  - On Hub entry, check campaign state against trigger conditions and fire the first unseen introduction that qualifies. One message per Hub visit (don't stack).
-  - **Finn introduction:** Trigger = player has returned from at least one run with salvage or creds. Curator message introduces Finn and his shop. Before this trigger, Finn's waypoint is **absent from the Hub map** — the shop literally isn't there yet.
-  - **Terminal / recruitment introduction:** Trigger = recruitable crew members are available (e.g. after run 2–3, per existing recruitment timing). Curator message explains the Terminal's crew management function. The Terminal can be present on the Hub map from the start (it's plausible scenery), but the Curator's message is the prompt to *use* it.
-  - **Pattern reuse:** Phase 3 reuses this system for Decker recruitment (P3.M2) — same Curator message mechanic, new trigger (top rep tier reached), new flag (`deckerRecruited`).
-  - Curator messages are short (1–3 lines of flavor text) and double as system hints. Exact copy TBD per reveal.
+- **Rep tier constants:** Formalise the existing `REP_LABEL` brackets into a tier enum with gameplay consequences. At least four tiers with defined thresholds:
+  - **BURNED** (0–19): Only STANDARD contracts. Recruitment locked.
+  - **UNKNOWN** (20–49): BASE_DIFFICULTY_POOL (5 STD / 3 ELV / 1 CRT). Current default.
+  - **KNOWN** (50–79): Shifted pool (3 STD / 4 ELV / 2 CRT). Recruitment unlocked at 65 (existing gate).
+  - **TRUSTED** (80–100): Top pool (2 STD / 3 ELV / 4 CRT). Phase 3 Decker recruitment + Score access gate.
+- **BURNED penalty pool:** When Rep < 20, the Curator rolls only STANDARD difficulty — the player is too hot to get offered real work. This is the stick; the existing clean-completion Rep bonuses are the carrot.
+- **Curator integration:** `generateContracts` reads `campaign.rep` (via the existing `ContractCampaign` type) to select the difficulty pool, replacing the `betterContracts` boolean check. The `BETTER_CONTRACTS_POOL` constant and `betterContracts` meta key are removed.
+- **Reward scaling per tier:** The per-contract credit reward floor bump that `betterContracts` provided (`+2× SALVAGE_TO_CRED_RATE`) is now tied to the TRUSTED tier instead of a purchased flag.
+- **`better-contracts` removal:** Remove from `ITEM_ID`, `CATALOG`, `SHOP_COST`, `metaKeyFor`, and `CampaignMeta`. Migration: old saves with `meta.betterContracts: true` simply ignore the flag (Rep already determines the pool). The meta field is harmless dead data — no migration shim needed.
+- **`expanded-catalog` removal:** Also remove this meta upgrade — it gates nothing today and has no shipped rare tier. Clean up its `ITEM_ID`, `CATALOG`, `SHOP_COST`, `metaKeyFor`, and `CampaignMeta` entries.
+- **Hub / briefing copy:** Status bar or contract-select surfaces the player’s current Rep tier label so the connection between standing and job quality is visible.
 
-**Phase 3 awareness:** Rep tiers should define at least one **top tier** that is reachable but not trivially so in a typical campaign (~10–12 runs). Phase 3 will gate Decker recruitment and Score access at this tier. M5 does **not** implement arc gating — it establishes the tier thresholds that Phase 3 hooks into. The progressive Hub reveal system (above) is reused by P3.M2 for Decker introduction.
+**Acceptance:**
 
-**Acceptance (when implemented):** Clinic usable in Hub; Finn tabs + typed-salvage pricing; Rep gate drives contract generation or filtering; top rep tier defined and reachable; progressive Hub reveals fire correctly (Finn absent until trigger, Terminal explained on recruit availability); Hub reveal flags persist in campaign save and don't re-fire; tests for gate boundaries, reveal trigger conditions, and snapshot persistence of new campaign fields.
+- Unit tests: each tier maps to the correct difficulty pool; BURNED → all-STANDARD; TRUSTED → top pool + reward floor bump; tier boundaries (19→20, 49→50, 79→80) produce the expected pool transitions.
+- `better-contracts` and `expanded-catalog` are absent from shop catalog, item registry, and meta key map. Existing saves with those meta flags load without error.
+- Contract-select or Hub status shows the Rep tier label.
+- `REP_LABEL` and tier constants are consistent (single source of truth for threshold → label → pool mapping).
+
+**Implementation notes:**
+
+- `REP_TIER` enum and `REP_TIERS` array added to `constants.ts`. Each `RepTierDef` carries `id`, `label`, `min` threshold, a 9-entry `pool` of `ContractDifficulty`, and `rewardFloorBump` (only TRUSTED has a non-zero bump of `2 * SALVAGE_TO_CRED_RATE`).
+- `repTierForRep(rep)` scans `REP_TIERS` (sorted highest-to-lowest min) and returns the first match. Falls back to BURNED.
+- `REP_LABEL` is now a compat alias for `REP_TIERS` — the shell's `REP_LABEL.find(b => rep >= b.min)?.label` continues to work unchanged.
+- `Curator.generateContracts` reads `campaign.rep` (defaults to `REP.START` when absent) and calls `repTierForRep` to select the difficulty pool and reward floor bump. `ContractCampaign` type updated to carry `rep?: number` instead of `meta.betterContracts`.
+- `BETTER_CONTRACTS_POOL` and `BASE_DIFFICULTY_POOL` removed from `Curator.ts` — pools now live on the tier definitions.
+- `ITEM_ID.EXPANDED_CATALOG`, `ITEM_ID.BETTER_CONTRACTS`, and their `CATALOG` entries removed from `items.ts`. `SHOP_COST.EXPANDED_CATALOG` and `SHOP_COST.BETTER_CONTRACTS` removed from `constants.ts`. `metaKeyFor` now always returns `undefined`. `getShopCatalog` returns the full (static) catalog.
+- `CampaignMeta` simplified to a plain `Record<string, unknown>` — old saves with `expandedCatalog` or `betterContracts` keys load without error (dead data ignored).
+- 13 new tests in `repTiers.test.ts` cover tier lookup, boundary transitions, structural consistency, pool composition, reachability math, and `REP_LABEL` compat. 5 new tests in `Curator.test.ts` cover BURNED all-STANDARD, TRUSTED shift + Cred floors, KNOWN vs UNKNOWN, boundary transitions (19→20, 79→80), and null-campaign default.
+- Existing Campaign/Finn/persistence tests updated to remove meta upgrade assertions. Full suite: 943/943 green.
+
+---
+
+#### M5.2 — Finn shop tabs + per-type salvage selling ✅
+
+**Depends on:** M5.1 (meta upgrades removed; shop catalog is smaller and cleaner).
+
+**Goal:** Split Finn’s shop into **tabbed UI** (SELL / BUY) and give each salvage type its own sell controls with **differentiated pricing** so typed salvage matters economically.
+
+**Scope:**
+
+- **Shop tabs:** `<finn-shop>` renders two tabs: **SELL** (salvage → Creds) and **BUY** (consumables + gear). Keyboard nav: Tab or L/R arrows to switch tabs; ↑/↓ to browse within. Touch: tab headers are tappable.
+- **Per-type sell UI:** The SELL tab shows each salvage type (Scrap, Chips, Bio, Data) as a row with current stock, per-unit price, and sell controls (SELL 1 / SELL ALL per type). No more generic “SELL 5” — the player decides which bucket to liquidate.
+- **Differentiated pricing:** Each salvage type has a distinct Cred-per-unit rate:
+  - **Scrap:** 8 Cr/unit — common, lowest value. Drops from drones.
+  - **Chips:** 12 Cr/unit — electronics from terminals, turrets, relay nodes.
+  - **Bio:** 15 Cr/unit — rare organic samples from clinic/bio pickups.
+  - **Data:** 18 Cr/unit — informational, from dossiers, ledgers, terminal slices.
+- **`Campaign.sellSalvage` update:** The existing type-aware `sellSalvage(quantity, type?)` signature stays, but the untyped (no `type` arg) path uses the new per-type rates instead of the flat `SALVAGE_TO_CRED_RATE`. Add `SALVAGE_SELL_RATE: Record<SalvageType, number>` to constants.
+- **Rep-gated item availability:** Each catalog item carries a `minRepTier`; the BUY tab only shows items whose tier ≤ the player's current Rep tier. Progression:
+  - **BURNED:** Stim only.
+  - **UNKNOWN:** + Smoke Charge, Incendiary Bomb.
+  - **KNOWN:** + Armour Plating, Targeting Chip, Reflex Weave.
+  - **TRUSTED:** all items (room for future expansion).
+- **Buy tab:** Same grouped catalog as today (CONSUMABLES / CREW GEAR), minus the removed meta upgrades from M5.1, filtered by Rep tier. The target-selection flow for gear is unchanged.
+- **Balance display:** Both tabs show the current Cred balance. The SELL tab also shows the per-type wallet breakdown.
+
+**Acceptance:**
+
+- Unit tests: per-type sell rates produce correct Cred amounts; selling 3 Chips at 12 Cr = 36 Cr; untyped sell draws from buckets in priority order at per-type rates.
+- `<finn-shop>` renders two tabs; keyboard and touch navigation between them works.
+- SELL tab shows per-type rows with stock, price, and sell controls; BUY tab shows grouped items.
+- Snapshot round-trip: no new persistence fields (salvage wallet and credits already persist).
+
+**Implementation notes:**
+
+- `SALVAGE_SELL_RATE` added to `constants.ts`: `{ scrap: 8, chips: 12, bio: 15, data: 18 }`. `SALVAGE_TO_CRED_RATE` (10) retained for backward compat (TRUSTED tier rewardFloorBump, persistence migration).
+- `Campaign.sellSalvage(quantity, type?)` now applies per-type rates. Typed sell: deducts from the specific bucket and credits `quantity * SALVAGE_SELL_RATE[type]`. Untyped sell: draws from buckets in `SALVAGE_TYPES` order, applying each type's rate as units are drawn (mixed-type sells yield correct mixed earnings).
+- `<finn-shop>` rewritten with tabbed UI: SELL tab shows per-type rows (label, stock, rate, SELL 1 / SELL ALL per type); BUY tab shows grouped consumables + crew gear. Tab switching via ←/→ arrows, `a`/`d` keys, or Tab. Sell events now carry `{ quantity, type }` so the shell can pass the type through to `Campaign.sellSalvage`. Balance line simplified to `CREDS N` (wallet breakdown visible on SELL tab).
+- Shell `sell-salvage` handler updated to pass `type` from event detail and report actual earned Creds (credits delta, not a fixed-rate estimate).
+- **Rep-gated item availability:** Each catalog item now carries `minRepTier` — the minimum Rep tier at which it appears in Finn's shop. `getShopCatalog(rep)` filters by current tier:
+  - BURNED → Stim only
+  - UNKNOWN → + Smoke Charge, Incendiary Bomb
+  - KNOWN → + Armour Plating, Targeting Chip, Reflex Weave
+  - TRUSTED → all (future expansion)
+  `Finn.catalog(rep)` and the shell pass numeric rep; the BUY tab renders only unlocked items. Tests cover all four tier gates.
+- Tests updated: Campaign sell tests use `SALVAGE_SELL_RATE` instead of flat `SALVAGE_TO_CRED_RATE`; new test verifies differentiated rates and ordering (Data > Bio > Chips > Scrap). Finn/item tests verify Rep-gated catalog filtering at each tier. Full suite: 947/947 green.
+
+---
+
+#### M5.3 — Hub clinic NPC 🔲
+
+**Depends on:** M5.2 recommended (shop restructure clarifies Finn’s role vs. clinic’s role).
+
+**Goal:** A dedicated **clinic NPC** on the Hub map where crew members can recover HP between jobs for Creds. Addresses the long-standing “no Hub heal” kaizen item — attrition is no longer purely punitive.
+
+**Scope:**
+
+- **Clinic NPC:** New NEUTRAL Hub entity (e.g. `Doc`, `Patch`, or `Sawbones`) with a distinct glyph (e.g. `+`), placed at a new Hub waypoint. Same pattern as Curator/Finn/Terminal: immobile, no AI, interact to open UI.
+- **Hub map expansion:** The current 12×8 Hub may need a small expansion (e.g. 14×8 or 12×9) to fit a fourth waypoint without crowding, or the clinic can occupy an existing open tile. Pick the option that keeps the spatial relationships clear.
+  - Suggested placement: bottom-left quadrant (player enters from the right, Curator and Finn are top-center/left, Terminal is top-right — the clinic fills the remaining corner).
+- **Clinic UI:** A small modal (similar to Finn’s shop panel) showing each living, non-full-HP crew member with their current HP, max HP, and a heal cost. One button per member: **PATCH UP — N Cr**. Keyboard-navigable (↑/↓ + Enter).
+- **Heal mechanic:**
+  - **Cost:** Flat per-HP rate (e.g. `CLINIC_COST_PER_HP = 15 Cr`). Healing 2 HP costs 30 Cr.
+  - **Effect:** Restores the target crew member to full HP (`hp = maxHp`). Price is `(maxHp - hp) * CLINIC_COST_PER_HP`.
+  - **Limit:** One heal per crew member per Hub visit (prevents infinite heal loops at the cost of walking back and forth). Track via a `healedThisVisit: Set<string>` on Campaign (reset in `enterHub`).
+  - **Already-full and flatlined members:** Greyed out with a reason label (“FULL HP” / “FLATLINED”).
+- **Campaign integration:** `Campaign.healMember(memberId)` deducts Creds, restores HP, adds to `healedThisVisit`, and persists. Throws on all illegal preconditions (insufficient Creds, already healed, unknown member, flatlined).
+- **Crew HP persistence note:** Crew HP already persists across jobs (snapshot/restore preserves `member.hp`). The clinic is immediately useful — a crew member who extracts at 1 HP stays at 1 HP until healed.
+
+**Acceptance:**
+
+- Unit tests: heal cost calculation, Cred deduction, HP restoration, once-per-visit limit, flatlined/full rejection, snapshot round-trip of `healedThisVisit`.
+- Golden path: crew member takes damage in job → extracts → Hub → clinic → heals to full → next job starts at full HP.
+- Clinic NPC on Hub map with distinct glyph in key help.
+- `<clinic-modal>` (or equivalent) renders, is keyboard-navigable, and dismisses on Esc.
+
+---
+
+#### M5.4 — Progressive Hub reveals 🔲
+
+**Depends on:** M5.1–M5.3 (all features that will be conditionally shown/hidden must exist first).
+
+**Goal:** Hub features are introduced **diegetically** via Curator messages as campaign state warrants — not all at once on the first visit. The Hub grows with the player.
+
+**Scope:**
+
+- **Hub reveal flags:** Campaign save gains a `hubReveals` record (e.g. `{ finnIntroduced?: boolean, terminalExplained?: boolean, clinicIntroduced?: boolean }`). Each flag is set once when its Curator message fires; messages never repeat. Persisted in campaign snapshot.
+- **Reveal check on Hub entry:** `Campaign.enterHub` (or a new `Campaign.checkHubReveals`) evaluates trigger conditions against campaign state and fires the **first unseen** introduction that qualifies. **One message per Hub visit** (don’t stack — the player absorbs one new thing at a time).
+- **Reveal definitions:**
+  - **Finn introduction:** Trigger = player has returned from at least one run (campaign has > 0 completed jobs, or `credits > 0`, or `totalSalvage > 0`). Before this trigger, **Finn’s entity is absent from the Hub map** — `enterHub` skips spawning him. Curator message introduces Finn and explains salvage selling. After the flag is set, Finn spawns every visit.
+  - **Terminal / recruitment introduction:** Trigger = `campaign.rep >= REP.RECRUIT_THRESHOLD` (65) or `campaign.pendingRecruitReward`. Terminal entity is **always present** on the Hub map (it’s plausible scenery), but the Curator message is the prompt to use it. Before the flag, interacting with the Terminal could show a “systems locked” or “access denied” flavor response (or simply not open the recruit UI).
+  - **Clinic introduction:** Trigger = any crew member has `hp < maxHp` on Hub entry (the player has experienced attrition). Curator message introduces the Doc and explains the clinic. Before the flag, the clinic NPC is absent from the Hub map (same pattern as Finn).
+- **Curator message delivery:** The Curator entity (or the shell’s Hub interaction handler) emits a `curator:message` event (or equivalent) with the reveal’s text. The shell displays it in the log or a brief overlay/modal — same feedback channel as existing Curator contract-board interactions. Messages are 1–3 lines of flavor text that double as system hints.
+- **Pattern reuse (Phase 3):** The reveal system accepts new entries without modifying the check loop. Phase 3 adds Decker recruitment (trigger: top Rep tier, new flag `deckerRecruited`). M5 documents this extension point but does **not** implement the Decker reveal.
+- **Migration:** Pre-M5.4 saves have no `hubReveals` field. On restore, default to `{}` (all reveals unseen). This means an existing campaign will see Finn/Terminal/Clinic introductions on the next Hub entry even if the player has been using those features — acceptable since the messages are short flavor text, not blocking UI.
+
+**Acceptance:**
+
+- Unit tests: each reveal’s trigger condition fires correctly; flags persist and prevent re-fire; only one reveal per Hub visit; Finn/Clinic absent from world when their flag is unset.
+- Integration test: fresh campaign → first Hub (no Finn, no Clinic) → complete a run → return to Hub → Finn introduced → next Hub visit with Rep ≥ 65 → Terminal explained → next Hub visit with damaged crew → Clinic introduced.
+- Campaign snapshot round-trip preserves `hubReveals`.
+- Pre-M5.4 saves load with `hubReveals: {}` default and don’t crash.
+
+---
+
+**M5 rollup acceptance (when all subs ✅):**
+
+- Clinic usable in Hub; Finn tabs + differentiated salvage pricing; Rep tiers drive contract difficulty pool; top Rep tier (TRUSTED, 80+) defined and reachable in ~10–12 clean runs from `REP.START` (20).
+- Progressive Hub reveals fire correctly (Finn absent until first job return, Clinic absent until attrition, Terminal explained on recruit eligibility); Hub reveal flags persist and don’t re-fire.
+- `better-contracts` and `expanded-catalog` meta upgrades removed from shop and item registry; old saves with those flags load cleanly.
+- Tests for tier boundaries, per-type sell rates, clinic heal limits, reveal trigger conditions, and snapshot persistence of all new Campaign fields.
 
 ---
 

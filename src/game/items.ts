@@ -2,16 +2,13 @@
  * Shop item catalog for Finn's shop (M4).
  *
  * Items are plain descriptor objects — no class hierarchy. The catalog is a
- * static array filtered at query time by the campaign's `meta` state (the
- * `expandedCatalog` flag gates a future "rare" tier; M8 adds Better
- * Contracts, which improves Curator contract rolls.
+ * static array; meta upgrades were removed in M5.1 (Rep tiers replace them).
  *
- * Three persistence scopes:
+ * Two persistence scopes:
  *   - `job`      — consumable, stored in `Crew.inventory.consumables`,
  *                   lost when the job ends.
  *   - `campaign` — gear bonus applied to a specific crew member, survives
  *                   across jobs, lost on campaign wipe.
- *   - `meta`     — permanent unlock (Hub upgrade), survives campaign wipe.
  *
  * Item effects are interpreted by the purchaser (`Campaign.purchase`) and
  * by the user (`Crew.useConsumable`, `Combat.resolveRanged`). This module
@@ -25,6 +22,9 @@ import {
   INCENDIARY_THROW_DIST,
   TARGETING_BONUS,
   DODGE_BONUS,
+  REP_TIER,
+  repTierForRep,
+  type RepTierId,
 } from './constants.js';
 
 export type Item = {
@@ -47,6 +47,18 @@ export type Item = {
    * `use-item` event or hand control to direction picking.
    */
   needsAim?: boolean;
+  /**
+   * M5.2: minimum Rep tier required for this item to appear in Finn's shop.
+   * Items below the player's current tier are hidden. Progression:
+   *   BURNED  → Stim only
+   *   UNKNOWN → + Smoke Charge, Incendiary Bomb
+   *   KNOWN   → + Armour Plating, Targeting Chip, Reflex Weave
+   *   TRUSTED → all (future expansion)
+   *
+   * Optional on the type because inventory-stored items (consumable records)
+   * don't carry shop metadata.
+   */
+  minRepTier?: RepTierId;
   unique?: boolean;
   metaGate?: string;
 };
@@ -64,8 +76,6 @@ export const ITEM_ID = Object.freeze({
   ARMOUR_PLATING: 'armour-plating',
   TARGETING_CHIP: 'targeting-chip',
   REFLEX_WEAVE: 'reflex-weave',
-  EXPANDED_CATALOG: 'expanded-catalog',
-  BETTER_CONTRACTS: 'better-contracts',
 });
 
 /**
@@ -87,6 +97,7 @@ const CATALOG: readonly Item[] = Object.freeze([
     cost: SHOP_COST.STIM,
     description: `Restores ${STIM_HEAL} HP to the deployed crew member. Single use.`,
     needsTarget: true,
+    minRepTier: REP_TIER.BURNED,
   }),
   Object.freeze({
     id: ITEM_ID.SMOKE_CHARGE,
@@ -95,6 +106,7 @@ const CATALOG: readonly Item[] = Object.freeze([
     cost: SHOP_COST.SMOKE_CHARGE,
     description: `Blocks LOS in radius ${SMOKE_RADIUS} for 1 turn. Single use.`,
     needsTarget: true,
+    minRepTier: REP_TIER.UNKNOWN,
   }),
   Object.freeze({
     id: ITEM_ID.INCENDIARY,
@@ -104,6 +116,7 @@ const CATALOG: readonly Item[] = Object.freeze([
     description: `Throw ${INCENDIARY_THROW_DIST} tiles in a chosen direction; ignites a persistent hazard cluster. Single use.`,
     needsTarget: true,
     needsAim: true,
+    minRepTier: REP_TIER.UNKNOWN,
   }),
   Object.freeze({
     id: ITEM_ID.ARMOUR_PLATING,
@@ -112,6 +125,7 @@ const CATALOG: readonly Item[] = Object.freeze([
     cost: SHOP_COST.ARMOUR_PLATING,
     description: '+1 max HP on target crew member.',
     needsTarget: true,
+    minRepTier: REP_TIER.KNOWN,
   }),
   Object.freeze({
     id: ITEM_ID.TARGETING_CHIP,
@@ -120,6 +134,7 @@ const CATALOG: readonly Item[] = Object.freeze([
     cost: SHOP_COST.TARGETING_CHIP,
     description: `+${(TARGETING_BONUS * 100).toFixed(0)}% ranged hit chance for target crew member.`,
     needsTarget: true,
+    minRepTier: REP_TIER.KNOWN,
   }),
   Object.freeze({
     id: ITEM_ID.REFLEX_WEAVE,
@@ -128,49 +143,37 @@ const CATALOG: readonly Item[] = Object.freeze([
     cost: SHOP_COST.REFLEX_WEAVE,
     description: `+${(DODGE_BONUS * 100).toFixed(0)}% melee dodge chance for target crew member.`,
     needsTarget: true,
-  }),
-  Object.freeze({
-    id: ITEM_ID.EXPANDED_CATALOG,
-    label: 'Expanded Catalog',
-    scope: ITEM_SCOPE.META,
-    cost: SHOP_COST.EXPANDED_CATALOG,
-    description: 'Unlocks rare item tier in the shop.',
-    needsTarget: false,
-    unique: true,
-  }),
-  Object.freeze({
-    id: ITEM_ID.BETTER_CONTRACTS,
-    label: 'Better Contracts',
-    scope: ITEM_SCOPE.META,
-    cost: SHOP_COST.BETTER_CONTRACTS,
-    description: 'Curator offers tougher jobs with better Cred floors.',
-    needsTarget: false,
-    unique: true,
+    minRepTier: REP_TIER.KNOWN,
   }),
 ]);
 
 /**
- * Return the shop catalog filtered by the campaign's current meta state.
- * Meta items already purchased (and marked `unique`) are excluded.
- *
- * @param {{ expandedCatalog?: boolean }} meta — campaign meta-upgrade state
- * @returns {ReadonlyArray<Readonly<object>>}
+ * Rep tier ordering for comparison — index 0 is lowest tier. Used by
+ * `getShopCatalog` to filter items whose `minRepTier` exceeds the player's
+ * current tier.
  */
-export function getShopCatalog(meta = {}) {
+const TIER_ORDER: readonly RepTierId[] = [
+  REP_TIER.BURNED,
+  REP_TIER.UNKNOWN,
+  REP_TIER.KNOWN,
+  REP_TIER.TRUSTED,
+];
+
+/**
+ * Return the shop catalog filtered by the player's current Rep. Items whose
+ * `minRepTier` exceeds the player's tier are hidden — the shop grows as
+ * standing improves.
+ *
+ * @param rep — campaign Rep value (0–100). Defaults to REP.START (20) so
+ *   callers that omit it see the UNKNOWN-tier catalog.
+ */
+export function getShopCatalog(rep: number = 20) {
+  const currentTier = repTierForRep(rep);
+  const currentIndex = TIER_ORDER.indexOf(currentTier.id);
   return CATALOG.filter(item => {
-    // Hide unique meta items that are already purchased.
-    const metaKey = metaKeyFor(item.id);
-    if (
-      metaKey &&
-      item.unique &&
-      item.scope === ITEM_SCOPE.META &&
-      meta[metaKey as keyof typeof meta]
-    ) {
-      return false;
-    }
-    // Future: items gated behind `metaGate` would check meta[item.metaGate].
-    if (item.metaGate && !meta[item.metaGate as keyof typeof meta]) return false;
-    return true;
+    const itemTier = item.minRepTier ?? REP_TIER.BURNED;
+    const itemIndex = TIER_ORDER.indexOf(itemTier);
+    return itemIndex <= currentIndex;
   });
 }
 
@@ -187,16 +190,11 @@ export function getItemById(itemId: string) {
 }
 
 /**
- * Map an item ID to its meta-state key. Only meta-scope items have a
- * meaningful key; calling with a non-meta item returns `undefined`.
+ * Map an item ID to its meta-state key. M5.1 removed all meta-scope items
+ * (Rep tiers replace them), so this always returns `undefined`. Retained for
+ * backward compat with `Campaign.purchase` — a future meta item would add
+ * a case here.
  */
-export function metaKeyFor(itemId: string) {
-  switch (itemId) {
-    case ITEM_ID.EXPANDED_CATALOG:
-      return 'expandedCatalog';
-    case ITEM_ID.BETTER_CONTRACTS:
-      return 'betterContracts';
-    default:
-      return undefined;
-  }
+export function metaKeyFor(_itemId: string) {
+  return undefined;
 }
