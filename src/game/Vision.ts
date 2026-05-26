@@ -76,6 +76,16 @@ export class VisionField {
     this.memorisedCorpses.clear();
   }
 
+  restoreSeen(keys: Iterable<string>) {
+    this.seen.clear();
+    for (const key of keys) {
+      if (typeof key !== 'string' || !/^-?\d+,-?\d+$/.test(key)) {
+        throw new TypeError(`VisionField.restoreSeen: malformed coordinate key "${key}"`);
+      }
+      this.seen.add(key);
+    }
+  }
+
   /**
    * Recompute `visible` (and merge into `seen`) given a viewer position.
    * `range` defaults to `SIGHT_RANGE`. Uses Euclidean range (circular FOV)

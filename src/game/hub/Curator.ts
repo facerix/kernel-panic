@@ -31,6 +31,7 @@ export const OBJECTIVES = Object.freeze({
   DENY: 'deny',
   SWEEP: 'sweep',
   DUAL_SITE: 'dual-site',
+  RECON: 'recon',
 });
 
 const KNOWN_OBJECTIVE_KINDS = new Set(Object.values(OBJECTIVES));
@@ -191,6 +192,9 @@ export const CONTRACT_LEXICON = Object.freeze({
     }),
     token('identity-spool', 'identity spool', ['terminal', 'data'], { target: 'server-rack' }),
     token('drone-cache', 'drone cache', ['sweep', 'security'], { target: 'drone-all' }),
+    token('site-layout', 'site layout', ['recon', 'infrastructure'], { target: 'site-layout' }),
+    token('patrol-map', 'patrol map', ['recon', 'security'], { target: 'patrol-map' }),
+    token('service-plan', 'service plan', ['recon', 'data'], { target: 'service-plan' }),
   ]),
   actions: Object.freeze([
     token('cache', 'cache', ['retrieve']),
@@ -215,6 +219,9 @@ export const CONTRACT_LEXICON = Object.freeze({
     token('blind', 'blind', ['sweep']),
     token('eliminate', 'eliminate', ['sweep']),
     token('purge', 'purge', ['sweep']),
+    token('survey', 'survey', ['recon']),
+    token('trace', 'trace', ['recon']),
+    token('map', 'map', ['recon']),
   ]),
 });
 
@@ -311,6 +318,21 @@ export const CONTRACT_RECIPES: readonly ContractRecipe[] = Object.freeze([
     briefing: ({ principal, site, asset }) =>
       `Touch both ${principal.label} ${asset.label} sites around ${sitePhrase({ site })} before extraction.`,
     params: ({ asset }) => ({ ...targetParams(asset), count: 2 }),
+  },
+  {
+    id: 'recon-map',
+    objectiveKind: OBJECTIVES.RECON,
+    tags: Object.freeze(['meatspace', 'recon', 'mapping']),
+    principalGroups: Object.freeze(['corp', 'civic', 'rival']),
+    siteGroups: Object.freeze(['corp', 'district', 'infrastructure', 'security', 'hidden']),
+    siteStateGroups: Object.freeze(['normal', 'damaged', 'security', 'hidden']),
+    assetGroups: Object.freeze(['recon']),
+    actionGroups: Object.freeze(['recon']),
+    label: tokens => `${sitePhrase(tokens)} ${tokens.asset.label} ${tokens.action.label}`,
+    title: ({ asset }) => `Map ${noun(asset)}`,
+    briefing: ({ principal, site, asset }) =>
+      `Build a complete map of ${possessive(principal.label)} ${asset.label} around ${sitePhrase({ site })}, then extract.`,
+    params: ({ asset }) => targetParams(asset),
   },
 ]);
 

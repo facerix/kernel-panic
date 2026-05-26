@@ -152,6 +152,15 @@ test('recipe fixtures cover every shipped objective family', () => {
       difficulty: CONTRACT_DIFFICULTY.STANDARD,
       seed: 6,
     }),
+    buildContractRecipeFixture({
+      recipeId: 'recon-map',
+      principalId: 'northstar-civic',
+      siteId: 'transit-hub',
+      assetId: 'site-layout',
+      actionId: 'survey',
+      difficulty: CONTRACT_DIFFICULTY.STANDARD,
+      seed: 7,
+    }),
   ];
   const kinds = new Set(fixtures.map(contract => contract.objective.kind));
   for (const kind of [
@@ -161,6 +170,7 @@ test('recipe fixtures cover every shipped objective family', () => {
     OBJECTIVES.DENY,
     OBJECTIVES.SWEEP,
     OBJECTIVES.DUAL_SITE,
+    OBJECTIVES.RECON,
   ]) {
     assert.ok(kinds.has(kind), `missing fixture coverage for ${kind}`);
   }
@@ -203,6 +213,21 @@ test('recipe fixtures produce named compatibility examples', () => {
   assert.equal(block9.context.site?.label, 'Block 9');
   assert.ok(block9.context.tags.includes('principal:heliodyne'));
   assert.ok(block9.context.tags.includes('site:block-9'));
+
+  const northstar = buildContractRecipeFixture({
+    recipeId: 'recon-map',
+    principalId: 'northstar-civic',
+    siteId: 'transit-hub',
+    assetId: 'site-layout',
+    actionId: 'survey',
+    difficulty: CONTRACT_DIFFICULTY.STANDARD,
+    seed: 9,
+  });
+  assert.equal(northstar.label, '// transit hub site layout survey');
+  assert.equal(northstar.objective.kind, OBJECTIVES.RECON);
+  assert.deepEqual(northstar.objective.params, { target: 'site-layout' });
+  assert.equal(northstar.context.principal.label, 'Northstar Civic');
+  assert.equal(northstar.context.site?.label, 'transit hub');
 });
 
 test('contract context separates principals from site state', () => {

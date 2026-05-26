@@ -77,6 +77,7 @@ import type {
   RunState,
   RunTelemetry,
   ObjectiveTimerSnapshot,
+  MapMemorySnapshot,
 } from './Run.js';
 import type { CampaignMeta, CampaignState } from './Campaign.js';
 
@@ -290,6 +291,7 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
   } else {
     run.world.alarmActive = record.alarmActive ?? false;
   }
+  run.restoreMapMemory(normalizeMapMemory(record.mapMemory));
 
   const factionOrder = [FACTION.PLAYER, FACTION.CORP];
   if (record.currentFaction !== FACTION.PLAYER && record.currentFaction !== FACTION.CORP) {
@@ -874,6 +876,23 @@ function normalizeObjectiveTimer(timer: unknown): ObjectiveTimerSnapshot {
     expiredTurn: candidate.expiredTurn ?? null,
     expiryAnnounced: candidate.expiryAnnounced,
   };
+}
+
+function normalizeMapMemory(memory: unknown): MapMemorySnapshot | null {
+  if (memory === undefined || memory === null) return null;
+  if (!memory || typeof memory !== 'object' || Array.isArray(memory)) {
+    throw new TypeError('restore: mapMemory must be an object');
+  }
+  const candidate = memory as Partial<MapMemorySnapshot>;
+  if (!Array.isArray(candidate.seen)) {
+    throw new TypeError('restore: mapMemory.seen must be an array');
+  }
+  for (const key of candidate.seen) {
+    if (typeof key !== 'string' || !/^-?\d+,-?\d+$/.test(key)) {
+      throw new TypeError('restore: mapMemory.seen entries must be coordinate strings');
+    }
+  }
+  return { seen: [...candidate.seen] };
 }
 
 function freshObjectiveTimer(): ObjectiveTimerSnapshot {

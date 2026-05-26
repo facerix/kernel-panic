@@ -56,6 +56,7 @@ import { CorpTurret } from './entities/CorpTurret.js';
 import { RelayNode } from './entities/RelayNode.js';
 import { resetCorpTurnStatusCache } from './corpTurnStatusCopy.js';
 import { NeutralCivilian } from './entities/NeutralCivilian.js';
+import { VisionField } from './Vision.js';
 import {
   OBJECTIVES,
   cloneObjective,
@@ -126,6 +127,10 @@ export type ObjectiveTimerSnapshot = {
   completedTurn: number | null;
   expiredTurn: number | null;
   expiryAnnounced: boolean;
+};
+
+export type MapMemorySnapshot = {
+  seen: string[];
 };
 
 export type RunEntitySnapshot = {
@@ -210,6 +215,8 @@ export type RunSnapshot = {
   alarmActive?: boolean;
   /** M2.9 turn-limit objective state. Missing in older saves → fresh timer state. */
   objectiveTimer?: ObjectiveTimerSnapshot;
+  /** M2.11 map memory. Missing in older saves → current LOS only. */
+  mapMemory?: MapMemorySnapshot;
 };
 
 export type RunResult = {
@@ -254,6 +261,7 @@ export class Run {
   exitTile: GridPoint | null;
   telemetry: RunTelemetry;
   objectiveTimer: ObjectiveTimerSnapshot;
+  mapSeen: Set<string>;
   onPersist: ((record: RunSnapshot) => void) | null;
   onResult: ((result: RunResult) => void) | null;
   _busUnsubs: (() => void)[];
@@ -289,6 +297,7 @@ export class Run {
     this.exitTile = null;
     this.telemetry = freshTelemetry(this.archetype, this.seed);
     this.objectiveTimer = freshObjectiveTimer();
+    this.mapSeen = new Set();
     this.onPersist = (onPersist as ((record: RunSnapshot) => void) | undefined) ?? null;
     this.onResult = (onResult as ((result: RunResult) => void) | undefined) ?? null;
 
@@ -303,6 +312,7 @@ export class Run {
     }
     this.contract = normalizeContractForRun(contract);
     this.objectiveTimer = freshObjectiveTimer();
+    this.mapSeen.clear();
     this.state = RUN_STATE.BRIEFING;
   }
 
@@ -360,7 +370,9 @@ export class Run {
     this.exitTile = { ...map.exitTile };
     this.#placeObjectiveInteractables();
     this.objectiveTimer = freshObjectiveTimer();
+    this.mapSeen.clear();
     this.state = RUN_STATE.COMBAT;
+    this.#recordCurrentPlayerVision();
     this._reattachCombatListeners();
   }
 
@@ -425,6 +437,7 @@ export class Run {
       alarm: world.snapshotAlarm(),
       alarmActive: world.alarmActive,
       objectiveTimer: { ...this.objectiveTimer },
+      mapMemory: { seen: this.mapSeenKeys() },
     };
   }
 
@@ -441,6 +454,45 @@ export class Run {
   objectiveTurnsRemaining(): number | null {
     if (!this.contract || !this.queue) return null;
     return objectiveTurnsRemaining(this.contract, this.queue.turnNumber);
+  }
+
+  mapSeenKeys(): string[] {
+    return [...this.mapSeen].sort(compareCoordKeys);
+  }
+
+  recordMapSeen(keys: Iterable<string>): void {
+    if (!this.world) {
+      throw new Error('Run.recordMapSeen: no live world to validate against');
+    }
+    for (const key of keys) {
+      const point = parseCoordKey(key, 'Run.recordMapSeen');
+      if (!this.world.grid.inBounds(point.x, point.y)) {
+        throw new RangeError(`Run.recordMapSeen: key "${key}" is out of bounds`);
+      }
+      this.mapSeen.add(coordKey(point.x, point.y));
+    }
+  }
+
+  restoreMapMemory(memory: MapMemorySnapshot | null | undefined): void {
+    this.mapSeen.clear();
+    if (!memory) return;
+    if (!memory || typeof memory !== 'object' || Array.isArray(memory)) {
+      throw new TypeError('Run.restoreMapMemory: memory must be an object');
+    }
+    if (!Array.isArray(memory.seen)) {
+      throw new TypeError('Run.restoreMapMemory: memory.seen must be an array');
+    }
+    this.recordMapSeen(memory.seen);
+  }
+
+  /** Compatibility alias for M2.11 recon tests and call sites. */
+  recordReconSeen(keys: Iterable<string>): void {
+    this.recordMapSeen(keys);
+  }
+
+  reconProgress(): ReconProgress {
+    if (!this.world) return { mapped: 0, required: 0 };
+    return reconObjectiveProgress(this.world, this.mapSeen);
   }
 
   /**
@@ -560,7 +612,9 @@ export class Run {
 
   #onEntityMoved({ entity, to }: EntityMovedPayload): void {
     if (this.state !== RUN_STATE.COMBAT) return;
-    if (entity !== this.player || !this.exitTile) return;
+    if (entity !== this.player) return;
+    this.#recordCurrentPlayerVision();
+    if (!this.exitTile) return;
     if (to.x === this.exitTile.x && to.y === this.exitTile.y) {
       if (!this.contract) {
         throw new Error('Run.#onEntityMoved: exit reached without an active contract');
@@ -746,10 +800,22 @@ export class Run {
     );
   }
 
+  #recordCurrentPlayerVision(): void {
+    if (!this.world || !this.player) return;
+    const vision = new VisionField();
+    vision.recompute(this.world.grid, this.player, undefined, {
+      blockers: this.world.blockerKeys(),
+    });
+    this.recordMapSeen(vision.seen);
+  }
+
   #refreshObjectiveTimerState(): boolean {
     if (!this.contract) return false;
     const timing = this.#objectiveTimingContext();
-    const satisfied = isObjectiveSatisfied(this.contract, this.world, timing);
+    const satisfied = isObjectiveSatisfied(this.contract, this.world, timing, {
+      mapSeen: this.mapSeen,
+      reconSeen: this.mapSeen,
+    });
     const limit = turnLimitForContract(this.contract);
     if (limit === null || !this.queue) return satisfied;
 
@@ -802,10 +868,16 @@ export type ObjectiveTiming = {
   expired?: boolean;
 };
 
+export type ObjectiveState = {
+  mapSeen?: ReadonlySet<string> | readonly string[];
+  reconSeen?: ReadonlySet<string> | readonly string[];
+};
+
 export function isObjectiveSatisfied(
   contract: Contract,
   world?: World | null,
-  timing?: ObjectiveTiming
+  timing?: ObjectiveTiming,
+  objectiveState?: ObjectiveState
 ): boolean {
   if (timing?.completedWithinLimit) return true;
   if (timing?.expired) return false;
@@ -817,10 +889,14 @@ export function isObjectiveSatisfied(
   ) {
     return false;
   }
-  return isObjectiveFamilySatisfied(contract, world);
+  return isObjectiveFamilySatisfied(contract, world, objectiveState);
 }
 
-function isObjectiveFamilySatisfied(contract: Contract, world?: World | null): boolean {
+function isObjectiveFamilySatisfied(
+  contract: Contract,
+  world?: World | null,
+  objectiveState?: ObjectiveState
+): boolean {
   const kind = contract.objective.kind;
   switch (kind) {
     case OBJECTIVES.REACH_EXIT:
@@ -839,6 +915,8 @@ function isObjectiveFamilySatisfied(contract: Contract, world?: World | null): b
       return isDualSiteSatisfied(contract, world);
     case OBJECTIVES.SWEEP:
       return isSweepSatisfied(contract, world);
+    case OBJECTIVES.RECON:
+      return isReconSatisfied(world, objectiveState);
     default: {
       const exhaustive: never = kind;
       throw new Error(`Run.isObjectiveSatisfied: unknown objective kind "${exhaustive}"`);
@@ -860,9 +938,94 @@ export function objectiveTurnsRemaining(contract: Contract, turnNumber: number):
   return Math.max(0, limit - (turnNumber - 1));
 }
 
+export type ReconProgress = {
+  mapped: number;
+  required: number;
+};
+
+export function reconEligibleCellKeys(world: World | null | undefined): Set<string> {
+  if (!world) return new Set();
+  const player = playerInWorld(world);
+  if (!player) return allPassableCellKeys(world);
+  const eligible = new Set<string>();
+  const queue: GridPoint[] = [{ x: player.x, y: player.y }];
+  eligible.add(coordKey(player.x, player.y));
+  for (let i = 0; i < queue.length; i++) {
+    const point = queue[i]!;
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (dx === 0 && dy === 0) continue;
+        const x = point.x + dx;
+        const y = point.y + dy;
+        if (!world.grid.isPassable(x, y)) continue;
+        const key = coordKey(x, y);
+        if (eligible.has(key)) continue;
+        eligible.add(key);
+        queue.push({ x, y });
+      }
+    }
+  }
+  return eligible;
+}
+
+export function reconObjectiveProgress(
+  world: World | null | undefined,
+  seen: ReadonlySet<string> | readonly string[] = []
+): ReconProgress {
+  const eligible = reconEligibleCellKeys(world);
+  const seenSet = asKeySet(seen);
+  let mapped = 0;
+  for (const key of eligible) {
+    if (seenSet.has(key)) mapped++;
+  }
+  return { mapped, required: eligible.size };
+}
+
 function isTurnLimitExpired(contract: Contract, turnNumber: number): boolean {
   const remaining = objectiveTurnsRemaining(contract, turnNumber);
   return remaining !== null && remaining <= 0;
+}
+
+function coordKey(x: number, y: number): string {
+  return `${x},${y}`;
+}
+
+function parseCoordKey(key: string, context: string): GridPoint {
+  if (typeof key !== 'string') {
+    throw new TypeError(`${context}: coordinate key must be a string`);
+  }
+  const match = /^(-?\d+),(-?\d+)$/.exec(key);
+  if (!match) {
+    throw new TypeError(`${context}: malformed coordinate key "${key}"`);
+  }
+  return { x: Number(match[1]), y: Number(match[2]) };
+}
+
+function compareCoordKeys(a: string, b: string): number {
+  const pa = parseCoordKey(a, 'compareCoordKeys');
+  const pb = parseCoordKey(b, 'compareCoordKeys');
+  return pa.y === pb.y ? pa.x - pb.x : pa.y - pb.y;
+}
+
+function asKeySet(keys: ReadonlySet<string> | readonly string[]): ReadonlySet<string> {
+  return keys instanceof Set ? keys : new Set(keys);
+}
+
+function playerInWorld(world: World): Entity | null {
+  for (const entity of world.entities.values()) {
+    if (entity.faction === FACTION.PLAYER && entity.alive) return entity;
+  }
+  return null;
+}
+
+function allPassableCellKeys(world: World): Set<string> {
+  const keys = new Set<string>();
+  for (let y = 0; y < world.grid.height; y++) {
+    for (let x = 0; x < world.grid.width; x++) {
+      if (world.grid.isPassable(x, y)) keys.add(coordKey(x, y));
+    }
+  }
+  return keys;
 }
 
 // ---------------------------------------------------------------------------
@@ -1029,6 +1192,13 @@ function isDualSiteSatisfied(contract: Contract, world?: World | null): boolean 
     if (entity instanceof SyncPad && entity.synced) synced++;
   }
   return synced >= required;
+}
+
+function isReconSatisfied(world?: World | null, objectiveState: ObjectiveState = {}): boolean {
+  if (!world) return false;
+  const seen = objectiveState.reconSeen ?? objectiveState.mapSeen ?? [];
+  const progress = reconObjectiveProgress(world, seen);
+  return progress.required > 0 && progress.mapped >= progress.required;
 }
 
 function objectiveCount(contract: Contract): number {

@@ -698,6 +698,7 @@ function resumeCampaign(record: CampaignSnapshot | unknown) {
     });
     if (campaign.activeRun?.state === RUN_STATE.COMBAT) {
       vision.resetFogState();
+      vision.restoreSeen(campaign.activeRun.mapSeenKeys());
     }
     attachVisionListener();
     attachAnimationListeners();
@@ -1209,6 +1210,9 @@ function recomputeVision(): void {
   vision.recompute(run.world.grid, run.player, undefined, {
     blockers: run.world.blockerKeys(),
   });
+  if (isRun(run) && run.state === RUN_STATE.COMBAT) {
+    run.recordMapSeen(vision.seen);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1368,7 +1372,11 @@ function objectiveStatusTag(run: Run): string {
   const remaining = run.objectiveTurnsRemaining();
   const turnTag =
     remaining === null || done ? '' : ` <span class="todo">[TURN:${remaining}]</span>`;
-  return `<span class="objective-tag">OBJ ${escapeHtml(run.contract.objective.title)} <span class="${done ? 'done' : 'todo'}">[${done ? 'DONE' : 'TODO'}]</span>${turnTag}</span>`;
+  const reconProgress = run.contract.objective.kind === 'recon' ? run.reconProgress() : null;
+  const recon = reconProgress
+    ? ` <span class="todo">[MAP:${reconProgress.mapped}/${reconProgress.required}]</span>`
+    : '';
+  return `<span class="objective-tag">OBJ ${escapeHtml(run.contract.objective.title)} <span class="${done ? 'done' : 'todo'}">[${done ? 'DONE' : 'TODO'}]</span>${turnTag}${recon}</span>`;
 }
 
 function joinStatusParts(parts: Array<string | null | undefined>): string {
