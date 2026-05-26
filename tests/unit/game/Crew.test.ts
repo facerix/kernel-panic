@@ -326,6 +326,66 @@ test('Crew.collectSalvage accumulates across multiple corpses', () => {
   assert.equal(crew.inventory!.salvage, 5);
 });
 
+// --- M4.1: corpse removal on salvage ------------------------------------
+
+test('Crew.collectSalvage removes the stripped corpse from the world (M4.1)', () => {
+  const g = new Grid(8, 8);
+  const w = new World(g);
+  const crew = new Crew({ ...baseProps, x: 3, y: 3 });
+  crew.initInventory();
+  w.addEntity(crew);
+
+  const corpse = createMockLootableEntity({
+    id: 'drone-0',
+    x: 4,
+    y: 3,
+    faction: FACTION.CORP,
+    glyph: 'd',
+  });
+  corpse.damage(corpse.maxHp);
+  corpse.loot = { salvage: 2 };
+  w.addEntity(corpse);
+
+  // Sanity: corpse is in the world before salvage.
+  assert.equal(w.anyEntityAt(4, 3), corpse, 'corpse occupies the tile before salvage');
+  assert.equal(w.lootableCorpseAt(4, 3), corpse, 'corpse is lootable before salvage');
+
+  crew.collectSalvage(w, corpse);
+
+  // After M4.1: corpse must be gone from the world map.
+  assert.equal(w.anyEntityAt(4, 3), null, 'corpse removed from world after salvage');
+  assert.equal(w.lootableCorpseAt(4, 3), null, 'no lootable corpse at the tile after salvage');
+  assert.equal(w.entities.has(corpse.id), false, 'entities map no longer contains corpse id');
+  // Loot was transferred before removal.
+  assert.equal(crew.inventory!.salvage, 2);
+});
+
+test('Crew.collectSalvage allows another entity to step onto the freed tile', () => {
+  const g = new Grid(8, 8);
+  const w = new World(g);
+  const crew = new Crew({ ...baseProps, x: 3, y: 3 });
+  crew.initInventory();
+  w.addEntity(crew);
+
+  const corpse = createMockLootableEntity({
+    id: 'drone-0',
+    x: 4,
+    y: 3,
+    faction: FACTION.CORP,
+    glyph: 'd',
+  });
+  corpse.damage(corpse.maxHp);
+  corpse.loot = { salvage: 1 };
+  w.addEntity(corpse);
+
+  crew.collectSalvage(w, corpse);
+
+  // Stepping into the freed tile must not collide with the stale corpse.
+  w.moveEntity(crew, 1, 0);
+  assert.equal(crew.x, 4);
+  assert.equal(crew.y, 3);
+});
+
 // --- Archetype base hit chance -------------------------------------------
 
 test('Crew.baseHitChance defaults to BASE_HIT_CHANCE', () => {

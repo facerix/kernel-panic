@@ -39,7 +39,7 @@
  * harness assumption.
  */
 
-import { FACTION, SIGHT_RANGE, VAULT_DAMAGE, NOISE_RADIUS } from '../game/constants.js';
+import { FACTION, SIGHT_RANGE, VAULT_DAMAGE, NOISE_RADIUS, AP_COST } from '../game/constants.js';
 import { canFireRanged, resolveRanged, canMelee, resolveMelee } from '../game/Combat.js';
 import { hasLineOfSight, withinRange } from '../game/LineOfSight.js';
 import { entityLabel } from '../game/Entity.js';
@@ -199,6 +199,24 @@ function doMove(intent: Intent, ctx: ApplyIntentContext) {
   } else {
     // just clear the line to flush any existing stale log line
     log('');
+  }
+  // M4.1: stepping onto a lootable corpse auto-salvages it. Parallels the
+  // walk-onto-tile pattern that M4.3 consumable pickups will use. If the
+  // player can't afford the INTERACT AP we leave the corpse for next turn
+  // (Space-interact still works) — crashing here would punish a legitimate
+  // gameplay state, not a bug.
+  const corpse =
+    player.inventory && player.alive ? world.lootableCorpseAt(player.x, player.y) : null;
+  if (corpse) {
+    if (player.canAfford(AP_COST.INTERACT)) {
+      const amount = corpse.loot!.salvage;
+      player.collectSalvage(world, corpse);
+      log(
+        `> ${entityLabel(player)} salvages +${amount} — carrying ${player.inventory!.salvage} total, ${player.ap} AP left.`
+      );
+    } else {
+      log(`> ${entityLabel(player)} stands on salvage — not enough AP to loot this turn.`);
+    }
   }
   // Intentionally no per-step move line — coordinates + AP spammed the game log.
   gateOnApExhausted(ctx);

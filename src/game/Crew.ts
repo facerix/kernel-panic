@@ -263,8 +263,11 @@ export class Crew extends Entity {
    *   - `targetEntity` has a `loot` object with `salvage > 0`
    *   - `targetEntity` is Chebyshev-adjacent (distance ≤ 1) to this crew member
    *
-   * On commit: debits AP, transfers loot.salvage to `this.inventory.salvage`,
-   * zeroes `targetEntity.loot.salvage`.
+   * On commit (M4.1): debits AP, transfers loot.salvage to
+   * `this.inventory.salvage`, then **removes the stripped corpse from the
+   * world entirely** — no phantom tile, no zero-loot lingering corpse.
+   * Closes the kaizen "corpse memory / lootability" line for drones; future
+   * non-drone lootable entities (if introduced) inherit the same rule.
    */
   collectSalvage(world: World, targetEntity: LootableEntity) {
     if (!this.inventory) {
@@ -289,5 +292,10 @@ export class Crew extends Entity {
     this.spendAp(AP_COST.INTERACT);
     this.inventory.salvage += targetEntity.loot.salvage;
     targetEntity.loot.salvage = 0;
+    // M4.1: strip the corpse from the world so the tile renders as empty and
+    // no longer registers in `anyEntityAt` / `lootableCorpseAt`. Pathing was
+    // already unaffected (corpses don't block movement), but the visual
+    // "phantom" tile was misleading.
+    world.removeEntity(targetEntity.id);
   }
 }

@@ -21,7 +21,10 @@ Living plan for the post–Phase 2 slice of Kernel Panic: **contract objectives*
 | M2.11 — Recon / exhaustive mapping objectives | ✅ Done |
 | M2.12 — Escort / extract NPC objectives | ✅ Done |
 | M3 — Campaign history / chronicle | ➡️ Deferred to Phase 3 |
-| M4 — Salvage revision + typed salvage + field consumables | 🔲 Planned |
+| M4 — Salvage revision + typed salvage + field consumables | 🚧 In progress |
+| M4.1 — Drone corpse removal on salvage | ✅ Done |
+| M4.2 — Typed salvage (Scrap / Chips / Bio / Data) | 🔲 Planned |
+| M4.3 — Field consumables (smoke / stim / incendiary) | 🔲 Planned |
 | M5 — Hub, economy, Rep, crew tuning | 🔲 Planned |
 | M6 — Locked doors & access gating | 🔲 Planned |
 | M7 — Breaching, map mutation, location memory | 🔲 Planned |
@@ -593,17 +596,100 @@ Phase 2.5 milestones that follow (M4–M7) retain their original numbering for c
 
 ---
 
-### M4 — Salvage revision + typed salvage + field consumables 🔲
+### M4 — Salvage revision + typed salvage + field consumables 🚧
 
 **Goal:** Align salvage with **spatial honesty** and **blueprint economy depth** ahead of Phase 3, and widen **combat pickups** beyond the Hub-bought inventory alone.
 
+**M4 is complete when M4.1–M4.3 are all ✅.** Slices ship in order so each builds on the last (typed salvage migration runs before consumables, since consumable drops/sales will use the typed schema).
+
+| Slice | Delivers |
+|-------|----------|
+| **M4.1** | Drone corpse removal on salvage |
+| **M4.2** | Typed salvage (Scrap / Chips / Bio / Data) + one-time migration |
+| **M4.3** | Field consumables: smoke bomb, stim, incendiary |
+
+**Out of scope:** Breaching charges (ship with **M7** alongside wall mutation); Finn-shop UI tabs (**M5**); crafting recipes (Phase 3+).
+
+---
+
+#### M4.1 — Drone corpse removal on salvage ✅
+
+**Goal:** **Salvaging a drone corpse removes it from the map** (no “phantom” tile once stripped). Closes the kaizen item on **corpse memory / lootability** for the post-salvage case (the pre-salvage memorised-corpses navigation problem remains M3 scope).
+
 **Scope:**
 
-- **Drone corpses:** **Salvaging a drone corpse removes it from the map** (no “phantom” tile once stripped). Closes the kaizen item on **corpse memory / lootability** — revisit [kaizen.md](./kaizen.md) when shipped and mark the line closed or superseded.
-- **Typed salvage:** Bring **salvage component types** forward from the Phase 3 deferral (see kaizen “typed salvage”): multiple categories (names + schema TBD) that Finn and crafting-adjacent hooks can use in M5.
-- **Collectable combat consumables:** **Spawn-on-map** pickups usable in the job, e.g. **smoke bombs**, **immediate-use stims**, **throwable incendiary bombs**. **Breaching charges** are **not** in M4 — they ship with **M7** (Finn + wall mutation).
+- `Crew.collectSalvage` (or equivalent) removes the looted entity from `World.entities` after transferring loot, instead of leaving a zero-loot corpse on the tile.
+- **Walk-onto-corpse auto-salvage:** Moving onto a tile that holds a lootable corpse triggers `collectSalvage` automatically as part of the move intent. Sets up the M4.3 walk-onto pickup pattern (consumables will reuse the same shape). If the player can't afford INTERACT AP after the move, the corpse stays and a hint is logged — Space-interact remains available next turn.
+- Renderer and pathfinding see the tile as floor immediately on the next frame (no stale glyph, no blocking).
+- Snapshot round-trip: salvaged corpses are absent from restored runs (already true if removed from `entities`).
 
-**Acceptance (when implemented):** Salvage types in campaign snapshot; corpse removal after salvage; at least one pickup type per category above with serialization tests; migration path for saves that only had numeric salvage (define defaults or one-time conversion).
+**Acceptance:**
+
+- Unit tests: salvage adjacent drone corpse → entity gone from `World.entities`, tile passable, renderer/log doesn't surface the corpse anymore.
+- No regressions in existing corpse-based tests (e.g. damage-after-death already throws — corpse no longer accessible to that path).
+- Kaizen entry updated/closed.
+
+**Implementation notes:**
+
+- After transferring loot and zeroing `targetEntity.loot.salvage`, `Crew.collectSalvage` now calls `world.removeEntity(targetEntity.id)`. The corpse JS object survives in the caller's scope (so any post-call assertions on the local reference still resolve) but the world map no longer indexes it — `anyEntityAt`, `lootableCorpseAt`, and the renderer all see the tile as empty.
+- No changes needed in `lootableCorpseAt` (already filters by `loot.salvage > 0`) or in pathfinding (corpses never blocked movement). The only observable behavior change is the renderer no longer drawing the stripped corpse glyph and the tile being immediately available for another entity to step into.
+- `applyIntent.doMove` now runs an auto-salvage step after a successful (non-EXIT) move: if the destination tile holds a lootable corpse and the player can afford `AP_COST.INTERACT`, `collectSalvage` runs and a `salvages +N` log line is emitted. If AP is insufficient, the corpse stays and a "stands on salvage" hint is logged so the player knows to wait or end turn. Space-interact via the shell still works for the lazy/explicit case.
+- Two new tests in `tests/unit/game/Crew.test.ts` cover the removal invariant and the "freed tile can be moved into" follow-up; two new tests in `tests/unit/input/applyIntent.test.ts` cover walk-onto auto-salvage (success path) and the low-AP defer path.
+- Existing Crew tests still pass — `loot.salvage = 0` zeroing happens before removal, so prior assertions on the local corpse reference are unaffected. Full suite: 894/894 green.
+
+---
+
+#### M4.2 — Typed salvage (Scrap / Chips / Bio / Data) 🔲
+
+**Goal:** Replace the single numeric `salvage` field with four typed buckets so Finn (M5) and later crafting hooks can price/spend distinct components.
+
+**Scope:**
+
+- **Types:**
+  - **Scrap** — generic mechanical parts. Default drop from drones, turrets, breached props.
+  - **Chips** — electronics. Drops from terminals (when sliced + salvaged), relay nodes, corp turrets.
+  - **Bio** — organic samples. Drops from clinic/bio-flavor retrieve pickups and any future organic targets.
+  - **Data** — informational. Drops from dossier/dead-drop retrieve, ledger handoffs, terminal slices.
+- **Schema:** `TypedSalvage = { scrap: number; chips: number; bio: number; data: number }`. Replaces the single `salvage: number` on `Crew.inventory`, `Campaign`, and entity `loot`. Each is a non-negative integer.
+- **Loot config:** `Entity.loot` carries a `TypedSalvage` (or partial — missing fields default to 0). Drones drop `{ scrap, chips }` mix; pickups carry context-specific types based on contract `params.target` or recipe action token.
+- **Migration:** One-time conversion on campaign load. Old numeric `salvage: N` → `{ scrap: N, chips: 0, bio: 0, data: 0 }`. Member `inventory.salvage: N` similarly. Migration runs in `Campaign.fromSnapshot` / `Crew` restore; old snapshots without typed buckets convert deterministically and are saved back in the new shape on next persist. Crashes loudly if the legacy field is malformed (per CLAUDE.md — silent fallback is a bug).
+- **Sell path:** `Campaign.sellSalvage` becomes type-aware (sell N of a given type); existing fixed price stays as default per-type until M5 sets distinct rates.
+- **UI:** Status / Hub copy shows totals per type (compact, e.g. `S:12 C:3 B:0 D:1`). Real shop tabs land in M5.
+
+**Acceptance:**
+
+- All existing salvage tests updated; new tests for: type-aware `collectSalvage`, sell-by-type, migration from legacy numeric snapshot, snapshot round-trip preserves all four buckets, drone drops produce expected mix.
+- Migration test: a saved campaign from before M4.2 loads, converts to typed, and re-snapshots in the new shape.
+- No `salvage: number` remains on hot paths; `grep -r "salvage: number" src/` returns only the migration shim/types file.
+
+---
+
+#### M4.3 — Field consumables (smoke / stim / incendiary) 🔲
+
+**Depends on:** M4.2 (typed salvage so pickup drops can grant typed components if/when consumables are also salvageable; pickup itself is an item, not salvage). M2.3 (hazards) for incendiary tile reuse.
+
+**Goal:** **Spawn-on-map** consumable pickups usable in the job: **smoke bomb**, **stim**, **incendiary bomb**. Widens combat pickups beyond Hub-bought inventory.
+
+**Scope:**
+
+- **Consumable items:** existing `Crew.inventory.consumables: Item[]` slot already exists — extend with three types:
+  - **Smoke bomb:** thrown at a target tile (range TBD, e.g. 4). Stamps a 5–9 tile cluster of **temporary smoke** that blocks LOS but not movement. Decays over N rounds (e.g. 3). Reuses M2.3 placement primitives (`placeHazardCluster`) inverted — new `TILE.SMOKE` or smoke-as-tile-overlay (pick at impl).
+  - **Stim:** self-use, no target. Costs `AP_COST.INTERACT` (or new `AP_COST.USE_ITEM`). Restores HP up to a cap (e.g. +2 HP) or grants temporary AP — pick one at impl and document.
+  - **Incendiary bomb:** thrown at a target tile. Stamps a HAZARD cluster (reuses M2.3 directly), persistent for the rest of the run.
+- **Map pickups:** Combat maps can spawn consumable pickups (`Interactable` variant or simple `Item` on tile). Procgen places 0–2 per run based on tier/recipe; deterministic from seed.
+- **Pickup interaction:** Walk onto the tile (or Space-interact, match existing pickup loop). Adds to `crew.inventory.consumables`. Pickup glyph distinct from objective `!` pickup.
+- **Use UI:** Add a use-consumable action in combat. Targeting for thrown items uses existing range/LOS helpers.
+- **Hub-bought parity:** If Finn already sells consumables, ensure newly added types serialize the same way (M5 handles shop UI).
+
+**Acceptance:**
+
+- Unit tests per consumable: smoke decays as designed and blocks LOS while active; stim restores HP within cap; incendiary creates persistent HAZARD; throw range / LOS-clear-target enforced.
+- Pickup tests: spawn on map deterministically by seed; pick up adds to inventory; snapshot round-trip preserves both on-map pickups and inventory items.
+- Renderer + key help updated for new tile/glyph (smoke if distinct from M2.3 `░`, incendiary reuses HAZARD `▓`, consumable pickup glyph).
+- Golden path: enter run with smoke bomb in inventory → throw to break LOS → escape an aggro drone’s firing line in a way that fails without smoke.
+- No regression in existing M2.3 hazard tests.
+
+**Out of scope:** Breaching charges (M7); consumables crafted from typed salvage (deferred to Phase 3); AoE damage on throw impact for incendiary (it's a hazard-spawner, not a grenade).
 
 ---
 

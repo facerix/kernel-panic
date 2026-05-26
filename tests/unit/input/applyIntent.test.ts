@@ -122,6 +122,51 @@ test('move onto exit logs objective block when canExit says no', () => {
   assert.ok(log.some(l => l.includes('Complete objective first')));
 });
 
+test('move onto a lootable corpse auto-salvages (M4.1)', () => {
+  const { ctx, log, player, world } = buildCtx({ placeDrone: false });
+  player.initInventory();
+  // Drop a dead lootable drone one tile south of the player.
+  const drone = new CorpDrone({ id: 'corpse', x: 2, y: 3, maxAp: 3 });
+  world.addEntity(drone);
+  drone.damage(drone.maxHp);
+  drone.loot = { salvage: 4 };
+  assert.equal(drone.alive, false);
+
+  const apBefore = player.ap;
+  applyIntent({ type: 'move', dx: 0, dy: 1 }, ctx);
+
+  assert.equal(player.x, 2);
+  assert.equal(player.y, 3, 'player stepped onto the corpse tile');
+  assert.equal(player.inventory.salvage, 4, 'salvage transferred on step');
+  assert.equal(world.entities.has('corpse'), false, 'corpse removed from world (M4.1)');
+  assert.ok(log.some(l => l.includes('salvages +4')), 'auto-salvage log line emitted');
+  // MOVE + INTERACT AP were both spent.
+  assert.equal(player.ap, apBefore - 2);
+});
+
+test('move onto a corpse without INTERACT AP leaves the corpse and logs a hint', () => {
+  const { ctx, log, player, world } = buildCtx({ placeDrone: false });
+  player.initInventory();
+  // Only 1 AP: the move itself will spend it; INTERACT must then be unaffordable.
+  player.ap = 1;
+  const drone = new CorpDrone({ id: 'corpse', x: 2, y: 3, maxAp: 3 });
+  world.addEntity(drone);
+  drone.damage(drone.maxHp);
+  drone.loot = { salvage: 2 };
+
+  applyIntent({ type: 'move', dx: 0, dy: 1 }, ctx);
+
+  assert.equal(player.x, 2);
+  assert.equal(player.y, 3, 'move still committed');
+  assert.equal(player.inventory.salvage, 0, 'salvage NOT taken (no AP)');
+  assert.equal(world.entities.has('corpse'), true, 'corpse still in world');
+  assert.equal(drone.loot.salvage, 2, 'corpse loot untouched');
+  assert.ok(
+    log.some(l => l.includes('stands on salvage')),
+    'low-AP hint logged'
+  );
+});
+
 test('move onto exit reaches exit when canExit allows it', () => {
   const { ctx, log, calls, world } = buildCtx({ placeDrone: false });
   world.grid.setTile(2, 3, TILE.EXIT);
