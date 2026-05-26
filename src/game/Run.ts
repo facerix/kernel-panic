@@ -66,6 +66,7 @@ import {
   normalizeObjective,
 } from './hub/Curator.js';
 import { buildMap } from './procgen/mapBuild.js';
+import { findPath } from './Pathfinding.js';
 import type { Contract } from './hub/Curator.js';
 import type { FactionId } from './constants.js';
 import type { GridPoint } from '../types.js';
@@ -1401,6 +1402,7 @@ function findInteractableAnchor(
       if (x === exitTile.x && y === exitTile.y) continue;
       if (world.entityAt(x, y)) continue;
       if (!hasAdjacentPassableTile(world, x, y)) continue;
+      if (!anchorPreservesExitRoute(world, player, exitTile, { x, y })) continue;
       candidates.push({ x, y });
     }
   }
@@ -1419,6 +1421,28 @@ function findInteractableAnchor(
   if (notExitAdjacent.length > 0) return rng.pick(notExitAdjacent);
 
   return rng.pick(candidates);
+}
+
+/**
+ * True when blocking `anchor` with an impassable entity still leaves a route
+ * from the player spawn to the exit. Prevents objective props from sealing
+ * 1-tile corridors that procgen carved as the only link between regions.
+ */
+function anchorPreservesExitRoute(
+  world: World,
+  player: Entity,
+  exitTile: GridPoint,
+  anchor: GridPoint
+): boolean {
+  const blockers = new Set([coordKey(anchor.x, anchor.y)]);
+  return (
+    findPath(
+      world,
+      { x: player.x, y: player.y },
+      exitTile,
+      { allowOccupiedGoal: false, extraBlockers: blockers }
+    ) !== null
+  );
 }
 
 /**

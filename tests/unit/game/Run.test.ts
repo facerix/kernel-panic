@@ -9,6 +9,7 @@ import { Terminal } from '../../../src/game/entities/Terminal.js';
 import { EVENT } from '../../../src/game/events.js';
 import { Turret } from '../../../src/game/Turret.js';
 import { buildCrewMember } from '../../../src/game/archetypes/index.js';
+import { findPath } from '../../../src/game/Pathfinding.js';
 import { Rng } from '../../../src/rng.js';
 import { testContractContext } from './contractTestUtils.js';
 
@@ -118,6 +119,19 @@ test('terminal-slice contract spawns a terminal and gates objective satisfaction
   assert.equal(terminal.sliced, true);
   assert.equal(run.world.alarm.phase, 'alert');
   assert.equal(isObjectiveSatisfied(run.contract, run.world), true);
+});
+
+test('terminal-slice placement never blocks the route from spawn to exit', () => {
+  for (const seed of [1, 42, 0xabcd1234, 0xdeadbeef, 0x55555555, 0xc0ffee, 0xfeedface]) {
+    const run = new Run({ crewMember: makeCrew('razor'), seed });
+    run.enterBriefing(terminalSliceContract({ seed }));
+    run.enterCombat();
+    const path = findPath(run.world, run.player, run.exitTile, { allowOccupiedGoal: false });
+    assert.ok(
+      path && path.length > 0,
+      `seed ${seed.toString(16)}: exit unreachable after terminal placement`
+    );
+  }
 });
 
 test('terminal-slice terminal placement varies across contract seeds', () => {
