@@ -113,17 +113,13 @@ const CSS = `
   margin-bottom: 0;
 }
 
-.tile-hints {
-  .tile-hints-content {
-    display: grid;
-    grid-template-columns: max-content 1fr;
-    grid-auto-flow: column;
-    align-items: baseline;
-    column-gap: 2rem;
-    row-gap: 0.18rem;
-    margin: 0.5rem 0 0;
-    font-size: 0.9rem;
-  }
+.tile-hints-content {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  column-gap: 1rem;
+  align-items: start;
+  margin: 0.5rem 0 0;
+  font-size: 0.9rem;
 }
 
 .controls-note {
@@ -185,6 +181,7 @@ dl.rows {
 dl.rows dt {
   color: var(--help-accent);
   white-space: nowrap;
+  text-align: center;
 }
 
 dl.rows dd {
@@ -356,10 +353,10 @@ class KeyHelp extends HTMLElement {
       hFrag(
         inCombat
           ? [
-              h('dt', { textContent: '‡' }),
-              h('dd', { textContent: 'terminal' }),
-              h('dt', { textContent: '§' }),
-              h('dd', { textContent: 'sync target' }),
+              h('dt', { textContent: '░' }),
+              h('dd', { textContent: 'smoke' }),
+              h('dt', { textContent: '▓' }),
+              h('dd', { textContent: 'hazard' }),
             ]
           : []
       ),
@@ -381,22 +378,22 @@ class KeyHelp extends HTMLElement {
         h('dd', { textContent: 'corp civilian' }),
         h('dt', { textContent: '$' }),
         h('dd', { textContent: 'corp turret' }),
+        h('dt', { textContent: '◆' }),
+        h('dd', { textContent: 'corp asset' }),
         h('dt', { textContent: '~' }),
         h('dd', { textContent: 'relay node' }),
-        h('dt', { textContent: '▓' }),
-        h('dd', { textContent: 'hazard' }),
       ]),
       h('dl', { className: 'rows' }, [
+        h('dt', { textContent: '‡' }),
+        h('dd', { textContent: 'terminal' }),
+        h('dt', { textContent: '§' }),
+        h('dd', { textContent: 'mirror unit' }),
         h('dt', { textContent: '&' }),
         h('dd', { textContent: 'handoff contact' }),
-        h('dt', { textContent: 'X' }),
-        h('dd', { textContent: 'denial target' }),
         h('dt', { textContent: 'A' }),
         h('dd', { textContent: 'escort ally' }),
-        h('dt', { textContent: '░' }),
-        h('dd', { textContent: 'smoke' }),
-        h('dt', { textContent: '!' }),
-        h('dd', { textContent: 'dead drop' }),
+        h('dt', { textContent: '! *' }),
+        h('dd', { textContent: 'dead drops' }),
       ]),
     ]);
 

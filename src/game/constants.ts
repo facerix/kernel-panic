@@ -32,7 +32,7 @@ export const FACTION = Object.freeze({
 export const TERMINAL_GLYPH = '‡';
 export const PICKUP_GLYPH = '!';
 export const CONTACT_GLYPH = '&';
-export const DENY_TARGET_GLYPH = 'X';
+export const DENY_TARGET_GLYPH = '◆';
 export const SYNC_PAD_GLYPH = '§';
 export const ESCORT_NPC_GLYPH = 'A';
 
