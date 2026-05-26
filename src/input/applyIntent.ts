@@ -40,6 +40,7 @@
  */
 
 import { FACTION, SIGHT_RANGE, VAULT_DAMAGE, NOISE_RADIUS, AP_COST } from '../game/constants.js';
+import { totalSalvage, formatSalvageCompact } from '../game/salvage.js';
 import { canFireRanged, resolveRanged, canMelee, resolveMelee } from '../game/Combat.js';
 import { hasLineOfSight, withinRange } from '../game/LineOfSight.js';
 import { entityLabel } from '../game/Entity.js';
@@ -209,10 +210,13 @@ function doMove(intent: Intent, ctx: ApplyIntentContext) {
     player.inventory && player.alive ? world.lootableCorpseAt(player.x, player.y) : null;
   if (corpse) {
     if (player.canAfford(AP_COST.INTERACT)) {
-      const amount = corpse.loot!.salvage;
+      // M4.2: typed salvage. Show the picked-up total + the wallet's
+      // post-pickup compact breakdown so the player sees both the immediate
+      // delta and the running typed total.
+      const amount = totalSalvage(corpse.loot!.salvage);
       player.collectSalvage(world, corpse);
       log(
-        `> ${entityLabel(player)} salvages +${amount} — carrying ${player.inventory!.salvage} total, ${player.ap} AP left.`
+        `> ${entityLabel(player)} salvages +${amount} — carrying ${formatSalvageCompact(player.inventory!.salvage)}, ${player.ap} AP left.`
       );
     } else {
       log(`> ${entityLabel(player)} stands on salvage — not enough AP to loot this turn.`);
@@ -277,7 +281,7 @@ function doDeploy(intent: Intent, ctx: ApplyIntentContext) {
       const turret = tech.improviseTurret(world, intent.dx!, intent.dy!);
       log(
         `> ${playerLabel} improvises ${entityLabel(turret)} at (${turret.x}, ${turret.y}) — ` +
-          `${player.inventory!.salvage} salvage left, ${player.ap} AP left.`
+          `${player.inventory!.salvage.scrap} scrap left, ${player.ap} AP left.`
       );
       gateOnApExhausted(ctx);
       return;

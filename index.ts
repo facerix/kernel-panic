@@ -22,6 +22,7 @@ import { serviceWorkerManager } from '/src/ServiceWorkerManager.js';
 import dataStore from '/src/DataStore.js';
 
 import { Campaign, CAMPAIGN_STATE, willEndCampaignOnThisDeath } from '/src/game/Campaign.js';
+import { totalSalvage, formatSalvageCompact, type TypedSalvage } from '/src/game/salvage.js';
 import { RUN_STATE } from '/src/game/Run.js';
 import { restoreCampaign, snapshotCampaign } from '/src/game/persistence.js';
 import { runCorpTurn as driveCorpTurn } from '/src/game/corpTurnDriver.js';
@@ -119,16 +120,25 @@ type CrewRosterElement = ModalElement & {
   setCrew(
     crew: Crew[],
     opts?: {
-      salvage?: number;
+      salvage?: TypedSalvage;
       availableRecruits?: Crew[];
       recruitedThisVisit?: boolean;
     }
   ): void;
 };
 type FinnShopElement = ModalElement & {
-  setCatalog(catalog: Item[], crew: Crew[], balances: { credits: number; salvage: number }): void;
+  setCatalog(
+    catalog: Item[],
+    crew: Crew[],
+    balances: { credits: number; salvage: TypedSalvage }
+  ): void;
 };
 type ItemInventoryElement = ModalElement & {
+  setContents(contents: {
+    salvage?: TypedSalvage;
+    consumables?: NonNullable<Crew['inventory']>['consumables'];
+  }): void;
+  /** Legacy single-arg API — prefer `setContents`. */
   setItems(consumables: NonNullable<Crew['inventory']>['consumables']): void;
 };
 type KeyHelpElement = ModalElement & {
@@ -580,9 +590,26 @@ function onFinnSellSalvage(evt: Event) {
 
 function presentItemInventory() {
   if (!campaign) return;
+  // M4.2: inventory is now available in both Hub and combat. The two states
+  // surface different wallets:
+  //   - Combat: the deployed crew member's job-scoped inventory (what they've
+  //     picked up this run + their consumables).
+  //   - Hub:    the campaign-wide accumulated salvage. No active crew member,
+  //     so no consumables list — the player visits the shop or roster for
+  //     per-crew loadout management.
+  // This keeps the overlay's mental model simple: it always shows the
+  // currently meaningful wallet for the state the player is standing in.
+  if (campaign.state === CAMPAIGN_STATE.HUB) {
+    itemInventoryEl.setContents({ salvage: campaign.salvage, consumables: [] });
+    itemInventoryEl.show();
+    return;
+  }
   const run = campaign.activeRun;
   if (!run || !run.player || !run.player.inventory) return;
-  itemInventoryEl.setItems(run.player.inventory.consumables);
+  itemInventoryEl.setContents({
+    salvage: run.player.inventory.salvage,
+    consumables: run.player.inventory.consumables,
+  });
   itemInventoryEl.show();
 }
 
@@ -808,14 +835,14 @@ function handleIntent(intent: Intent): void {
     onPlayerAction: (actionName: string) => {
       switch (actionName) {
         case PLAYER_ACTIONS.INVENTORY:
-          // Only open inventory during combat when it's the player's turn.
-          if (
-            campaign?.state !== CAMPAIGN_STATE.COMBAT ||
-            run.state !== RUN_STATE.COMBAT ||
-            run.queue?.currentFaction !== FACTION.PLAYER
-          ) {
-            flash('Inventory is only available during combat on your turn.');
-            return;
+          // M4.2: inventory opens in Hub *and* combat. In combat we still
+          // restrict to the player's turn so peeking doesn't dodge corp
+          // tempo; in Hub there's no turn queue gating to worry about.
+          if (campaign?.state === CAMPAIGN_STATE.COMBAT) {
+            if (run.state !== RUN_STATE.COMBAT || run.queue?.currentFaction !== FACTION.PLAYER) {
+              flash('Inventory is only available on your turn.');
+              return;
+            }
           }
           presentItemInventory();
           break;
@@ -1012,15 +1039,16 @@ function handleCombatInteract(): void {
       const tx = player.x + dx;
       const ty = player.y + dy;
       const entity = run.world.lootableCorpseAt(tx, ty);
-      if (entity && !entity.alive && entity.loot && entity.loot.salvage > 0) {
+      if (entity && !entity.alive && entity.loot && totalSalvage(entity.loot.salvage) > 0) {
         if (!player.canAfford(AP_COST.INTERACT)) {
           flash('Insufficient AP to loot.');
           return;
         }
-        const amount = entity.loot.salvage;
+        // M4.2: typed salvage — show pickup total + post-pickup compact wallet.
+        const amount = totalSalvage(entity.loot.salvage);
         player.collectSalvage(run.world, entity);
         flash(
-          `Salvaged +${amount} — carrying ${player.inventory.salvage} total. ${player.ap} AP left.`
+          `Salvaged +${amount} — carrying ${formatSalvageCompact(player.inventory.salvage)}. ${player.ap} AP left.`
         );
         paint();
         if (player.ap === 0) {
@@ -1053,11 +1081,13 @@ function onNewRunRequested(): void {
     const jobResult = pendingJobResult;
     const { outcome } = jobResult;
     pendingJobResult = null;
-    // M3: extract salvage from the deployed crew member's inventory on exit.
+    // M3 + M4.2: extract typed salvage from the deployed crew member's
+    // inventory on exit. Death outcomes pass `undefined` so onJobEnd defaults
+    // to an empty wallet (loot forfeited on flatline).
     const member = campaign.deployedMemberId
       ? campaign.getCrewMember(campaign.deployedMemberId)
       : null;
-    const salvage = member?.inventory?.salvage ?? 0;
+    const salvage = member?.inventory?.salvage;
     const objectiveComplete =
       outcome === 'exit' ? jobResult.telemetry.objectiveComplete !== false : false;
     // M5: clean completion bonus — must run *before* `onJobEnd` so `enterHub` →
@@ -1296,7 +1326,12 @@ function statusLine(modeHint: Mode): string {
     if (!isRun(run)) {
       throw new Error('[shell] combat status requires an active run');
     }
-    const salvageTag = run.player?.inventory ? `SAL ${run.player.inventory.salvage}` : '';
+    // M4.2 (revised): salvage display moved out of the status bar and into
+    // the `<item-inventory>` overlay (full bucket names there). The status
+    // bar stayed too dense once typed salvage landed — `SAL S:0 C:0 B:0 D:0`
+    // crowded the line and the initials were hard to parse. Press `i` to
+    // see the wallet.
+    const salvageTag = '';
     const objectiveTag = objectiveStatusTag(run);
     const alarm = run.world?.alarm;
     const alertTag =
@@ -1320,7 +1355,10 @@ function statusLine(modeHint: Mode): string {
   } else {
     if (!campaign) return stateLabel();
     const repLabel = REP_LABEL.find(b => campaign!.rep >= b.min)?.label ?? 'UNKNOWN';
-    identity = `CREW ${campaign.crew.filter(member => !member.flatlined).length}/${campaign.crew.length} CREDS ${campaign.credits ?? 0} SALVAGE ${campaign.salvage ?? 0} REP ${campaign.rep} (${escapeHtml(repLabel)})`;
+    // M4.2 (revised): Hub identity drops the typed-salvage compact tag —
+    // the inventory overlay (`i` in Hub) is the canonical wallet view with
+    // full bucket names. Total Cred / Rep / crew counts stay on this line.
+    identity = `CREW ${campaign.crew.filter(member => !member.flatlined).length}/${campaign.crew.length} CREDS ${campaign.credits ?? 0} REP ${campaign.rep} (${escapeHtml(repLabel)})`;
   }
   turnInfo =
     run.state === RUN_STATE.COMBAT
@@ -1442,7 +1480,7 @@ function proximityHint(): string {
       for (let dy = -1; dy <= 1; dy++) {
         for (let dx = -1; dx <= 1; dx++) {
           const e = run.world.lootableCorpseAt(p.x + dx, p.y + dy);
-          if (e && !e.alive && e.loot && e.loot.salvage > 0) {
+          if (e && !e.alive && e.loot && totalSalvage(e.loot.salvage) > 0) {
             return 'SALVAGE nearby — press [Space] to loot.';
           }
         }

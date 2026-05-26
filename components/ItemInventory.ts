@@ -1,14 +1,34 @@
 /**
- * <item-inventory> — combat inventory overlay for using consumables.
+ * <item-inventory> — inventory overlay for salvage + consumables.
  *
- * Shows the deployed crew member's consumable list. Player navigates with
- * ↑/↓, confirms with Enter, and dismisses with Esc. Emits `use-item` with
- * `{ itemId }` on confirm.
+ * Shows two sections:
  *
- * If the inventory is empty, shows a "no items" message with dismiss hint.
+ *   1. **SALVAGE** — typed-salvage wallet rendered with full bucket names
+ *      (Scrap / Chips / Bio / Data). Per M4.2 design feedback, the compact
+ *      `S:N C:N B:N D:N` status-bar tag was too dense — players want to read
+ *      the bucket they own, not decode an initial. M4.2 also extended this
+ *      overlay to be the Hub's wallet surface so the player can audit
+ *      typed totals without opening the shop.
+ *   2. **CONSUMABLES** — the deployed crew member's item list (Stim, Smoke
+ *      Charge, …). Only populated mid-combat. Hub state shows an empty
+ *      section so the chrome stays consistent.
+ *
+ * Navigation: ↑/↓ moves the cursor across consumable rows (salvage is
+ * informational only). Enter activates a consumable, Esc dismisses.
+ * Emits `use-item` with `{ itemId }` on confirm.
+ *
+ * If both sections are empty, shows a "nothing carried" message with a
+ * dismiss hint.
  */
 
 import { h } from '/src/domUtils.js';
+import {
+  SALVAGE_TYPES,
+  emptySalvage,
+  totalSalvage,
+  type SalvageType,
+  type TypedSalvage,
+} from '/src/game/salvage.js';
 import type { Item } from '/src/game/items.js';
 
 type ItemInventoryItem = Omit<Item, 'scope' | 'cost' | 'description' | 'needsTarget'> & {
@@ -61,10 +81,59 @@ const CSS = `
   padding-bottom: 0.5rem;
 }
 
+.section-label {
+  margin: 0.9rem 0 0.4rem;
+  font-size: 0.8rem;
+  letter-spacing: 0.18em;
+  color: var(--inv-dim);
+  text-transform: uppercase;
+}
+
+.section-label:first-of-type {
+  margin-top: 0;
+}
+
 .rows {
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
+}
+
+.salvage-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-bottom: 0.4rem;
+}
+
+.salvage-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  min-height: 1.6rem;
+}
+
+.salvage-row.zero {
+  opacity: 0.45;
+}
+
+.salvage-row .bucket-name {
+  color: var(--inv-text);
+  letter-spacing: 0.06em;
+}
+
+.salvage-row .bucket-count {
+  color: var(--inv-accent);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.salvage-row.zero .bucket-count {
+  color: var(--inv-dim);
+  font-weight: 400;
 }
 
 .empty {
@@ -139,10 +208,22 @@ const ITEM_LABELS = {
   'smoke-charge': 'Smoke Charge',
 };
 
+/**
+ * Human-readable labels for typed-salvage buckets. Matches the M4.2 docs:
+ * Scrap = mechanical, Chips = electronics, Bio = organic, Data = informational.
+ */
+const SALVAGE_LABELS: Record<SalvageType, string> = {
+  scrap: 'Scrap',
+  chips: 'Chips',
+  bio: 'Bio',
+  data: 'Data',
+};
+
 class ItemInventory extends HTMLElement {
   #items: ItemInventoryItem[] = [];
+  #salvage: TypedSalvage = emptySalvage();
   #ready = false;
-  #rowsEl: HTMLElement | null = null;
+  #bodyEl: HTMLElement | null = null;
   #titleEl: HTMLElement | null = null;
   #panelEl: HTMLElement | null = null;
   #hintEl: HTMLElement | null = null;
@@ -160,11 +241,14 @@ class ItemInventory extends HTMLElement {
     shadow.appendChild(style);
 
     this.#titleEl = h('h2', { className: 'title' });
-    this.#rowsEl = h('div', { className: 'rows' });
+    // Single body container; #render writes both the SALVAGE and CONSUMABLES
+    // sections into it so the layout adapts to empty / full / Hub-vs-combat
+    // states without juggling separate element refs.
+    this.#bodyEl = h('div', { className: 'body' });
     this.#hintEl = h('p', { className: 'hint' });
     this.#panelEl = h('section', { className: 'panel' }, [
       this.#titleEl,
-      this.#rowsEl,
+      this.#bodyEl,
       this.#hintEl,
     ]);
     shadow.appendChild(this.#panelEl);
@@ -181,9 +265,24 @@ class ItemInventory extends HTMLElement {
   }
 
   /**
-   * @param {Array<{ id: string }>} consumables — crew inventory consumables
+   * M4.2: combined contents API — both the typed-salvage wallet and the
+   * consumables list. Callers always pass both; in Hub state consumables is
+   * typically `[]` (no deployed crew member) but salvage is the campaign
+   * wallet; in combat consumables is the deployed crew member's items and
+   * salvage is their job-scoped pickup wallet.
+   *
+   * The salvage section is informational only — there's no per-bucket action
+   * here yet (M5 owns the per-type Finn shop UI). Cursor navigation skips
+   * the salvage rows and stays on the consumable list.
    */
-  setItems(consumables: Item[]) {
+  setContents({
+    salvage = emptySalvage(),
+    consumables = [] as Item[],
+  }: {
+    salvage?: TypedSalvage;
+    consumables?: Item[];
+  } = {}) {
+    this.#salvage = salvage;
     // Aggregate by id so duplicates show as "Stim x2".
     const counts = new Map<string, number>();
     for (const c of consumables) {
@@ -195,6 +294,14 @@ class ItemInventory extends HTMLElement {
     }
     this.#selectedIndex = 0;
     if (this.#ready) this.#render();
+  }
+
+  /**
+   * Legacy single-arg API kept for back-compat with callers that only had a
+   * consumables list (pre-M4.2). New callers should prefer `setContents`.
+   */
+  setItems(consumables: Item[]) {
+    this.setContents({ consumables });
   }
 
   show() {
@@ -223,34 +330,77 @@ class ItemInventory extends HTMLElement {
     if (!this.#ready) return;
     this.#titleEl!.textContent = '── INVENTORY ──';
 
-    while (this.#rowsEl!.firstChild) this.#rowsEl!.removeChild(this.#rowsEl!.firstChild);
+    // Wipe and rebuild body. #buttons is rebuilt alongside so the keyboard
+    // cursor stays in sync with the DOM after every render.
+    while (this.#bodyEl!.firstChild) this.#bodyEl!.removeChild(this.#bodyEl!.firstChild);
     this.#buttons = [];
 
-    if (this.#items.length === 0) {
-      this.#rowsEl!.appendChild(h('p', { className: 'empty', textContent: 'No consumables.' }));
-      this.#hintEl!.textContent = '[ Esc close ]';
-      return;
-    }
-
-    for (let i = 0; i < this.#items.length; i++) {
-      const item = this.#items[i];
-      const btn = h('button', {
-        type: 'button',
-        className: 'row',
-        ariaCurrent: i === this.#selectedIndex ? 'true' : 'false',
-      }) as HTMLButtonElement;
-      btn.dataset.index = String(i);
-      btn.addEventListener('click', () => this.#activate(i));
-      btn.append(
-        h('span', { className: 'cursor', textContent: '>' }),
-        h('span', { className: 'item-name', textContent: item.label }),
-        h('span', { className: 'item-count', textContent: item.count > 1 ? `x${item.count}` : '' })
+    // ── SALVAGE section ──
+    // Always rendered so the chrome is consistent across Hub / combat /
+    // empty-wallet states. Zero-count rows are dimmed (not hidden) so the
+    // player can see *which* bucket they're missing without parsing absence.
+    this.#bodyEl!.appendChild(
+      h('p', { className: 'section-label', textContent: 'SALVAGE' })
+    );
+    const salvageRows = h('div', { className: 'salvage-rows' });
+    for (const t of SALVAGE_TYPES) {
+      const count = this.#salvage[t];
+      const row = h('div', {
+        className: count > 0 ? 'salvage-row' : 'salvage-row zero',
+      });
+      row.append(
+        h('span', { className: 'bucket-name', textContent: SALVAGE_LABELS[t] }),
+        h('span', { className: 'bucket-count', textContent: String(count) })
       );
-      this.#rowsEl!.appendChild(btn);
-      this.#buttons.push(btn);
+      salvageRows.appendChild(row);
+    }
+    this.#bodyEl!.appendChild(salvageRows);
+
+    // ── CONSUMABLES section ──
+    this.#bodyEl!.appendChild(
+      h('p', { className: 'section-label', textContent: 'CONSUMABLES' })
+    );
+    if (this.#items.length === 0) {
+      this.#bodyEl!.appendChild(
+        h('p', { className: 'empty', textContent: 'No consumables.' })
+      );
+    } else {
+      const itemRows = h('div', { className: 'rows' });
+      for (let i = 0; i < this.#items.length; i++) {
+        const item = this.#items[i];
+        const btn = h('button', {
+          type: 'button',
+          className: 'row',
+          ariaCurrent: i === this.#selectedIndex ? 'true' : 'false',
+        }) as HTMLButtonElement;
+        btn.dataset.index = String(i);
+        btn.addEventListener('click', () => this.#activate(i));
+        btn.append(
+          h('span', { className: 'cursor', textContent: '>' }),
+          h('span', { className: 'item-name', textContent: item.label }),
+          h('span', {
+            className: 'item-count',
+            textContent: item.count > 1 ? `x${item.count}` : '',
+          })
+        );
+        itemRows.appendChild(btn);
+        this.#buttons.push(btn);
+      }
+      this.#bodyEl!.appendChild(itemRows);
     }
 
-    this.#hintEl!.textContent = '[ ENTER use  ·  Esc close ]';
+    // Hint copy: only mention ENTER when there's something to use. Empty
+    // wallets + empty consumables still get an Esc hint (the salvage view
+    // is itself useful information even with no items to activate).
+    const hasConsumables = this.#items.length > 0;
+    const walletIsEmpty = totalSalvage(this.#salvage) === 0;
+    if (hasConsumables) {
+      this.#hintEl!.textContent = '[ ENTER use  ·  Esc close ]';
+    } else if (walletIsEmpty) {
+      this.#hintEl!.textContent = 'Nothing carried. [ Esc close ]';
+    } else {
+      this.#hintEl!.textContent = '[ Esc close ]';
+    }
   }
 
   #handleKey(evt: KeyboardEvent) {

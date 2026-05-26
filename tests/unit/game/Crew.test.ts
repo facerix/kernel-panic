@@ -27,13 +27,18 @@ import {
   TARGETING_BONUS,
 } from '../../../src/game/constants.js';
 import { ITEM_ID } from '../../../src/game/items.js';
+import {
+  emptySalvage,
+  makeSalvage,
+  totalSalvage,
+} from '../../../src/game/salvage.js';
 import type { EntityInit, LootableEntity } from '../../../src/game/Entity.js';
 
 const baseProps = { id: 'c', x: 0, y: 0 };
 
 const createMockLootableEntity = (props: EntityInit): LootableEntity => {
   const entity = new Entity(props);
-  (entity as LootableEntity).loot = { salvage: 0 };
+  (entity as LootableEntity).loot = { salvage: emptySalvage() };
   return entity as LootableEntity;
 };
 
@@ -115,18 +120,22 @@ test('Razor constructed without a callsign defaults to null', () => {
 
 // --- M3: inventory solidification ----------------------------------------
 
-test('Crew.initInventory sets inventory to { salvage: 0, consumables: [] }', () => {
+test('Crew.initInventory sets inventory to typed-empty wallet + empty consumables', () => {
   const c = new Crew({ ...baseProps });
   c.initInventory();
-  assert.deepEqual(c.inventory, { salvage: 0, consumables: [] });
+  assert.deepEqual(c.inventory, { salvage: emptySalvage(), consumables: [] });
 });
 
 test('Crew.initInventory is idempotent (no-op if already initialized)', () => {
   const c = new Crew({ ...baseProps });
   c.initInventory();
-  c.inventory!.salvage = 5;
+  c.inventory!.salvage = makeSalvage({ scrap: 5 });
   c.initInventory();
-  assert.equal(c.inventory!.salvage, 5, 'should not reset an already-init inventory');
+  assert.equal(
+    c.inventory!.salvage.scrap,
+    5,
+    'should not reset an already-init inventory'
+  );
 });
 
 test('Crew.collectSalvage transfers loot from adjacent corpse', () => {
@@ -144,12 +153,17 @@ test('Crew.collectSalvage transfers loot from adjacent corpse', () => {
     glyph: 'd',
   });
   corpse.damage(corpse.maxHp); // kill it
-  corpse.loot = { salvage: 2 };
+  corpse.loot = { salvage: makeSalvage({ scrap: 2 }) };
   w.addEntity(corpse);
 
   crew.collectSalvage(w, corpse);
-  assert.equal(crew.inventory!.salvage, 2);
-  assert.equal(corpse.loot!.salvage, 0, 'corpse loot zeroed after collection');
+  assert.equal(crew.inventory!.salvage.scrap, 2);
+  assert.equal(totalSalvage(crew.inventory!.salvage), 2);
+  assert.equal(
+    totalSalvage(corpse.loot!.salvage),
+    0,
+    'corpse loot zeroed after collection'
+  );
   assert.equal(crew.ap, crew.maxAp - AP_COST.INTERACT, 'INTERACT AP cost applied');
 });
 
@@ -165,7 +179,7 @@ test('Crew.collectSalvage allows corpse on the same tile (Chebyshev 0)', () => {
   });
   w.addEntity(corpse);
   corpse.damage(corpse.maxHp);
-  corpse.loot = { salvage: 3 };
+  corpse.loot = { salvage: makeSalvage({ scrap: 3 }) };
 
   const crew = new Crew({ ...baseProps, x: 4, y: 3 });
   crew.initInventory();
@@ -175,8 +189,8 @@ test('Crew.collectSalvage allows corpse on the same tile (Chebyshev 0)', () => {
   assert.equal(crew.x, 3);
   assert.equal(crew.y, 3);
   crew.collectSalvage(w, corpse);
-  assert.equal(crew.inventory!.salvage, 3);
-  assert.equal(corpse.loot!.salvage, 0);
+  assert.equal(crew.inventory!.salvage.scrap, 3);
+  assert.equal(totalSalvage(corpse.loot!.salvage), 0);
 });
 
 test('Crew.collectSalvage throws when corpse is not adjacent (Chebyshev > 1)', () => {
@@ -194,7 +208,7 @@ test('Crew.collectSalvage throws when corpse is not adjacent (Chebyshev > 1)', (
     glyph: 'd',
   });
   corpse.damage(corpse.maxHp);
-  corpse.loot = { salvage: 1 };
+  corpse.loot = { salvage: makeSalvage({ scrap: 1 }) };
   w.addEntity(corpse);
 
   assert.throws(() => crew.collectSalvage(w, corpse), /adjacent/i);
@@ -214,7 +228,7 @@ test('Crew.collectSalvage throws when target is still alive', () => {
     faction: FACTION.CORP,
     glyph: 'd',
   });
-  alive.loot = { salvage: 1 };
+  alive.loot = { salvage: makeSalvage({ scrap: 1 }) };
   w.addEntity(alive);
 
   assert.throws(() => crew.collectSalvage(w, alive), /alive|dead/i);
@@ -240,7 +254,7 @@ test('Crew.collectSalvage throws when target has no loot', () => {
   assert.throws(() => crew.collectSalvage(w, corpse), /loot/i);
 });
 
-test('Crew.collectSalvage throws when target loot.salvage is 0', () => {
+test('Crew.collectSalvage throws when target loot is an empty wallet', () => {
   const g = new Grid(8, 8);
   const w = new World(g);
   const crew = new Crew({ ...baseProps, x: 3, y: 3 });
@@ -255,7 +269,7 @@ test('Crew.collectSalvage throws when target loot.salvage is 0', () => {
     glyph: 'd',
   });
   corpse.damage(corpse.maxHp);
-  corpse.loot = { salvage: 0 };
+  corpse.loot = { salvage: emptySalvage() };
   w.addEntity(corpse);
 
   assert.throws(() => crew.collectSalvage(w, corpse), /salvage/i);
@@ -277,7 +291,7 @@ test('Crew.collectSalvage throws when crew lacks AP for INTERACT', () => {
     glyph: 'd',
   });
   corpse.damage(corpse.maxHp);
-  corpse.loot = { salvage: 2 };
+  corpse.loot = { salvage: makeSalvage({ scrap: 2 }) };
   w.addEntity(corpse);
 
   assert.throws(() => crew.collectSalvage(w, corpse), /ap/i);
@@ -298,7 +312,7 @@ test('Crew.collectSalvage throws when inventory not initialized', () => {
     glyph: 'd',
   });
   corpse.damage(corpse.maxHp);
-  corpse.loot = { salvage: 1 };
+  corpse.loot = { salvage: makeSalvage({ scrap: 1 }) };
   w.addEntity(corpse);
 
   assert.throws(() => crew.collectSalvage(w, corpse), /inventory/i);
@@ -313,17 +327,18 @@ test('Crew.collectSalvage accumulates across multiple corpses', () => {
 
   const c1 = createMockLootableEntity({ id: 'd1', x: 4, y: 3, faction: FACTION.CORP, glyph: 'd' });
   c1.damage(c1.maxHp);
-  c1.loot = { salvage: 2 };
+  c1.loot = { salvage: makeSalvage({ scrap: 2 }) };
   w.addEntity(c1);
 
   const c2 = createMockLootableEntity({ id: 'd2', x: 3, y: 4, faction: FACTION.CORP, glyph: 'd' });
   c2.damage(c2.maxHp);
-  c2.loot = { salvage: 3 };
+  c2.loot = { salvage: makeSalvage({ scrap: 3 }) };
   w.addEntity(c2);
 
   crew.collectSalvage(w, c1);
   crew.collectSalvage(w, c2);
-  assert.equal(crew.inventory!.salvage, 5);
+  assert.equal(crew.inventory!.salvage.scrap, 5);
+  assert.equal(totalSalvage(crew.inventory!.salvage), 5);
 });
 
 // --- M4.1: corpse removal on salvage ------------------------------------
@@ -343,7 +358,7 @@ test('Crew.collectSalvage removes the stripped corpse from the world (M4.1)', ()
     glyph: 'd',
   });
   corpse.damage(corpse.maxHp);
-  corpse.loot = { salvage: 2 };
+  corpse.loot = { salvage: makeSalvage({ scrap: 2 }) };
   w.addEntity(corpse);
 
   // Sanity: corpse is in the world before salvage.
@@ -357,7 +372,7 @@ test('Crew.collectSalvage removes the stripped corpse from the world (M4.1)', ()
   assert.equal(w.lootableCorpseAt(4, 3), null, 'no lootable corpse at the tile after salvage');
   assert.equal(w.entities.has(corpse.id), false, 'entities map no longer contains corpse id');
   // Loot was transferred before removal.
-  assert.equal(crew.inventory!.salvage, 2);
+  assert.equal(crew.inventory!.salvage.scrap, 2);
 });
 
 test('Crew.collectSalvage allows another entity to step onto the freed tile', () => {
@@ -375,7 +390,7 @@ test('Crew.collectSalvage allows another entity to step onto the freed tile', ()
     glyph: 'd',
   });
   corpse.damage(corpse.maxHp);
-  corpse.loot = { salvage: 1 };
+  corpse.loot = { salvage: makeSalvage({ scrap: 1 }) };
   w.addEntity(corpse);
 
   crew.collectSalvage(w, corpse);

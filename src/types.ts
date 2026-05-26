@@ -86,7 +86,8 @@ export type Telemetry = {
   outcome: 'death' | 'exit' | 'campaign-over';
   campaignTerminal?: boolean;
   crewRoster?: { callsign: string; archetype: string; flatlined: boolean }[];
-  salvage?: number;
+  /** M4.2: typed-salvage wallet snapshot at the moment the run/campaign ends. */
+  salvage?: import('./game/salvage.js').TypedSalvage;
   archetype?: string;
   turn?: number;
   kills?: number;

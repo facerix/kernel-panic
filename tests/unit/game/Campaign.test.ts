@@ -12,6 +12,11 @@ import { Rng } from '../../../src/rng.js';
 import { OBJECTIVES } from '../../../src/game/hub/Curator.js';
 import { snapshotCampaign, restoreCampaign } from '../../../src/game/persistence.js';
 import { SALVAGE_TO_CRED_RATE, SHOP_COST } from '../../../src/game/constants.js';
+import {
+  emptySalvage,
+  makeSalvage,
+  totalSalvage,
+} from '../../../src/game/salvage.js';
 import { testContractContext } from './contractTestUtils.js';
 
 const fakeContract = (overrides = {}) => ({
@@ -46,7 +51,9 @@ test('buildCrew creates one named member per starter archetype with unique calls
 test('Campaign starts in HUB with crew, salvage, credits, rep, and meta state', () => {
   const campaign = new Campaign({ seed: 42 });
   assert.equal(campaign.state, CAMPAIGN_STATE.HUB);
-  assert.equal(campaign.salvage, 0);
+  // M4.2: salvage is a typed-empty wallet, not a number.
+  assert.deepEqual(campaign.salvage, emptySalvage());
+  assert.equal(totalSalvage(campaign.salvage), 0);
   assert.equal(campaign.credits, 0);
   assert.equal(campaign.rep, 20);
   assert.deepEqual(campaign.meta, {});
@@ -83,10 +90,11 @@ test('onJobEnd returns survivors to HUB and accumulates extracted salvage', () =
   const member = campaign.crew[1];
   const run = campaign.deployCrewMember(member.id, fakeContract());
   run.enterCombat();
-  campaign.onJobEnd({ outcome: OUTCOME.EXIT, salvage: 4 });
+  campaign.onJobEnd({ outcome: OUTCOME.EXIT, salvage: makeSalvage({ scrap: 4 }) });
   assert.equal(campaign.state, CAMPAIGN_STATE.HUB);
   assert.equal(campaign.activeRun, null);
-  assert.equal(campaign.salvage, 4);
+  assert.equal(campaign.salvage.scrap, 4);
+  assert.equal(totalSalvage(campaign.salvage), 4);
   assert.equal(member.flatlined, false);
   assert.ok(campaign.world, 'hub world should be rebuilt');
 });
@@ -99,8 +107,8 @@ test('onJobEnd with EXIT applies contract Cred and Rep rewards without spending 
   });
   const run = campaign.deployCrewMember(member.id, contract);
   run.enterCombat();
-  campaign.onJobEnd({ outcome: OUTCOME.EXIT, salvage: 4 });
-  assert.equal(campaign.salvage, 4);
+  campaign.onJobEnd({ outcome: OUTCOME.EXIT, salvage: makeSalvage({ scrap: 4 }) });
+  assert.equal(campaign.salvage.scrap, 4);
   assert.equal(campaign.credits, 60);
   assert.equal(campaign.rep, 27); // 20 start + 7 repDelta
 });
@@ -113,9 +121,13 @@ test('onJobEnd with incomplete EXIT extracts salvage but skips contract rewards'
   });
   const run = campaign.deployCrewMember(member.id, contract);
   run.enterCombat();
-  campaign.onJobEnd({ outcome: OUTCOME.EXIT, salvage: 4, completed: false });
+  campaign.onJobEnd({
+    outcome: OUTCOME.EXIT,
+    salvage: makeSalvage({ scrap: 4 }),
+    completed: false,
+  });
   assert.equal(campaign.state, CAMPAIGN_STATE.HUB);
-  assert.equal(campaign.salvage, 4);
+  assert.equal(campaign.salvage.scrap, 4);
   assert.equal(campaign.credits, 0);
   assert.equal(campaign.rep, 20);
   assert.equal(campaign.pendingRecruitReward, false);
@@ -133,7 +145,7 @@ test('critical contract recruit reward creates a recruit lead without Rep gate',
   });
   const run = campaign.deployCrewMember(member.id, contract);
   run.enterCombat();
-  campaign.onJobEnd({ outcome: OUTCOME.EXIT, salvage: 0 });
+  campaign.onJobEnd({ outcome: OUTCOME.EXIT, salvage: emptySalvage() });
   assert.equal(campaign.state, CAMPAIGN_STATE.HUB);
   assert.equal(campaign.pendingRecruitReward, false);
   assert.equal(campaign.availableRecruits.length, 1);
@@ -160,10 +172,11 @@ test('onJobEnd with EXIT transfers crew inventory salvage to campaign pool', () 
   run.enterCombat();
   // Simulate the crew member collecting salvage during the job.
   member.initInventory();
-  member.inventory.salvage = 7;
-  // Exit extracts inventory salvage.
-  campaign.onJobEnd({ outcome: OUTCOME.EXIT, salvage: 7 });
-  assert.equal(campaign.salvage, 7, 'salvage accumulated from job');
+  member.inventory.salvage = makeSalvage({ scrap: 7 });
+  // Exit extracts inventory salvage (M4.2: typed wallet passed through).
+  campaign.onJobEnd({ outcome: OUTCOME.EXIT, salvage: makeSalvage({ scrap: 7 }) });
+  assert.equal(campaign.salvage.scrap, 7, 'scrap accumulated from job');
+  assert.equal(totalSalvage(campaign.salvage), 7);
 });
 
 test('onJobEnd with DEATH does not add salvage to the campaign pool', () => {
@@ -175,9 +188,9 @@ test('onJobEnd with DEATH does not add salvage to the campaign pool', () => {
   );
   run.enterCombat();
   member.initInventory();
-  member.inventory.salvage = 5;
+  member.inventory.salvage = makeSalvage({ scrap: 5 });
   campaign.onJobEnd({ outcome: OUTCOME.DEATH });
-  assert.equal(campaign.salvage, 0, 'death forfeits salvage');
+  assert.equal(totalSalvage(campaign.salvage), 0, 'death forfeits salvage');
   assert.equal(campaign.credits, 0, 'death forfeits contract Creds');
 });
 
@@ -187,12 +200,15 @@ test('crew inventory survives campaign snapshot/restore round-trip', () => {
   const campaign = new Campaign({ seed: 42 });
   const member = campaign.crew[0];
   member.initInventory();
-  member.inventory.salvage = 7;
+  member.inventory.salvage = makeSalvage({ scrap: 7 });
   member.inventory.consumables = [];
   const snap = snapshotCampaign(campaign);
   const restored = restoreCampaign(snap);
   const restoredMember = restored.crew[0];
-  assert.deepEqual(restoredMember.inventory, { salvage: 7, consumables: [] });
+  assert.deepEqual(restoredMember.inventory, {
+    salvage: makeSalvage({ scrap: 7 }),
+    consumables: [],
+  });
 });
 
 test('onJobEnd flatlines deaths and ends the campaign when everyone is gone', () => {
@@ -222,15 +238,18 @@ test('Campaign Hub world includes Finn NPC', () => {
 // --- M4: Campaign.purchase ------------------------------------------------
 
 test('sellSalvage converts campaign salvage into Creds at the fixed rate', () => {
+  // M4.2: legacy `salvage: 8` migrates to `{ scrap: 8, ... }` via the
+  // constructor's `migrateSalvage` shim — exercising the back-compat path
+  // here keeps the legacy save shape green.
   const campaign = new Campaign({ seed: 42, salvage: 8, credits: 5 });
   campaign.sellSalvage(1);
-  assert.equal(campaign.salvage, 7);
+  assert.equal(totalSalvage(campaign.salvage), 7);
   assert.equal(campaign.credits, 5 + SALVAGE_TO_CRED_RATE);
   campaign.sellSalvage(5);
-  assert.equal(campaign.salvage, 2);
+  assert.equal(totalSalvage(campaign.salvage), 2);
   assert.equal(campaign.credits, 5 + 6 * SALVAGE_TO_CRED_RATE);
-  campaign.sellSalvage(campaign.salvage);
-  assert.equal(campaign.salvage, 0);
+  campaign.sellSalvage(totalSalvage(campaign.salvage));
+  assert.equal(totalSalvage(campaign.salvage), 0);
   assert.equal(campaign.credits, 5 + 8 * SALVAGE_TO_CRED_RATE);
 });
 
@@ -239,8 +258,39 @@ test('sellSalvage throws on invalid quantities and oversell attempts', () => {
   assert.throws(() => campaign.sellSalvage(0), /positive integer/i);
   assert.throws(() => campaign.sellSalvage(1.5), /positive integer/i);
   assert.throws(() => campaign.sellSalvage(4), /insufficient salvage/i);
-  assert.equal(campaign.salvage, 3);
+  assert.equal(totalSalvage(campaign.salvage), 3);
   assert.equal(campaign.credits, 0);
+});
+
+test('sellSalvage(quantity, type) sells from a specific bucket (M4.2)', () => {
+  const campaign = new Campaign({ seed: 42, credits: 0 });
+  campaign.salvage = makeSalvage({ scrap: 5, chips: 4, bio: 2, data: 1 });
+  // Sell 3 chips specifically — other buckets must be untouched.
+  campaign.sellSalvage(3, 'chips');
+  assert.deepEqual(campaign.salvage, makeSalvage({ scrap: 5, chips: 1, bio: 2, data: 1 }));
+  assert.equal(campaign.credits, 3 * SALVAGE_TO_CRED_RATE);
+
+  // Insufficient chips → throws and wallet stays intact.
+  assert.throws(() => campaign.sellSalvage(5, 'chips'), /insufficient chips/i);
+  assert.equal(campaign.salvage.chips, 1, 'failed typed sell does not partial-debit');
+});
+
+test('untyped sellSalvage draws scrap → chips → bio → data in priority order (M4.2)', () => {
+  const campaign = new Campaign({ seed: 42, credits: 0 });
+  campaign.salvage = makeSalvage({ scrap: 2, chips: 2, bio: 2, data: 2 });
+  // Sell 5 total: should drain scrap (2), then chips (2), then 1 from bio.
+  campaign.sellSalvage(5);
+  assert.deepEqual(campaign.salvage, makeSalvage({ scrap: 0, chips: 0, bio: 1, data: 2 }));
+  assert.equal(campaign.credits, 5 * SALVAGE_TO_CRED_RATE);
+});
+
+test('sellSalvage rejects unknown salvage types (M4.2)', () => {
+  const campaign = new Campaign({ seed: 42 });
+  campaign.salvage = makeSalvage({ scrap: 5 });
+  assert.throws(
+    () => campaign.sellSalvage(1, 'nuclear-waste'),
+    /unknown salvage type/i
+  );
 });
 
 test('sellSalvage is illegal outside HUB state', () => {
@@ -253,7 +303,7 @@ test('purchase deducts Creds and adds a consumable to the target crew member', (
   const campaign = new Campaign({ seed: 42, salvage: 10, credits: SHOP_COST.STIM });
   const member = campaign.crew[0];
   campaign.purchase({ itemId: 'stim', targetMemberId: member.id });
-  assert.equal(campaign.salvage, 10);
+  assert.equal(totalSalvage(campaign.salvage), 10, 'salvage untouched by purchase');
   assert.equal(campaign.credits, 0);
   assert.ok(member.inventory, 'inventory should be initialised after purchase');
   assert.equal(member.inventory.consumables.length, 1);
@@ -347,9 +397,9 @@ test('onJobEnd preserves consumables but clears salvage', () => {
   assert.equal(member.inventory.consumables.length, 2);
   campaign.deployCrewMember(member.id, fakeContract());
   campaign.activeRun.enterCombat();
-  campaign.onJobEnd({ outcome: OUTCOME.EXIT, salvage: 0 });
+  campaign.onJobEnd({ outcome: OUTCOME.EXIT, salvage: emptySalvage() });
   assert.equal(member.inventory.consumables.length, 2, 'consumables persist across jobs');
-  assert.equal(member.inventory.salvage, 0, 'salvage zeroed on job end');
+  assert.equal(totalSalvage(member.inventory.salvage), 0, 'salvage zeroed on job end');
 });
 
 test('crew member HP persists across jobs — no free heal on deploy', () => {
@@ -361,7 +411,7 @@ test('crew member HP persists across jobs — no free heal on deploy', () => {
   campaign.deployCrewMember(member.id, fakeContract());
   campaign.activeRun.enterCombat();
   member.hp = startingHp - 2; // simulate taking 2 damage
-  campaign.onJobEnd({ outcome: OUTCOME.EXIT, salvage: 0 });
+  campaign.onJobEnd({ outcome: OUTCOME.EXIT, salvage: emptySalvage() });
   assert.equal(member.hp, startingHp - 2, 'HP should carry back from job');
 
   // Deploy again — HP must NOT reset to maxHp.

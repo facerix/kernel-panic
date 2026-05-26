@@ -12,6 +12,7 @@ import {
   snapshotCampaign,
 } from '../../../src/game/persistence.js';
 import { CONTRACT_DIFFICULTY, FACTION, SALVAGE_TO_CRED_RATE } from '../../../src/game/constants.js';
+import { makeSalvage, totalSalvage } from '../../../src/game/salvage.js';
 import { buildCrewMember } from '../../../src/game/archetypes/index.js';
 import { Rng } from '../../../src/rng.js';
 import { testContractContext } from './contractTestUtils.js';
@@ -269,7 +270,9 @@ test('snapshot without a Run instance throws TypeError', () => {
 
 test('campaign snapshot/restore round-trips campaign scope', () => {
   const campaign = new Campaign({ seed: 0xface });
-  campaign.salvage = 7;
+  // M4.2: typed-salvage wallet round-trip (use all four buckets to prove the
+  // shape survives without scrap-only flattening).
+  campaign.salvage = makeSalvage({ scrap: 3, chips: 2, bio: 1, data: 1 });
   campaign.credits = 90;
   campaign.rep = 62;
   campaign.meta = { expandedCatalog: true };
@@ -280,7 +283,8 @@ test('campaign snapshot/restore round-trips campaign scope', () => {
   const recB = snapshotCampaign(restored);
 
   assert.deepEqual(recB, recA);
-  assert.equal(restored.salvage, 7);
+  assert.deepEqual(restored.salvage, makeSalvage({ scrap: 3, chips: 2, bio: 1, data: 1 }));
+  assert.equal(totalSalvage(restored.salvage), 7);
   assert.equal(restored.credits, 90);
   assert.equal(restored.rep, 62);
   assert.deepEqual(restored.meta, { expandedCatalog: true });
@@ -324,11 +328,19 @@ test('campaign snapshot preserves generated contract context metadata', () => {
 });
 
 test('restoreCampaign restores legacy snapshots without credits as zero', () => {
+  // M4.2: passing a legacy numeric salvage exercises the constructor's
+  // `migrateSalvage` path — it should bucket into scrap on load. Then we
+  // overwrite the snapshot to look pre-M4.2 (numeric salvage) and confirm
+  // restoreCampaign also accepts and migrates it.
   const campaign = new Campaign({ seed: 0xc0de, salvage: 4, credits: 70 });
   const rec = snapshotCampaign(campaign) as Record<string, unknown>;
   delete rec.credits;
+  // Force the salvage field back to legacy number shape so we are actually
+  // exercising the migration on restore, not just the typed round-trip.
+  rec.salvage = 4;
   const restored = restoreCampaign(rec);
-  assert.equal(restored.salvage, 4);
+  assert.deepEqual(restored.salvage, makeSalvage({ scrap: 4 }));
+  assert.equal(totalSalvage(restored.salvage), 4);
   assert.equal(restored.credits, 0);
 });
 

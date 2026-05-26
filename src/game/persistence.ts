@@ -34,6 +34,7 @@ import { World } from './World.js';
 import { TurnQueue } from './TurnQueue.js';
 import { EventBus } from './events.js';
 import { FACTION, SALVAGE_TO_CRED_RATE } from './constants.js';
+import { migrateSalvage, type TypedSalvage } from './salvage.js';
 import { Entity } from './Entity.js';
 import { Crew } from './Crew.js';
 import { Merc } from './archetypes/Merc.js';
@@ -186,7 +187,12 @@ export type CampaignSnapshot = {
   seed: number;
   rng: { seed: number; state: number };
   crew: CampaignCrewSnapshot[];
-  salvage: number;
+  /**
+   * M4.2: typed salvage wallet. Pre-M4.2 saves stored a legacy `number` here
+   * (generic salvage units); `restoreCampaign` / `migrateSalvage` buckets
+   * those into `scrap` on load. New saves write the typed shape directly.
+   */
+  salvage: number | TypedSalvage;
   /** M8+: campaign money. Defaults to 0 for pre-Creds saves. */
   credits?: number;
   rep: number;
@@ -738,6 +744,21 @@ function restoreCrewMember(rec: CampaignCrewSnapshot): Crew {
   if (typeof rec.id !== 'string' || rec.id.length === 0) {
     throw new TypeError('restoreCampaign: crew member id must be a non-empty string');
   }
+  // M4.2: migrate legacy `inventory.salvage: number` into the typed wallet
+  // before the archetype factory consumes it. Snapshots written before M4.2
+  // store a plain integer; new saves store a TypedSalvage object. The
+  // `migrateSalvage` helper handles both shapes and crashes on anything
+  // else (silent fallback would corrupt the wallet on every reload).
+  let inventory = rec.inventory ?? null;
+  if (inventory && 'salvage' in inventory) {
+    inventory = {
+      ...inventory,
+      salvage: migrateSalvage(
+        inventory.salvage,
+        `restoreCampaign: crew "${rec.id}" inventory.salvage`
+      ),
+    };
+  }
   const factory = ARCHETYPE_FACTORY[rec.archetype];
   const member = factory({
     id: rec.id,
@@ -745,7 +766,7 @@ function restoreCrewMember(rec: CampaignCrewSnapshot): Crew {
     y: 0,
     callsign: rec.callsign,
     flatlined: !!rec.flatlined,
-    inventory: rec.inventory ?? null,
+    inventory,
     gear: rec.gear ?? null,
     maxHp: rec.maxHp,
     maxAp: rec.maxAp,
@@ -964,8 +985,20 @@ function validateCampaignRecord(record: unknown): asserts record is CampaignSnap
     delete legacy.vouch;
   }
   const rep = candidate.rep;
-  if (!Number.isInteger(salvage) || salvage === undefined || salvage < 0) {
-    throw new RangeError('restoreCampaign: salvage must be a non-negative integer');
+  // M4.2: accept either a legacy non-negative integer (pre-M4.2 saves) or a
+  // structurally valid TypedSalvage wallet. The Campaign constructor runs
+  // `migrateSalvage` to normalize the field; here we only ensure the shape
+  // is one of the two recognized forms — anything else is data corruption
+  // and crashes the load (per project policy).
+  if (typeof salvage === 'number') {
+    if (!Number.isInteger(salvage) || salvage < 0) {
+      throw new RangeError('restoreCampaign: legacy salvage must be a non-negative integer');
+    }
+  } else if (salvage === null || typeof salvage !== 'object' || Array.isArray(salvage)) {
+    throw new TypeError('restoreCampaign: salvage must be a number (legacy) or TypedSalvage');
+  } else {
+    // TypedSalvage validation is deferred to `migrateSalvage` in the
+    // Campaign constructor — duplicating it here would just risk drift.
   }
   if (!Number.isInteger(credits) || credits < 0) {
     throw new RangeError('restoreCampaign: credits must be a non-negative integer');

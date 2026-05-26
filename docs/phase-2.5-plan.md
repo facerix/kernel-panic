@@ -23,7 +23,7 @@ Living plan for the post–Phase 2 slice of Kernel Panic: **contract objectives*
 | M3 — Campaign history / chronicle | ➡️ Deferred to Phase 3 |
 | M4 — Salvage revision + typed salvage + field consumables | 🚧 In progress |
 | M4.1 — Drone corpse removal on salvage | ✅ Done |
-| M4.2 — Typed salvage (Scrap / Chips / Bio / Data) | 🔲 Planned |
+| M4.2 — Typed salvage (Scrap / Chips / Bio / Data) | ✅ Done |
 | M4.3 — Field consumables (smoke / stim / incendiary) | 🔲 Planned |
 | M5 — Hub, economy, Rep, crew tuning | 🔲 Planned |
 | M6 — Locked doors & access gating | 🔲 Planned |
@@ -631,7 +631,7 @@ Phase 2.5 milestones that follow (M4–M7) retain their original numbering for c
 
 **Implementation notes:**
 
-- After transferring loot and zeroing `targetEntity.loot.salvage`, `Crew.collectSalvage` now calls `world.removeEntity(targetEntity.id)`. The corpse JS object survives in the caller's scope (so any post-call assertions on the local reference still resolve) but the world map no longer indexes it — `anyEntityAt`, `lootableCorpseAt`, and the renderer all see the tile as empty.
+- After transferring loot and emptying `targetEntity.loot.salvage` (M4.2: typed wallet zeroed via `emptySalvage()`), `Crew.collectSalvage` now calls `world.removeEntity(targetEntity.id)`. The corpse JS object survives in the caller's scope (so any post-call assertions on the local reference still resolve) but the world map no longer indexes it — `anyEntityAt`, `lootableCorpseAt`, and the renderer all see the tile as empty.
 - No changes needed in `lootableCorpseAt` (already filters by `loot.salvage > 0`) or in pathfinding (corpses never blocked movement). The only observable behavior change is the renderer no longer drawing the stripped corpse glyph and the tile being immediately available for another entity to step into.
 - `applyIntent.doMove` now runs an auto-salvage step after a successful (non-EXIT) move: if the destination tile holds a lootable corpse and the player can afford `AP_COST.INTERACT`, `collectSalvage` runs and a `salvages +N` log line is emitted. If AP is insufficient, the corpse stays and a "stands on salvage" hint is logged so the player knows to wait or end turn. Space-interact via the shell still works for the lazy/explicit case.
 - Two new tests in `tests/unit/game/Crew.test.ts` cover the removal invariant and the "freed tile can be moved into" follow-up; two new tests in `tests/unit/input/applyIntent.test.ts` cover walk-onto auto-salvage (success path) and the low-AP defer path.
@@ -639,7 +639,7 @@ Phase 2.5 milestones that follow (M4–M7) retain their original numbering for c
 
 ---
 
-#### M4.2 — Typed salvage (Scrap / Chips / Bio / Data) 🔲
+#### M4.2 — Typed salvage (Scrap / Chips / Bio / Data) ✅
 
 **Goal:** Replace the single numeric `salvage` field with four typed buckets so Finn (M5) and later crafting hooks can price/spend distinct components.
 
@@ -662,9 +662,20 @@ Phase 2.5 milestones that follow (M4–M7) retain their original numbering for c
 - Migration test: a saved campaign from before M4.2 loads, converts to typed, and re-snapshots in the new shape.
 - No `salvage: number` remains on hot paths; `grep -r "salvage: number" src/` returns only the migration shim/types file.
 
----
+**Implementation notes:**
 
-#### M4.3 — Field consumables (smoke / stim / incendiary) 🔲
+- New `src/game/salvage.ts` module owns the `TypedSalvage` type plus helpers: `emptySalvage`, `makeSalvage`, `cloneSalvage`, `addSalvage`, `totalSalvage`, `isEmptySalvage`, `validateSalvage`, `migrateSalvage`, `formatSalvageCompact`. The `SALVAGE_TYPES` tuple pins the canonical bucket order (`scrap → chips → bio → data`) — also reused as the priority order for untyped `Campaign.sellSalvage` draws.
+- `Crew.Inventory.salvage`, `Campaign.salvage`, and `LootableEntity.loot.salvage` all migrated to `TypedSalvage`. Pre-M4.2 saves still load: `migrateSalvage` accepts a legacy non-negative integer (buckets into `scrap`) or a structurally valid TypedSalvage. Malformed input crashes the load.
+- `Run.#rollLoot` dispatches by entity class: `CorpDrone` → scrap drop (existing `[SALVAGE_DROP_MIN, SALVAGE_DROP_MAX]` range), `CorpTurret` → chips drop in the same range, other Hostiles → scrap default. Bio + data buckets land via objective pickups in M4.3 / future contract metadata.
+- `Tech.improviseTurret` now gates on `inventory.salvage.scrap` and debits scrap specifically — mixed-bucket wallets without scrap can't improvise.
+- `Campaign.sellSalvage(quantity, type?)` is the new signature. Existing single-arg callers (FinnShop `SELL 1 / 5 / ALL` buttons) keep working: when `type` is omitted, the call drains buckets in `SALVAGE_TYPES` order. When `type` is given, it sells exactly that bucket and crashes on insufficient stock — M5's per-type shop UI plugs straight in.
+- UI surfaces split by role:
+  - `<crew-roster>` and `<finn-shop>` show **total + compact typed breakdown** (e.g. `SALVAGE 12 [S:8 C:3 B:1 D:0]`) — these surfaces already use the wallet for purchase decisions, so a glance-friendly summary belongs inline.
+  - `<item-inventory>` (press `i`) is the canonical wallet view with **full bucket names** (Scrap / Chips / Bio / Data) and counts per row. Available in both Hub and combat now: Hub shows the campaign wallet, combat shows the deployed crew member's job-scoped wallet plus their consumables. Zero-count buckets are dimmed but still visible so empty state is legible.
+  - **Combat status bar** and **Hub identity line** no longer carry the salvage tag — it crowded the line and the compact initials (`S:0 C:0 B:0 D:0`) were too dense once typed salvage landed. The inventory overlay replaces them as the persistent wallet surface.
+  - Auto-salvage and Space-interact log lines still use `formatSalvageCompact` so the player gets transient pickup feedback (immediate delta + post-pickup typed wallet) without opening the overlay.
+- `restoreCampaign` validates the salvage field as either legacy number or typed shape, then defers structural validation to the constructor's `migrateSalvage` call. `restoreCrewMember` migrates `inventory.salvage` the same way.
+- New `tests/unit/game/salvage.test.ts` (21 tests) pins primitive contracts + migration paths. Existing Campaign / Crew / Tech / Run / persistence test suites were updated in place to use `makeSalvage`/`totalSalvage` instead of raw numbers; a CorpTurret loot test in `Run.test.ts` locks in chips-only drops. Full suite: 916/916 green.
 
 **Depends on:** M4.2 (typed salvage so pickup drops can grant typed components if/when consumables are also salvageable; pickup itself is an item, not salvage). M2.3 (hazards) for incendiary tile reuse.
 

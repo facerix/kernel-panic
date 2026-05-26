@@ -11,6 +11,7 @@ import {
   MELEE_DAMAGE,
   SALVAGE_PER_IMPROVISED_TURRET,
 } from '../../../src/game/constants.js';
+import { makeSalvage, totalSalvage } from '../../../src/game/salvage.js';
 import { Merc } from '../../../src/game/archetypes/Merc.js';
 import { Razor } from '../../../src/game/archetypes/Razor.js';
 import { Tech } from '../../../src/game/archetypes/Tech.js';
@@ -129,7 +130,7 @@ test('move onto a lootable corpse auto-salvages (M4.1)', () => {
   const drone = new CorpDrone({ id: 'corpse', x: 2, y: 3, maxAp: 3 });
   world.addEntity(drone);
   drone.damage(drone.maxHp);
-  drone.loot = { salvage: 4 };
+  drone.loot = { salvage: makeSalvage({ scrap: 4 }) };
   assert.equal(drone.alive, false);
 
   const apBefore = player.ap;
@@ -137,7 +138,8 @@ test('move onto a lootable corpse auto-salvages (M4.1)', () => {
 
   assert.equal(player.x, 2);
   assert.equal(player.y, 3, 'player stepped onto the corpse tile');
-  assert.equal(player.inventory.salvage, 4, 'salvage transferred on step');
+  assert.equal(player.inventory.salvage.scrap, 4, 'scrap transferred on step');
+  assert.equal(totalSalvage(player.inventory.salvage), 4, 'total wallet matches pickup');
   assert.equal(world.entities.has('corpse'), false, 'corpse removed from world (M4.1)');
   assert.ok(log.some(l => l.includes('salvages +4')), 'auto-salvage log line emitted');
   // MOVE + INTERACT AP were both spent.
@@ -152,15 +154,15 @@ test('move onto a corpse without INTERACT AP leaves the corpse and logs a hint',
   const drone = new CorpDrone({ id: 'corpse', x: 2, y: 3, maxAp: 3 });
   world.addEntity(drone);
   drone.damage(drone.maxHp);
-  drone.loot = { salvage: 2 };
+  drone.loot = { salvage: makeSalvage({ scrap: 2 }) };
 
   applyIntent({ type: 'move', dx: 0, dy: 1 }, ctx);
 
   assert.equal(player.x, 2);
   assert.equal(player.y, 3, 'move still committed');
-  assert.equal(player.inventory.salvage, 0, 'salvage NOT taken (no AP)');
+  assert.equal(totalSalvage(player.inventory.salvage), 0, 'salvage NOT taken (no AP)');
   assert.equal(world.entities.has('corpse'), true, 'corpse still in world');
-  assert.equal(drone.loot.salvage, 2, 'corpse loot untouched');
+  assert.equal(drone.loot.salvage.scrap, 2, 'corpse loot untouched');
   assert.ok(
     log.some(l => l.includes('stands on salvage')),
     'low-AP hint logged'
@@ -345,7 +347,7 @@ test('AP exhaustion triggers auto-end-turn during a move', () => {
 test('special on a Tech routes to improviseTurret when turretReady is false and salvage is available', () => {
   const { ctx, world, player } = buildCtx({ archetype: 'tech', placeDrone: false });
   player.initInventory();
-  player.inventory.salvage = SALVAGE_PER_IMPROVISED_TURRET;
+  player.inventory.salvage = makeSalvage({ scrap: SALVAGE_PER_IMPROVISED_TURRET });
   // Deploy the pre-built turret south — (2, 3) is plain floor.
   player.deployTurret(world, 0, 1);
   player.refreshAp();
@@ -353,13 +355,14 @@ test('special on a Tech routes to improviseTurret when turretReady is false and 
   applyIntent({ type: 'special', dx: -1, dy: 0 }, ctx);
   const placed = world.entityAt(1, 2);
   assert.ok(placed instanceof Turret, 'expected an improvised turret placed');
-  assert.equal(player.inventory.salvage, 0, 'salvage deducted for improvised turret');
+  assert.equal(player.inventory.salvage.scrap, 0, 'scrap deducted for improvised turret');
+  assert.equal(totalSalvage(player.inventory.salvage), 0, 'no other typed buckets touched');
 });
 
 test('special on a Tech with no turret and no salvage logs a denial', () => {
   const { ctx, player, log } = buildCtx({ archetype: 'tech', placeDrone: false });
   player.initInventory();
-  player.inventory.salvage = 0;
+  // Default emptySalvage wallet — no scrap, can't improvise.
   player.turretReady = false;
   applyIntent({ type: 'special', dx: 0, dy: 1 }, ctx);
   assert.ok(

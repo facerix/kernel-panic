@@ -4,10 +4,12 @@ import assert from 'node:assert/strict';
 import { Run, RUN_STATE, OUTCOME, isObjectiveSatisfied } from '../../../src/game/Run.js';
 import { OBJECTIVES } from '../../../src/game/hub/Curator.js';
 import { FACTION, SALVAGE_DROP_MIN, SALVAGE_DROP_MAX } from '../../../src/game/constants.js';
+import { totalSalvage, emptySalvage } from '../../../src/game/salvage.js';
 import { Entity } from '../../../src/game/Entity.js';
 import { Terminal } from '../../../src/game/entities/Terminal.js';
 import { EVENT } from '../../../src/game/events.js';
 import { Turret } from '../../../src/game/Turret.js';
+import { CorpTurret } from '../../../src/game/entities/CorpTurret.js';
 import { buildCrewMember } from '../../../src/game/archetypes/index.js';
 import { findPath } from '../../../src/game/Pathfinding.js';
 import { Rng } from '../../../src/rng.js';
@@ -321,9 +323,15 @@ test('killing a corp entity assigns loot to the target', () => {
     source: 'ranged',
   });
   assert.ok(drone.loot, 'killed drone should have loot assigned');
+  // M4.2: drone loot is typed — scrap-only for drones; total stays in the
+  // configured drop range.
+  assert.equal(drone.loot.salvage.chips, 0, 'drone loot has no chips');
+  assert.equal(drone.loot.salvage.bio, 0, 'drone loot has no bio');
+  assert.equal(drone.loot.salvage.data, 0, 'drone loot has no data');
+  const total = totalSalvage(drone.loot.salvage);
   assert.ok(
-    drone.loot.salvage >= SALVAGE_DROP_MIN && drone.loot.salvage <= SALVAGE_DROP_MAX,
-    `salvage ${drone.loot.salvage} outside [${SALVAGE_DROP_MIN}, ${SALVAGE_DROP_MAX}]`
+    total >= SALVAGE_DROP_MIN && total <= SALVAGE_DROP_MAX,
+    `salvage total ${total} outside [${SALVAGE_DROP_MIN}, ${SALVAGE_DROP_MAX}]`
   );
 });
 
@@ -343,7 +351,47 @@ test('killing a corp entity via turret also assigns loot', () => {
     source: 'ranged',
   });
   assert.ok(drone.loot, 'turret-killed drone should have loot');
-  assert.ok(drone.loot.salvage >= SALVAGE_DROP_MIN);
+  assert.ok(totalSalvage(drone.loot.salvage) >= SALVAGE_DROP_MIN);
+});
+
+test('killing a CorpTurret drops chips, not scrap (M4.2)', () => {
+  const run = new Run({ crewMember: makeCrew('merc'), seed: 1 });
+  run.enterBriefing(fakeContract());
+  run.enterCombat();
+  // Place a CorpTurret on a known floor tile near the player and kill it via
+  // the same damage-emit path that drone kills use.
+  const player = run.player;
+  const turret = new CorpTurret({
+    id: 'corp-turret-loot-test',
+    x: player.x + 2,
+    y: player.y,
+  });
+  // Find a passable tile if (x+2, y) is blocked — bumping is fine for the test.
+  while (
+    !run.world.grid.isPassable(turret.x, turret.y) ||
+    run.world.entityAt(turret.x, turret.y)
+  ) {
+    turret.x++;
+    if (turret.x >= run.world.grid.w) throw new Error('no passable tile for CorpTurret');
+  }
+  run.world.addEntity(turret);
+  turret.damage(turret.maxHp);
+  run.bus.emit('entity:damaged', {
+    attacker: run.player,
+    target: turret,
+    damage: turret.maxHp,
+    killed: true,
+    source: 'ranged',
+  });
+  assert.ok(turret.loot, 'killed corp turret should have loot assigned');
+  assert.equal(turret.loot.salvage.scrap, 0, 'turret loot has no scrap');
+  assert.equal(turret.loot.salvage.bio, 0, 'turret loot has no bio');
+  assert.equal(turret.loot.salvage.data, 0, 'turret loot has no data');
+  assert.ok(
+    turret.loot.salvage.chips >= SALVAGE_DROP_MIN &&
+      turret.loot.salvage.chips <= SALVAGE_DROP_MAX,
+    `chips ${turret.loot.salvage.chips} outside [${SALVAGE_DROP_MIN}, ${SALVAGE_DROP_MAX}]`
+  );
 });
 
 test('non-lethal damage does not assign loot', () => {
@@ -378,7 +426,7 @@ test('loot rolls are deterministic across seeds', () => {
       killed: true,
       source: 'ranged',
     });
-    loots.push(drone.loot.salvage);
+    loots.push(totalSalvage(drone.loot.salvage));
   }
   assert.equal(loots[0], loots[1], 'same seed should produce same loot');
 });
@@ -388,7 +436,8 @@ test('player inventory is initialised at job deploy (enterCombat)', () => {
   run.enterBriefing(fakeContract());
   run.enterCombat();
   assert.ok(run.player.inventory, 'inventory should be initialised');
-  assert.equal(run.player.inventory.salvage, 0);
+  // M4.2: fresh inventory has a typed-empty wallet.
+  assert.deepEqual(run.player.inventory.salvage, emptySalvage());
   assert.deepEqual(run.player.inventory.consumables, []);
 });
 

@@ -5,6 +5,7 @@ import { Grid } from '../../../src/game/Grid.js';
 import { Entity } from '../../../src/game/Entity.js';
 import { World } from '../../../src/game/World.js';
 import { TILE, FACTION, AP_COST } from '../../../src/game/constants.js';
+import { makeSalvage } from '../../../src/game/salvage.js';
 
 const makePlayer = (x, y, overrides = {}) =>
   new Entity({ id: 'p', x, y, faction: FACTION.PLAYER, glyph: '@', ...overrides });
@@ -51,7 +52,7 @@ test('World.lootableCorpseAt finds a corpse even when a live actor shares the ti
   const corpse = new Entity({ id: 'd', x: 2, y: 2, faction: FACTION.CORP, glyph: 'd' });
   w.addEntity(corpse);
   corpse.alive = false;
-  corpse.loot = { salvage: 2 };
+  corpse.loot = { salvage: makeSalvage({ scrap: 2 }) };
   const player = makePlayer(2, 2);
   w.addEntity(player);
   assert.equal(w.lootableCorpseAt(2, 2), corpse);

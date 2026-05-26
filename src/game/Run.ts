@@ -37,6 +37,7 @@ import { World } from './World.js';
 import { TurnQueue } from './TurnQueue.js';
 import { EventBus, EVENT } from './events.js';
 import { FACTION, TILE, SALVAGE_DROP_MIN, SALVAGE_DROP_MAX } from './constants.js';
+import { makeSalvage, type TypedSalvage } from './salvage.js';
 import { Entity, type LootableEntity } from './Entity.js';
 import { Hostile } from './Hostile.js';
 import { Crew } from './Crew.js';
@@ -610,12 +611,28 @@ export class Run {
 
     // M3: assign loot to killed hostiles. The loot roll uses the Run's own
     // Rng so it's deterministic on the contract seed.
+    // M4.2: loot is now typed — drones drop scrap (mechanical), corp turrets
+    // drop chips (electronics). Other future Hostiles fall through to the
+    // scrap default so adding a new enemy class doesn't break the loot loop.
     const lootTarget = target as Partial<LootableEntity>;
     if (killed && target instanceof Hostile && !lootTarget.loot) {
-      lootTarget.loot = {
-        salvage: this.rng.intRange(SALVAGE_DROP_MIN, SALVAGE_DROP_MAX + 1),
-      };
+      lootTarget.loot = { salvage: this.#rollLoot(target) };
     }
+  }
+
+  /**
+   * Roll typed loot for a freshly-killed hostile. Drone = scrap, turret = chips,
+   * everything else = scrap (safe default).
+   */
+  #rollLoot(target: Hostile): TypedSalvage {
+    if (target instanceof CorpTurret) {
+      // Pure electronics — chips only. Slightly tighter range than drones
+      // since turrets are infrastructure rather than mobile threats.
+      return makeSalvage({ chips: this.rng.intRange(SALVAGE_DROP_MIN, SALVAGE_DROP_MAX + 1) });
+    }
+    return makeSalvage({
+      scrap: this.rng.intRange(SALVAGE_DROP_MIN, SALVAGE_DROP_MAX + 1),
+    });
   }
 
   #onEntityMoved({ entity, to }: EntityMovedPayload): void {

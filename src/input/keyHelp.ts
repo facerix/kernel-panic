@@ -61,9 +61,12 @@ export const HELP_ROWS = Object.freeze([
     group: 'action',
   },
   {
+    // M4.2: inventory is available in both Hub and combat. In Hub it shows
+    // the campaign salvage wallet (no consumables); in combat it shows the
+    // deployed crew member's job-scoped wallet + their consumables.
     keys: Object.freeze(['i']),
-    label: 'Inventory (use consumables)',
-    scope: 'combat',
+    label: 'Inventory (salvage + consumables)',
+    scope: 'both',
     group: 'action',
   },
   // --- system -----------------------------------------------------------

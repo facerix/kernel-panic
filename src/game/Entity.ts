@@ -2,6 +2,7 @@ import { DEFAULT_AP, DEFAULT_HP, FACTION, type FactionId } from './constants.js'
 import type { TurnActionStep, TurnActionSteps } from '../types.js';
 import type { Rng } from '../rng.js';
 import type { World } from './World.js';
+import type { TypedSalvage } from './salvage.js';
 
 export interface EntityInit {
   id: string;
@@ -22,7 +23,7 @@ export interface EntityInit {
  * damage, is data corruption we want surfaced early.
  */
 export interface LootableEntity extends Entity {
-  loot: { salvage: number };
+  loot: { salvage: TypedSalvage };
 }
 
 export class Entity {

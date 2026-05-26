@@ -167,7 +167,10 @@ export class Tech extends Crew {
     if (!this.inventory) {
       return { ok: false, reason: 'no-inventory' };
     }
-    if (this.inventory.salvage < SALVAGE_PER_IMPROVISED_TURRET) {
+    // M4.2: improvised turrets are mechanical assemblies — cost is paid in
+    // scrap. Other typed salvage (chips/bio/data) is not interchangeable; a
+    // Tech sitting on chips but no scrap can't improvise.
+    if (this.inventory.salvage.scrap < SALVAGE_PER_IMPROVISED_TURRET) {
       return { ok: false, reason: 'insufficient-salvage' };
     }
     const tx = this.x + dx;
@@ -197,7 +200,7 @@ export class Tech extends Crew {
     const tx = this.x + dx;
     const ty = this.y + dy;
     this.spendAp(AP_COST.DEPLOY);
-    this.inventory!.salvage -= SALVAGE_PER_IMPROVISED_TURRET;
+    this.inventory!.salvage.scrap -= SALVAGE_PER_IMPROVISED_TURRET;
     this._improvisedTurretCount++;
     const turret = new Turret({
       id: `${this.id}-imp-turret-${this._improvisedTurretCount}`,

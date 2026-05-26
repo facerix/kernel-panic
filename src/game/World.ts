@@ -1,6 +1,7 @@
 import { AP_COST, NOISE_RADIUS } from './constants.js';
 import { EVENT } from './events.js';
 import { Interactable } from './entities/Interactable.js';
+import { totalSalvage } from './salvage.js';
 import type { Grid } from './Grid.js';
 import type { Entity, LootableEntity } from './Entity.js';
 import type { EventBus } from './events.js';
@@ -198,14 +199,15 @@ export class World {
   }
 
   /**
-   * Dead entity on `(x, y)` with `loot.salvage > 0`, if any. Scans every
-   * occupant so co-located live + corpse (legal after moving onto a body)
-   * still resolves the lootable target.
+   * Dead entity on `(x, y)` with non-empty typed `loot.salvage`, if any. Scans
+   * every occupant so co-located live + corpse (legal after moving onto a
+   * body) still resolves the lootable target.
    */
   lootableCorpseAt(x: number, y: number): LootableEntity | null {
     for (const e of this.entities.values()) {
       if (e.x !== x || e.y !== y) continue;
-      if (!e.alive && (e as LootableEntity).loot && (e as LootableEntity).loot.salvage > 0)
+      const loot = (e as LootableEntity).loot;
+      if (!e.alive && loot && loot.salvage && totalSalvage(loot.salvage) > 0)
         return e as LootableEntity;
     }
     return null;

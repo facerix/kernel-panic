@@ -14,9 +14,15 @@ import { ITEM_ID } from './items.js';
 import type { Item } from './items.js';
 import type { World } from './World.js';
 import type { EntityInit, LootableEntity } from './Entity.js';
+import {
+  emptySalvage,
+  addSalvage,
+  totalSalvage,
+  type TypedSalvage,
+} from './salvage.js';
 
 export type Inventory = {
-  salvage: number;
+  salvage: TypedSalvage;
   consumables: Item[];
 };
 
@@ -26,7 +32,7 @@ export type Gear = {
   dodgeBonus: number;
 };
 
-const createDefaultInventory = (): Inventory => ({ salvage: 0, consumables: [] });
+const createDefaultInventory = (): Inventory => ({ salvage: emptySalvage(), consumables: [] });
 const createDefaultGear = (): Gear => ({ maxHpBonus: 0, hitBonus: 0, dodgeBonus: 0 });
 
 /**
@@ -279,7 +285,10 @@ export class Crew extends Entity {
     if (targetEntity.alive) {
       throw new Error(`collectSalvage: target ${targetEntity.id} is still alive`);
     }
-    if (!targetEntity.loot || !targetEntity.loot.salvage || targetEntity.loot.salvage <= 0) {
+    if (!targetEntity.loot || !targetEntity.loot.salvage) {
+      throw new Error(`collectSalvage: no salvage loot on ${targetEntity.id}`);
+    }
+    if (totalSalvage(targetEntity.loot.salvage) <= 0) {
       throw new Error(`collectSalvage: no salvage loot on ${targetEntity.id}`);
     }
     const dx = Math.abs(targetEntity.x - this.x);
@@ -290,8 +299,11 @@ export class Crew extends Entity {
       );
     }
     this.spendAp(AP_COST.INTERACT);
-    this.inventory.salvage += targetEntity.loot.salvage;
-    targetEntity.loot.salvage = 0;
+    // M4.2: typed salvage — fold the corpse's typed loot into the crew
+    // member's typed wallet, then zero each bucket on the corpse before
+    // removing it. Total preserved across the four buckets.
+    addSalvage(this.inventory.salvage, targetEntity.loot.salvage);
+    targetEntity.loot.salvage = emptySalvage();
     // M4.1: strip the corpse from the world so the tile renders as empty and
     // no longer registers in `anyEntityAt` / `lootableCorpseAt`. Pathing was
     // already unaffected (corpses don't block movement), but the visual
