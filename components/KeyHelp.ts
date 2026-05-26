@@ -15,7 +15,7 @@
  * other panels) — see /index.js.
  */
 
-import { h } from '/src/domUtils.js';
+import { h, hFrag } from '/src/domUtils.js';
 import { describeKeymap } from '/src/input/keyHelp.js';
 import { ARCHETYPES } from '/src/game/archetypes/index.js';
 import type { ArchetypeInfo } from '/src/game/archetypes/index.js';
@@ -30,16 +30,10 @@ const KEY_LABEL = Object.freeze({
 });
 
 const GROUPS = Object.freeze([
-  { id: 'move', title: 'MOVE' },
-  { id: 'action', title: 'ACTION' },
+  { id: 'move', title: 'MOVEMENT' },
+  { id: 'action', title: 'ACTIONS' },
   { id: 'system', title: 'SYSTEM' },
 ]);
-
-const GROUP_NOTES: Record<string, string> = Object.freeze({
-  move: 'Move into a hostile = melee, into an ally or neutral = interact',
-  action: '',
-  system: '',
-});
 
 /** True when the primary pointer is coarse (touch / most on-screen pads). */
 function isCoarsePointer() {
@@ -119,17 +113,13 @@ const CSS = `
   margin-bottom: 0;
 }
 
-.tile-hints {
-  .tile-hints-content {
-    display: grid;
-    grid-template-columns: max-content 1fr;
-    grid-auto-flow: column;
-    align-items: baseline;
-    column-gap: 2rem;
-    row-gap: 0.18rem;
-    margin: 0.5rem 0 0;
-    font-size: 0.9rem;
-  }
+.tile-hints-content {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  column-gap: 1rem;
+  align-items: start;
+  margin: 0.5rem 0 0;
+  font-size: 0.9rem;
 }
 
 .controls-note {
@@ -158,6 +148,10 @@ const CSS = `
     font-size: 0.72rem;
     opacity: 0.95;
   }
+  section.group h3 {
+    font-size: 0.65rem !important;
+    opacity: 0.95;
+  }
   dl.rows {
     font-size: 0.82rem;
   }
@@ -170,7 +164,7 @@ section.group {
 
 section.group h3 {
   margin: 0 0 0.25rem;
-  font-size: 0.8rem;
+  font-size: 0.72rem;
   letter-spacing: 0.16em;
   color: var(--help-dim);
 }
@@ -187,6 +181,7 @@ dl.rows {
 dl.rows dt {
   color: var(--help-accent);
   white-space: nowrap;
+  text-align: center;
 }
 
 dl.rows dd {
@@ -285,29 +280,13 @@ class KeyHelp extends HTMLElement {
   #render() {
     if (!this.#body) return;
     while (this.#body.firstChild) this.#body.removeChild(this.#body.firstChild);
-    this.#body.appendChild(this.#buildIntro());
+    const touchDevice = isCoarsePointer();
+
+    this.#body.appendChild(this.#buildIntro(touchDevice));
     this.#body.appendChild(this.#buildTileHints());
-    this.#body.appendChild(h('h3', { className: 'section-label', textContent: 'SHORTCUTS' }));
-    // `describeKeymap` throws on a bad scope — propagate, don't paper over.
-    const rows = describeKeymap(this.#scope);
-    for (const group of GROUPS) {
-      const groupRows = rows.filter(r => r.group === group.id);
-      if (groupRows.length === 0) continue;
-      const bodyChildren = [h('h3', { textContent: group.title })];
-      const note = GROUP_NOTES[group.id];
-      if (note) {
-        bodyChildren.push(h('p', { className: 'group-note', textContent: note }));
-      }
-      const dl = h('dl', { className: 'rows' });
-      for (const r of groupRows) {
-        const label = r.label.includes('{perkLabel}')
-          ? r.label.replace('{perkLabel}', this.#archetypeInfo?.perkLabel ?? '')
-          : r.label;
-        dl.appendChild(h('dt', { textContent: joinKeys(r.keys as string[]) }));
-        dl.appendChild(h('dd', { textContent: label }));
-      }
-      bodyChildren.push(dl);
-      this.#body.appendChild(h('section', { className: 'group' }, bodyChildren));
+
+    if (!touchDevice) {
+      this.#body.appendChild(this.#buildKeybinds());
     }
   }
 
@@ -315,9 +294,8 @@ class KeyHelp extends HTMLElement {
    * Short gameplay primer + pointer-specific control hint. Copy is hand-tuned
    * to match Hub vs Combat scope from `helpScopeForRunState()` in index.js.
    */
-  #buildIntro() {
+  #buildIntro(touchDevice = false) {
     const scope = this.#scope;
-    const coarse = isCoarsePointer();
 
     const shared = h('p', {
       textContent:
@@ -336,12 +314,12 @@ class KeyHelp extends HTMLElement {
       textContent: `Opposing drones and defenses act after you wait (.) and pass the round. Walls and corners break line of sight for ranged shots; melee is usually cheaper AP than firing. ${perkHint} — pick it, aim a direction when prompted, then confirm.`,
     });
 
-    const controlHint = coarse
-      ? h('p', {
-          className: 'controls-note',
-          textContent:
-            'On touch devices the on-screen pad along the bottom sends the same intents as the shortcut list below — use it first, and treat the keys as a reference.',
-        })
+    const moveHint = h('p', {
+      textContent: 'Moving into a hostile attacks; into anything else, you interact.',
+    });
+
+    const controlHint = touchDevice
+      ? null
       : h('p', {
           className: 'controls-note',
           textContent: 'Use the shortcut table below as a live reference while you play.',
@@ -351,21 +329,39 @@ class KeyHelp extends HTMLElement {
       h('h3', { className: 'intro-heading', textContent: 'HOW TO PLAY' }),
       shared,
       scope === 'hub' ? hubExtra : combatExtra,
+      moveHint,
       controlHint,
-    ];
+    ].filter(Boolean) as HTMLElement[]; // the filter strips out nulls, but TS can't infer the type
 
     return h('div', { className: 'intro' }, children);
   }
 
+  /**
+   * Build the tile hints section. Always shown, but content varies depending on location.
+   */
   #buildTileHints() {
     const scope = this.#scope;
+    const inCombat = scope === 'combat';
 
     const universalTiles = h('dl', { className: 'rows' }, [
       h('dt', { textContent: '#' }),
       h('dd', { textContent: 'wall' }),
+      h('dt', { textContent: '=' }),
+      h('dd', { textContent: 'cover' }),
       h('dt', { textContent: '¤' }),
       h('dd', { textContent: 'exit' }),
+      hFrag(
+        inCombat
+          ? [
+              h('dt', { textContent: '░' }),
+              h('dd', { textContent: 'smoke' }),
+              h('dt', { textContent: '▓' }),
+              h('dd', { textContent: 'hazard' }),
+            ]
+          : []
+      ),
     ]);
+
     const hubTiles = h('dl', { className: 'rows' }, [
       h('dt', { textContent: 'C' }),
       h('dd', { textContent: 'Curator' }),
@@ -374,11 +370,31 @@ class KeyHelp extends HTMLElement {
       h('dt', { textContent: '‡' }),
       h('dd', { textContent: 'Crew terminal' }),
     ]);
-    const combatTiles = h('dl', { className: 'rows' }, [
-      h('dt', { textContent: '=' }),
-      h('dd', { textContent: 'cover (some protection from shots)' }),
-      h('dt', { textContent: '░' }),
-      h('dd', { textContent: 'smoke' }),
+    const combatTiles = hFrag([
+      h('dl', { className: 'rows' }, [
+        h('dt', { textContent: 'd' }),
+        h('dd', { textContent: 'corp drone' }),
+        h('dt', { textContent: 'c' }),
+        h('dd', { textContent: 'corp civilian' }),
+        h('dt', { textContent: '$' }),
+        h('dd', { textContent: 'corp turret' }),
+        h('dt', { textContent: '◆' }),
+        h('dd', { textContent: 'corp asset' }),
+        h('dt', { textContent: '~' }),
+        h('dd', { textContent: 'relay node' }),
+      ]),
+      h('dl', { className: 'rows' }, [
+        h('dt', { textContent: '‡' }),
+        h('dd', { textContent: 'terminal' }),
+        h('dt', { textContent: '§' }),
+        h('dd', { textContent: 'mirror unit' }),
+        h('dt', { textContent: '&' }),
+        h('dd', { textContent: 'handoff contact' }),
+        h('dt', { textContent: 'A' }),
+        h('dd', { textContent: 'escort ally' }),
+        h('dt', { textContent: '! *' }),
+        h('dd', { textContent: 'dead drops' }),
+      ]),
     ]);
 
     const children = [
@@ -390,6 +406,35 @@ class KeyHelp extends HTMLElement {
     return h('section', { className: 'tile-hints' }, [
       h('h3', { className: 'section-label', textContent: 'KEY TO MAP SYMBOLS' }),
       h('div', { className: 'tile-hints-content' }, children as HTMLElement[]),
+    ]);
+  }
+
+  /**
+   * Build the keybinds section. Only shown on non-touch devices.
+   */
+  #buildKeybinds() {
+    // `describeKeymap` throws on a bad scope — propagate, don't paper over.
+    const rows = describeKeymap(this.#scope);
+    const sections = [];
+    for (const group of GROUPS) {
+      const groupRows = rows.filter(r => r.group === group.id);
+      if (groupRows.length === 0) continue;
+      const dl = h('dl', { className: 'rows' });
+      for (const r of groupRows) {
+        const label = r.label.includes('{perkLabel}')
+          ? r.label.replace('{perkLabel}', this.#archetypeInfo?.perkLabel ?? '')
+          : r.label;
+        dl.appendChild(h('dt', { textContent: joinKeys(r.keys as string[]) }));
+        dl.appendChild(h('dd', { textContent: label }));
+      }
+      sections.push(
+        h('section', { className: 'group' }, [h('h3', { textContent: group.title }), dl])
+      );
+    }
+
+    return h('div', { className: 'keybinds' }, [
+      h('h3', { className: 'section-label', textContent: 'SHORTCUTS' }),
+      ...sections,
     ]);
   }
 

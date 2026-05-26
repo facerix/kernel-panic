@@ -14,6 +14,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { Turret, runTurretAutoFire } from '../../../src/game/Turret.js';
+import { CorpDrone } from '../../../src/game/ai/CorpDrone.js';
+import { CorpCivilian } from '../../../src/game/entities/CorpCivilian.js';
 import { Entity } from '../../../src/game/Entity.js';
 import { Grid } from '../../../src/game/Grid.js';
 import { World } from '../../../src/game/World.js';
@@ -32,6 +34,10 @@ function makeWorld({ grid, withBus = false } = {}) {
   const bus = withBus ? new EventBus() : null;
   const world = new World(g, bus ? { events: bus } : {});
   return { world, bus };
+}
+
+function makeDrone(overrides: ConstructorParameters<typeof CorpDrone>[0]) {
+  return new CorpDrone(overrides);
 }
 
 test('Turret constructor defaults to PLAYER faction, glyph "T", maxAp 0', () => {
@@ -95,9 +101,9 @@ test('Turret.findTarget picks the nearest live corp drone within range', () => {
   const { world } = makeWorld();
   const turret = new Turret({ id: 't1', x: 5, y: 5 });
   // Three hostiles at distinct distances; nearest is at (5, 7) (cheb 2).
-  const near = new Entity({ id: 'near', x: 5, y: 7, faction: FACTION.CORP, glyph: 'd' });
-  const mid = new Entity({ id: 'mid', x: 7, y: 8, faction: FACTION.CORP, glyph: 'd' });
-  const far = new Entity({ id: 'far', x: 9, y: 8, faction: FACTION.CORP, glyph: 'd' });
+  const near = makeDrone({ id: 'near', x: 5, y: 7 });
+  const mid = makeDrone({ id: 'mid', x: 7, y: 8 });
+  const far = makeDrone({ id: 'far', x: 9, y: 8 });
   world.addEntity(turret);
   world.addEntity(near);
   world.addEntity(mid);
@@ -110,7 +116,7 @@ test('Turret.findTarget excludes hostiles outside TURRET_RANGE', () => {
   const { world } = makeWorld({ grid });
   const turret = new Turret({ id: 't1', x: 2, y: 2 });
   // Place a hostile well outside the 4-tile default range.
-  const farDrone = new Entity({ id: 'far', x: 19, y: 19, faction: FACTION.CORP, glyph: 'd' });
+  const farDrone = makeDrone({ id: 'far', x: 19, y: 19 });
   world.addEntity(turret);
   world.addEntity(farDrone);
   assert.equal(turret.findTarget(world), null, 'out-of-range hostiles must not be picked');
@@ -123,7 +129,7 @@ test('Turret.findTarget excludes hostiles with a wall on the sightline', () => {
   const { world } = makeWorld({ grid });
   const turret = new Turret({ id: 't1', x: 4, y: 5 });
   // Drone within Cheb-4 but blocked by the wall column.
-  const drone = new Entity({ id: 'd', x: 8, y: 5, faction: FACTION.CORP, glyph: 'd' });
+  const drone = makeDrone({ id: 'd', x: 8, y: 5 });
   // Need to put drone on a passable tile — it's at x=8 which is FLOOR.
   world.addEntity(turret);
   world.addEntity(drone);
@@ -133,7 +139,7 @@ test('Turret.findTarget excludes hostiles with a wall on the sightline', () => {
 test('Turret.findTarget excludes dead hostiles', () => {
   const { world } = makeWorld();
   const turret = new Turret({ id: 't1', x: 3, y: 3 });
-  const drone = new Entity({ id: 'd', x: 4, y: 3, faction: FACTION.CORP, glyph: 'd' });
+  const drone = makeDrone({ id: 'd', x: 4, y: 3 });
   world.addEntity(turret);
   world.addEntity(drone);
   drone.damage(drone.maxHp); // kill
@@ -164,7 +170,7 @@ test('Turret.autoFire commits a free shot through resolveRanged on a target hit'
   // first draw at seed 1 is ~0.27, below default 0.75 threshold).
   const { world, bus } = makeWorld({ withBus: true });
   const turret = new Turret({ id: 't1', x: 3, y: 3 });
-  const drone = new Entity({ id: 'd', x: 4, y: 3, faction: FACTION.CORP, glyph: 'd', maxHp: 3 });
+  const drone = makeDrone({ id: 'd', x: 4, y: 3, maxHp: 3 });
   world.addEntity(turret);
   world.addEntity(drone);
 
@@ -216,7 +222,32 @@ test('runTurretAutoFire skips destroyed turrets entirely (no entry in result)', 
   assert.equal(results[0].turret.id, 't1');
 });
 
-// --- M5: turrets must not target NEUTRAL civilians ---------------------------
+// --- M5: turrets must not target non-combatants ------------------------------
+
+test('turret does not target CorpCivilian (corp non-combatant)', () => {
+  const { world } = makeWorld({ withBus: true });
+  const turret = new Turret({ id: 'sentry', x: 3, y: 3 });
+  const civilian = new CorpCivilian({ id: 'desk-clerk', x: 4, y: 3 });
+  world.addEntity(turret);
+  world.addEntity(civilian);
+
+  assert.equal(turret.findTarget(world), null, 'CorpCivilian must not be targeted');
+  const result = turret.autoFire(world, new Rng(1));
+  assert.equal(result.type, 'idle');
+  assert.equal(result.reason, 'no-target');
+});
+
+test('turret prefers CorpDrone over nearby CorpCivilian', () => {
+  const { world } = makeWorld();
+  const turret = new Turret({ id: 'sentry', x: 3, y: 3 });
+  const civilian = new CorpCivilian({ id: 'desk-clerk', x: 3, y: 4 });
+  const drone = makeDrone({ id: 'd', x: 5, y: 3 });
+  world.addEntity(turret);
+  world.addEntity(civilian);
+  world.addEntity(drone);
+
+  assert.equal(turret.findTarget(world), drone, 'must engage combatant, not civilian');
+});
 
 test('turret does not target NEUTRAL-faction entities', () => {
   const { world } = makeWorld({ withBus: true });

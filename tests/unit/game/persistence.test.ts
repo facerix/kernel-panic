@@ -3,31 +3,68 @@ import assert from 'node:assert/strict';
 
 import { Campaign } from '../../../src/game/Campaign.js';
 import { Run } from '../../../src/game/Run.js';
-import { OBJECTIVES } from '../../../src/game/hub/Curator.js';
+import { buildContractRecipeFixture, OBJECTIVES } from '../../../src/game/hub/Curator.js';
+import { Terminal } from '../../../src/game/entities/Terminal.js';
 import {
   restore,
   restoreCampaign,
   snapshot,
   snapshotCampaign,
 } from '../../../src/game/persistence.js';
-import { FACTION, SALVAGE_TO_CRED_RATE } from '../../../src/game/constants.js';
+import { CONTRACT_DIFFICULTY, FACTION, SALVAGE_TO_CRED_RATE } from '../../../src/game/constants.js';
+import { makeSalvage, totalSalvage } from '../../../src/game/salvage.js';
 import { buildCrewMember } from '../../../src/game/archetypes/index.js';
 import { Rng } from '../../../src/rng.js';
+import { testContractContext } from './contractTestUtils.js';
 
 const fakeContract = (overrides = {}) => ({
   seed: 12345,
-  objective: OBJECTIVES.REACH_EXIT,
+  objective: {
+    kind: OBJECTIVES.REACH_EXIT,
+    title: 'Extract clean',
+    briefing: 'Reach the exit.',
+  },
   difficulty: 'standard',
   threatCount: 1,
   label: 'test job',
+  context: testContractContext(OBJECTIVES.REACH_EXIT),
   reward: { credits: 0, repDelta: 0 },
   ...overrides,
 });
+
+const terminalSliceContract = (overrides = {}) =>
+  fakeContract({
+    objective: {
+      kind: OBJECTIVES.TERMINAL_SLICE,
+      title: 'Slice server rack',
+      briefing: 'Reach the server terminal, complete the slice, then extract.',
+      params: { target: 'server-rack', count: 1 },
+    },
+    label: 'terminal test job',
+    context: testContractContext(OBJECTIVES.TERMINAL_SLICE),
+    ...overrides,
+  });
 
 function makeCrew(archetype = 'razor') {
   return buildCrewMember(archetype, { x: 0, y: 0 }, new Rng(100), {
     id: `crew-${archetype}`,
   });
+}
+
+function relocateAdjacentTo(run, entity) {
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      if (dx === 0 && dy === 0) continue;
+      const x = entity.x + dx;
+      const y = entity.y + dy;
+      if (!run.world.grid.inBounds(x, y)) continue;
+      if (!run.world.grid.isPassable(x, y)) continue;
+      if (run.world.liveEntityAt(x, y)) continue;
+      run.world.relocateEntity(run.player, x, y);
+      return;
+    }
+  }
+  throw new Error(`No adjacent passable tile for ${entity.id}`);
 }
 
 function freshCombatRun(seed = 1, archetype = 'razor') {
@@ -138,6 +175,53 @@ test('restore preserves turnNumber and currentFaction', () => {
   assert.equal(queue.currentFaction, run.queue.currentFaction);
 });
 
+test('snapshot/restore round-trips terminal interactable state', () => {
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 0x51ced });
+  run.enterBriefing(terminalSliceContract());
+  run.enterCombat();
+  const terminal = [...run.world.entities.values()].find(e => e instanceof Terminal);
+  assert.ok(terminal, 'expected a terminal interactable');
+
+  relocateAdjacentTo(run, terminal);
+  terminal.interact(run.world, run.player);
+
+  const rec = snapshot(run);
+  const terminalRec = rec.entities.find(e => e.id === terminal.id);
+  assert.equal(terminalRec.terminal?.sliced, true);
+  assert.equal(terminalRec.terminal?.armed, false);
+
+  const { world: restoredWorld } = restore(rec);
+  const restoredTerminal = [...restoredWorld.entities.values()].find(e => e instanceof Terminal);
+  assert.ok(restoredTerminal, 'expected restored terminal');
+  assert.equal(restoredTerminal.sliced, true);
+  assert.equal(restoredTerminal.armed, false);
+});
+
+test('snapshot/restore round-trips alarm cadence state', () => {
+  const run = freshCombatRun(0xa1a12);
+  run.world.raiseAlarm({ origin: { x: run.player.x, y: run.player.y } });
+  run.world.tickAlarm();
+
+  const rec = snapshot(run);
+  assert.equal(rec.alarm.phase, 'alert');
+  assert.equal(rec.alarm.holdTurnsRemaining, 1);
+
+  const { world: restoredWorld } = restore(rec);
+  assert.deepEqual(restoredWorld.alarm, run.world.alarm);
+  assert.equal(restoredWorld.alarmActive, true);
+});
+
+test('restore migrates legacy alarmActive run snapshots into alarm state', () => {
+  const run = freshCombatRun(0xa1a13);
+  const rec = snapshot(run);
+  delete rec.alarm;
+  rec.alarmActive = true;
+
+  const { world: restoredWorld } = restore(rec);
+  assert.equal(restoredWorld.alarm.phase, 'alert');
+  assert.equal(restoredWorld.alarmActive, true);
+});
+
 test('restore throws on corrupt run records', () => {
   const run = freshCombatRun(1);
   const missingRng = snapshot(run);
@@ -186,7 +270,9 @@ test('snapshot without a Run instance throws TypeError', () => {
 
 test('campaign snapshot/restore round-trips campaign scope', () => {
   const campaign = new Campaign({ seed: 0xface });
-  campaign.salvage = 7;
+  // M4.2: typed-salvage wallet round-trip (use all four buckets to prove the
+  // shape survives without scrap-only flattening).
+  campaign.salvage = makeSalvage({ scrap: 3, chips: 2, bio: 1, data: 1 });
   campaign.credits = 90;
   campaign.rep = 62;
   campaign.meta = { expandedCatalog: true };
@@ -197,7 +283,8 @@ test('campaign snapshot/restore round-trips campaign scope', () => {
   const recB = snapshotCampaign(restored);
 
   assert.deepEqual(recB, recA);
-  assert.equal(restored.salvage, 7);
+  assert.deepEqual(restored.salvage, makeSalvage({ scrap: 3, chips: 2, bio: 1, data: 1 }));
+  assert.equal(totalSalvage(restored.salvage), 7);
   assert.equal(restored.credits, 90);
   assert.equal(restored.rep, 62);
   assert.deepEqual(restored.meta, { expandedCatalog: true });
@@ -219,12 +306,41 @@ test('campaign snapshot captures an active briefing job', () => {
   assert.equal(restored.activeRun.crewMember.id, campaign.crew[2].id);
 });
 
+test('campaign snapshot preserves generated contract context metadata', () => {
+  const campaign = new Campaign({ seed: 0xbeef });
+  const contract = buildContractRecipeFixture({
+    recipeId: 'dual-site-sync',
+    principalId: 'matsuda',
+    siteId: 'contractor-annex',
+    assetId: 'payroll',
+    actionId: 'mirror',
+    difficulty: CONTRACT_DIFFICULTY.STANDARD,
+    seed: 0x1234,
+    arcStage: 'act-1',
+  });
+  campaign.deployCrewMember(campaign.crew[2].id, contract);
+  const rec = snapshotCampaign(campaign);
+
+  const restored = restoreCampaign(rec);
+
+  assert.deepEqual(restored.activeRun!.contract!.context, contract.context);
+  assert.equal(restored.activeRun!.contract!.label, '// Matsuda payroll mirror');
+});
+
 test('restoreCampaign restores legacy snapshots without credits as zero', () => {
+  // M4.2: passing a legacy numeric salvage exercises the constructor's
+  // `migrateSalvage` path — it should bucket into scrap on load. Then we
+  // overwrite the snapshot to look pre-M4.2 (numeric salvage) and confirm
+  // restoreCampaign also accepts and migrates it.
   const campaign = new Campaign({ seed: 0xc0de, salvage: 4, credits: 70 });
   const rec = snapshotCampaign(campaign) as Record<string, unknown>;
   delete rec.credits;
+  // Force the salvage field back to legacy number shape so we are actually
+  // exercising the migration on restore, not just the typed round-trip.
+  rec.salvage = 4;
   const restored = restoreCampaign(rec);
-  assert.equal(restored.salvage, 4);
+  assert.deepEqual(restored.salvage, makeSalvage({ scrap: 4 }));
+  assert.equal(totalSalvage(restored.salvage), 4);
   assert.equal(restored.credits, 0);
 });
 
@@ -239,6 +355,19 @@ test('restoreCampaign migrates legacy active-run salvage rewards to Creds', () =
 
   assert.equal(restored.activeRun!.contract.reward.credits, 6 * SALVAGE_TO_CRED_RATE);
   assert.equal(restored.activeRun!.contract.reward.repDelta, 2);
+});
+
+test('restoreCampaign migrates legacy string objectives to objective records', () => {
+  const campaign = new Campaign({ seed: 0xbeef });
+  campaign.deployCrewMember(campaign.crew[2].id, fakeContract({ label: 'legacy objective' }));
+  const rec = snapshotCampaign(campaign) as Record<string, unknown>;
+  const activeRun = rec.activeRun as { contract: { objective: unknown } };
+  activeRun.contract.objective = OBJECTIVES.REACH_EXIT;
+
+  const restored = restoreCampaign(rec);
+
+  assert.equal(restored.activeRun!.contract.objective.kind, OBJECTIVES.REACH_EXIT);
+  assert.equal(typeof restored.activeRun!.contract.objective.briefing, 'string');
 });
 
 test('restoreCampaign throws on corrupt campaign records', () => {

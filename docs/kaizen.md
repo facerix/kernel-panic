@@ -14,15 +14,22 @@ When an item lands, gets reclassified, or develops new context, edit it in place
 
 ## ▶ Phase 2 candidates
 
-- **Corpse positions aren't memorised.** Live and dead entities follow the same "we don't track where things were" rule — duck out of LOS and the corpse vanishes from memory until you can see the tile again. Logically a corpse doesn't move, so memorising them would be more honest. **(→ M3: load-bearing for the salvage loop — players must be able to navigate back to a corpse they saw fall. `VisionField.memorisedCorpses` map + dim render pass.)**
+- **Corpse positions aren't memorised.** Live and dead entities follow the same "we don't track where things were" rule — duck out of LOS and the corpse vanishes from memory until you can see the tile again. Logically a corpse doesn't move, so memorising them would be more honest. **(→ M3: load-bearing for the salvage loop — players must be able to navigate back to a corpse they saw fall. `VisionField.memorisedCorpses` map + dim render pass.)** **Phase 2.5 M4.1** ✅ — salvaged drone corpses are now removed from the world entirely, so the "phantom tile after salvage" half of this problem is closed. The pre-salvage navigation-honesty case (remembering a corpse you saw fall but haven't reached yet) is still open and remains the M3 / memorised-corpses scope.
 - ~~**NEUTRAL faction is shootable by anyone.**~~ **(→ Closed in M5.)** `civilian:harmed` event emitted on neutral hit; Rep penalty applied; drones and turrets now exclude NEUTRAL from targeting. Consequence is legible in the feed and the Hub status bar.
+- **We have 3 separate AIM states.** FIRE_AIM, SPECIAL_AIM, and ITEM_AIM. It would be nice to unify these.
 
 ## ▶ Phase 3 candidates
 
 - **Cyberspace / Matrix layer.** Jack-in mechanic, second layered grid, ICE AI (Probes, Sparks, Guardians), CCTV PIP window showing physical body status while jacked in. Originally Blueprint Phase 2; moved to Phase 3 so Phase 2 deepens Meatspace first.
 - **Decker archetype.** Cyberspace specialist. Deferred alongside the Matrix layer — design the environment before designing who navigates it.
 - **Full Rep NPC ally behaviour.** Phase 2 (M5) lays the groundwork: Rep meter, NPC taxonomy, behavior tiers. Phase 3 adds the payoff: high-rep neutrals become Human Shields or information sources, as described in the blueprint.
-- **Typed salvage components.** Phase 2 uses a generic `salvage: number` counter. Typed components (CPU chips, wiring, servos combining into different recipes) would add crafting depth but are out of scope until the Phase 2 economy is validated in play.
+- **Typed salvage components.** Phase 2 uses a generic `salvage: number` counter. **Intro scope (typed categories + Finn integration) moves to [phase-2.5-plan.md](phase-2.5-plan.md) M4.** Deep multi-recipe crafting and Matrix-adjacent sinks may remain Phase 3+.
+- **Objective extension backlog beyond Phase 2.5 M2.11–M2.12.** Recon and escort/extract are now planned in [phase-2.5-plan.md](phase-2.5-plan.md), but the M2.10 recipe-builder discussion surfaced additional objective shapes worth preserving:
+  - **Plant / seed / bug:** carry something in, place it at a target, then extract. Fiction: bug a relay, plant evidence, seed malware, place a charge.
+  - **Compound chains:** retrieve then handoff, slice then retrieve, sync then deny, etc. Likely needs a multi-step objective schema rather than more one-kind recipes.
+  - **Clean constraints as modifiers:** no alarm, no civilian harm, no kills, under turn budget. Treat as bonus constraints / payout modifiers unless a future design proves one should be a base objective kind.
+  - **Breach / demolition target:** place or detonate a breach charge at an authored wall or target. Mechanically adjacent to deny/destroy; Phase 2.5 M7 covers breaching foundations.
+  - **Cyberspace / data-layer objectives:** jack in, slice data nodes, open locks, defeat or avoid ICE. Likely Phase 3 dual-layer objective work rather than plain Meatspace recipes.
 
 ## ◇ Monitored
 

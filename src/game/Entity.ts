@@ -2,6 +2,7 @@ import { DEFAULT_AP, DEFAULT_HP, FACTION, type FactionId } from './constants.js'
 import type { TurnActionStep, TurnActionSteps } from '../types.js';
 import type { Rng } from '../rng.js';
 import type { World } from './World.js';
+import type { TypedSalvage } from './salvage.js';
 
 export interface EntityInit {
   id: string;
@@ -11,6 +12,18 @@ export interface EntityInit {
   glyph?: string;
   maxAp?: number;
   maxHp?: number;
+  /**
+   * If true, the entity does not block movement or LOS — actors can walk
+   * onto/through its tile, drones plan paths through it, and `World.entityAt`
+   * / `blockerKeys` skip it. Default `false`. Used by M4.3 ConsumablePickup
+   * (loose items on the floor) and reserved for future walk-through props
+   * (floor signs, location markers).
+   *
+   * This is a separate axis from `alive`: a passable entity is still alive
+   * for rendering purposes (full-bright glyph, not corpse styling), it just
+   * doesn't physically obstruct the grid.
+   */
+  passable?: boolean;
 }
 
 /**
@@ -22,7 +35,7 @@ export interface EntityInit {
  * damage, is data corruption we want surfaced early.
  */
 export interface LootableEntity extends Entity {
-  loot: { salvage: number };
+  loot: { salvage: TypedSalvage };
 }
 
 export class Entity {
@@ -37,8 +50,18 @@ export class Entity {
   hp: number;
   alive: boolean;
   stealthed: boolean;
+  passable: boolean;
 
-  constructor({ id, x, y, faction, glyph, maxAp = DEFAULT_AP, maxHp = DEFAULT_HP }: EntityInit) {
+  constructor({
+    id,
+    x,
+    y,
+    faction,
+    glyph,
+    maxAp = DEFAULT_AP,
+    maxHp = DEFAULT_HP,
+    passable = false,
+  }: EntityInit) {
     if (id === undefined || id === null || id === '') {
       throw new TypeError('Entity requires a non-empty id');
     }
@@ -72,6 +95,7 @@ export class Entity {
      * `isSpottableBy` to honour it.
      */
     this.stealthed = false;
+    this.passable = passable;
   }
 
   canAfford(cost: number): boolean {
@@ -146,6 +170,14 @@ function kindFromId(id: string): string {
   if (id.startsWith('drone')) return 'Drone';
   if (id.startsWith('neutral-civ')) return 'Civilian';
   if (id.startsWith('corp-civ')) return 'Civilian';
+  if (id.startsWith('terminal')) return 'Terminal';
+  if (id.startsWith('pickup')) return 'Pickup';
+  if (id.startsWith('contact')) return 'Contact';
+  if (id.startsWith('deny-target')) return 'Asset';
+  if (id.startsWith('sync-pad')) return 'Sync Pad';
+  if (id.startsWith('corp-turret')) return 'Turret';
+  if (id.startsWith('relay-node')) return 'Relay';
+  if (id.startsWith('escort-npc')) return 'Escort';
   if (id.includes('turret')) return 'Turret';
   if (id.startsWith('crew')) return 'Operative';
   return id;

@@ -1,4 +1,5 @@
 import { Entity, type EntityInit } from './Entity.js';
+import { EscortNpc } from './entities/EscortNpc.js';
 import { FACTION, SIGHT_RANGE } from './constants.js';
 import { hasLineOfSight, withinRange } from './LineOfSight.js';
 import type { Rng } from '../rng.js';
@@ -32,6 +33,8 @@ export abstract class Hostile extends Entity {
   isHostileTo(entity: Entity): boolean {
     // NEUTRAL entities are bystanders — never valid targets for hostiles.
     if (entity.faction === FACTION.NEUTRAL) return false;
+    // Escort allies are player-aligned but non-combatants for corp AI.
+    if (entity instanceof EscortNpc) return false;
     return entity.faction !== this.faction;
   }
 

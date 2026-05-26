@@ -13,6 +13,12 @@
 
 import { h } from '/src/domUtils.js';
 import { SALVAGE_TO_CRED_RATE } from '/src/game/constants.js';
+import {
+  emptySalvage,
+  formatSalvageCompact,
+  totalSalvage,
+  type TypedSalvage,
+} from '/src/game/salvage.js';
 import { ITEM_ID, ITEM_SCOPE } from '/src/game/items.js';
 import type { Item } from '/src/game/items.js';
 import type { Crew as CrewMember } from '/src/game/Crew.js';
@@ -292,7 +298,7 @@ class FinnShop extends HTMLElement {
   #catalog: Item[] = [];
   #crew: CrewMemberSnapshot[] = [];
   #credits = 0;
-  #salvage = 0;
+  #salvage: TypedSalvage = emptySalvage();
   #ready = false;
   #panelEl: HTMLElement | null = null;
   #titleEl: HTMLElement | null = null;
@@ -347,9 +353,13 @@ class FinnShop extends HTMLElement {
   /**
    * @param {Array} catalog — item descriptors from `Finn.catalog(meta)`
    * @param {Array} crew — crew member snapshots `{ id, callsign, archetype, hp, maxHp, flatlined }`
-   * @param {{ credits: number, salvage: number }} balances — campaign Cred and salvage balances
+   * @param {{ credits: number, salvage: TypedSalvage }} balances — campaign Cred + typed-salvage balances (M4.2)
    */
-  setCatalog(catalog: Item[], crew: CrewMember[], balances: { credits: number; salvage: number }) {
+  setCatalog(
+    catalog: Item[],
+    crew: CrewMember[],
+    balances: { credits: number; salvage: TypedSalvage }
+  ) {
     this.#catalog = catalog;
     this.#crew = crew.map(member => ({
       id: member.id,
@@ -362,7 +372,7 @@ class FinnShop extends HTMLElement {
       atMaxDodge: (member.gear?.dodgeBonus ?? 0) >= member.maxDodgeBonus,
     }));
     this.#credits = balances.credits ?? 0;
-    this.#salvage = balances.salvage ?? 0;
+    this.#salvage = balances.salvage ?? emptySalvage();
     this.#phase = 'browse';
     this.#pendingItem = null;
     this.#selectedIndex = 0;
@@ -394,7 +404,10 @@ class FinnShop extends HTMLElement {
   #render() {
     if (!this.#ready) return;
     this.#titleEl!.textContent = "── FINN'S SHOP ──";
-    this.#balanceEl!.textContent = `CREDS ${this.#credits}  SALVAGE ${this.#salvage}`;
+    // M4.2: typed salvage. Show the total + compact per-type breakdown.
+    // Per-type sell UI is M5 scope; today's SELL buttons still pump a
+    // quantity and Campaign.sellSalvage draws scrap → chips → bio → data.
+    this.#balanceEl!.textContent = `CREDS ${this.#credits}  SALVAGE ${totalSalvage(this.#salvage)} · ${formatSalvageCompact(this.#salvage)}`;
 
     while (this.#bodyEl!.firstChild) this.#bodyEl!.removeChild(this.#bodyEl!.firstChild);
     this.#flatItems = [];
@@ -463,7 +476,7 @@ class FinnShop extends HTMLElement {
     actions.append(
       this.#sellButton('SELL 1', 1),
       this.#sellButton('SELL 5', 5),
-      this.#sellButton('SELL ALL', this.#salvage)
+      this.#sellButton('SELL ALL', totalSalvage(this.#salvage))
     );
     panel.appendChild(actions);
     this.#bodyEl!.appendChild(panel);
@@ -474,7 +487,7 @@ class FinnShop extends HTMLElement {
       type: 'button',
       className: 'sell-button',
       textContent: label,
-      disabled: quantity <= 0 || this.#salvage < quantity,
+      disabled: quantity <= 0 || totalSalvage(this.#salvage) < quantity,
     }) as HTMLButtonElement;
     btn.addEventListener('click', () => {
       if (btn.disabled) return;

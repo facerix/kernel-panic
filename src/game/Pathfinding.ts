@@ -46,6 +46,8 @@ export function chebyshev(ax: number, ay: number, bx: number, by: number): numbe
 type FindPathOptions = {
   allowOccupiedGoal?: boolean;
   maxSteps?: number;
+  /** Treat these `"x,y"` keys as occupied even when no entity is present. */
+  extraBlockers?: ReadonlySet<string>;
 };
 
 /**
@@ -74,6 +76,7 @@ export function findPath(
 
   const allowOccupiedGoal = options.allowOccupiedGoal ?? true;
   const maxSteps = options.maxSteps ?? Number.POSITIVE_INFINITY;
+  const extraBlockers = options.extraBlockers;
   if (!(maxSteps === Number.POSITIVE_INFINITY || (Number.isInteger(maxSteps) && maxSteps >= 0))) {
     throw new RangeError(
       `findPath: maxSteps must be a non-negative integer or Infinity, got ${maxSteps}`
@@ -116,6 +119,7 @@ export function findPath(
       const isGoal = nk === goalKey;
       // Entity occupation: blocks every tile except, optionally, the goal.
       if (!(isGoal && allowOccupiedGoal) && world.entityAt(nx, ny)) continue;
+      if (!(isGoal && allowOccupiedGoal) && extraBlockers?.has(nk)) continue;
 
       const tentativeG = curG + 1;
       if (tentativeG > maxSteps) continue;

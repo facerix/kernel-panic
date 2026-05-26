@@ -74,11 +74,15 @@ const AIM_MODE_LABEL = Object.freeze({
   [MODE.IDLE]: '',
   [MODE.FIRE_AIM]: 'FIRE — pick a direction',
   [MODE.SPECIAL_AIM]: 'SPECIAL — pick a direction',
+  // M4.3 thrown-consumable aim (incendiary). Entered by the shell when the
+  // inventory overlay confirms an aimed item, not by a direct keypress.
+  [MODE.ITEM_AIM]: 'THROW — pick a direction',
 });
 
 const AIM_MODE_ACTION = Object.freeze({
   [MODE.FIRE_AIM]: 'fire',
   [MODE.SPECIAL_AIM]: 'special',
+  [MODE.ITEM_AIM]: 'use-item',
 });
 
 const CSS = `

@@ -59,6 +59,11 @@ export class VisionField {
     });
   }
 
+  /** Drop a memorised corpse after looting removes it from the world. */
+  forgetCorpse(entity: { x: number; y: number }) {
+    this.memorisedCorpses.delete(keyOf(entity.x, entity.y));
+  }
+
   /** Clear all corpse memory — used when tearing down fog for a new grid. */
   clearCorpseMemory() {
     this.memorisedCorpses.clear();
@@ -74,6 +79,16 @@ export class VisionField {
     this.visible.clear();
     this.seen.clear();
     this.memorisedCorpses.clear();
+  }
+
+  restoreSeen(keys: Iterable<string>) {
+    this.seen.clear();
+    for (const key of keys) {
+      if (typeof key !== 'string' || !/^-?\d+,-?\d+$/.test(key)) {
+        throw new TypeError(`VisionField.restoreSeen: malformed coordinate key "${key}"`);
+      }
+      this.seen.add(key);
+    }
   }
 
   /**

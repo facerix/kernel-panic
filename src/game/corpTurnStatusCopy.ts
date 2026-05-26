@@ -44,7 +44,12 @@ export function countVisibleCorpEntities(
   return n;
 }
 
-const corpNoiseForTurn = new Map();
+const corpNoiseForTurn = new Map<number, string>();
+
+/** Reset the per-turn status message cache. Call between runs. */
+export function resetCorpTurnStatusCache(): void {
+  corpNoiseForTurn.clear();
+}
 /**
  * Plain-text line body after the "CORP" label (no HTML).
  * If any corp entities are visible, we show a specific status text.
@@ -59,11 +64,11 @@ export function corpTurnStatusBody(visibleCorpCount: number, turnNumber: number)
     return 'Multiple hostiles in sight — units repositioning.';
   }
   if (visibleCorpCount === 1) {
-    return 'A security drone moves in your sightline.';
+    return 'A corp asset is active in your sightline.';
   }
 
   if (corpNoiseForTurn.has(turnNumber)) {
-    return corpNoiseForTurn.get(turnNumber);
+    return corpNoiseForTurn.get(turnNumber)!;
   }
   // not using Rng here because which message is shown doesn't need to be re-playable for a given seed.
   const messageForUnseenCorp =
@@ -138,6 +143,8 @@ export function formatCorpTurnStep(
       return `${actorLabel} clears lead — resuming patrol.`;
     case 'investigate-abandoned':
       return `${actorLabel} abandons pursuit — resuming patrol.`;
+    case 'alarm':
+      return `${actorLabel} trips the facility alarm — corp net hot.`;
     // Patrol movement and waypoint chatter are noise; skip them.
     case 'move-patrol':
     case 'patrol-arrived':

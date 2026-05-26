@@ -84,7 +84,7 @@ test('CorpCivilian does NOT alarm when player is out of range', () => {
   assert.equal(world.alarmActive, false);
 });
 
-test('alarm is a permanent latch — does not re-fire on subsequent turns', () => {
+test('alert phase suppresses duplicate alarms until the cadence returns quiet', () => {
   const { world, bus } = makeWorld();
   const civ = new CorpCivilian({ id: 'civ-0', x: 2, y: 2 });
   const player = makePlayer(4, 2);
@@ -98,14 +98,18 @@ test('alarm is a permanent latch — does not re-fire on subsequent turns', () =
   assert.equal(alarms.length, 1);
   assert.equal(world.alarmActive, true);
 
-  // Same turn — latched via world.alarmActive.
+  // Same alert window — suppressed, so Rep penalties do not stack per civilian tick.
   civ.takeTurn(world, new Rng(1));
-  assert.equal(alarms.length, 1, 'no duplicate alarm same turn');
+  assert.equal(alarms.length, 1, 'no duplicate alarm during alert');
 
-  // New turn (AP refresh) — still latched.
-  civ.refreshAp();
+  world.tickAlarm();
+  world.tickAlarm();
+  world.tickAlarm();
+  world.tickAlarm();
+  assert.equal(world.alarm.phase, 'quiet');
+
   civ.takeTurn(world, new Rng(1));
-  assert.equal(alarms.length, 1, 'alarm must not re-fire after refresh');
+  assert.equal(alarms.length, 2, 'alarm can re-fire after cooldown clears');
 });
 
 test('second CorpCivilian does not alarm when first already triggered', () => {

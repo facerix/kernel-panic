@@ -60,7 +60,7 @@ test('catalog hides purchased unique meta upgrades', () => {
 
 test('getShopCatalog returns all items when meta is empty', () => {
   const items = getShopCatalog({});
-  assert.equal(items.length, 7);
+  assert.equal(items.length, 8);
 });
 
 test('getItemById returns the item for a valid id', () => {

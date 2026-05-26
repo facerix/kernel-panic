@@ -19,6 +19,12 @@
 
 import { h } from '/src/domUtils.js';
 import CrewList from '/components/CrewList.js';
+import {
+  emptySalvage,
+  formatSalvageCompact,
+  totalSalvage,
+  type TypedSalvage,
+} from '/src/game/salvage.js';
 import type { Crew as CrewMember, Gear } from '/src/game/Crew.js';
 import type { Item } from '/src/game/items.js';
 
@@ -293,7 +299,7 @@ class CrewRoster extends HTMLElement {
   #crewRaw: CrewMember[] = []; // original crew references (for detail data)
   #recruitsRaw: CrewMember[] = []; // available recruit candidates
   #recruitedThisVisit = false;
-  #salvage = 0;
+  #salvage: TypedSalvage = emptySalvage();
   #ready = false;
   #listEl: CrewList | null = null;
   #detailEl: HTMLElement | null = null;
@@ -378,7 +384,15 @@ class CrewRoster extends HTMLElement {
    */
   setCrew(
     crew: CrewMember[],
-    { salvage = 0, availableRecruits = [] as CrewMember[], recruitedThisVisit = false } = {}
+    {
+      salvage = emptySalvage(),
+      availableRecruits = [] as CrewMember[],
+      recruitedThisVisit = false,
+    }: {
+      salvage?: TypedSalvage;
+      availableRecruits?: CrewMember[];
+      recruitedThisVisit?: boolean;
+    } = {}
   ) {
     if (!Array.isArray(crew)) {
       throw new TypeError('<crew-roster>.setCrew requires an array');
@@ -387,7 +401,10 @@ class CrewRoster extends HTMLElement {
     this.#recruitsRaw = availableRecruits;
     this.#recruitedThisVisit = recruitedThisVisit;
     this.#salvage = salvage;
-    this.#balanceEl!.textContent = `SALVAGE ${this.#salvage}`;
+    // M4.2: show typed breakdown + total. Until M5 redesigns the shop, this
+    // surface is information-only — there's no per-type sell flow here yet.
+    const total = totalSalvage(this.#salvage);
+    this.#balanceEl!.textContent = `SALVAGE ${total} · ${formatSalvageCompact(this.#salvage)}`;
     this.#recruitFocused = false;
     this.#selectedRecruitIndex = -1;
     // Crew list handles its own rendering; selection triggers detail update.

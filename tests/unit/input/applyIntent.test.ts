@@ -11,11 +11,14 @@ import {
   MELEE_DAMAGE,
   SALVAGE_PER_IMPROVISED_TURRET,
 } from '../../../src/game/constants.js';
+import { makeSalvage, totalSalvage } from '../../../src/game/salvage.js';
 import { Merc } from '../../../src/game/archetypes/Merc.js';
 import { Razor } from '../../../src/game/archetypes/Razor.js';
 import { Tech } from '../../../src/game/archetypes/Tech.js';
 import { Turret } from '../../../src/game/Turret.js';
 import { CorpDrone } from '../../../src/game/ai/CorpDrone.js';
+import { ConsumablePickup } from '../../../src/game/entities/ConsumablePickup.js';
+import { ITEM_ID } from '../../../src/game/items.js';
 import { Rng } from '../../../src/rng.js';
 import { applyIntent, pickFireTarget, PLAYER_ACTIONS } from '../../../src/input/applyIntent.js';
 
@@ -55,7 +58,14 @@ function buildCtx({ archetype = 'merc', placeDrone = true } = {}) {
   const rng = new Rng(1);
 
   const log = [];
-  const calls = { advanceTurn: 0, resetInputModes: 0, interact: 0, inventory: 0, reachedExit: 0 };
+  const calls = {
+    advanceTurn: 0,
+    resetInputModes: 0,
+    interact: 0,
+    inventory: 0,
+    reachedExit: 0,
+    corpseSalvaged: 0,
+  };
   const ctx = {
     world,
     player,
@@ -84,6 +94,9 @@ function buildCtx({ archetype = 'merc', placeDrone = true } = {}) {
           throw new Error(`Unknown player action: ${actionName}`);
       }
     },
+    onCorpseSalvaged: () => {
+      calls.corpseSalvaged++;
+    },
   };
   return { ctx, log, calls, drone, world, player, queue };
 }
@@ -105,6 +118,131 @@ test('move into a wall is denied (logs MOVE DENIED, no mutation)', () => {
   assert.equal(player.x, 1);
   assert.equal(player.y, 1);
   assert.ok(log.some(l => l.includes('MOVE DENIED')));
+});
+
+test('move onto exit logs objective block when canExit says no', () => {
+  const { ctx, log, player, calls, world } = buildCtx({ placeDrone: false });
+  world.grid.setTile(2, 3, TILE.EXIT);
+  ctx.canExit = () => false;
+  ctx.exitBlockedMessage = () => 'Complete objective first: Slice server rack.';
+
+  applyIntent({ type: 'move', dx: 0, dy: 1 }, ctx);
+
+  assert.equal(player.x, 2);
+  assert.equal(player.y, 3);
+  assert.equal(calls.reachedExit, 0);
+  assert.equal(calls.advanceTurn, 0);
+  assert.ok(log.some(l => l.includes('Complete objective first')));
+});
+
+test('move onto a lootable corpse auto-salvages (M4.1)', () => {
+  const { ctx, log, player, world, calls } = buildCtx({ placeDrone: false });
+  player.initInventory();
+  // Drop a dead lootable drone one tile south of the player.
+  const drone = new CorpDrone({ id: 'corpse', x: 2, y: 3, maxAp: 3 });
+  world.addEntity(drone);
+  drone.damage(drone.maxHp);
+  drone.loot = { salvage: makeSalvage({ scrap: 4 }) };
+  assert.equal(drone.alive, false);
+
+  const apBefore = player.ap;
+  applyIntent({ type: 'move', dx: 0, dy: 1 }, ctx);
+
+  assert.equal(player.x, 2);
+  assert.equal(player.y, 3, 'player stepped onto the corpse tile');
+  assert.equal(player.inventory.salvage.scrap, 4, 'scrap transferred on step');
+  assert.equal(totalSalvage(player.inventory.salvage), 4, 'total wallet matches pickup');
+  assert.equal(world.entities.has('corpse'), false, 'corpse removed from world (M4.1)');
+  assert.ok(
+    log.some(l => l.includes('salvages +4')),
+    'auto-salvage log line emitted'
+  );
+  assert.equal(calls.corpseSalvaged, 1, 'shell notified to clear corpse memory');
+  assert.equal(player.ap, apBefore - 1, 'only MOVE AP spent; walk-onto salvage is pickup-like');
+});
+
+test('move onto a corpse with 1 AP still salvages after the move spends AP', () => {
+  const { ctx, log, player, world } = buildCtx({ placeDrone: false });
+  player.initInventory();
+  // Only 1 AP: the move spends it, and walk-onto salvage must not require
+  // a second interact AP.
+  player.ap = 1;
+  const drone = new CorpDrone({ id: 'corpse', x: 2, y: 3, maxAp: 3 });
+  world.addEntity(drone);
+  drone.damage(drone.maxHp);
+  drone.loot = { salvage: makeSalvage({ scrap: 2 }) };
+
+  applyIntent({ type: 'move', dx: 0, dy: 1 }, ctx);
+
+  assert.equal(player.x, 2);
+  assert.equal(player.y, 3, 'move still committed');
+  assert.equal(totalSalvage(player.inventory.salvage), 2, 'salvage taken after movement');
+  assert.equal(world.entities.has('corpse'), false, 'corpse removed from world');
+  assert.ok(
+    log.some(l => l.includes('salvages +2')),
+    'auto-salvage log line emitted'
+  );
+});
+
+test('move onto a consumable pickup adds it to inventory and removes the pickup', () => {
+  const { ctx, log, player, world } = buildCtx({ placeDrone: false });
+  world.addEntity(
+    new ConsumablePickup({
+      id: 'consumable-pickup-0',
+      x: 2,
+      y: 3,
+      consumableId: ITEM_ID.STIM,
+      label: 'Stim',
+    })
+  );
+
+  applyIntent({ type: 'move', dx: 0, dy: 1 }, ctx);
+
+  assert.equal(player.x, 2);
+  assert.equal(player.y, 3);
+  assert.equal(player.inventory?.consumables.length, 1);
+  assert.equal(player.inventory?.consumables[0]?.id, ITEM_ID.STIM);
+  assert.equal(world.entities.has('consumable-pickup-0'), false);
+  assert.ok(log.some(l => l.includes('picks up Stim')));
+});
+
+test('move onto consumable plus low-AP corpse collects both pickups', () => {
+  const { ctx, log, player, world } = buildCtx({ placeDrone: false });
+  player.initInventory();
+  player.ap = 1;
+  const drone = new CorpDrone({ id: 'corpse', x: 2, y: 3, maxAp: 3 });
+  world.addEntity(drone);
+  drone.damage(drone.maxHp);
+  drone.loot = { salvage: makeSalvage({ scrap: 2 }) };
+  world.addEntity(
+    new ConsumablePickup({
+      id: 'consumable-pickup-0',
+      x: 2,
+      y: 3,
+      consumableId: ITEM_ID.SMOKE_CHARGE,
+      label: 'Smoke Charge',
+    })
+  );
+
+  applyIntent({ type: 'move', dx: 0, dy: 1 }, ctx);
+
+  assert.equal(player.inventory?.consumables[0]?.id, ITEM_ID.SMOKE_CHARGE);
+  assert.equal(world.entities.has('consumable-pickup-0'), false);
+  assert.equal(world.entities.has('corpse'), false, 'corpse also collected by move-to-loot');
+  assert.equal(totalSalvage(player.inventory!.salvage), 2);
+  assert.ok(log.some(l => l.includes('picks up Smoke Charge')));
+  assert.ok(log.some(l => l.includes('salvages +2')));
+});
+
+test('move onto exit reaches exit when canExit allows it', () => {
+  const { ctx, log, calls, world } = buildCtx({ placeDrone: false });
+  world.grid.setTile(2, 3, TILE.EXIT);
+  ctx.canExit = () => true;
+
+  applyIntent({ type: 'move', dx: 0, dy: 1 }, ctx);
+
+  assert.equal(calls.reachedExit, 1);
+  assert.ok(log.some(l => l.includes('EXIT REACHED')));
 });
 
 test('special intent routes to Vault on a Merc and lands two tiles away', () => {
@@ -160,7 +298,8 @@ test('non-player turn refuses everything except cancel', () => {
   const { ctx, log, queue, calls } = buildCtx();
   queue.endTurn(ctx.world); // → CORP
   applyIntent({ type: 'move', dx: 1, dy: 0 }, ctx);
-  assert.ok(log.some(l => l.includes('NOT YOUR TURN')));
+  assert.ok(log.some(l => l.includes('CORP TURN')));
+  assert.ok(log.some(l => l.includes('controls locked')));
   // Cancel still works even out of turn (per the M7 cross-input cancel rule).
   log.length = 0;
   applyIntent({ type: 'cancel' }, ctx);
@@ -195,6 +334,25 @@ test('interact intent crashes when ctx.onPlayerAction is missing (no silent no-o
   const { ctx } = buildCtx();
   delete ctx.onPlayerAction;
   assert.throws(() => applyIntent({ type: 'interact' }, ctx), /onPlayerAction is missing/);
+});
+
+test('use-item intent forwards a validated aim direction to the shell', () => {
+  const { ctx } = buildCtx();
+  const aims = [];
+  ctx.onUseItem = aim => aims.push(aim);
+
+  applyIntent({ type: 'use-item', dx: 1, dy: -1 }, ctx);
+
+  assert.deepEqual(aims, [{ dx: 1, dy: -1 }]);
+});
+
+test('use-item intent crashes on missing handler or invalid aim', () => {
+  const { ctx } = buildCtx();
+  assert.throws(() => applyIntent({ type: 'use-item', dx: 1, dy: 0 }, ctx), /onUseItem/);
+  ctx.onUseItem = () => {};
+  assert.throws(() => applyIntent({ type: 'use-item', dx: 0, dy: 0 }, ctx), /requires/);
+  assert.throws(() => applyIntent({ type: 'use-item', dx: 2, dy: 0 }, ctx), /requires/);
+  assert.throws(() => applyIntent({ type: 'use-item', dx: 0.5, dy: 0 }, ctx), /requires/);
 });
 
 test('melee intent still resolves adjacent strikes (for AI / replay, not player keymap)', () => {
@@ -273,7 +431,7 @@ test('AP exhaustion triggers auto-end-turn during a move', () => {
 test('special on a Tech routes to improviseTurret when turretReady is false and salvage is available', () => {
   const { ctx, world, player } = buildCtx({ archetype: 'tech', placeDrone: false });
   player.initInventory();
-  player.inventory.salvage = SALVAGE_PER_IMPROVISED_TURRET;
+  player.inventory.salvage = makeSalvage({ scrap: SALVAGE_PER_IMPROVISED_TURRET });
   // Deploy the pre-built turret south — (2, 3) is plain floor.
   player.deployTurret(world, 0, 1);
   player.refreshAp();
@@ -281,13 +439,14 @@ test('special on a Tech routes to improviseTurret when turretReady is false and 
   applyIntent({ type: 'special', dx: -1, dy: 0 }, ctx);
   const placed = world.entityAt(1, 2);
   assert.ok(placed instanceof Turret, 'expected an improvised turret placed');
-  assert.equal(player.inventory.salvage, 0, 'salvage deducted for improvised turret');
+  assert.equal(player.inventory.salvage.scrap, 0, 'scrap deducted for improvised turret');
+  assert.equal(totalSalvage(player.inventory.salvage), 0, 'no other typed buckets touched');
 });
 
 test('special on a Tech with no turret and no salvage logs a denial', () => {
   const { ctx, player, log } = buildCtx({ archetype: 'tech', placeDrone: false });
   player.initInventory();
-  player.inventory.salvage = 0;
+  // Default emptySalvage wallet — no scrap, can't improvise.
   player.turretReady = false;
   applyIntent({ type: 'special', dx: 0, dy: 1 }, ctx);
   assert.ok(

@@ -22,10 +22,19 @@ import { serviceWorkerManager } from '/src/ServiceWorkerManager.js';
 import dataStore from '/src/DataStore.js';
 
 import { Campaign, CAMPAIGN_STATE, willEndCampaignOnThisDeath } from '/src/game/Campaign.js';
+import { totalSalvage, formatSalvageCompact, type TypedSalvage } from '/src/game/salvage.js';
 import { RUN_STATE } from '/src/game/Run.js';
 import { restoreCampaign, snapshotCampaign } from '/src/game/persistence.js';
 import { runCorpTurn as driveCorpTurn } from '/src/game/corpTurnDriver.js';
-import { FACTION, AP_COST, REP, REP_LABEL, SALVAGE_TO_CRED_RATE } from '/src/game/constants.js';
+import {
+  FACTION,
+  AP_COST,
+  TILE,
+  REP,
+  REP_LABEL,
+  SALVAGE_TO_CRED_RATE,
+  INCENDIARY_THROW_DIST,
+} from '/src/game/constants.js';
 import {
   advanceFromPlayerTurn,
   drivePlayerAftermath,
@@ -54,6 +63,9 @@ import { MODE } from '/src/input/keymap.js';
 import { applyIntent, PLAYER_ACTIONS } from '/src/input/applyIntent.js';
 
 import { placeSmoke, clearSmoke } from '/src/game/Smoke.js';
+import { placeHazardCluster } from '/src/game/Run.js';
+import { hasLineOfSight } from '/src/game/LineOfSight.js';
+import { ITEM_ID, getItemById } from '/src/game/items.js';
 import type { CampaignSnapshot } from '/src/game/persistence.js';
 import type { Contract } from '/src/game/hub/Curator.js';
 import type { Crew } from '/src/game/Crew.js';
@@ -112,16 +124,25 @@ type CrewRosterElement = ModalElement & {
   setCrew(
     crew: Crew[],
     opts?: {
-      salvage?: number;
+      salvage?: TypedSalvage;
       availableRecruits?: Crew[];
       recruitedThisVisit?: boolean;
     }
   ): void;
 };
 type FinnShopElement = ModalElement & {
-  setCatalog(catalog: Item[], crew: Crew[], balances: { credits: number; salvage: number }): void;
+  setCatalog(
+    catalog: Item[],
+    crew: Crew[],
+    balances: { credits: number; salvage: TypedSalvage }
+  ): void;
 };
 type ItemInventoryElement = ModalElement & {
+  setContents(contents: {
+    salvage?: TypedSalvage;
+    consumables?: NonNullable<Crew['inventory']>['consumables'];
+  }): void;
+  /** Legacy single-arg API — prefer `setContents`. */
   setItems(consumables: NonNullable<Crew['inventory']>['consumables']): void;
 };
 type KeyHelpElement = ModalElement & {
@@ -573,11 +594,40 @@ function onFinnSellSalvage(evt: Event) {
 
 function presentItemInventory() {
   if (!campaign) return;
+  // M4.2: inventory is now available in both Hub and combat. The two states
+  // surface different wallets:
+  //   - Combat: the deployed crew member's job-scoped inventory (what they've
+  //     picked up this run + their consumables).
+  //   - Hub:    the campaign-wide accumulated salvage. No active crew member,
+  //     so no consumables list — the player visits the shop or roster for
+  //     per-crew loadout management.
+  // This keeps the overlay's mental model simple: it always shows the
+  // currently meaningful wallet for the state the player is standing in.
+  if (campaign.state === CAMPAIGN_STATE.HUB) {
+    itemInventoryEl.setContents({ salvage: campaign.salvage, consumables: [] });
+    itemInventoryEl.show();
+    return;
+  }
   const run = campaign.activeRun;
   if (!run || !run.player || !run.player.inventory) return;
-  itemInventoryEl.setItems(run.player.inventory.consumables);
+  itemInventoryEl.setContents({
+    salvage: run.player.inventory.salvage,
+    consumables: run.player.inventory.consumables,
+  });
   itemInventoryEl.show();
 }
+
+/**
+ * Stashed item id for M4.3 thrown-consumable aim flow. Set when the
+ * inventory overlay confirmed an aimed consumable (incendiary) and we
+ * flipped the input controllers into `MODE.ITEM_AIM`; consumed when the
+ * subsequent `use-item { dx, dy }` intent arrives or cleared on cancel.
+ *
+ * Kept at module scope (not inside `onUseItem`) because the aim resolution
+ * happens in a separate event tick from the inventory click — the keypress
+ * routes through KeyboardController → applyIntent → ctx.onUseItem.
+ */
+let pendingAimItemId: string | null = null;
 
 function onUseItem(evt: Event) {
   if (!campaign) return;
@@ -586,34 +636,143 @@ function onUseItem(evt: Event) {
   if (!run.world) throw new Error('[shell] active combat run has no world');
   const { itemId } = (evt as CustomEvent<{ itemId?: string }>).detail;
   if (!itemId) return;
+  // Aimed consumables (incendiary): close the inventory overlay, switch the
+  // input controllers into ITEM_AIM, and wait for the next direction press.
+  // Crew.useConsumable will be called from `resolveAimedUseItem` once the
+  // aim direction is in.
+  let descriptor: Item;
+  try {
+    descriptor = getItemById(itemId) as Item;
+  } catch (err) {
+    flash(`USE FAILED: ${errorMessage(err)}`);
+    return;
+  }
+  if (descriptor.needsAim) {
+    if (!run.player.canAfford(AP_COST.INTERACT)) {
+      // Cheap pre-check: don't strand the player in aim mode if `useConsumable`
+      // will reject the commit anyway. Crew's `canAfford(AP_COST.INTERACT)`
+      // remains the source of truth at commit time.
+      flash('USE FAILED: insufficient AP.');
+      return;
+    }
+    pendingAimItemId = itemId;
+    itemInventoryEl.hide();
+    keyboard.mode = MODE.ITEM_AIM;
+    touchPadEl.setMode(MODE.ITEM_AIM);
+    flash(`AIM ${descriptor.label.toUpperCase()} — pick a direction (Esc to cancel).`);
+    paint(MODE.ITEM_AIM);
+    return;
+  }
   try {
     const result = run.player.useConsumable(itemId);
-    if (result.type === 'stim') {
-      flash(
-        `Used STIM — healed ${result.healed} HP (now ${run.player.hp}/${run.player.maxHp}). ${run.player.ap} AP left.`
-      );
-    } else if (result.type === 'smoke') {
-      const { cx, cy, radius } = result;
-      if (
-        typeof cx !== 'number' ||
-        typeof cy !== 'number' ||
-        typeof radius !== 'number' ||
-        !Number.isInteger(cx) ||
-        !Number.isInteger(cy) ||
-        !Number.isInteger(radius)
-      ) {
-        throw new Error('[shell] smoke consumable returned invalid placement data');
-      }
-      const overlays = placeSmoke(run.world.grid, cx, cy, radius);
-      activeSmokeOverlays.push(...overlays);
-      recomputeVision();
-      flash(`Used SMOKE CHARGE — LOS blocked in radius ${radius}. ${run.player.ap} AP left.`);
-    }
+    applyUseConsumableResult(result, run);
   } catch (err) {
     flash(`USE FAILED: ${errorMessage(err)}`);
     return;
   }
   itemInventoryEl.hide();
+  paint();
+  if (run.player.ap === 0) {
+    advanceTurn();
+  }
+}
+
+/**
+ * Common world-side effects for a `useConsumable` result. Split out so the
+ * direct (non-aim) inventory flow and the aimed-throw flow share one place
+ * to translate Crew's pure descriptors into grid mutations.
+ */
+function applyUseConsumableResult(
+  result: ReturnType<NonNullable<Run['player']>['useConsumable']>,
+  run: Run
+): void {
+  if (!run.world || !run.player) throw new Error('[shell] applyUseConsumableResult: no scene');
+  if (result.type === 'stim') {
+    const healed = (result as { healed: number }).healed;
+    flash(
+      `Used STIM — healed ${healed} HP (now ${run.player.hp}/${run.player.maxHp}). ${run.player.ap} AP left.`
+    );
+    return;
+  }
+  if (result.type === 'smoke') {
+    const { cx, cy, radius } = result as { cx: number; cy: number; radius: number };
+    if (!Number.isInteger(cx) || !Number.isInteger(cy) || !Number.isInteger(radius)) {
+      throw new Error('[shell] smoke consumable returned invalid placement data');
+    }
+    const overlays = placeSmoke(run.world.grid, cx, cy, radius);
+    activeSmokeOverlays.push(...overlays);
+    recomputeVision();
+    flash(`Used SMOKE CHARGE — LOS blocked in radius ${radius}. ${run.player.ap} AP left.`);
+    return;
+  }
+  if (result.type === 'incendiary') {
+    const { cx, cy } = result as { cx: number; cy: number };
+    if (!Number.isInteger(cx) || !Number.isInteger(cy)) {
+      throw new Error('[shell] incendiary consumable returned invalid placement data');
+    }
+    // `placeHazardCluster` only stamps onto FLOOR tiles inside bounds — if
+    // the target is on/past the map edge or buried in a wall, the cluster
+    // simply finds zero candidates and stamps nothing. We've already paid
+    // AP and consumed the charge in Crew.useConsumable; the LOS pre-check
+    // in `resolveAimedUseItem` is what protects the player from "throw
+    // through a wall and lose your bomb."
+    const stamped = placeHazardCluster(run.world, { x: cx, y: cy }, run.rng);
+    if (stamped === 0) {
+      flash(`Used INCENDIARY — bomb landed on hard cover; no fire took. ${run.player.ap} AP left.`);
+    } else {
+      flash(
+        `Used INCENDIARY — ${stamped} tile${stamped === 1 ? '' : 's'} ignited. ${run.player.ap} AP left.`
+      );
+    }
+    recomputeVision();
+    return;
+  }
+  throw new Error(`[shell] applyUseConsumableResult: unknown result.type "${result.type}"`);
+}
+
+/**
+ * Resolve an aimed `use-item { dx, dy }` intent. Pairs the keymap's direction
+ * pick with the shell's stashed `pendingAimItemId` and runs the LOS-clear
+ * pre-check before mutating state. Called from `applyIntent`'s onUseItem
+ * callback (M4.3).
+ */
+function resolveAimedUseItem(aim: { dx: number; dy: number }, run: Run): void {
+  if (!run.world || !run.player) throw new Error('[shell] resolveAimedUseItem: no scene');
+  const itemId = pendingAimItemId;
+  if (!itemId) {
+    // Direction press arrived without a stashed item — shouldn't be reachable
+    // (the keymap only emits use-item from ITEM_AIM, which only the shell
+    // can enter), but crash loud if it does so the wiring bug surfaces.
+    throw new Error('[shell] use-item intent received without pendingAimItemId');
+  }
+  pendingAimItemId = null;
+  if (itemId === ITEM_ID.INCENDIARY) {
+    // LOS-clear-target pre-check (M4.3 acceptance): the throw lands at
+    // `player + dir * INCENDIARY_THROW_DIST`. If LOS from the thrower to
+    // that tile is blocked (or the tile is out of bounds), refuse the
+    // throw *before* spending AP / consuming the bomb.
+    const cx = run.player.x + aim.dx * INCENDIARY_THROW_DIST;
+    const cy = run.player.y + aim.dy * INCENDIARY_THROW_DIST;
+    if (!run.world.grid.inBounds(cx, cy)) {
+      flash('USE FAILED: target is off the map.');
+      paint();
+      return;
+    }
+    const blockers = run.world.blockerKeys();
+    if (!hasLineOfSight(run.world.grid, run.player.x, run.player.y, cx, cy, { blockers })) {
+      flash('USE FAILED: target is behind cover.');
+      paint();
+      return;
+    }
+  }
+  try {
+    const result = run.player.useConsumable(itemId, aim);
+    applyUseConsumableResult(result, run);
+  } catch (err) {
+    flash(`USE FAILED: ${errorMessage(err)}`);
+    paint();
+    return;
+  }
   paint();
   if (run.player.ap === 0) {
     advanceTurn();
@@ -691,6 +850,7 @@ function resumeCampaign(record: CampaignSnapshot | unknown) {
     });
     if (campaign.activeRun?.state === RUN_STATE.COMBAT) {
       vision.resetFogState();
+      vision.restoreSeen(campaign.activeRun.mapSeenKeys());
     }
     attachVisionListener();
     attachAnimationListeners();
@@ -789,17 +949,31 @@ function handleIntent(intent: Intent): void {
     log: (line: string) => flash(line),
     advanceTurn,
     resetInputModes,
+    canExit: () => {
+      if (!isRun(run) || !run.contract) return true;
+      return run.canExtract();
+    },
+    exitBlockedMessage: () => {
+      if (!isRun(run) || !run.contract) return 'Complete your objective before extraction.';
+      return `Complete objective first: ${run.contract.objective.title}.`;
+    },
+    onUseItem: (aim: { dx: number; dy: number }) => {
+      resolveAimedUseItem(aim, run as Run);
+    },
+    onCorpseSalvaged: entity => {
+      vision.forgetCorpse(entity);
+    },
     onPlayerAction: (actionName: string) => {
       switch (actionName) {
         case PLAYER_ACTIONS.INVENTORY:
-          // Only open inventory during combat when it's the player's turn.
-          if (
-            campaign?.state !== CAMPAIGN_STATE.COMBAT ||
-            run.state !== RUN_STATE.COMBAT ||
-            run.queue?.currentFaction !== FACTION.PLAYER
-          ) {
-            flash('Inventory is only available during combat on your turn.');
-            return;
+          // M4.2: inventory opens in Hub *and* combat. In combat we still
+          // restrict to the player's turn so peeking doesn't dodge corp
+          // tempo; in Hub there's no turn queue gating to worry about.
+          if (campaign?.state === CAMPAIGN_STATE.COMBAT) {
+            if (run.state !== RUN_STATE.COMBAT || run.queue?.currentFaction !== FACTION.PLAYER) {
+              flash('Inventory is only available on your turn.');
+              return;
+            }
           }
           presentItemInventory();
           break;
@@ -996,15 +1170,17 @@ function handleCombatInteract(): void {
       const tx = player.x + dx;
       const ty = player.y + dy;
       const entity = run.world.lootableCorpseAt(tx, ty);
-      if (entity && !entity.alive && entity.loot && entity.loot.salvage > 0) {
+      if (entity && !entity.alive && entity.loot && totalSalvage(entity.loot.salvage) > 0) {
         if (!player.canAfford(AP_COST.INTERACT)) {
           flash('Insufficient AP to loot.');
           return;
         }
-        const amount = entity.loot.salvage;
+        // M4.2: typed salvage — show pickup total + post-pickup compact wallet.
+        const amount = totalSalvage(entity.loot.salvage);
         player.collectSalvage(run.world, entity);
+        vision.forgetCorpse(entity);
         flash(
-          `Salvaged +${amount} — carrying ${player.inventory.salvage} total. ${player.ap} AP left.`
+          `Salvaged +${amount} — carrying ${formatSalvageCompact(player.inventory.salvage)}. ${player.ap} AP left.`
         );
         paint();
         if (player.ap === 0) {
@@ -1014,7 +1190,19 @@ function handleCombatInteract(): void {
       }
     }
   }
-  flash('Nothing to loot nearby.');
+
+  const interactable = run.world.adjacentInteractables(player)[0];
+  if (interactable) {
+    const result = interactable.interact(run.world, player);
+    flash(result.message);
+    paint();
+    if (result.ok && player.ap === 0) {
+      advanceTurn();
+    }
+    return;
+  }
+
+  flash('Nothing to interact with nearby.');
 }
 
 // onJackIn removed — combat entry is handled in onBriefingDeploy.
@@ -1022,20 +1210,25 @@ function handleCombatInteract(): void {
 function onNewRunRequested(): void {
   if (!campaign) return;
   if (pendingJobResult) {
-    const { outcome } = pendingJobResult;
+    const jobResult = pendingJobResult;
+    const { outcome } = jobResult;
     pendingJobResult = null;
-    // M3: extract salvage from the deployed crew member's inventory on exit.
+    // M3 + M4.2: extract typed salvage from the deployed crew member's
+    // inventory on exit. Death outcomes pass `undefined` so onJobEnd defaults
+    // to an empty wallet (loot forfeited on flatline).
     const member = campaign.deployedMemberId
       ? campaign.getCrewMember(campaign.deployedMemberId)
       : null;
-    const salvage = member?.inventory?.salvage ?? 0;
+    const salvage = member?.inventory?.salvage;
+    const objectiveComplete =
+      outcome === 'exit' ? jobResult.telemetry.objectiveComplete !== false : false;
     // M5: clean completion bonus — must run *before* `onJobEnd` so `enterHub` →
     // `generateRecruits()` sees the updated Rep (M6 recruitment gates at 65).
-    if (outcome === 'exit' && civilianHarmsThisJob === 0) {
+    if (outcome === 'exit' && objectiveComplete && civilianHarmsThisJob === 0) {
       const actual = campaign.adjustRep(REP.CLEAN_COMPLETION_BONUS);
       flash(`REP +${actual}: clean extraction — no civilian casualties.`);
     }
-    campaign.onJobEnd({ outcome, salvage });
+    campaign.onJobEnd({ outcome, salvage, completed: objectiveComplete });
     if (campaign.state === CAMPAIGN_STATE.ENDED) {
       dataStore.deleteCampaign();
       startFreshCampaign();
@@ -1155,6 +1348,20 @@ function attachRepListeners(): void {
       if (!campaign) return;
       const actual = campaign.adjustRep(REP.ALARM_PENALTY);
       flash(`REP ${actual >= 0 ? '+' : ''}${actual}: facility alarm triggered.`);
+    }),
+    run.bus.on(EVENT.ALARM_CHANGED, payload => {
+      const transition = (payload as { transition?: string } | undefined)?.transition;
+      if (transition === 'cooldown') {
+        flash('ALERT: heat tapering — corp net entering cooldown.');
+      } else if (transition === 'quiet') {
+        flash('ALERT: facility net quiet.');
+      }
+    }),
+    run.bus.on(EVENT.OBJECTIVE_TIMER_EXPIRED, payload => {
+      const contract = (payload as { contract?: { objective?: { title?: string } } } | undefined)
+        ?.contract;
+      const title = contract?.objective?.title ?? 'objective';
+      flash(`WINDOW CLOSED: ${title} can no longer be completed cleanly.`);
     })
   );
 }
@@ -1165,6 +1372,9 @@ function recomputeVision(): void {
   vision.recompute(run.world.grid, run.player, undefined, {
     blockers: run.world.blockerKeys(),
   });
+  if (isRun(run) && run.state === RUN_STATE.COMBAT) {
+    run.recordMapSeen(vision.seen);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1235,30 +1445,65 @@ function statusLine(modeHint: Mode): string {
   if (run.state !== RUN_STATE.COMBAT) {
     corpToneActivityBody = null;
   }
-  const aim = modeHint && modeHint !== MODE.IDLE ? `  |  AIM: ${modeHint}` : '';
+  const aim = modeHint && modeHint !== MODE.IDLE ? `AIM ${modeHint}` : '';
   const player = run.player;
   if (!player) return stateLabel();
+  if (!run.queue) return stateLabel();
   const stealthTag = player.stealthed ? ' [CLOAKED]' : '';
   let identity;
+  let aphp = '';
+  let turnInfo = '';
+  let context = '';
   if (run.state === RUN_STATE.COMBAT) {
     if (!isRun(run)) {
       throw new Error('[shell] combat status requires an active run');
     }
-    const salvageTag = run.player?.inventory ? ` SAL:${run.player.inventory.salvage}` : '';
-    const alertTag = run.world?.alarmActive ? ' <span class="alert-tag">[ALERT]</span>' : '';
-    identity = `${run.player?.callsign ?? run.archetype} ${run.archetype.toUpperCase()}${salvageTag}${alertTag}`;
+    // M4.2 (revised): salvage display moved out of the status bar and into
+    // the `<item-inventory>` overlay (full bucket names there). The status
+    // bar stayed too dense once typed salvage landed — `SAL S:0 C:0 B:0 D:0`
+    // crowded the line and the initials were hard to parse. Press `i` to
+    // see the wallet.
+    const salvageTag = '';
+    const objectiveTag = objectiveStatusTag(run);
+    const alarm = run.world?.alarm;
+    const alertTag =
+      alarm?.phase === 'alert'
+        ? `<span class="alert-tag">ALERT ${alarm.holdTurnsRemaining}</span>`
+        : alarm?.phase === 'cooldown'
+          ? `<span class="alert-tag">COOL ${alarm.cooldownTurnsRemaining}</span>`
+          : '';
+    const onHazard =
+      run.world && run.player && run.world.grid.tileAt(run.player.x, run.player.y) === TILE.HAZARD;
+    const hazardTag = onHazard
+      ? '<span class="hazard-tag">▓ HAZARD — move or take damage</span>'
+      : '';
+    const lockTag =
+      run.queue.currentFaction === FACTION.CORP
+        ? '<span class="control-lock">CORP TURN - controls locked</span>'
+        : '';
+    identity = `${escapeHtml(run.player?.callsign ?? run.archetype)} ${escapeHtml(run.archetype.toUpperCase())}`;
+    aphp = `AP ${player.ap}/${player.maxAp} HP ${player.hp}/${player.maxHp}`;
+    context = joinStatusParts([lockTag, hazardTag, objectiveTag, salvageTag, alertTag]);
   } else {
     if (!campaign) return stateLabel();
     const repLabel = REP_LABEL.find(b => campaign!.rep >= b.min)?.label ?? 'UNKNOWN';
-    identity = `CREW ${campaign.crew.filter(member => !member.flatlined).length}/${campaign.crew.length} CREDS ${campaign.credits ?? 0} SALVAGE ${campaign.salvage ?? 0} REP ${campaign.rep} (${repLabel})`;
+    // M4.2 (revised): Hub identity drops the typed-salvage compact tag —
+    // the inventory overlay (`i` in Hub) is the canonical wallet view with
+    // full bucket names. Total Cred / Rep / crew counts stay on this line.
+    identity = `CREW ${campaign.crew.filter(member => !member.flatlined).length}/${campaign.crew.length} CREDS ${campaign.credits ?? 0} REP ${campaign.rep} (${escapeHtml(repLabel)})`;
   }
-  if (!run.queue) return stateLabel();
-  const statsInner =
-    `${stateLabel()}  |  ${identity} ` +
-    `AP ${player.ap}/${player.maxAp} HP ${player.hp}/${player.maxHp}${stealthTag}` +
-    `  |  TURN ${run.queue.turnNumber} (${run.queue.currentFaction.toUpperCase()})${aim}`;
+  turnInfo =
+    run.state === RUN_STATE.COMBAT
+      ? joinStatusParts([
+          `TURN ${run.queue.turnNumber}`,
+          escapeHtml(run.queue.currentFaction.toUpperCase()),
+          aim,
+        ])
+      : '';
+  const statsInner = joinStatusParts([stateLabel(), identity, `${aphp}${stealthTag}`, turnInfo]);
   const stats = `<span class="game-shell__stats">${statsInner}</span>`;
-  // Two activity rows below the stats line. Ephemeral, non-logged status
+  const contextRow = `<span class="game-shell__context">${context}</span>`;
+  // Two activity rows below the stable status rows. Ephemeral, non-logged status
   // (proximity hints, corp mood) takes the upper slot when present,
   // bumping the previous action line; otherwise both rows show the last
   // two action logs. The reserved heights keep geometry constant.
@@ -1288,7 +1533,45 @@ function statusLine(modeHint: Mode): string {
     ? ephemeral
     : `<span class="game-shell__activity">${prevActionLine ?? ''}</span>`;
   const lower = `<span class="game-shell__activity">${lastActionLine ?? ''}</span>`;
-  return stats + upper + lower;
+  return stats + contextRow + upper + lower;
+}
+
+function objectiveStatusTag(run: Run): string {
+  if (!run.contract || !run.world) return '';
+  const done = run.isObjectiveSatisfied();
+  const remaining = run.objectiveTurnsRemaining();
+  const turnTag =
+    remaining === null || done ? '' : ` <span class="todo">[TURN:${remaining}]</span>`;
+  const reconProgress = run.contract.objective.kind === 'recon' ? run.reconProgress() : null;
+  const recon = reconProgress
+    ? ` <span class="todo">[MAP:${reconProgress.mapped}/${reconProgress.required}]</span>`
+    : '';
+  return `<span class="objective-tag">OBJ ${escapeHtml(run.contract.objective.title)} <span class="${done ? 'done' : 'todo'}">[${done ? 'DONE' : 'TODO'}]</span>${turnTag}${recon}</span>`;
+}
+
+function joinStatusParts(parts: Array<string | null | undefined>): string {
+  return parts
+    .filter(part => part && part.trim().length > 0)
+    .join(' <span class="status-sep">|</span> ');
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, char => {
+    switch (char) {
+      case '&':
+        return '&amp;';
+      case '<':
+        return '&lt;';
+      case '>':
+        return '&gt;';
+      case '"':
+        return '&quot;';
+      case "'":
+        return '&#39;';
+      default:
+        return char;
+    }
+  });
 }
 
 /**
@@ -1329,10 +1612,14 @@ function proximityHint(): string {
       for (let dy = -1; dy <= 1; dy++) {
         for (let dx = -1; dx <= 1; dx++) {
           const e = run.world.lootableCorpseAt(p.x + dx, p.y + dy);
-          if (e && !e.alive && e.loot && e.loot.salvage > 0) {
+          if (e && !e.alive && e.loot && totalSalvage(e.loot.salvage) > 0) {
             return 'SALVAGE nearby — press [Space] to loot.';
           }
         }
+      }
+      const interactable = run.world.adjacentInteractables(p)[0];
+      if (interactable) {
+        return `${interactable.label.toUpperCase()} nearby — press [Space] to interact.`;
       }
     }
     if (run.exitTile && isChebyshevAdjacent(run.player, run.exitTile)) {
@@ -1388,6 +1675,10 @@ function activeMode(): Mode {
 function resetInputModes(): void {
   touchPadEl.setMode(MODE.IDLE);
   keyboard.mode = MODE.IDLE;
+  // Clear any half-armed thrown-consumable aim (M4.3). Esc-cancel from
+  // ITEM_AIM, or a cross-controller cancel, must not leave a stashed item
+  // hanging — a later inventory click would otherwise mismatch.
+  pendingAimItemId = null;
 }
 
 // ---------------------------------------------------------------------------

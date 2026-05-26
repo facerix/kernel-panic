@@ -4,6 +4,15 @@ import { TurnQueue } from './TurnQueue.js';
 import { EventBus } from './events.js';
 import { Entity } from './Entity.js';
 import { FACTION, REP, RECRUIT, SALVAGE_TO_CRED_RATE } from './constants.js';
+import {
+  SALVAGE_TYPES,
+  addSalvage,
+  emptySalvage,
+  migrateSalvage,
+  totalSalvage,
+  type SalvageType,
+  type TypedSalvage,
+} from './salvage.js';
 import { buildCrewMember, RECRUIT_ARCHETYPE_POOL } from './archetypes/index.js';
 import { Curator } from './hub/Curator.js';
 import { Terminal } from './hub/Terminal.js';
@@ -81,7 +90,7 @@ export class Campaign {
   seed: number;
   rng: Rng;
   crew: Crew[];
-  salvage: number;
+  salvage: TypedSalvage;
   credits: number;
   rep: number;
   meta: CampaignMeta;
@@ -121,9 +130,13 @@ export class Campaign {
     if (crew !== undefined && !Array.isArray(crew)) {
       throw new TypeError('Campaign: crew must be an array when supplied');
     }
-    if (typeof salvage !== 'number' || !Number.isInteger(salvage) || salvage < 0) {
-      throw new RangeError(`Campaign salvage must be a non-negative integer, got ${salvage}`);
-    }
+    // M4.2: salvage is now a TypedSalvage wallet. `migrateSalvage` accepts
+    // either a legacy non-negative integer (buckets entirely into scrap) or a
+    // structurally valid TypedSalvage. Anything else crashes.
+    const salvageWallet =
+      salvage === undefined || salvage === 0
+        ? emptySalvage()
+        : migrateSalvage(salvage, 'Campaign salvage');
     if (typeof credits !== 'number' || !Number.isInteger(credits) || credits < 0) {
       throw new RangeError(`Campaign credits must be a non-negative integer, got ${credits}`);
     }
@@ -144,7 +157,7 @@ export class Campaign {
     this.seed = seed >>> 0;
     this.rng = new Rng(this.seed);
     this.crew = (crew as Crew[] | undefined) ?? buildCrew(this.rng);
-    this.salvage = salvage;
+    this.salvage = salvageWallet;
     this.credits = credits;
     this.rep = rep;
     this.meta = { ...(meta as CampaignMeta) };
@@ -261,32 +274,53 @@ export class Campaign {
     return this.activeRun;
   }
 
-  onJobEnd({ outcome, salvage = 0 }: { outcome?: Outcome; salvage?: number } = {}): void {
+  onJobEnd({
+    outcome,
+    salvage,
+    completed = outcome === OUTCOME.EXIT,
+  }: {
+    outcome?: Outcome;
+    salvage?: TypedSalvage;
+    completed?: boolean;
+  } = {}): void {
     if (this.state !== CAMPAIGN_STATE.COMBAT || !this.activeRun || !this.deployedMemberId) {
       throw new Error(`Campaign.onJobEnd: no active job from ${this.state}`);
     }
     if (outcome !== OUTCOME.DEATH && outcome !== OUTCOME.EXIT) {
       throw new Error(`Campaign.onJobEnd: unknown outcome "${outcome}"`);
     }
-    if (!Number.isInteger(salvage) || salvage < 0) {
-      throw new RangeError(`Campaign.onJobEnd: salvage must be a non-negative integer`);
+    // M4.2: salvage payload is now typed. Default to empty (no carry-out on
+    // a death; shell omits the param). Validate structure when provided so a
+    // malformed call crashes here rather than corrupting the wallet.
+    const extracted = salvage ?? emptySalvage();
+    if (
+      typeof extracted !== 'object' ||
+      extracted === null ||
+      !SALVAGE_TYPES.every(t => Number.isInteger(extracted[t]) && (extracted[t] as number) >= 0)
+    ) {
+      throw new RangeError(`Campaign.onJobEnd: salvage must be a TypedSalvage wallet`);
+    }
+    if (typeof completed !== 'boolean') {
+      throw new TypeError(`Campaign.onJobEnd: completed must be boolean`);
     }
 
     if (outcome === OUTCOME.DEATH) {
       this.flatlineMember(this.deployedMemberId);
     } else {
-      const reward = this.activeRun.contract?.reward;
-      this.salvage += salvage;
-      this.credits += reward?.credits ?? 0;
-      if (reward) this.adjustRep(reward.repDelta);
-      if (reward?.recruit) this.pendingRecruitReward = true;
+      addSalvage(this.salvage, extracted);
+      if (completed) {
+        const reward = this.activeRun.contract?.reward;
+        this.credits += reward?.credits ?? 0;
+        if (reward) this.adjustRep(reward.repDelta);
+        if (reward?.recruit) this.pendingRecruitReward = true;
+      }
     }
     // Clear job-scoped salvage (extracted or forfeited on death).
     // Consumables persist in the crew member's inventory until used —
     // they're a permanent part of the loadout, not job-scoped.
     const member = this.getCrewMember(this.deployedMemberId);
     if (member?.inventory) {
-      member.inventory.salvage = 0;
+      member.inventory.salvage = emptySalvage();
     }
 
     this.activeRun = null;
@@ -325,19 +359,55 @@ export class Campaign {
     return this.rep - before;
   }
 
-  sellSalvage(quantity: number): void {
+  /**
+   * Sell salvage to Finn for Creds at `SALVAGE_TO_CRED_RATE` per unit.
+   *
+   * M4.2: typed salvage. The `type` argument is optional — when omitted, the
+   * call sells `quantity` units total, drawing from buckets in the
+   * `SALVAGE_TYPES` priority order (scrap → chips → bio → data). This keeps
+   * the legacy "SELL N" Finn buttons working without forcing M5's per-type
+   * UI to land here. When `type` is provided, the call sells exactly that
+   * type and throws if the bucket is short.
+   *
+   * Per-type pricing is uniform today; M5 owns differentiated rates.
+   */
+  sellSalvage(quantity: number, type?: SalvageType): void {
     if (this.state !== CAMPAIGN_STATE.HUB) {
       throw new Error(`Campaign.sellSalvage: illegal from ${this.state}`);
     }
     if (!Number.isInteger(quantity) || quantity <= 0) {
       throw new RangeError(`Campaign.sellSalvage: quantity must be a positive integer`);
     }
-    if (quantity > this.salvage) {
+    if (type !== undefined) {
+      if (!(SALVAGE_TYPES as readonly string[]).includes(type)) {
+        throw new RangeError(`Campaign.sellSalvage: unknown salvage type "${type}"`);
+      }
+      if (this.salvage[type] < quantity) {
+        throw new Error(
+          `Campaign.sellSalvage: insufficient ${type} (have ${this.salvage[type]}, tried ${quantity})`
+        );
+      }
+      this.salvage[type] -= quantity;
+      this.credits += quantity * SALVAGE_TO_CRED_RATE;
+      this.#persist();
+      return;
+    }
+    // Untyped sell — draw from buckets in `SALVAGE_TYPES` order. Crashes
+    // loudly if the total wallet is short so callers can't silently
+    // overdraw.
+    const have = totalSalvage(this.salvage);
+    if (quantity > have) {
       throw new Error(
-        `Campaign.sellSalvage: insufficient salvage (have ${this.salvage}, tried ${quantity})`
+        `Campaign.sellSalvage: insufficient salvage (have ${have}, tried ${quantity})`
       );
     }
-    this.salvage -= quantity;
+    let remaining = quantity;
+    for (const t of SALVAGE_TYPES) {
+      if (remaining === 0) break;
+      const draw = Math.min(this.salvage[t], remaining);
+      this.salvage[t] -= draw;
+      remaining -= draw;
+    }
     this.credits += quantity * SALVAGE_TO_CRED_RATE;
     this.#persist();
   }

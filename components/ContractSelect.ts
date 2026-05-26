@@ -5,6 +5,7 @@
  */
 
 import { h } from '/src/domUtils.js';
+import { cloneObjective } from '/src/game/hub/Curator.js';
 import type { Contract } from '/src/game/hub/Curator.js';
 
 const DIFFICULTY_LABEL: Record<string, string> = Object.freeze({
@@ -132,6 +133,12 @@ const CSS = `
   letter-spacing: 0.04em;
 }
 
+.objective {
+  color: var(--board-text);
+  font-size: 0.86rem;
+  margin-top: 0.2rem;
+}
+
 .take {
   color: var(--board-accent);
   border-left: 1px dashed rgba(0, 217, 165, 0.45);
@@ -207,7 +214,7 @@ class ContractSelect extends HTMLElement {
     if (contracts.length === 0) {
       throw new Error('<contract-select>.setContracts requires at least one contract');
     }
-    this.#contracts = contracts.map(contract => ({ ...contract, reward: { ...contract.reward } }));
+    this.#contracts = contracts.map(cloneContract);
     this.#selectedIndex = 0;
     if (this.#ready) this.#render();
   }
@@ -251,6 +258,7 @@ class ContractSelect extends HTMLElement {
               h('span', { className: 'target', textContent: contract.label }),
             ]),
             h('div', { className: 'meta', textContent: rewardCopy(contract) }),
+            h('div', { className: 'objective', textContent: objectiveCopy(contract) }),
           ]),
           h('div', { className: 'take', textContent: 'TAKE THE JOB' }),
         ]
@@ -306,7 +314,7 @@ class ContractSelect extends HTMLElement {
     if (!contract) return;
     this.dispatchEvent(
       new CustomEvent('contract-selected', {
-        detail: { contract: { ...contract, reward: { ...contract.reward } } },
+        detail: { contract: cloneContract(contract) },
       })
     );
   }
@@ -319,6 +327,21 @@ function difficultyLabel(contract: Contract): string {
 function rewardCopy(contract: Contract): string {
   const recruit = contract.reward.recruit ? ' · recruit lead' : '';
   return `${contract.threatCount} drones · Cr +${contract.reward.credits} · REP +${contract.reward.repDelta}${recruit}`;
+}
+
+function objectiveCopy(contract: Contract): string {
+  const turnLimit = contract.objective.params?.turnLimit;
+  const window =
+    Number.isInteger(turnLimit) && Number(turnLimit) > 0 ? ` · WINDOW ${turnLimit} turns` : '';
+  return `OBJ ${contract.objective.title}${window}`;
+}
+
+function cloneContract(contract: Contract): Contract {
+  return {
+    ...contract,
+    objective: cloneObjective(contract.objective),
+    reward: { ...contract.reward },
+  };
 }
 
 customElements.define('contract-select', ContractSelect);

@@ -22,6 +22,7 @@ import {
   AP_COST,
   SALVAGE_PER_IMPROVISED_TURRET,
 } from '../../../src/game/constants.js';
+import { makeSalvage, totalSalvage } from '../../../src/game/salvage.js';
 
 function makeWorld({ techAt = [3, 3], grid, extraEntities = [] } = {}) {
   const g = grid ?? new Grid(8, 8);
@@ -151,7 +152,10 @@ function makeWorldWithInventory({ techAt = [3, 3], grid, salvage = 4, extraEntit
   const w = new World(g);
   const tech = new Tech({ id: 'tech', x: techAt[0], y: techAt[1] });
   tech.initInventory();
-  tech.inventory.salvage = salvage;
+  // M4.2: improvised turrets cost scrap specifically. The `salvage` knob in
+  // this helper now drives the scrap bucket so the existing test names ("with
+  // salvage", "no salvage") keep their original meaning.
+  tech.inventory.salvage = makeSalvage({ scrap: salvage });
   w.addEntity(tech);
   for (const e of extraEntities) w.addEntity(e);
   return { world: w, tech };
@@ -208,14 +212,18 @@ test('Tech.improviseTurret commits: deducts salvage + AP, places turret', () => 
   const { world, tech } = makeWorldWithInventory({ salvage: 4 });
   tech.turretReady = false;
   const apBefore = tech.ap;
-  const salvageBefore = tech.inventory.salvage;
+  const scrapBefore = tech.inventory.salvage.scrap;
   const turret = tech.improviseTurret(world, 1, 0);
   assert.ok(turret instanceof Turret);
   assert.equal(turret.x, 4);
   assert.equal(turret.y, 3);
   assert.equal(turret.faction, FACTION.PLAYER);
   assert.equal(tech.ap, apBefore - AP_COST.DEPLOY);
-  assert.equal(tech.inventory.salvage, salvageBefore - SALVAGE_PER_IMPROVISED_TURRET);
+  assert.equal(
+    tech.inventory.salvage.scrap,
+    scrapBefore - SALVAGE_PER_IMPROVISED_TURRET,
+    'scrap deducted by improvise cost'
+  );
   assert.equal(world.entityAt(4, 3), turret);
 });
 
@@ -225,7 +233,11 @@ test('Tech.improviseTurret throws on illegal pre-conditions without mutating sta
   const apBefore = tech.ap;
   assert.throws(() => tech.improviseTurret(world, 1, 0), /Illegal/);
   assert.equal(tech.ap, apBefore, 'AP not debited on illegal improvise');
-  assert.equal(tech.inventory.salvage, 0, 'salvage not debited on illegal improvise');
+  assert.equal(
+    totalSalvage(tech.inventory.salvage),
+    0,
+    'salvage wallet untouched on illegal improvise'
+  );
 });
 
 test('Tech.improviseTurret uses unique turret ids for multiple placements', () => {

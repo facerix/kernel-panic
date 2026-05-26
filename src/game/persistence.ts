@@ -10,7 +10,7 @@
  *     archetype, seed,
  *     turnNumber, currentFaction,
  *     rng:        { seed, state },
- *     contract:   { seed, objective, threatCount, label } | null,
+ *     contract:   { seed, objective, difficulty, threatCount, label, context, reward } | null,
  *     exitTile:   { x, y } | null,
  *     grid:       { w, h, tiles: number[] },          // plain array of u8 bytes
  *     entities:   [{ archetype, id, x, y, faction, hp, maxHp, ap, maxAp,
@@ -34,6 +34,7 @@ import { World } from './World.js';
 import { TurnQueue } from './TurnQueue.js';
 import { EventBus } from './events.js';
 import { FACTION, SALVAGE_TO_CRED_RATE } from './constants.js';
+import { migrateSalvage, type TypedSalvage } from './salvage.js';
 import { Entity } from './Entity.js';
 import { Crew } from './Crew.js';
 import { Merc } from './archetypes/Merc.js';
@@ -43,14 +44,33 @@ import { Turret } from './Turret.js';
 import { CorpDrone, DRONE_STATE } from './ai/CorpDrone.js';
 import { CorpCivilian } from './entities/CorpCivilian.js';
 import { NeutralCivilian } from './entities/NeutralCivilian.js';
+import { Terminal } from './entities/Terminal.js';
+import { Pickup } from './entities/Pickup.js';
+import { Contact } from './entities/Contact.js';
+import { DenyTarget } from './entities/DenyTarget.js';
+import { SyncPad } from './entities/SyncPad.js';
+import { CorpTurret } from './entities/CorpTurret.js';
+import { RelayNode } from './entities/RelayNode.js';
+import { ConsumablePickup } from './entities/ConsumablePickup.js';
+import { EscortNpc } from './entities/EscortNpc.js';
 import { Run, RUN_STATE } from './Run.js';
 import { Campaign, CAMPAIGN_STATE } from './Campaign.js';
+import { normalizeContractContext, normalizeObjective } from './hub/Curator.js';
 import type { CrewInit } from './Crew.js';
 import type { Inventory, Gear } from './Crew.js';
 import type { TurretInit } from './Turret.js';
 import type { CorpDroneProps } from './ai/CorpDrone.js';
 import type { CorpCivilianInit } from './entities/CorpCivilian.js';
 import type { NeutralCivilianInit } from './entities/NeutralCivilian.js';
+import type { TerminalInit } from './entities/Terminal.js';
+import type { PickupInit } from './entities/Pickup.js';
+import type { ContactInit } from './entities/Contact.js';
+import type { DenyTargetInit } from './entities/DenyTarget.js';
+import type { SyncPadInit } from './entities/SyncPad.js';
+import type { CorpTurretInit } from './entities/CorpTurret.js';
+import type { RelayNodeInit } from './entities/RelayNode.js';
+import type { ConsumablePickupInit } from './entities/ConsumablePickup.js';
+import type { EscortNpcInit } from './entities/EscortNpc.js';
 import type { EntityInit } from './Entity.js';
 import type { FactionId } from './constants.js';
 import type {
@@ -61,13 +81,30 @@ import type {
   RunSnapshot,
   RunState,
   RunTelemetry,
+  ObjectiveTimerSnapshot,
+  MapMemorySnapshot,
+  ObjectiveProgressSnapshot,
 } from './Run.js';
 import type { CampaignMeta, CampaignState } from './Campaign.js';
 
 const ARCHETYPE_KEY = Symbol.for('kernel-panic.archetype');
 
 type RestoreEntityProps = Partial<
-  CrewInit & TurretInit & CorpDroneProps & CorpCivilianInit & NeutralCivilianInit & EntityInit
+  CrewInit &
+    TurretInit &
+    CorpDroneProps &
+    CorpCivilianInit &
+    NeutralCivilianInit &
+    EntityInit &
+    TerminalInit &
+    PickupInit &
+    ContactInit &
+    DenyTargetInit &
+    SyncPadInit &
+    CorpTurretInit &
+    RelayNodeInit &
+    ConsumablePickupInit &
+    EscortNpcInit
 > & {
   id: string;
   x: number;
@@ -88,6 +125,16 @@ const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) =
     'corp-civilian': (props: RestoreEntityProps) => new CorpCivilian(props as CorpCivilianInit),
     'neutral-civilian': (props: RestoreEntityProps) =>
       new NeutralCivilian(props as NeutralCivilianInit),
+    terminal: (props: RestoreEntityProps) => new Terminal(props as TerminalInit),
+    pickup: (props: RestoreEntityProps) => new Pickup(props as PickupInit),
+    contact: (props: RestoreEntityProps) => new Contact(props as ContactInit),
+    'deny-target': (props: RestoreEntityProps) => new DenyTarget(props as DenyTargetInit),
+    'sync-pad': (props: RestoreEntityProps) => new SyncPad(props as SyncPadInit),
+    'corp-turret': (props: RestoreEntityProps) => new CorpTurret(props as CorpTurretInit),
+    'relay-node': (props: RestoreEntityProps) => new RelayNode(props as RelayNodeInit),
+    'consumable-pickup': (props: RestoreEntityProps) =>
+      new ConsumablePickup(props as ConsumablePickupInit),
+    'escort-npc': (props: RestoreEntityProps) => new EscortNpc(props as EscortNpcInit),
     // Generic fallback so a future `Entity` subclass (NPCs, items) doesn't break
     // the round-trip when the full archetype landed but the loader hasn't.
     entity: (props: RestoreEntityProps) =>
@@ -146,7 +193,12 @@ export type CampaignSnapshot = {
   seed: number;
   rng: { seed: number; state: number };
   crew: CampaignCrewSnapshot[];
-  salvage: number;
+  /**
+   * M4.2: typed salvage wallet. Pre-M4.2 saves stored a legacy `number` here
+   * (generic salvage units); `restoreCampaign` / `migrateSalvage` buckets
+   * those into `scrap` on load. New saves write the typed shape directly.
+   */
+  salvage: number | TypedSalvage;
   /** M8+: campaign money. Defaults to 0 for pre-Creds saves. */
   credits?: number;
   rep: number;
@@ -246,10 +298,19 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
   run.contract = normalizeContract(record.contract);
   run.exitTile = record.exitTile ? { ...record.exitTile } : null;
   run.telemetry = { ...record.telemetry };
+  run.objectiveTimer = normalizeObjectiveTimer(record.objectiveTimer);
   run.state = record.state;
   run.bus = new EventBus();
   run.world = new World(grid, { events: run.bus });
-  run.world.alarmActive = record.alarmActive ?? false;
+  run.world.restoreSecuredPickups(
+    normalizeObjectiveProgress(record.objectiveProgress).securedPickups
+  );
+  if (record.alarm) {
+    run.world.restoreAlarm(record.alarm);
+  } else {
+    run.world.alarmActive = record.alarmActive ?? false;
+  }
+  run.restoreMapMemory(normalizeMapMemory(record.mapMemory));
 
   const factionOrder = [FACTION.PLAYER, FACTION.CORP];
   if (record.currentFaction !== FACTION.PLAYER && record.currentFaction !== FACTION.CORP) {
@@ -401,6 +462,66 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
     }
     if (rec.turret.ownerId !== undefined) entityProps.ownerId = rec.turret.ownerId;
   }
+  if (rec.archetype === 'corp-turret' && rec.corpTurret) {
+    if (Number.isInteger(rec.corpTurret.range)) entityProps.range = rec.corpTurret.range;
+    if (Number.isInteger(rec.corpTurret.attackDamage)) {
+      entityProps.attackDamage = rec.corpTurret.attackDamage;
+    }
+  }
+  if (rec.archetype === 'relay-node') {
+    entityProps.label = rec.relayNode?.label ?? 'Relay node';
+  }
+  if (rec.archetype === 'consumable-pickup' && rec.consumablePickup) {
+    entityProps.consumableId = rec.consumablePickup.consumableId;
+    entityProps.label = rec.consumablePickup.label;
+  }
+  if (rec.archetype === 'escort-npc' && rec.escortNpc) {
+    entityProps.label = rec.escortNpc.label;
+    entityProps.activated = rec.escortNpc.activated;
+    entityProps.armed = rec.escortNpc.armed;
+  }
+  if (rec.archetype === 'terminal' && rec.terminal) {
+    entityProps.label = rec.terminal.label;
+    entityProps.sliced = rec.terminal.sliced;
+    entityProps.armed = rec.terminal.armed;
+    entityProps.raisesAlarm = rec.terminal.raisesAlarm;
+  }
+  if (rec.archetype === 'pickup' && rec.pickup) {
+    entityProps.label = rec.pickup.label;
+    entityProps.secured = rec.pickup.secured;
+    entityProps.armed = rec.pickup.armed;
+  }
+  if (rec.archetype === 'contact' && rec.contact) {
+    entityProps.label = rec.contact.label;
+    entityProps.handoffComplete = rec.contact.handoffComplete;
+    entityProps.armed = rec.contact.armed;
+  }
+  if (rec.archetype === 'deny-target') {
+    entityProps.label = rec.denyTarget?.label ?? 'Deny target';
+  }
+  if (rec.archetype === 'sync-pad' && rec.syncPad) {
+    entityProps.label = rec.syncPad.label;
+    entityProps.synced = rec.syncPad.synced;
+    entityProps.armed = rec.syncPad.armed;
+  }
+  if (rec.archetype === 'terminal' && !rec.terminal) {
+    throw new TypeError(`restore: terminal entity ${rec.id} requires terminal state`);
+  }
+  if (rec.archetype === 'pickup' && !rec.pickup) {
+    throw new TypeError(`restore: pickup entity ${rec.id} requires pickup state`);
+  }
+  if (rec.archetype === 'contact' && !rec.contact) {
+    throw new TypeError(`restore: contact entity ${rec.id} requires contact state`);
+  }
+  if (rec.archetype === 'deny-target' && !rec.denyTarget) {
+    throw new TypeError(`restore: deny target entity ${rec.id} requires deny target state`);
+  }
+  if (rec.archetype === 'sync-pad' && !rec.syncPad) {
+    throw new TypeError(`restore: sync pad entity ${rec.id} requires sync pad state`);
+  }
+  if (rec.archetype === 'escort-npc' && !rec.escortNpc) {
+    throw new TypeError(`restore: escort NPC entity ${rec.id} requires escort state`);
+  }
   const entity = factory(entityProps);
   // Re-apply the live HP / AP / alive / stealth state. We can't pass current
   // HP through the constructor (Entity always starts at full health), so we
@@ -473,6 +594,106 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
         throw new RangeError(`restore: drone ${rec.id} patrolIndex=${idx} out of [0, ${len})`);
       }
       entity.patrolIndex = len > 0 ? idx : 0;
+    }
+  }
+
+  if (rec.archetype === 'terminal' && rec.terminal) {
+    if (!(entity instanceof Terminal)) {
+      throw new Error(`restore: terminal entity ${rec.id} did not restore as Terminal`);
+    }
+    if (typeof rec.terminal.label !== 'string' || rec.terminal.label.length === 0) {
+      throw new TypeError(`restore: terminal ${rec.id} label must be a non-empty string`);
+    }
+    if (typeof rec.terminal.sliced !== 'boolean') {
+      throw new TypeError(`restore: terminal ${rec.id} sliced must be boolean`);
+    }
+    if (typeof rec.terminal.armed !== 'boolean') {
+      throw new TypeError(`restore: terminal ${rec.id} armed must be boolean`);
+    }
+    if (typeof rec.terminal.raisesAlarm !== 'boolean') {
+      throw new TypeError(`restore: terminal ${rec.id} raisesAlarm must be boolean`);
+    }
+  }
+  if (rec.archetype === 'pickup' && rec.pickup) {
+    if (!(entity instanceof Pickup)) {
+      throw new Error(`restore: pickup entity ${rec.id} did not restore as Pickup`);
+    }
+    if (typeof rec.pickup.label !== 'string' || rec.pickup.label.length === 0) {
+      throw new TypeError(`restore: pickup ${rec.id} label must be a non-empty string`);
+    }
+    if (typeof rec.pickup.secured !== 'boolean') {
+      throw new TypeError(`restore: pickup ${rec.id} secured must be boolean`);
+    }
+    if (typeof rec.pickup.armed !== 'boolean') {
+      throw new TypeError(`restore: pickup ${rec.id} armed must be boolean`);
+    }
+  }
+  if (rec.archetype === 'contact' && rec.contact) {
+    if (!(entity instanceof Contact)) {
+      throw new Error(`restore: contact entity ${rec.id} did not restore as Contact`);
+    }
+    if (typeof rec.contact.label !== 'string' || rec.contact.label.length === 0) {
+      throw new TypeError(`restore: contact ${rec.id} label must be a non-empty string`);
+    }
+    if (typeof rec.contact.handoffComplete !== 'boolean') {
+      throw new TypeError(`restore: contact ${rec.id} handoffComplete must be boolean`);
+    }
+    if (typeof rec.contact.armed !== 'boolean') {
+      throw new TypeError(`restore: contact ${rec.id} armed must be boolean`);
+    }
+  }
+  if (rec.archetype === 'deny-target' && rec.denyTarget) {
+    if (!(entity instanceof DenyTarget)) {
+      throw new Error(`restore: deny target entity ${rec.id} did not restore as DenyTarget`);
+    }
+    if (typeof rec.denyTarget.label !== 'string' || rec.denyTarget.label.length === 0) {
+      throw new TypeError(`restore: deny target ${rec.id} label must be a non-empty string`);
+    }
+  }
+  if (rec.archetype === 'sync-pad' && rec.syncPad) {
+    if (!(entity instanceof SyncPad)) {
+      throw new Error(`restore: sync pad entity ${rec.id} did not restore as SyncPad`);
+    }
+    if (typeof rec.syncPad.label !== 'string' || rec.syncPad.label.length === 0) {
+      throw new TypeError(`restore: sync pad ${rec.id} label must be a non-empty string`);
+    }
+    if (typeof rec.syncPad.synced !== 'boolean') {
+      throw new TypeError(`restore: sync pad ${rec.id} synced must be boolean`);
+    }
+    if (typeof rec.syncPad.armed !== 'boolean') {
+      throw new TypeError(`restore: sync pad ${rec.id} armed must be boolean`);
+    }
+  }
+  if (rec.archetype === 'consumable-pickup' && rec.consumablePickup) {
+    if (!(entity instanceof ConsumablePickup)) {
+      throw new Error(
+        `restore: consumable pickup entity ${rec.id} did not restore as ConsumablePickup`
+      );
+    }
+    if (
+      typeof rec.consumablePickup.consumableId !== 'string' ||
+      rec.consumablePickup.consumableId.length === 0
+    ) {
+      throw new TypeError(
+        `restore: consumable pickup ${rec.id} consumableId must be a non-empty string`
+      );
+    }
+    if (typeof rec.consumablePickup.label !== 'string' || rec.consumablePickup.label.length === 0) {
+      throw new TypeError(`restore: consumable pickup ${rec.id} label must be a non-empty string`);
+    }
+  }
+  if (rec.archetype === 'escort-npc' && rec.escortNpc) {
+    if (!(entity instanceof EscortNpc)) {
+      throw new Error(`restore: escort NPC entity ${rec.id} did not restore as EscortNpc`);
+    }
+    if (typeof rec.escortNpc.label !== 'string' || rec.escortNpc.label.length === 0) {
+      throw new TypeError(`restore: escort NPC ${rec.id} label must be a non-empty string`);
+    }
+    if (typeof rec.escortNpc.activated !== 'boolean') {
+      throw new TypeError(`restore: escort NPC ${rec.id} activated must be boolean`);
+    }
+    if (typeof rec.escortNpc.armed !== 'boolean') {
+      throw new TypeError(`restore: escort NPC ${rec.id} armed must be boolean`);
     }
   }
 
@@ -554,6 +775,21 @@ function restoreCrewMember(rec: CampaignCrewSnapshot): Crew {
   if (typeof rec.id !== 'string' || rec.id.length === 0) {
     throw new TypeError('restoreCampaign: crew member id must be a non-empty string');
   }
+  // M4.2: migrate legacy `inventory.salvage: number` into the typed wallet
+  // before the archetype factory consumes it. Snapshots written before M4.2
+  // store a plain integer; new saves store a TypedSalvage object. The
+  // `migrateSalvage` helper handles both shapes and crashes on anything
+  // else (silent fallback would corrupt the wallet on every reload).
+  let inventory = rec.inventory ?? null;
+  if (inventory && 'salvage' in inventory) {
+    inventory = {
+      ...inventory,
+      salvage: migrateSalvage(
+        inventory.salvage,
+        `restoreCampaign: crew "${rec.id}" inventory.salvage`
+      ),
+    };
+  }
   const factory = ARCHETYPE_FACTORY[rec.archetype];
   const member = factory({
     id: rec.id,
@@ -561,7 +797,7 @@ function restoreCrewMember(rec: CampaignCrewSnapshot): Crew {
     y: 0,
     callsign: rec.callsign,
     flatlined: !!rec.flatlined,
-    inventory: rec.inventory ?? null,
+    inventory,
     gear: rec.gear ?? null,
     maxHp: rec.maxHp,
     maxAp: rec.maxAp,
@@ -649,9 +885,12 @@ function normalizeContract(
     reward?: LegacyContractReward;
   };
   const reward = raw.reward;
+  const context = normalizeContractContext(raw.context);
   if (!reward) {
     return {
       ...raw,
+      objective: normalizeObjective(raw.objective),
+      context,
       reward: { credits: 0, repDelta: 0 },
     };
   }
@@ -669,11 +908,95 @@ function normalizeContract(
   }
   return {
     ...raw,
+    objective: normalizeObjective(raw.objective),
+    context,
     reward: {
       credits,
       repDelta: repDelta as number,
       ...(reward.recruit === true ? { recruit: true as const } : {}),
     },
+  };
+}
+
+function normalizeObjectiveTimer(timer: unknown): ObjectiveTimerSnapshot {
+  if (timer === undefined || timer === null) return freshObjectiveTimer();
+  if (!timer || typeof timer !== 'object' || Array.isArray(timer)) {
+    throw new TypeError('restore: objectiveTimer must be an object');
+  }
+  const candidate = timer as Partial<ObjectiveTimerSnapshot>;
+  if (typeof candidate.completedWithinLimit !== 'boolean') {
+    throw new TypeError('restore: objectiveTimer.completedWithinLimit must be boolean');
+  }
+  if (typeof candidate.expired !== 'boolean') {
+    throw new TypeError('restore: objectiveTimer.expired must be boolean');
+  }
+  if (
+    candidate.completedTurn !== null &&
+    candidate.completedTurn !== undefined &&
+    (!Number.isInteger(candidate.completedTurn) || candidate.completedTurn < 1)
+  ) {
+    throw new RangeError('restore: objectiveTimer.completedTurn must be null or turn >= 1');
+  }
+  if (
+    candidate.expiredTurn !== null &&
+    candidate.expiredTurn !== undefined &&
+    (!Number.isInteger(candidate.expiredTurn) || candidate.expiredTurn < 1)
+  ) {
+    throw new RangeError('restore: objectiveTimer.expiredTurn must be null or turn >= 1');
+  }
+  if (typeof candidate.expiryAnnounced !== 'boolean') {
+    throw new TypeError('restore: objectiveTimer.expiryAnnounced must be boolean');
+  }
+  return {
+    completedWithinLimit: candidate.completedWithinLimit,
+    expired: candidate.expired,
+    completedTurn: candidate.completedTurn ?? null,
+    expiredTurn: candidate.expiredTurn ?? null,
+    expiryAnnounced: candidate.expiryAnnounced,
+  };
+}
+
+function normalizeMapMemory(memory: unknown): MapMemorySnapshot | null {
+  if (memory === undefined || memory === null) return null;
+  if (!memory || typeof memory !== 'object' || Array.isArray(memory)) {
+    throw new TypeError('restore: mapMemory must be an object');
+  }
+  const candidate = memory as Partial<MapMemorySnapshot>;
+  if (!Array.isArray(candidate.seen)) {
+    throw new TypeError('restore: mapMemory.seen must be an array');
+  }
+  for (const key of candidate.seen) {
+    if (typeof key !== 'string' || !/^-?\d+,-?\d+$/.test(key)) {
+      throw new TypeError('restore: mapMemory.seen entries must be coordinate strings');
+    }
+  }
+  return { seen: [...candidate.seen] };
+}
+
+function normalizeObjectiveProgress(progress: unknown): ObjectiveProgressSnapshot {
+  if (progress === undefined || progress === null) return { securedPickups: [] };
+  if (!progress || typeof progress !== 'object' || Array.isArray(progress)) {
+    throw new TypeError('restore: objectiveProgress must be an object');
+  }
+  const candidate = progress as Partial<ObjectiveProgressSnapshot>;
+  if (!Array.isArray(candidate.securedPickups)) {
+    throw new TypeError('restore: objectiveProgress.securedPickups must be an array');
+  }
+  for (const id of candidate.securedPickups) {
+    if (typeof id !== 'string' || id.length === 0) {
+      throw new TypeError('restore: objectiveProgress.securedPickups entries must be strings');
+    }
+  }
+  return { securedPickups: [...candidate.securedPickups] };
+}
+
+function freshObjectiveTimer(): ObjectiveTimerSnapshot {
+  return {
+    completedWithinLimit: false,
+    expired: false,
+    completedTurn: null,
+    expiredTurn: null,
+    expiryAnnounced: false,
   };
 }
 
@@ -710,8 +1033,20 @@ function validateCampaignRecord(record: unknown): asserts record is CampaignSnap
     delete legacy.vouch;
   }
   const rep = candidate.rep;
-  if (!Number.isInteger(salvage) || salvage === undefined || salvage < 0) {
-    throw new RangeError('restoreCampaign: salvage must be a non-negative integer');
+  // M4.2: accept either a legacy non-negative integer (pre-M4.2 saves) or a
+  // structurally valid TypedSalvage wallet. The Campaign constructor runs
+  // `migrateSalvage` to normalize the field; here we only ensure the shape
+  // is one of the two recognized forms — anything else is data corruption
+  // and crashes the load (per project policy).
+  if (typeof salvage === 'number') {
+    if (!Number.isInteger(salvage) || salvage < 0) {
+      throw new RangeError('restoreCampaign: legacy salvage must be a non-negative integer');
+    }
+  } else if (salvage === null || typeof salvage !== 'object' || Array.isArray(salvage)) {
+    throw new TypeError('restoreCampaign: salvage must be a number (legacy) or TypedSalvage');
+  } else {
+    // TypedSalvage validation is deferred to `migrateSalvage` in the
+    // Campaign constructor — duplicating it here would just risk drift.
   }
   if (!Number.isInteger(credits) || credits < 0) {
     throw new RangeError('restoreCampaign: credits must be a non-negative integer');

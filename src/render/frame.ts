@@ -116,8 +116,11 @@ export function buildFrame(world: World, camera: Camera, options: BuildFrameOpti
           // they are). Memorised corpses render at MEMORY_DIM so the player
           // can navigate back to loot them. The corpse glyph uses its faction
           // colour at the memory dim factor.
+          const entity = entityIndex.get(`${wx},${wy}`);
           const corpseRec = vision.memorisedCorpses.get(`${wx},${wy}`);
-          if (corpseRec) {
+          // Only paint a memorised corpse while the body is still in the
+          // world — looting strips the entity but used to leave stale memory.
+          if (corpseRec && entity && !entity.alive) {
             const fg = factionFgForMemory(corpseRec.faction as FactionId);
             cells[idx] = { char: CORPSE_GLYPH_CHAR, fg: dimColor(fg, MEMORY_DIM) };
           } else {

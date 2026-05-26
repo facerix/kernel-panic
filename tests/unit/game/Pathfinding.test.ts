@@ -72,6 +72,17 @@ test('findPath treats live entities as blockers on non-goal tiles', () => {
   assert.equal(path, null, 'corridor blocked by an entity should be unreachable');
 });
 
+test('findPath honours extraBlockers without placing entities', () => {
+  const grid = new Grid(6, 3);
+  for (let x = 0; x < 6; x++) {
+    grid.setTile(x, 0, TILE.WALL);
+    grid.setTile(x, 2, TILE.WALL);
+  }
+  const w = new World(grid);
+  const path = findPath(w, { x: 1, y: 1 }, { x: 5, y: 1 }, { extraBlockers: new Set(['3,1']) });
+  assert.equal(path, null, 'simulated blocker on choke tile should seal the corridor');
+});
+
 test('findPath allows a path that ends on a goal tile occupied by an entity (default)', () => {
   const w = openWorld();
   const target = new Entity({ id: 't', x: 4, y: 4, faction: FACTION.PLAYER, glyph: '@' });

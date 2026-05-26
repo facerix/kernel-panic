@@ -5,6 +5,7 @@ import {
   corpTurnStatusBody,
   countVisibleCorpEntities,
   isCorpTurnStepLogVisibleToPlayer,
+  resetCorpTurnStatusCache,
 } from '../../../src/game/corpTurnStatusCopy.js';
 import { FACTION, TILE } from '../../../src/game/constants.js';
 import { Grid } from '../../../src/game/Grid.js';
@@ -38,12 +39,33 @@ test('corpTurnStatusBody: random message is stable for full turn', () => {
 });
 
 test('corpTurnStatusBody: one visible', () => {
-  assert.match(corpTurnStatusBody(1), /drone/i);
+  assert.match(corpTurnStatusBody(1), /corp asset/i);
 });
 
 test('corpTurnStatusBody: several visible', () => {
   assert.match(corpTurnStatusBody(2), /Multiple hostiles/i);
   assert.match(corpTurnStatusBody(99), /Multiple hostiles/i);
+});
+
+test('resetCorpTurnStatusCache clears cached messages so turn 1 of a new run is fresh', () => {
+  // Seed the cache with a message for turn 9999 (unlikely to collide).
+  const first = corpTurnStatusBody(0, 9999);
+  resetCorpTurnStatusCache();
+  // After reset, turn 9999 should re-roll (may or may not match — but the
+  // cache entry must be gone). We verify by checking .has internally via a
+  // second call that would return the same string if the cache survived.
+  // Run it enough times that at least one mismatch proves the cache was cleared
+  // (12 possible messages, so P(same) ≈ 8.3% per trial).
+  let sawDifferent = false;
+  for (let i = 0; i < 50; i++) {
+    resetCorpTurnStatusCache();
+    if (corpTurnStatusBody(0, 9999) !== first) {
+      sawDifferent = true;
+      break;
+    }
+  }
+  assert.ok(sawDifferent, 'cache should have been cleared — got the same message 50 times');
+  resetCorpTurnStatusCache(); // clean up
 });
 
 function makeDroneWorld() {

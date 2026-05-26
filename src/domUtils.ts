@@ -22,6 +22,12 @@ export const h = (
   return el;
 };
 
+export const hFrag = (children?: Node[]): DocumentFragment => {
+  const fragment = document.createDocumentFragment();
+  children?.forEach(child => fragment.appendChild(child));
+  return fragment;
+};
+
 /**
  * Useful little template literal tagging function to make template strings behave more like JSX
  * taken almost verbatim from https://blog.jim-nielsen.com/2019/jsx-like-syntax-for-tagged-template-literals/

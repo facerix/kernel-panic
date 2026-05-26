@@ -202,6 +202,21 @@ test('buildFrame does NOT show memorised corpse on a never-seen tile', () => {
   assert.equal(cell.char, UNSEEN_GLYPH.char, 'unseen tile with memorised corpse stays unseen');
 });
 
+test('buildFrame does NOT show memorised corpse after it was looted from the world', () => {
+  const g = new Grid(6, 4);
+  const w = new World(g);
+  const player = new Entity({ id: 'p', x: 1, y: 1, faction: FACTION.PLAYER, glyph: '@' });
+  w.addEntity(player);
+  const vision = new VisionField();
+  vision.seen.add('5,3');
+  vision.memoriseCorpse({ x: 5, y: 3, faction: FACTION.CORP, glyph: '%' });
+  vision.recompute(g, player, 1);
+  const frame = buildFrame(w, { x: 0, y: 0, width: 6, height: 4 }, { vision });
+  const cell = cellAt(frame, 5, 3);
+  assert.notEqual(cell.char, CORPSE_GLYPH_CHAR, 'looted corpse should not ghost in memory');
+  assert.equal(cell.char, '.', 'seen-but-empty tile renders dim floor');
+});
+
 test('buildFrame with vision renders entities only where currently visible', () => {
   // Hand-build a fixture without the wall-blockade between player and drone
   // so we can assert the visible-entity branch on its own.

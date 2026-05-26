@@ -7,6 +7,7 @@ import {
   FACTION,
   STIM_HEAL,
   SMOKE_RADIUS,
+  INCENDIARY_THROW_DIST,
   TARGETING_BONUS,
   type FactionId,
 } from './constants.js';
@@ -14,9 +15,10 @@ import { ITEM_ID } from './items.js';
 import type { Item } from './items.js';
 import type { World } from './World.js';
 import type { EntityInit, LootableEntity } from './Entity.js';
+import { emptySalvage, addSalvage, totalSalvage, type TypedSalvage } from './salvage.js';
 
 export type Inventory = {
-  salvage: number;
+  salvage: TypedSalvage;
   consumables: Item[];
 };
 
@@ -26,7 +28,7 @@ export type Gear = {
   dodgeBonus: number;
 };
 
-const createDefaultInventory = (): Inventory => ({ salvage: 0, consumables: [] });
+const createDefaultInventory = (): Inventory => ({ salvage: emptySalvage(), consumables: [] });
 const createDefaultGear = (): Gear => ({ maxHpBonus: 0, hitBonus: 0, dodgeBonus: 0 });
 
 /**
@@ -80,6 +82,7 @@ export class Crew extends Entity {
   flatlined: boolean;
   inventory: Inventory | null;
   gear: Gear | null;
+  // not a valid archetype; Crew is essentially an abstract base class for all player-controlled entities
   archetype: string = 'CrewMember';
 
   /**
@@ -211,18 +214,26 @@ export class Crew extends Entity {
 
   /**
    * Use a consumable from inventory during combat. Costs `AP_COST.INTERACT`.
-   * Returns a result descriptor so the shell can apply world effects (smoke).
+   * Returns a result descriptor so the shell can apply world effects (smoke,
+   * incendiary cluster).
    *
    * Pre-conditions (all throw):
    *   - inventory is initialised
    *   - crew member can afford INTERACT AP
    *   - consumable exists in inventory
+   *   - aim is supplied iff the consumable is aimed (incendiary). Mismatched
+   *     aim presence is a programming error, not a player error.
    *
    * On commit: debits AP, removes the consumable from inventory, applies
-   * immediate effects (Stim heals HP). Smoke placement is returned as a
-   * result for the shell to apply to the grid (keeping Crew pure of World).
+   * immediate effects (Stim heals HP). World mutations (smoke, hazard) are
+   * returned as descriptors so the shell can stamp tiles (keeping Crew pure
+   * of World).
+   *
+   * @param itemId  consumable id from `ITEM_ID`
+   * @param aim     `{ dx, dy }` unit vector for thrown items (M4.3 incendiary).
+   *                Omit for self-targeted items (stim, smoke).
    */
-  useConsumable(itemId: string) {
+  useConsumable(itemId: string, aim?: { dx: number; dy: number }) {
     if (!this.inventory) {
       throw new Error(`useConsumable: inventory not initialised for ${this.id}`);
     }
@@ -232,6 +243,29 @@ export class Crew extends Entity {
     const idx = this.inventory.consumables.findIndex(c => c.id === itemId);
     if (idx === -1) {
       throw new Error(`useConsumable: ${this.id} does not have "${itemId}"`);
+    }
+    // Validate aim/no-aim symmetry before mutating state — a mismatched call
+    // is a wiring bug in the shell, not a recoverable runtime condition.
+    const isAimed = itemId === ITEM_ID.INCENDIARY;
+    if (isAimed && !aim) {
+      throw new Error(`useConsumable: "${itemId}" requires aim direction`);
+    }
+    if (!isAimed && aim) {
+      throw new Error(`useConsumable: "${itemId}" does not accept aim direction`);
+    }
+    if (aim) {
+      const { dx, dy } = aim;
+      if (
+        !Number.isInteger(dx) ||
+        !Number.isInteger(dy) ||
+        (dx === 0 && dy === 0) ||
+        Math.abs(dx) > 1 ||
+        Math.abs(dy) > 1
+      ) {
+        throw new Error(
+          `useConsumable: invalid aim (${dx}, ${dy}) for "${itemId}" — must be a non-zero integer unit vector`
+        );
+      }
     }
     this.spendAp(AP_COST.INTERACT);
     this.inventory.consumables.splice(idx, 1);
@@ -247,13 +281,29 @@ export class Crew extends Entity {
         // shell can place SMOKE tiles on the grid. The crew member's position
         // is the center; radius comes from constants.
         return { type: 'smoke', cx: this.x, cy: this.y, radius: SMOKE_RADIUS };
+      case ITEM_ID.INCENDIARY: {
+        // Thrown: target tile is `thrower + dir * INCENDIARY_THROW_DIST`.
+        // LOS-clear-target validation is the shell's job (it owns the Grid /
+        // World refs); Crew just reports the intended center. The shell may
+        // refuse to stamp if LOS is blocked or the tile is out of bounds — in
+        // that case Crew has already paid AP and consumed the charge, which
+        // matches stim's "used up on commit" semantics. The shell should
+        // gate before calling, not after.
+        const { dx, dy } = aim!;
+        const cx = this.x + dx * INCENDIARY_THROW_DIST;
+        const cy = this.y + dy * INCENDIARY_THROW_DIST;
+        return { type: 'incendiary', cx, cy };
+      }
       default:
         throw new Error(`useConsumable: unknown consumable "${itemId}"`);
     }
   }
 
   /**
-   * Loot salvage from an adjacent corpse. Costs `AP_COST.INTERACT`.
+   * Loot salvage from an adjacent corpse. Costs `AP_COST.INTERACT` by default.
+   * Walk-onto salvage may pass `{ spendAp: false }` after movement has already
+   * paid AP, matching consumable pickup semantics without weakening the
+   * standalone interact cost.
    *
    * Pre-conditions (all throw on violation — crash > silent fallback):
    *   - `this.inventory` is initialised
@@ -262,20 +312,27 @@ export class Crew extends Entity {
    *   - `targetEntity` has a `loot` object with `salvage > 0`
    *   - `targetEntity` is Chebyshev-adjacent (distance ≤ 1) to this crew member
    *
-   * On commit: debits AP, transfers loot.salvage to `this.inventory.salvage`,
-   * zeroes `targetEntity.loot.salvage`.
+   * On commit (M4.1): debits AP unless `spendAp` is false, transfers loot.salvage to
+   * `this.inventory.salvage`, then **removes the stripped corpse from the
+   * world entirely** — no phantom tile, no zero-loot lingering corpse.
+   * Closes the kaizen "corpse memory / lootability" line for drones; future
+   * non-drone lootable entities (if introduced) inherit the same rule.
    */
-  collectSalvage(world: World, targetEntity: LootableEntity) {
+  collectSalvage(world: World, targetEntity: LootableEntity, options: { spendAp?: boolean } = {}) {
+    const spendAp = options.spendAp ?? true;
     if (!this.inventory) {
       throw new Error(`collectSalvage: inventory not initialised for ${this.id}`);
     }
-    if (!this.canAfford(AP_COST.INTERACT)) {
+    if (spendAp && !this.canAfford(AP_COST.INTERACT)) {
       throw new Error(`collectSalvage: insufficient AP for ${this.id}`);
     }
     if (targetEntity.alive) {
       throw new Error(`collectSalvage: target ${targetEntity.id} is still alive`);
     }
-    if (!targetEntity.loot || !targetEntity.loot.salvage || targetEntity.loot.salvage <= 0) {
+    if (!targetEntity.loot || !targetEntity.loot.salvage) {
+      throw new Error(`collectSalvage: no salvage loot on ${targetEntity.id}`);
+    }
+    if (totalSalvage(targetEntity.loot.salvage) <= 0) {
       throw new Error(`collectSalvage: no salvage loot on ${targetEntity.id}`);
     }
     const dx = Math.abs(targetEntity.x - this.x);
@@ -285,8 +342,18 @@ export class Crew extends Entity {
         `collectSalvage: ${targetEntity.id} is not adjacent to ${this.id} (Chebyshev ${Math.max(dx, dy)})`
       );
     }
-    this.spendAp(AP_COST.INTERACT);
-    this.inventory.salvage += targetEntity.loot.salvage;
-    targetEntity.loot.salvage = 0;
+    if (spendAp) {
+      this.spendAp(AP_COST.INTERACT);
+    }
+    // M4.2: typed salvage — fold the corpse's typed loot into the crew
+    // member's typed wallet, then zero each bucket on the corpse before
+    // removing it. Total preserved across the four buckets.
+    addSalvage(this.inventory.salvage, targetEntity.loot.salvage);
+    targetEntity.loot.salvage = emptySalvage();
+    // M4.1: strip the corpse from the world so the tile renders as empty and
+    // no longer registers in `anyEntityAt` / `lootableCorpseAt`. Pathing was
+    // already unaffected (corpses don't block movement), but the visual
+    // "phantom" tile was misleading.
+    world.removeEntity(targetEntity.id);
   }
 }

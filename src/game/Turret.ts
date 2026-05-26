@@ -1,4 +1,5 @@
 import { Entity } from './Entity.js';
+import { Hostile } from './Hostile.js';
 import { FACTION, TURRET_MAX_HP, TURRET_RANGE, TURRET_DAMAGE } from './constants.js';
 import { resolveRanged, canFireRanged } from './Combat.js';
 import type { EntityInit } from './Entity.js';
@@ -18,8 +19,10 @@ import type { Rng } from '../rng.js';
  * the TurnQueue model honest (two factions only) and means turret behaviour
  * is one aftermath step, not an AI tick.
  *
- * `autoFire` selects the nearest live hostile (Chebyshev distance) within
- * `TURRET_RANGE` that has line of sight. If a target exists it routes through
+ * `autoFire` selects the nearest live combatant (`Hostile` subclass, Chebyshev
+ * distance) within `TURRET_RANGE` that has line of sight. Non-combatants
+ * (CorpCivilian, NeutralCivilian) are never valid targets. If a target exists
+ * it routes through
  * `Combat.resolveRanged` with `freeShot: true` (no AP gate — the turret has
  * no AP pool) and `damage: TURRET_DAMAGE`. The shared `Combat` path means
  * cover penalties, LOS occlusion, and damage events all behave the same as
@@ -95,8 +98,9 @@ export class Turret extends Entity {
     let bestDist = Infinity;
     for (const e of world.entities.values()) {
       if (!e.alive) continue;
-      if (e.faction === this.faction || e.faction === FACTION.NEUTRAL) continue;
-      if (e === this) continue;
+      if (e.faction === this.faction) continue;
+      // Only engage active combatants — corp civilians alarm but don't fight.
+      if (!(e instanceof Hostile)) continue;
       const dx = e.x - this.x;
       const dy = e.y - this.y;
       const cheb = Math.max(Math.abs(dx), Math.abs(dy));

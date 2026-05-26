@@ -4,7 +4,9 @@ import assert from 'node:assert/strict';
 import { Grid } from '../../../src/game/Grid.js';
 import { Entity } from '../../../src/game/Entity.js';
 import { World } from '../../../src/game/World.js';
+import { ConsumablePickup } from '../../../src/game/entities/ConsumablePickup.js';
 import { TILE, FACTION, AP_COST } from '../../../src/game/constants.js';
+import { makeSalvage } from '../../../src/game/salvage.js';
 
 const makePlayer = (x, y, overrides = {}) =>
   new Entity({ id: 'p', x, y, faction: FACTION.PLAYER, glyph: '@', ...overrides });
@@ -46,12 +48,40 @@ test('World.entityAt ignores corpses; anyEntityAt still resolves them', () => {
   assert.equal(w.anyEntityAt(2, 2), corpse, 'salvage / UI can still find the tile occupant');
 });
 
+test('World.entityAt ignores passable pickups; liveEntityAt still resolves them', () => {
+  const w = new World(new Grid(5, 5));
+  const pickup = new ConsumablePickup({
+    id: 'consumable-pickup-0',
+    x: 2,
+    y: 2,
+    consumableId: 'stim',
+    label: 'Stim',
+  });
+  w.addEntity(pickup);
+  assert.equal(w.entityAt(2, 2), null, 'movement / targeting queries stay pickup-blind');
+  assert.equal(w.liveEntityAt(2, 2), pickup, 'placement / restore queries see live pickups');
+});
+
+test('World.addEntity rejects live placement on passable pickups', () => {
+  const w = new World(new Grid(5, 5));
+  w.addEntity(
+    new ConsumablePickup({
+      id: 'consumable-pickup-0',
+      x: 2,
+      y: 2,
+      consumableId: 'stim',
+      label: 'Stim',
+    })
+  );
+  assert.throws(() => w.addEntity(makePlayer(2, 2)), /occupied/i);
+});
+
 test('World.lootableCorpseAt finds a corpse even when a live actor shares the tile', () => {
   const w = new World(new Grid(5, 5));
   const corpse = new Entity({ id: 'd', x: 2, y: 2, faction: FACTION.CORP, glyph: 'd' });
   w.addEntity(corpse);
   corpse.alive = false;
-  corpse.loot = { salvage: 2 };
+  corpse.loot = { salvage: makeSalvage({ scrap: 2 }) };
   const player = makePlayer(2, 2);
   w.addEntity(player);
   assert.equal(w.lootableCorpseAt(2, 2), corpse);
@@ -219,6 +249,65 @@ test('World.moveEntity emits a noise event with MOVE radius', async () => {
   assert.deepEqual(noises[0].origin, { x: 3, y: 2 }, 'noise origin is the post-move tile');
 });
 
+test('World alarm defaults quiet and inactive', () => {
+  const w = new World(new Grid(5, 5));
+  assert.equal(w.alarm.phase, 'quiet');
+  assert.equal(w.alarm.level, 0);
+  assert.equal(w.alarmActive, false);
+});
+
+test('World.raiseAlarm enters alert phase and emits one alarm event', async () => {
+  const { EventBus, EVENT } = await import('../../../src/game/events.js');
+  const bus = new EventBus();
+  const w = new World(new Grid(5, 5), { events: bus });
+  const alarms = [];
+  bus.on(EVENT.ALARM, payload => alarms.push(payload));
+
+  const raised = w.raiseAlarm({ origin: { x: 2, y: 2 } });
+  const duplicate = w.raiseAlarm({ origin: { x: 3, y: 3 } });
+
+  assert.equal(raised, true);
+  assert.equal(duplicate, false, 'alert phase suppresses duplicate alarm penalties');
+  assert.equal(alarms.length, 1);
+  assert.equal(w.alarm.phase, 'alert');
+  assert.equal(w.alarm.level, 1);
+  assert.equal(w.alarm.holdTurnsRemaining, 2);
+  assert.equal(w.alarmActive, true);
+});
+
+test('World alarm ticks from alert to cooldown to quiet', async () => {
+  const { EventBus, EVENT } = await import('../../../src/game/events.js');
+  const bus = new EventBus();
+  const w = new World(new Grid(5, 5), { events: bus });
+  const transitions = [];
+  bus.on(EVENT.ALARM_CHANGED, payload => transitions.push(payload));
+
+  w.raiseAlarm();
+  w.tickAlarm();
+  assert.equal(w.alarm.phase, 'alert');
+  assert.equal(w.alarm.holdTurnsRemaining, 1);
+  assert.equal(w.alarmActive, true);
+
+  w.tickAlarm();
+  assert.equal(w.alarm.phase, 'cooldown');
+  assert.equal(w.alarm.cooldownTurnsRemaining, 2);
+  assert.equal(w.alarmActive, false);
+
+  w.tickAlarm();
+  assert.equal(w.alarm.phase, 'cooldown');
+  assert.equal(w.alarm.cooldownTurnsRemaining, 1);
+
+  w.tickAlarm();
+  assert.equal(w.alarm.phase, 'quiet');
+  assert.equal(w.alarm.level, 0);
+  assert.equal(w.alarmActive, false);
+
+  assert.deepEqual(
+    transitions.map(t => t.transition),
+    ['raised', 'cooldown', 'quiet']
+  );
+});
+
 test('World.moveEntity { silent: true } suppresses noise but still emits entity:moved', async () => {
   const { EventBus, EVENT } = await import('../../../src/game/events.js');
   const bus = new EventBus();
@@ -232,6 +321,84 @@ test('World.moveEntity { silent: true } suppresses noise but still emits entity:
   w.moveEntity(p, 1, 0, { silent: true });
   assert.equal(moves.length, 1, 'silent does not gag entity:moved (vision still updates)');
   assert.deepEqual(noises, [], 'silent suppresses the noise emit');
+});
+
+// --- relocateEntity (free-move without AP cost) ---
+
+test('World.relocateEntity moves entity without AP cost', () => {
+  const w = new World(new Grid(5, 5));
+  const p = makePlayer(2, 2, { maxAp: 4 });
+  w.addEntity(p);
+  const apBefore = p.ap;
+  w.relocateEntity(p, 4, 4);
+  assert.equal(p.x, 4);
+  assert.equal(p.y, 4);
+  assert.equal(p.ap, apBefore, 'relocate must not debit AP');
+});
+
+test('World.relocateEntity emits entity:moved', async () => {
+  const { EventBus, EVENT } = await import('../../../src/game/events.js');
+  const bus = new EventBus();
+  const w = new World(new Grid(5, 5), { events: bus });
+  const p = makePlayer(2, 2);
+  w.addEntity(p);
+  const events: unknown[] = [];
+  bus.on(EVENT.ENTITY_MOVED, payload => events.push(payload));
+  w.relocateEntity(p, 4, 3);
+  assert.equal(events.length, 1);
+  assert.deepEqual((events[0] as Record<string, unknown>).from, { x: 2, y: 2 });
+  assert.deepEqual((events[0] as Record<string, unknown>).to, { x: 4, y: 3 });
+});
+
+test('World.relocateEntity throws on occupied tile', () => {
+  const w = new World(new Grid(5, 5));
+  const p = makePlayer(2, 2);
+  const d = new Entity({ id: 'd', x: 3, y: 3, faction: FACTION.CORP, glyph: 'd' });
+  w.addEntity(p);
+  w.addEntity(d);
+  assert.throws(() => w.relocateEntity(p, 3, 3), /occupied/i);
+  assert.equal(p.x, 2, 'position unchanged on failure');
+  assert.equal(p.y, 2);
+});
+
+test('World.relocateEntity throws on passable pickup tile', () => {
+  const w = new World(new Grid(5, 5));
+  const p = makePlayer(2, 2);
+  w.addEntity(p);
+  w.addEntity(
+    new ConsumablePickup({
+      id: 'consumable-pickup-0',
+      x: 3,
+      y: 3,
+      consumableId: 'stim',
+      label: 'Stim',
+    })
+  );
+  assert.throws(() => w.relocateEntity(p, 3, 3), /occupied/i);
+});
+
+test('World.relocateEntity throws on impassable tile', () => {
+  const g = new Grid(5, 5);
+  g.setTile(3, 3, TILE.WALL);
+  const w = new World(g);
+  const p = makePlayer(2, 2);
+  w.addEntity(p);
+  assert.throws(() => w.relocateEntity(p, 3, 3), /passable/i);
+});
+
+test('World.relocateEntity throws on out-of-bounds', () => {
+  const w = new World(new Grid(5, 5));
+  const p = makePlayer(2, 2);
+  w.addEntity(p);
+  assert.throws(() => w.relocateEntity(p, 10, 10), /out of bounds/i);
+});
+
+test('World.relocateEntity throws on dead entity', () => {
+  const w = new World(new Grid(5, 5));
+  const p = makePlayer(2, 2);
+  w.addEntity(p);
+  p.alive = false;
+  assert.throws(() => w.relocateEntity(p, 3, 3), /dead/i);
 });
 
 test('World.blockerKeys excludes dead entities', () => {
