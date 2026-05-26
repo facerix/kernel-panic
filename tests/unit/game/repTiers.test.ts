@@ -130,12 +130,6 @@ test('TRUSTED tier is reachable in ~10-12 clean completions from REP.START', () 
   // 20 + 10*6 = 80 → TRUSTED in 6 clean runs. With contract repDelta it's faster.
   const trustedMin = REP_TIERS.find(t => t.id === REP_TIER.TRUSTED)!.min;
   const runsNeeded = Math.ceil((trustedMin - REP.START) / REP.CLEAN_COMPLETION_BONUS);
-  assert.ok(
-    runsNeeded <= 12,
-    `TRUSTED should be reachable in ≤12 clean runs, needs ${runsNeeded}`
-  );
-  assert.ok(
-    runsNeeded >= 3,
-    `TRUSTED should not be trivially easy (needs ${runsNeeded} runs)`
-  );
+  assert.ok(runsNeeded <= 12, `TRUSTED should be reachable in ≤12 clean runs, needs ${runsNeeded}`);
+  assert.ok(runsNeeded >= 3, `TRUSTED should not be trivially easy (needs ${runsNeeded} runs)`);
 });

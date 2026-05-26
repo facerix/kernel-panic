@@ -837,7 +837,7 @@ Phase 2.5 milestones that follow (M4–M7) retain their original numbering for c
 
 **Scope:**
 
-- **Clinic NPC:** New NEUTRAL Hub entity (e.g. `Doc`, `Patch`, or `Sawbones`) with a distinct glyph (e.g. `+`), placed at a new Hub waypoint. Same pattern as Curator/Finn/Terminal: immobile, no AI, interact to open UI.
+- **Clinic NPC:** New NEUTRAL Hub entity (name: `Patch`, glyph `⧰`), placed at a new Hub waypoint. Same pattern as Curator/Finn/Terminal: immobile, no AI, interact to open UI.
 - **Hub map expansion:** The current 12×8 Hub may need a small expansion (e.g. 14×8 or 12×9) to fit a fourth waypoint without crowding, or the clinic can occupy an existing open tile. Pick the option that keeps the spatial relationships clear.
   - Suggested placement: bottom-left quadrant (player enters from the right, Curator and Finn are top-center/left, Terminal is top-right — the clinic fills the remaining corner).
 - **Clinic UI:** A small modal (similar to Finn’s shop panel) showing each living, non-full-HP crew member with their current HP, max HP, and a heal cost. One button per member: **PATCH UP — N Cr**. Keyboard-navigable (↑/↓ + Enter).

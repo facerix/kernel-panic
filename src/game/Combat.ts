@@ -241,8 +241,7 @@ export function resolveMelee(
   const coverDodgeBonus = options.coverDodgeBonus ?? COVER_DODGE_BONUS;
   // Stationary props (relay, turret) set baseDodgeChance to 0 — cover cannot
   // grant them a dodge roll they do not have.
-  const dodgeThreshold =
-    inCover && dodgeChance > 0 ? dodgeChance + coverDodgeBonus : dodgeChance;
+  const dodgeThreshold = inCover && dodgeChance > 0 ? dodgeChance + coverDodgeBonus : dodgeChance;
   if (!Number.isFinite(dodgeThreshold) || dodgeThreshold < 0 || dodgeThreshold > 1) {
     throw new RangeError(
       `resolveMelee: dodge threshold ${dodgeThreshold} out of [0,1] ` +

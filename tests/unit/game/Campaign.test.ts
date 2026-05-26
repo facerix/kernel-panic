@@ -276,7 +276,10 @@ test('untyped sellSalvage draws scrap → chips → bio → data applying per-ty
   // Earned: 2*8 (scrap) + 2*12 (chips) + 1*15 (bio) = 16 + 24 + 15 = 55
   campaign.sellSalvage(5);
   assert.deepEqual(campaign.salvage, makeSalvage({ scrap: 0, chips: 0, bio: 1, data: 2 }));
-  assert.equal(campaign.credits, 2 * SALVAGE_SELL_RATE.scrap + 2 * SALVAGE_SELL_RATE.chips + 1 * SALVAGE_SELL_RATE.bio);
+  assert.equal(
+    campaign.credits,
+    2 * SALVAGE_SELL_RATE.scrap + 2 * SALVAGE_SELL_RATE.chips + 1 * SALVAGE_SELL_RATE.bio
+  );
 });
 
 test('sellSalvage rejects unknown salvage types (M4.2)', () => {
@@ -291,8 +294,11 @@ test('per-type sell rates are differentiated (M5.2)', () => {
     const campaign = new Campaign({ seed: 42 });
     campaign.salvage = makeSalvage({ [type]: 1 });
     campaign.sellSalvage(1, type);
-    assert.equal(campaign.credits, SALVAGE_SELL_RATE[type],
-      `selling 1 ${type} should yield ${SALVAGE_SELL_RATE[type]} Cr`);
+    assert.equal(
+      campaign.credits,
+      SALVAGE_SELL_RATE[type],
+      `selling 1 ${type} should yield ${SALVAGE_SELL_RATE[type]} Cr`
+    );
   }
   // Verify rates are distinct (Data > Bio > Chips > Scrap).
   assert.ok(SALVAGE_SELL_RATE.data > SALVAGE_SELL_RATE.bio);

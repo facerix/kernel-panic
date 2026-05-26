@@ -333,8 +333,11 @@ test('BURNED tier (rep < 20) produces only STANDARD contracts', () => {
   for (let seed = 0; seed < 50; seed++) {
     const contracts = new Curator().generateContracts(new Rng(seed), { rep: 10 });
     for (const c of contracts) {
-      assert.equal(c.difficulty, CONTRACT_DIFFICULTY.STANDARD,
-        `seed ${seed}: BURNED should only roll STANDARD, got ${c.difficulty}`);
+      assert.equal(
+        c.difficulty,
+        CONTRACT_DIFFICULTY.STANDARD,
+        `seed ${seed}: BURNED should only roll STANDARD, got ${c.difficulty}`
+      );
     }
   }
 });
@@ -388,7 +391,7 @@ test('KNOWN tier (rep 50-79) shifts pool toward elevated/critical vs UNKNOWN', (
 test('tier boundary transitions: 19→20 and 79→80 produce different pools', () => {
   // Collect difficulty distributions across many seeds to verify the
   // boundary produces a statistically different mix.
-  const counts = (rep) => {
+  const counts = rep => {
     let elevated = 0;
     for (let seed = 0; seed < 200; seed++) {
       for (const c of new Curator().generateContracts(new Rng(seed), { rep })) {
@@ -401,7 +404,10 @@ test('tier boundary transitions: 19→20 and 79→80 produce different pools', (
   assert.equal(counts(19), 0, 'rep 19 (BURNED) should produce 0 non-STANDARD');
   assert.ok(counts(20) > 0, 'rep 20 (UNKNOWN) should produce some non-STANDARD');
   // KNOWN (79) vs TRUSTED (80) — TRUSTED has more CRITICAL weight
-  assert.ok(counts(80) > counts(79), 'rep 80 (TRUSTED) should produce more non-STANDARD than rep 79 (KNOWN)');
+  assert.ok(
+    counts(80) > counts(79),
+    'rep 80 (TRUSTED) should produce more non-STANDARD than rep 79 (KNOWN)'
+  );
 });
 
 test('no campaign / null campaign defaults to UNKNOWN tier pool', () => {

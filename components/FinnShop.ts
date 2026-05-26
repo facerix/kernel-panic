@@ -582,7 +582,12 @@ class FinnShop extends HTMLElement {
     this.#hintEl!.textContent = '[ ←/→ tab  ·  ENTER buy  ·  Esc close ]';
   }
 
-  #sellButton(label: string, quantity: number, type: SalvageType, stock: number): HTMLButtonElement {
+  #sellButton(
+    label: string,
+    quantity: number,
+    type: SalvageType,
+    stock: number
+  ): HTMLButtonElement {
     const btn = h('button', {
       type: 'button',
       className: 'sell-button',
