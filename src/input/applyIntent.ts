@@ -79,6 +79,8 @@ export type ApplyIntentContext = {
    * error per the module docstring).
    */
   onUseItem?: (aim: { dx: number; dy: number }) => void;
+  /** Called after looting removes a corpse — shell clears fog memory. */
+  onCorpseSalvaged?: (entity: { x: number; y: number }) => void;
   canExit?: () => boolean;
   exitBlockedMessage?: () => string;
 };

@@ -59,6 +59,11 @@ export class VisionField {
     });
   }
 
+  /** Drop a memorised corpse after looting removes it from the world. */
+  forgetCorpse(entity: { x: number; y: number }) {
+    this.memorisedCorpses.delete(keyOf(entity.x, entity.y));
+  }
+
   /** Clear all corpse memory — used when tearing down fog for a new grid. */
   clearCorpseMemory() {
     this.memorisedCorpses.clear();

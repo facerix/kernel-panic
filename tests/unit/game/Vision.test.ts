@@ -98,6 +98,17 @@ test('VisionField.clearCorpseMemory wipes all memorised corpses', () => {
   assert.equal(v.memorisedCorpses.size, 0);
 });
 
+test('VisionField.forgetCorpse drops a single memorised corpse', () => {
+  const v = new VisionField();
+  const corpse = { x: 4, y: 3, faction: FACTION.CORP, glyph: '%' };
+  v.memoriseCorpse(corpse);
+  v.memoriseCorpse({ x: 1, y: 1, faction: FACTION.CORP, glyph: '%' });
+  v.forgetCorpse(corpse);
+  assert.equal(v.memorisedCorpses.size, 1);
+  assert.ok(!v.memorisedCorpses.has('4,3'));
+  assert.ok(v.memorisedCorpses.has('1,1'));
+});
+
 test('VisionField.resetFogState clears visible, seen, and memorised corpses', () => {
   const g = new Grid(8, 8);
   const viewer = new Entity({ id: 'p', x: 2, y: 2, faction: FACTION.PLAYER, glyph: '@' });

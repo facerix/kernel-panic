@@ -960,6 +960,9 @@ function handleIntent(intent: Intent): void {
     onUseItem: (aim: { dx: number; dy: number }) => {
       resolveAimedUseItem(aim, run as Run);
     },
+    onCorpseSalvaged: entity => {
+      vision.forgetCorpse(entity);
+    },
     onPlayerAction: (actionName: string) => {
       switch (actionName) {
         case PLAYER_ACTIONS.INVENTORY:
@@ -1175,6 +1178,7 @@ function handleCombatInteract(): void {
         // M4.2: typed salvage — show pickup total + post-pickup compact wallet.
         const amount = totalSalvage(entity.loot.salvage);
         player.collectSalvage(run.world, entity);
+        vision.forgetCorpse(entity);
         flash(
           `Salvaged +${amount} — carrying ${formatSalvageCompact(player.inventory.salvage)}. ${player.ap} AP left.`
         );
