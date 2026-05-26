@@ -1,6 +1,7 @@
 import { AP_COST, NOISE_RADIUS } from './constants.js';
 import { EVENT } from './events.js';
 import { Interactable } from './entities/Interactable.js';
+import { ConsumablePickup } from './entities/ConsumablePickup.js';
 import { totalSalvage } from './salvage.js';
 import type { Grid } from './Grid.js';
 import type { Entity, LootableEntity } from './Entity.js';
@@ -156,7 +157,7 @@ export class World {
         `Cannot place entity ${entity.id} on impassable tile (${entity.x}, ${entity.y})`
       );
     }
-    if (this.entityAt(entity.x, entity.y)) {
+    if (entity.alive && this.liveEntityAt(entity.x, entity.y)) {
       throw new Error(`Tile (${entity.x}, ${entity.y}) is already occupied`);
     }
     this.entities.set(entity.id, entity);
@@ -170,16 +171,31 @@ export class World {
   }
 
   /**
-   * Linear scan — fine for V1 entity counts (~tens). If we ever break a
-   * thousand entities on screen we'll add a position index.
-   *
-   * Live entities only — corpses stay in `entities` for salvage / rendering
-   * but must not block movement or register as LOS blockers (see
-   * `blockerKeys`). Use {@link anyEntityAt} for any occupant regardless of
-   * `alive`, or {@link lootableCorpseAt} for salvage targets (including when a
-   * live actor shares the tile).
+   * Movement / targeting occupancy. Returns the first live, non-passable
+   * entity at `(x, y)` — corpses are skipped (they stay in `entities` for
+   * salvage/rendering but must not block movement or register as LOS
+   * blockers, see `blockerKeys`), and so are passable entities (M4.3
+   * walk-onto consumable pickups, future floor props). Callers that need a
+   * stricter "any live entity here" check — `addEntity`, `relocateEntity`,
+   * placement helpers — should use {@link liveEntityAt}. Use
+   * {@link anyEntityAt} for *any* occupant regardless of `alive`/`passable`,
+   * {@link lootableCorpseAt} for salvage targets, or
+   * {@link consumablePickupAt} for walk-onto consumables.
    */
   entityAt(x: number, y: number): Entity | null {
+    for (const e of this.entities.values()) {
+      if (e.alive && !e.passable && e.x === x && e.y === y) return e;
+    }
+    return null;
+  }
+
+  /**
+   * Placement occupancy. Returns the first live entity at `(x, y)`,
+   * passable or not. Used by `addEntity` / `relocateEntity` to reject
+   * dropping a new entity on top of an existing one — passable pickups
+   * stack with nothing, even though movement walks through them.
+   */
+  liveEntityAt(x: number, y: number): Entity | null {
     for (const e of this.entities.values()) {
       if (e.alive && e.x === x && e.y === y) return e;
     }
@@ -209,6 +225,20 @@ export class World {
       const loot = (e as LootableEntity).loot;
       if (!e.alive && loot && loot.salvage && totalSalvage(loot.salvage) > 0)
         return e as LootableEntity;
+    }
+    return null;
+  }
+
+  /**
+   * Walk-onto consumable pickup (M4.3), if any. Returns the first live,
+   * passable `ConsumablePickup` on the tile. The player auto-picks these up
+   * during `applyIntent.doMove`; AI never targets them. Co-existence with a
+   * corpse on the same tile is supported (rare but legal — a drone dies on
+   * top of a pickup); both can be collected in a single move tick.
+   */
+  consumablePickupAt(x: number, y: number): ConsumablePickup | null {
+    for (const e of this.entities.values()) {
+      if (e instanceof ConsumablePickup && e.alive && e.x === x && e.y === y) return e;
     }
     return null;
   }
@@ -278,6 +308,7 @@ export class World {
     const set = new Set<string>();
     for (const e of this.entities.values()) {
       if (!e.alive) continue;
+      if (e.passable) continue;
       set.add(`${e.x},${e.y}`);
     }
     return set;
@@ -311,7 +342,7 @@ export class World {
     if (!this.grid.isPassable(x, y)) {
       throw new Error(`relocateEntity: (${x}, ${y}) is not passable`);
     }
-    const blocker = this.entityAt(x, y);
+    const blocker = this.liveEntityAt(x, y);
     if (blocker && blocker !== entity) {
       throw new Error(`relocateEntity: (${x}, ${y}) is occupied by ${blocker.id}`);
     }

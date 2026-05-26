@@ -71,7 +71,7 @@ function relocateAdjacentTo(run: Run, entity: Pickup): void {
       const y = entity.y + dy;
       if (!run.world.grid.inBounds(x, y)) continue;
       if (!run.world.grid.isPassable(x, y)) continue;
-      if (run.world.entityAt(x, y)) continue;
+      if (run.world.liveEntityAt(x, y)) continue;
       run.world.relocateEntity(run.player, x, y);
       return;
     }

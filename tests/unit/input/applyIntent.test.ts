@@ -17,6 +17,8 @@ import { Razor } from '../../../src/game/archetypes/Razor.js';
 import { Tech } from '../../../src/game/archetypes/Tech.js';
 import { Turret } from '../../../src/game/Turret.js';
 import { CorpDrone } from '../../../src/game/ai/CorpDrone.js';
+import { ConsumablePickup } from '../../../src/game/entities/ConsumablePickup.js';
+import { ITEM_ID } from '../../../src/game/items.js';
 import { Rng } from '../../../src/rng.js';
 import { applyIntent, pickFireTarget, PLAYER_ACTIONS } from '../../../src/input/applyIntent.js';
 
@@ -141,7 +143,10 @@ test('move onto a lootable corpse auto-salvages (M4.1)', () => {
   assert.equal(player.inventory.salvage.scrap, 4, 'scrap transferred on step');
   assert.equal(totalSalvage(player.inventory.salvage), 4, 'total wallet matches pickup');
   assert.equal(world.entities.has('corpse'), false, 'corpse removed from world (M4.1)');
-  assert.ok(log.some(l => l.includes('salvages +4')), 'auto-salvage log line emitted');
+  assert.ok(
+    log.some(l => l.includes('salvages +4')),
+    'auto-salvage log line emitted'
+  );
   // MOVE + INTERACT AP were both spent.
   assert.equal(player.ap, apBefore - 2);
 });
@@ -167,6 +172,56 @@ test('move onto a corpse without INTERACT AP leaves the corpse and logs a hint',
     log.some(l => l.includes('stands on salvage')),
     'low-AP hint logged'
   );
+});
+
+test('move onto a consumable pickup adds it to inventory and removes the pickup', () => {
+  const { ctx, log, player, world } = buildCtx({ placeDrone: false });
+  world.addEntity(
+    new ConsumablePickup({
+      id: 'consumable-pickup-0',
+      x: 2,
+      y: 3,
+      consumableId: ITEM_ID.STIM,
+      label: 'Stim',
+    })
+  );
+
+  applyIntent({ type: 'move', dx: 0, dy: 1 }, ctx);
+
+  assert.equal(player.x, 2);
+  assert.equal(player.y, 3);
+  assert.equal(player.inventory?.consumables.length, 1);
+  assert.equal(player.inventory?.consumables[0]?.id, ITEM_ID.STIM);
+  assert.equal(world.entities.has('consumable-pickup-0'), false);
+  assert.ok(log.some(l => l.includes('picks up Stim')));
+});
+
+test('move onto consumable plus low-AP corpse still collects the consumable only', () => {
+  const { ctx, log, player, world } = buildCtx({ placeDrone: false });
+  player.initInventory();
+  player.ap = 1;
+  const drone = new CorpDrone({ id: 'corpse', x: 2, y: 3, maxAp: 3 });
+  world.addEntity(drone);
+  drone.damage(drone.maxHp);
+  drone.loot = { salvage: makeSalvage({ scrap: 2 }) };
+  world.addEntity(
+    new ConsumablePickup({
+      id: 'consumable-pickup-0',
+      x: 2,
+      y: 3,
+      consumableId: ITEM_ID.SMOKE_CHARGE,
+      label: 'Smoke Charge',
+    })
+  );
+
+  applyIntent({ type: 'move', dx: 0, dy: 1 }, ctx);
+
+  assert.equal(player.inventory?.consumables[0]?.id, ITEM_ID.SMOKE_CHARGE);
+  assert.equal(world.entities.has('consumable-pickup-0'), false);
+  assert.equal(world.entities.has('corpse'), true, 'corpse still waits for Space-interact');
+  assert.equal(totalSalvage(player.inventory!.salvage), 0);
+  assert.ok(log.some(l => l.includes('picks up Smoke Charge')));
+  assert.ok(log.some(l => l.includes('stands on salvage')));
 });
 
 test('move onto exit reaches exit when canExit allows it', () => {

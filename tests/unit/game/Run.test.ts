@@ -57,7 +57,7 @@ function relocateAdjacentTo(run, entity) {
       const y = entity.y + dy;
       if (!run.world.grid.inBounds(x, y)) continue;
       if (!run.world.grid.isPassable(x, y)) continue;
-      if (run.world.entityAt(x, y)) continue;
+      if (run.world.liveEntityAt(x, y)) continue;
       run.world.relocateEntity(run.player, x, y);
       return;
     }
@@ -367,10 +367,7 @@ test('killing a CorpTurret drops chips, not scrap (M4.2)', () => {
     y: player.y,
   });
   // Find a passable tile if (x+2, y) is blocked — bumping is fine for the test.
-  while (
-    !run.world.grid.isPassable(turret.x, turret.y) ||
-    run.world.entityAt(turret.x, turret.y)
-  ) {
+  while (!run.world.grid.isPassable(turret.x, turret.y) || run.world.entityAt(turret.x, turret.y)) {
     turret.x++;
     if (turret.x >= run.world.grid.w) throw new Error('no passable tile for CorpTurret');
   }
@@ -388,8 +385,7 @@ test('killing a CorpTurret drops chips, not scrap (M4.2)', () => {
   assert.equal(turret.loot.salvage.bio, 0, 'turret loot has no bio');
   assert.equal(turret.loot.salvage.data, 0, 'turret loot has no data');
   assert.ok(
-    turret.loot.salvage.chips >= SALVAGE_DROP_MIN &&
-      turret.loot.salvage.chips <= SALVAGE_DROP_MAX,
+    turret.loot.salvage.chips >= SALVAGE_DROP_MIN && turret.loot.salvage.chips <= SALVAGE_DROP_MAX,
     `chips ${turret.loot.salvage.chips} outside [${SALVAGE_DROP_MIN}, ${SALVAGE_DROP_MAX}]`
   );
 });

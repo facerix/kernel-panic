@@ -7,6 +7,7 @@ import {
   FACTION,
   STIM_HEAL,
   SMOKE_RADIUS,
+  INCENDIARY_THROW_DIST,
   TARGETING_BONUS,
   type FactionId,
 } from './constants.js';
@@ -14,12 +15,7 @@ import { ITEM_ID } from './items.js';
 import type { Item } from './items.js';
 import type { World } from './World.js';
 import type { EntityInit, LootableEntity } from './Entity.js';
-import {
-  emptySalvage,
-  addSalvage,
-  totalSalvage,
-  type TypedSalvage,
-} from './salvage.js';
+import { emptySalvage, addSalvage, totalSalvage, type TypedSalvage } from './salvage.js';
 
 export type Inventory = {
   salvage: TypedSalvage;
@@ -218,18 +214,26 @@ export class Crew extends Entity {
 
   /**
    * Use a consumable from inventory during combat. Costs `AP_COST.INTERACT`.
-   * Returns a result descriptor so the shell can apply world effects (smoke).
+   * Returns a result descriptor so the shell can apply world effects (smoke,
+   * incendiary cluster).
    *
    * Pre-conditions (all throw):
    *   - inventory is initialised
    *   - crew member can afford INTERACT AP
    *   - consumable exists in inventory
+   *   - aim is supplied iff the consumable is aimed (incendiary). Mismatched
+   *     aim presence is a programming error, not a player error.
    *
    * On commit: debits AP, removes the consumable from inventory, applies
-   * immediate effects (Stim heals HP). Smoke placement is returned as a
-   * result for the shell to apply to the grid (keeping Crew pure of World).
+   * immediate effects (Stim heals HP). World mutations (smoke, hazard) are
+   * returned as descriptors so the shell can stamp tiles (keeping Crew pure
+   * of World).
+   *
+   * @param itemId  consumable id from `ITEM_ID`
+   * @param aim     `{ dx, dy }` unit vector for thrown items (M4.3 incendiary).
+   *                Omit for self-targeted items (stim, smoke).
    */
-  useConsumable(itemId: string) {
+  useConsumable(itemId: string, aim?: { dx: number; dy: number }) {
     if (!this.inventory) {
       throw new Error(`useConsumable: inventory not initialised for ${this.id}`);
     }
@@ -239,6 +243,23 @@ export class Crew extends Entity {
     const idx = this.inventory.consumables.findIndex(c => c.id === itemId);
     if (idx === -1) {
       throw new Error(`useConsumable: ${this.id} does not have "${itemId}"`);
+    }
+    // Validate aim/no-aim symmetry before mutating state — a mismatched call
+    // is a wiring bug in the shell, not a recoverable runtime condition.
+    const isAimed = itemId === ITEM_ID.INCENDIARY;
+    if (isAimed && !aim) {
+      throw new Error(`useConsumable: "${itemId}" requires aim direction`);
+    }
+    if (!isAimed && aim) {
+      throw new Error(`useConsumable: "${itemId}" does not accept aim direction`);
+    }
+    if (aim) {
+      const { dx, dy } = aim;
+      if (!Number.isInteger(dx) || !Number.isInteger(dy) || (dx === 0 && dy === 0)) {
+        throw new Error(
+          `useConsumable: invalid aim (${dx}, ${dy}) for "${itemId}" — must be a non-zero integer unit vector`
+        );
+      }
     }
     this.spendAp(AP_COST.INTERACT);
     this.inventory.consumables.splice(idx, 1);
@@ -254,6 +275,19 @@ export class Crew extends Entity {
         // shell can place SMOKE tiles on the grid. The crew member's position
         // is the center; radius comes from constants.
         return { type: 'smoke', cx: this.x, cy: this.y, radius: SMOKE_RADIUS };
+      case ITEM_ID.INCENDIARY: {
+        // Thrown: target tile is `thrower + dir * INCENDIARY_THROW_DIST`.
+        // LOS-clear-target validation is the shell's job (it owns the Grid /
+        // World refs); Crew just reports the intended center. The shell may
+        // refuse to stamp if LOS is blocked or the tile is out of bounds — in
+        // that case Crew has already paid AP and consumed the charge, which
+        // matches stim's "used up on commit" semantics. The shell should
+        // gate before calling, not after.
+        const { dx, dy } = aim!;
+        const cx = this.x + dx * INCENDIARY_THROW_DIST;
+        const cy = this.y + dy * INCENDIARY_THROW_DIST;
+        return { type: 'incendiary', cx, cy };
+      }
       default:
         throw new Error(`useConsumable: unknown consumable "${itemId}"`);
     }

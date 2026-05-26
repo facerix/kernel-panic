@@ -33,6 +33,7 @@ import {
   REP,
   REP_LABEL,
   SALVAGE_TO_CRED_RATE,
+  INCENDIARY_THROW_DIST,
 } from '/src/game/constants.js';
 import {
   advanceFromPlayerTurn,
@@ -62,6 +63,9 @@ import { MODE } from '/src/input/keymap.js';
 import { applyIntent, PLAYER_ACTIONS } from '/src/input/applyIntent.js';
 
 import { placeSmoke, clearSmoke } from '/src/game/Smoke.js';
+import { placeHazardCluster } from '/src/game/Run.js';
+import { hasLineOfSight } from '/src/game/LineOfSight.js';
+import { ITEM_ID, getItemById } from '/src/game/items.js';
 import type { CampaignSnapshot } from '/src/game/persistence.js';
 import type { Contract } from '/src/game/hub/Curator.js';
 import type { Crew } from '/src/game/Crew.js';
@@ -613,6 +617,18 @@ function presentItemInventory() {
   itemInventoryEl.show();
 }
 
+/**
+ * Stashed item id for M4.3 thrown-consumable aim flow. Set when the
+ * inventory overlay confirmed an aimed consumable (incendiary) and we
+ * flipped the input controllers into `MODE.ITEM_AIM`; consumed when the
+ * subsequent `use-item { dx, dy }` intent arrives or cleared on cancel.
+ *
+ * Kept at module scope (not inside `onUseItem`) because the aim resolution
+ * happens in a separate event tick from the inventory click — the keypress
+ * routes through KeyboardController → applyIntent → ctx.onUseItem.
+ */
+let pendingAimItemId: string | null = null;
+
 function onUseItem(evt: Event) {
   if (!campaign) return;
   const run = campaign.activeRun;
@@ -620,34 +636,143 @@ function onUseItem(evt: Event) {
   if (!run.world) throw new Error('[shell] active combat run has no world');
   const { itemId } = (evt as CustomEvent<{ itemId?: string }>).detail;
   if (!itemId) return;
+  // Aimed consumables (incendiary): close the inventory overlay, switch the
+  // input controllers into ITEM_AIM, and wait for the next direction press.
+  // Crew.useConsumable will be called from `resolveAimedUseItem` once the
+  // aim direction is in.
+  let descriptor: Item;
+  try {
+    descriptor = getItemById(itemId) as Item;
+  } catch (err) {
+    flash(`USE FAILED: ${errorMessage(err)}`);
+    return;
+  }
+  if (descriptor.needsAim) {
+    if (!run.player.canAfford(AP_COST.INTERACT)) {
+      // Cheap pre-check: don't strand the player in aim mode if `useConsumable`
+      // will reject the commit anyway. Crew's `canAfford(AP_COST.INTERACT)`
+      // remains the source of truth at commit time.
+      flash('USE FAILED: insufficient AP.');
+      return;
+    }
+    pendingAimItemId = itemId;
+    itemInventoryEl.hide();
+    keyboard.mode = MODE.ITEM_AIM;
+    touchPadEl.setMode(MODE.ITEM_AIM);
+    flash(`AIM ${descriptor.label.toUpperCase()} — pick a direction (Esc to cancel).`);
+    paint(MODE.ITEM_AIM);
+    return;
+  }
   try {
     const result = run.player.useConsumable(itemId);
-    if (result.type === 'stim') {
-      flash(
-        `Used STIM — healed ${result.healed} HP (now ${run.player.hp}/${run.player.maxHp}). ${run.player.ap} AP left.`
-      );
-    } else if (result.type === 'smoke') {
-      const { cx, cy, radius } = result;
-      if (
-        typeof cx !== 'number' ||
-        typeof cy !== 'number' ||
-        typeof radius !== 'number' ||
-        !Number.isInteger(cx) ||
-        !Number.isInteger(cy) ||
-        !Number.isInteger(radius)
-      ) {
-        throw new Error('[shell] smoke consumable returned invalid placement data');
-      }
-      const overlays = placeSmoke(run.world.grid, cx, cy, radius);
-      activeSmokeOverlays.push(...overlays);
-      recomputeVision();
-      flash(`Used SMOKE CHARGE — LOS blocked in radius ${radius}. ${run.player.ap} AP left.`);
-    }
+    applyUseConsumableResult(result, run);
   } catch (err) {
     flash(`USE FAILED: ${errorMessage(err)}`);
     return;
   }
   itemInventoryEl.hide();
+  paint();
+  if (run.player.ap === 0) {
+    advanceTurn();
+  }
+}
+
+/**
+ * Common world-side effects for a `useConsumable` result. Split out so the
+ * direct (non-aim) inventory flow and the aimed-throw flow share one place
+ * to translate Crew's pure descriptors into grid mutations.
+ */
+function applyUseConsumableResult(
+  result: ReturnType<NonNullable<Run['player']>['useConsumable']>,
+  run: Run
+): void {
+  if (!run.world || !run.player) throw new Error('[shell] applyUseConsumableResult: no scene');
+  if (result.type === 'stim') {
+    const healed = (result as { healed: number }).healed;
+    flash(
+      `Used STIM — healed ${healed} HP (now ${run.player.hp}/${run.player.maxHp}). ${run.player.ap} AP left.`
+    );
+    return;
+  }
+  if (result.type === 'smoke') {
+    const { cx, cy, radius } = result as { cx: number; cy: number; radius: number };
+    if (!Number.isInteger(cx) || !Number.isInteger(cy) || !Number.isInteger(radius)) {
+      throw new Error('[shell] smoke consumable returned invalid placement data');
+    }
+    const overlays = placeSmoke(run.world.grid, cx, cy, radius);
+    activeSmokeOverlays.push(...overlays);
+    recomputeVision();
+    flash(`Used SMOKE CHARGE — LOS blocked in radius ${radius}. ${run.player.ap} AP left.`);
+    return;
+  }
+  if (result.type === 'incendiary') {
+    const { cx, cy } = result as { cx: number; cy: number };
+    if (!Number.isInteger(cx) || !Number.isInteger(cy)) {
+      throw new Error('[shell] incendiary consumable returned invalid placement data');
+    }
+    // `placeHazardCluster` only stamps onto FLOOR tiles inside bounds — if
+    // the target is on/past the map edge or buried in a wall, the cluster
+    // simply finds zero candidates and stamps nothing. We've already paid
+    // AP and consumed the charge in Crew.useConsumable; the LOS pre-check
+    // in `resolveAimedUseItem` is what protects the player from "throw
+    // through a wall and lose your bomb."
+    const stamped = placeHazardCluster(run.world, { x: cx, y: cy }, run.rng);
+    if (stamped === 0) {
+      flash(`Used INCENDIARY — bomb landed on hard cover; no fire took. ${run.player.ap} AP left.`);
+    } else {
+      flash(
+        `Used INCENDIARY — ${stamped} tile${stamped === 1 ? '' : 's'} ignited. ${run.player.ap} AP left.`
+      );
+    }
+    recomputeVision();
+    return;
+  }
+  throw new Error(`[shell] applyUseConsumableResult: unknown result.type "${result.type}"`);
+}
+
+/**
+ * Resolve an aimed `use-item { dx, dy }` intent. Pairs the keymap's direction
+ * pick with the shell's stashed `pendingAimItemId` and runs the LOS-clear
+ * pre-check before mutating state. Called from `applyIntent`'s onUseItem
+ * callback (M4.3).
+ */
+function resolveAimedUseItem(aim: { dx: number; dy: number }, run: Run): void {
+  if (!run.world || !run.player) throw new Error('[shell] resolveAimedUseItem: no scene');
+  const itemId = pendingAimItemId;
+  if (!itemId) {
+    // Direction press arrived without a stashed item — shouldn't be reachable
+    // (the keymap only emits use-item from ITEM_AIM, which only the shell
+    // can enter), but crash loud if it does so the wiring bug surfaces.
+    throw new Error('[shell] use-item intent received without pendingAimItemId');
+  }
+  pendingAimItemId = null;
+  if (itemId === ITEM_ID.INCENDIARY) {
+    // LOS-clear-target pre-check (M4.3 acceptance): the throw lands at
+    // `player + dir * INCENDIARY_THROW_DIST`. If LOS from the thrower to
+    // that tile is blocked (or the tile is out of bounds), refuse the
+    // throw *before* spending AP / consuming the bomb.
+    const cx = run.player.x + aim.dx * INCENDIARY_THROW_DIST;
+    const cy = run.player.y + aim.dy * INCENDIARY_THROW_DIST;
+    if (!run.world.grid.inBounds(cx, cy)) {
+      flash('USE FAILED: target is off the map.');
+      paint();
+      return;
+    }
+    const blockers = run.world.blockerKeys();
+    if (!hasLineOfSight(run.world.grid, run.player.x, run.player.y, cx, cy, { blockers })) {
+      flash('USE FAILED: target is behind cover.');
+      paint();
+      return;
+    }
+  }
+  try {
+    const result = run.player.useConsumable(itemId, aim);
+    applyUseConsumableResult(result, run);
+  } catch (err) {
+    flash(`USE FAILED: ${errorMessage(err)}`);
+    paint();
+    return;
+  }
   paint();
   if (run.player.ap === 0) {
     advanceTurn();
@@ -831,6 +956,9 @@ function handleIntent(intent: Intent): void {
     exitBlockedMessage: () => {
       if (!isRun(run) || !run.contract) return 'Complete your objective before extraction.';
       return `Complete objective first: ${run.contract.objective.title}.`;
+    },
+    onUseItem: (aim: { dx: number; dy: number }) => {
+      resolveAimedUseItem(aim, run as Run);
     },
     onPlayerAction: (actionName: string) => {
       switch (actionName) {
@@ -1543,6 +1671,10 @@ function activeMode(): Mode {
 function resetInputModes(): void {
   touchPadEl.setMode(MODE.IDLE);
   keyboard.mode = MODE.IDLE;
+  // Clear any half-armed thrown-consumable aim (M4.3). Esc-cancel from
+  // ITEM_AIM, or a cross-controller cancel, must not leave a stashed item
+  // hanging — a later inventory click would otherwise mismatch.
+  pendingAimItemId = null;
 }
 
 // ---------------------------------------------------------------------------

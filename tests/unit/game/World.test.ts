@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { Grid } from '../../../src/game/Grid.js';
 import { Entity } from '../../../src/game/Entity.js';
 import { World } from '../../../src/game/World.js';
+import { ConsumablePickup } from '../../../src/game/entities/ConsumablePickup.js';
 import { TILE, FACTION, AP_COST } from '../../../src/game/constants.js';
 import { makeSalvage } from '../../../src/game/salvage.js';
 
@@ -45,6 +46,34 @@ test('World.entityAt ignores corpses; anyEntityAt still resolves them', () => {
   corpse.alive = false;
   assert.equal(w.entityAt(2, 2), null, 'movement / targeting queries stay corpse-blind');
   assert.equal(w.anyEntityAt(2, 2), corpse, 'salvage / UI can still find the tile occupant');
+});
+
+test('World.entityAt ignores passable pickups; liveEntityAt still resolves them', () => {
+  const w = new World(new Grid(5, 5));
+  const pickup = new ConsumablePickup({
+    id: 'consumable-pickup-0',
+    x: 2,
+    y: 2,
+    consumableId: 'stim',
+    label: 'Stim',
+  });
+  w.addEntity(pickup);
+  assert.equal(w.entityAt(2, 2), null, 'movement / targeting queries stay pickup-blind');
+  assert.equal(w.liveEntityAt(2, 2), pickup, 'placement / restore queries see live pickups');
+});
+
+test('World.addEntity rejects live placement on passable pickups', () => {
+  const w = new World(new Grid(5, 5));
+  w.addEntity(
+    new ConsumablePickup({
+      id: 'consumable-pickup-0',
+      x: 2,
+      y: 2,
+      consumableId: 'stim',
+      label: 'Stim',
+    })
+  );
+  assert.throws(() => w.addEntity(makePlayer(2, 2)), /occupied/i);
 });
 
 test('World.lootableCorpseAt finds a corpse even when a live actor shares the tile', () => {
@@ -330,6 +359,22 @@ test('World.relocateEntity throws on occupied tile', () => {
   assert.throws(() => w.relocateEntity(p, 3, 3), /occupied/i);
   assert.equal(p.x, 2, 'position unchanged on failure');
   assert.equal(p.y, 2);
+});
+
+test('World.relocateEntity throws on passable pickup tile', () => {
+  const w = new World(new Grid(5, 5));
+  const p = makePlayer(2, 2);
+  w.addEntity(p);
+  w.addEntity(
+    new ConsumablePickup({
+      id: 'consumable-pickup-0',
+      x: 3,
+      y: 3,
+      consumableId: 'stim',
+      label: 'Stim',
+    })
+  );
+  assert.throws(() => w.relocateEntity(p, 3, 3), /occupied/i);
 });
 
 test('World.relocateEntity throws on impassable tile', () => {

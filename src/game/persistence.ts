@@ -51,6 +51,7 @@ import { DenyTarget } from './entities/DenyTarget.js';
 import { SyncPad } from './entities/SyncPad.js';
 import { CorpTurret } from './entities/CorpTurret.js';
 import { RelayNode } from './entities/RelayNode.js';
+import { ConsumablePickup } from './entities/ConsumablePickup.js';
 import { EscortNpc } from './entities/EscortNpc.js';
 import { Run, RUN_STATE } from './Run.js';
 import { Campaign, CAMPAIGN_STATE } from './Campaign.js';
@@ -68,6 +69,7 @@ import type { DenyTargetInit } from './entities/DenyTarget.js';
 import type { SyncPadInit } from './entities/SyncPad.js';
 import type { CorpTurretInit } from './entities/CorpTurret.js';
 import type { RelayNodeInit } from './entities/RelayNode.js';
+import type { ConsumablePickupInit } from './entities/ConsumablePickup.js';
 import type { EscortNpcInit } from './entities/EscortNpc.js';
 import type { EntityInit } from './Entity.js';
 import type { FactionId } from './constants.js';
@@ -100,6 +102,7 @@ type RestoreEntityProps = Partial<
     SyncPadInit &
     CorpTurretInit &
     RelayNodeInit &
+    ConsumablePickupInit &
     EscortNpcInit
 > & {
   id: string;
@@ -128,6 +131,8 @@ const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) =
     'sync-pad': (props: RestoreEntityProps) => new SyncPad(props as SyncPadInit),
     'corp-turret': (props: RestoreEntityProps) => new CorpTurret(props as CorpTurretInit),
     'relay-node': (props: RestoreEntityProps) => new RelayNode(props as RelayNodeInit),
+    'consumable-pickup': (props: RestoreEntityProps) =>
+      new ConsumablePickup(props as ConsumablePickupInit),
     'escort-npc': (props: RestoreEntityProps) => new EscortNpc(props as EscortNpcInit),
     // Generic fallback so a future `Entity` subclass (NPCs, items) doesn't break
     // the round-trip when the full archetype landed but the loader hasn't.
@@ -462,6 +467,10 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
   if (rec.archetype === 'relay-node') {
     entityProps.label = rec.relayNode?.label ?? 'Relay node';
   }
+  if (rec.archetype === 'consumable-pickup' && rec.consumablePickup) {
+    entityProps.consumableId = rec.consumablePickup.consumableId;
+    entityProps.label = rec.consumablePickup.label;
+  }
   if (rec.archetype === 'escort-npc' && rec.escortNpc) {
     entityProps.label = rec.escortNpc.label;
     entityProps.activated = rec.escortNpc.activated;
@@ -649,6 +658,24 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
     }
     if (typeof rec.syncPad.armed !== 'boolean') {
       throw new TypeError(`restore: sync pad ${rec.id} armed must be boolean`);
+    }
+  }
+  if (rec.archetype === 'consumable-pickup' && rec.consumablePickup) {
+    if (!(entity instanceof ConsumablePickup)) {
+      throw new Error(
+        `restore: consumable pickup entity ${rec.id} did not restore as ConsumablePickup`
+      );
+    }
+    if (
+      typeof rec.consumablePickup.consumableId !== 'string' ||
+      rec.consumablePickup.consumableId.length === 0
+    ) {
+      throw new TypeError(
+        `restore: consumable pickup ${rec.id} consumableId must be a non-empty string`
+      );
+    }
+    if (typeof rec.consumablePickup.label !== 'string' || rec.consumablePickup.label.length === 0) {
+      throw new TypeError(`restore: consumable pickup ${rec.id} label must be a non-empty string`);
     }
   }
   if (rec.archetype === 'escort-npc' && rec.escortNpc) {

@@ -55,7 +55,9 @@ import { DenyTarget } from './entities/DenyTarget.js';
 import { SyncPad } from './entities/SyncPad.js';
 import { CorpTurret } from './entities/CorpTurret.js';
 import { RelayNode } from './entities/RelayNode.js';
+import { ConsumablePickup } from './entities/ConsumablePickup.js';
 import { EscortNpc } from './entities/EscortNpc.js';
+import { ITEM_ID, getItemById } from './items.js';
 import { resetCorpTurnStatusCache } from './corpTurnStatusCopy.js';
 import { NeutralCivilian } from './entities/NeutralCivilian.js';
 import { VisionField } from './Vision.js';
@@ -106,6 +108,7 @@ export type EntityArchetypeId =
   | 'sync-pad'
   | 'corp-turret'
   | 'relay-node'
+  | 'consumable-pickup'
   | 'escort-npc'
   | 'entity';
 
@@ -195,6 +198,10 @@ export type RunEntitySnapshot = {
     attackDamage: number;
   };
   relayNode?: {
+    label: string;
+  };
+  consumablePickup?: {
+    consumableId: string;
     label: string;
   };
   escortNpc?: {
@@ -378,6 +385,7 @@ export class Run {
     this.queue = new TurnQueue([FACTION.PLAYER, FACTION.CORP]);
     this.exitTile = { ...map.exitTile };
     this.#placeObjectiveInteractables();
+    this.#placeConsumablePickups();
     this.objectiveTimer = freshObjectiveTimer();
     this.mapSeen.clear();
     this.state = RUN_STATE.COMBAT;
@@ -848,6 +856,41 @@ export class Run {
     );
   }
 
+  /**
+   * Sprinkle 0–2 walk-onto consumable pickups onto the combat map (M4.3).
+   * Counts and types are drawn from `this.rng`, so the same contract seed
+   * always produces the same pickup placement — deterministic by snapshot.
+   * Pickups are passable (do not block routing) and are placed on any
+   * passable, unoccupied tile that's not the player spawn or exit; we
+   * tolerate chokepoint placement since walk-through is the whole point.
+   *
+   * Distribution: count ∈ {0, 1, 2} weighted 0.25 / 0.5 / 0.25 (so the
+   * median run has exactly one); type uniform over the shipped pool
+   * (stim / smoke charge / incendiary). M5 owns tier/recipe weighting.
+   */
+  #placeConsumablePickups(): void {
+    if (!this.world || !this.player || !this.exitTile) return;
+    const roll = this.rng.next();
+    const count = roll < 0.25 ? 0 : roll < 0.75 ? 1 : 2;
+    if (count === 0) return;
+    const pool = [ITEM_ID.STIM, ITEM_ID.SMOKE_CHARGE, ITEM_ID.INCENDIARY];
+    for (let i = 0; i < count; i++) {
+      const anchor = findConsumablePickupAnchor(this.world, this.player, this.exitTile, this.rng);
+      if (!anchor) break; // No legal tile left — stop trying rather than throw.
+      const consumableId = this.rng.pick(pool);
+      const label = getItemById(consumableId).label;
+      this.world.addEntity(
+        new ConsumablePickup({
+          id: `consumable-pickup-${i}`,
+          x: anchor.x,
+          y: anchor.y,
+          consumableId,
+          label,
+        })
+      );
+    }
+  }
+
   #recordCurrentPlayerVision(): void {
     if (!this.world || !this.player) return;
     const vision = new VisionField();
@@ -1182,6 +1225,12 @@ function snapshotEntity(entity: Entity): RunEntitySnapshot {
       label: entity.label,
     };
   }
+  if (entity instanceof ConsumablePickup) {
+    base.consumablePickup = {
+      consumableId: entity.consumableId,
+      label: entity.label,
+    };
+  }
   if (entity instanceof EscortNpc) {
     base.escortNpc = {
       label: entity.label,
@@ -1207,6 +1256,7 @@ function archetypeOf(entity: Entity): EntityArchetypeId {
   if (entity instanceof SyncPad) return 'sync-pad';
   if (entity instanceof CorpTurret) return 'corp-turret';
   if (entity instanceof RelayNode) return 'relay-node';
+  if (entity instanceof ConsumablePickup) return 'consumable-pickup';
   if (entity instanceof EscortNpc) return 'escort-npc';
   if (entity instanceof Entity) return 'entity';
   throw new Error(`archetypeOf: cannot classify entity ${(entity as Entity | undefined)?.id}`);
@@ -1417,7 +1467,7 @@ function findInteractableAnchor(
       if (!world.grid.isPassable(x, y)) continue;
       if (x === player.x && y === player.y) continue;
       if (x === exitTile.x && y === exitTile.y) continue;
-      if (world.entityAt(x, y)) continue;
+      if (world.liveEntityAt(x, y)) continue;
       if (!hasAdjacentPassableTile(world, x, y)) continue;
       if (!anchorPreservesExitRoute(world, player, exitTile, { x, y })) continue;
       candidates.push({ x, y });
@@ -1441,6 +1491,37 @@ function findInteractableAnchor(
 }
 
 /**
+ * Anchor finder for **passable** props (M4.3 consumable pickups). Unlike
+ * `findInteractableAnchor`, this does *not* run the exit-route preservation
+ * check — a passable entity cannot seal a corridor. Returns `null` when no
+ * legal tile is available, leaving the caller to gracefully stop placing
+ * rather than crash an otherwise valid run.
+ *
+ * Excludes the player spawn tile, the exit tile, and tiles already occupied
+ * by any entity (live or dead — so we don't overlay a pickup on a corpse
+ * the player will later want to salvage).
+ */
+function findConsumablePickupAnchor(
+  world: World,
+  player: Entity,
+  exitTile: GridPoint,
+  rng: Rng
+): GridPoint | null {
+  const candidates: GridPoint[] = [];
+  for (let y = 1; y < world.grid.height - 1; y++) {
+    for (let x = 1; x < world.grid.width - 1; x++) {
+      if (!world.grid.isPassable(x, y)) continue;
+      if (x === player.x && y === player.y) continue;
+      if (x === exitTile.x && y === exitTile.y) continue;
+      if (world.anyEntityAt(x, y)) continue;
+      candidates.push({ x, y });
+    }
+  }
+  if (candidates.length === 0) return null;
+  return rng.pick(candidates);
+}
+
+/**
  * True when blocking `anchor` with an impassable entity still leaves a route
  * from the player spawn to the exit. Prevents objective props from sealing
  * 1-tile corridors that procgen carved as the only link between regions.
@@ -1453,12 +1534,10 @@ function anchorPreservesExitRoute(
 ): boolean {
   const blockers = new Set([coordKey(anchor.x, anchor.y)]);
   return (
-    findPath(
-      world,
-      { x: player.x, y: player.y },
-      exitTile,
-      { allowOccupiedGoal: false, extraBlockers: blockers }
-    ) !== null
+    findPath(world, { x: player.x, y: player.y }, exitTile, {
+      allowOccupiedGoal: false,
+      extraBlockers: blockers,
+    }) !== null
   );
 }
 

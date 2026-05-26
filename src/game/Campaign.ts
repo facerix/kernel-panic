@@ -296,9 +296,7 @@ export class Campaign {
     if (
       typeof extracted !== 'object' ||
       extracted === null ||
-      !SALVAGE_TYPES.every(
-        t => Number.isInteger(extracted[t]) && (extracted[t] as number) >= 0
-      )
+      !SALVAGE_TYPES.every(t => Number.isInteger(extracted[t]) && (extracted[t] as number) >= 0)
     ) {
       throw new RangeError(`Campaign.onJobEnd: salvage must be a TypedSalvage wallet`);
     }

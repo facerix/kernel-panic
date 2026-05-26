@@ -339,9 +339,7 @@ class ItemInventory extends HTMLElement {
     // Always rendered so the chrome is consistent across Hub / combat /
     // empty-wallet states. Zero-count rows are dimmed (not hidden) so the
     // player can see *which* bucket they're missing without parsing absence.
-    this.#bodyEl!.appendChild(
-      h('p', { className: 'section-label', textContent: 'SALVAGE' })
-    );
+    this.#bodyEl!.appendChild(h('p', { className: 'section-label', textContent: 'SALVAGE' }));
     const salvageRows = h('div', { className: 'salvage-rows' });
     for (const t of SALVAGE_TYPES) {
       const count = this.#salvage[t];
@@ -357,13 +355,9 @@ class ItemInventory extends HTMLElement {
     this.#bodyEl!.appendChild(salvageRows);
 
     // ── CONSUMABLES section ──
-    this.#bodyEl!.appendChild(
-      h('p', { className: 'section-label', textContent: 'CONSUMABLES' })
-    );
+    this.#bodyEl!.appendChild(h('p', { className: 'section-label', textContent: 'CONSUMABLES' }));
     if (this.#items.length === 0) {
-      this.#bodyEl!.appendChild(
-        h('p', { className: 'empty', textContent: 'No consumables.' })
-      );
+      this.#bodyEl!.appendChild(h('p', { className: 'empty', textContent: 'No consumables.' }));
     } else {
       const itemRows = h('div', { className: 'rows' });
       for (let i = 0; i < this.#items.length; i++) {

@@ -18,7 +18,14 @@
  * is pure data — no mutations, no DOM.
  */
 
-import { SHOP_COST, STIM_HEAL, SMOKE_RADIUS, TARGETING_BONUS, DODGE_BONUS } from './constants.js';
+import {
+  SHOP_COST,
+  STIM_HEAL,
+  SMOKE_RADIUS,
+  INCENDIARY_THROW_DIST,
+  TARGETING_BONUS,
+  DODGE_BONUS,
+} from './constants.js';
 
 export type Item = {
   id: string;
@@ -26,7 +33,20 @@ export type Item = {
   scope: string;
   cost: number;
   description: string;
+  /**
+   * Purchase target — `true` for items that apply to a specific crew member
+   * (gear, single-use stim, etc.); `false` for campaign-wide unlocks. Used
+   * by `<finn-shop>` to gate the purchase confirmation flow.
+   */
   needsTarget: boolean;
+  /**
+   * In-combat aim flag (M4.3). `true` for thrown consumables that resolve
+   * along a (dx, dy) direction selected via `MODE.ITEM_AIM` (incendiary).
+   * Default `false` — stim self-targets, smoke auto-centers on the thrower.
+   * The inventory overlay reads this to decide whether to emit a plain
+   * `use-item` event or hand control to direction picking.
+   */
+  needsAim?: boolean;
   unique?: boolean;
   metaGate?: string;
 };
@@ -40,6 +60,7 @@ export const ITEM_SCOPE = Object.freeze({
 export const ITEM_ID = Object.freeze({
   STIM: 'stim',
   SMOKE_CHARGE: 'smoke-charge',
+  INCENDIARY: 'incendiary',
   ARMOUR_PLATING: 'armour-plating',
   TARGETING_CHIP: 'targeting-chip',
   REFLEX_WEAVE: 'reflex-weave',
@@ -74,6 +95,15 @@ const CATALOG: readonly Item[] = Object.freeze([
     cost: SHOP_COST.SMOKE_CHARGE,
     description: `Blocks LOS in radius ${SMOKE_RADIUS} for 1 turn. Single use.`,
     needsTarget: true,
+  }),
+  Object.freeze({
+    id: ITEM_ID.INCENDIARY,
+    label: 'Incendiary Bomb',
+    scope: ITEM_SCOPE.JOB,
+    cost: SHOP_COST.INCENDIARY,
+    description: `Throw ${INCENDIARY_THROW_DIST} tiles in a chosen direction; ignites a persistent hazard cluster. Single use.`,
+    needsTarget: true,
+    needsAim: true,
   }),
   Object.freeze({
     id: ITEM_ID.ARMOUR_PLATING,

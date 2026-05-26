@@ -160,6 +160,15 @@ export const SALVAGE_PER_IMPROVISED_TURRET = 2;
 export const STIM_HEAL = 2;
 export const SMOKE_RADIUS = 2;
 export const SMOKE_DURATION_TURNS = 1;
+/**
+ * Incendiary bomb (M4.3): thrown along an aim direction (dx, dy) selected via
+ * `MODE.ITEM_AIM`. The target tile is `thrower + dir * INCENDIARY_THROW_DIST`;
+ * LOS from thrower → target must be clear (no lobbing through walls). The
+ * hazard cluster shape and size come from `placeHazardCluster` (M2.3 — a
+ * 5–9 tile diamond/cross of `TILE.HAZARD`), so we don't need a separate
+ * radius constant. Damage per tile is `HAZARD_DAMAGE` (M2.3).
+ */
+export const INCENDIARY_THROW_DIST = 3;
 export const TARGETING_BONUS = 0.1;
 export const DODGE_BONUS = 0.1;
 export const SALVAGE_TO_CRED_RATE = 10;
@@ -167,6 +176,7 @@ export const SALVAGE_TO_CRED_RATE = 10;
 export const SHOP_COST = Object.freeze({
   STIM: 20,
   SMOKE_CHARGE: 30,
+  INCENDIARY: 40,
   ARMOUR_PLATING: 60,
   TARGETING_CHIP: 80,
   REFLEX_WEAVE: 80,

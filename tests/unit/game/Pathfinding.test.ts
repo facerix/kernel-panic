@@ -79,12 +79,7 @@ test('findPath honours extraBlockers without placing entities', () => {
     grid.setTile(x, 2, TILE.WALL);
   }
   const w = new World(grid);
-  const path = findPath(
-    w,
-    { x: 1, y: 1 },
-    { x: 5, y: 1 },
-    { extraBlockers: new Set(['3,1']) }
-  );
+  const path = findPath(w, { x: 1, y: 1 }, { x: 5, y: 1 }, { extraBlockers: new Set(['3,1']) });
   assert.equal(path, null, 'simulated blocker on choke tile should seal the corridor');
 });
 

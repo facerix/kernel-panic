@@ -38,6 +38,14 @@ export const MODE = Object.freeze({
    * resolves to at intent-apply time.
    */
   SPECIAL_AIM: 'SPECIAL_AIM',
+  /**
+   * Thrown-consumable aim mode (M4.3). Entered programmatically by the shell
+   * — not via a keypress — when the inventory overlay confirms an aimed
+   * consumable (incendiary). The shell stashes the pending `itemId`; the
+   * next direction press emits `use-item { dx, dy }` and the shell pairs
+   * that with its stashed id. Escape cancels back to IDLE.
+   */
+  ITEM_AIM: 'ITEM_AIM',
 });
 
 export type Mode = (typeof MODE)[keyof typeof MODE];
@@ -119,6 +127,19 @@ function dispatchSpecialAim(key: string) {
   return noChange(MODE.SPECIAL_AIM);
 }
 
+function dispatchItemAim(key: string) {
+  if (key === 'Escape') {
+    return { intent: { type: 'cancel' }, nextMode: MODE.IDLE };
+  }
+  const dir = directionFor(key);
+  if (dir) {
+    // The shell pairs this with its stashed `pendingAimItemId`; the keymap
+    // stays dumb about which consumable is being thrown.
+    return { intent: { type: 'use-item', dx: dir[0], dy: dir[1] }, nextMode: MODE.IDLE };
+  }
+  return noChange(MODE.ITEM_AIM);
+}
+
 export function dispatch(key: string, mode: string) {
   switch (mode) {
     case MODE.IDLE:
@@ -127,6 +148,8 @@ export function dispatch(key: string, mode: string) {
       return dispatchFireAim(key);
     case MODE.SPECIAL_AIM:
       return dispatchSpecialAim(key);
+    case MODE.ITEM_AIM:
+      return dispatchItemAim(key);
     default:
       throw new Error(`keymap: unknown mode "${mode}"`);
   }

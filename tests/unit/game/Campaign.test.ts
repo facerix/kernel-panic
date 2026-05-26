@@ -12,11 +12,7 @@ import { Rng } from '../../../src/rng.js';
 import { OBJECTIVES } from '../../../src/game/hub/Curator.js';
 import { snapshotCampaign, restoreCampaign } from '../../../src/game/persistence.js';
 import { SALVAGE_TO_CRED_RATE, SHOP_COST } from '../../../src/game/constants.js';
-import {
-  emptySalvage,
-  makeSalvage,
-  totalSalvage,
-} from '../../../src/game/salvage.js';
+import { emptySalvage, makeSalvage, totalSalvage } from '../../../src/game/salvage.js';
 import { testContractContext } from './contractTestUtils.js';
 
 const fakeContract = (overrides = {}) => ({
@@ -287,10 +283,7 @@ test('untyped sellSalvage draws scrap → chips → bio → data in priority ord
 test('sellSalvage rejects unknown salvage types (M4.2)', () => {
   const campaign = new Campaign({ seed: 42 });
   campaign.salvage = makeSalvage({ scrap: 5 });
-  assert.throws(
-    () => campaign.sellSalvage(1, 'nuclear-waste'),
-    /unknown salvage type/i
-  );
+  assert.throws(() => campaign.sellSalvage(1, 'nuclear-waste'), /unknown salvage type/i);
 });
 
 test('sellSalvage is illegal outside HUB state', () => {

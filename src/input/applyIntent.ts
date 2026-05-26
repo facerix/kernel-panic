@@ -69,6 +69,16 @@ export type ApplyIntentContext = {
   advanceTurn: () => void;
   resetInputModes: () => void;
   onPlayerAction: (actionName: string) => void;
+  /**
+   * Resolve a thrown consumable along the supplied aim direction (M4.3).
+   * The shell stashes the `pendingAimItemId` when the inventory overlay
+   * confirmed an aimed consumable; this callback pairs that id with the
+   * direction picked in `MODE.ITEM_AIM`. Optional — harness tests that
+   * never exercise thrown items can leave it unset, and `doUseItem` will
+   * crash if a `use-item` intent arrives without a handler (loud wiring
+   * error per the module docstring).
+   */
+  onUseItem?: (aim: { dx: number; dy: number }) => void;
   canExit?: () => boolean;
   exitBlockedMessage?: () => string;
 };
@@ -80,6 +90,7 @@ const KNOWN_INTENT_TYPES = new Set([
   'fire',
   'interact',
   'inventory',
+  'use-item',
   'end-turn',
   'cancel',
 ]);
@@ -129,6 +140,8 @@ export function applyIntent(intent: Intent, ctx: ApplyIntentContext) {
       return doInteract(ctx);
     case 'inventory':
       return doInventory(ctx);
+    case 'use-item':
+      return doUseItem(intent, ctx);
     case 'end-turn': {
       const apBefore = player.ap;
       log(`> ${entityLabel(player)} waits (drops ${apBefore} AP).`);
@@ -201,11 +214,16 @@ function doMove(intent: Intent, ctx: ApplyIntentContext) {
     // just clear the line to flush any existing stale log line
     log('');
   }
+  const consumablePickup = player.alive ? world.consumablePickupAt(player.x, player.y) : null;
+  if (consumablePickup) {
+    player.addConsumable(consumablePickup.consumableId);
+    world.removeEntity(consumablePickup.id);
+    log(`> ${entityLabel(player)} picks up ${consumablePickup.label}.`);
+  }
   // M4.1: stepping onto a lootable corpse auto-salvages it. Parallels the
-  // walk-onto-tile pattern that M4.3 consumable pickups will use. If the
-  // player can't afford the INTERACT AP we leave the corpse for next turn
-  // (Space-interact still works) — crashing here would punish a legitimate
-  // gameplay state, not a bug.
+  // M4.3 consumable pickup walk-onto path above. If the player can't afford
+  // the INTERACT AP we leave the corpse for next turn (Space-interact still
+  // works) — crashing here would punish a legitimate gameplay state, not a bug.
   const corpse =
     player.inventory && player.alive ? world.lootableCorpseAt(player.x, player.y) : null;
   if (corpse) {
@@ -405,6 +423,27 @@ function doInventory(ctx: ApplyIntentContext) {
     throw new Error('applyIntent: inventory intent received but ctx.onPlayerAction is missing');
   }
   ctx.onPlayerAction(PLAYER_ACTIONS.INVENTORY);
+}
+
+/**
+ * Thrown-consumable resolution (M4.3). The keymap emits `use-item { dx, dy }`
+ * from `MODE.ITEM_AIM`; the shell stashes the pending `itemId` when it
+ * entered that mode (so the keymap can stay item-agnostic, mirroring the
+ * `special` intent's archetype-agnostic shape). We delegate to the shell's
+ * `onUseItem` callback because Crew lives outside the World — the shell
+ * owns the world-mutation side (stamping hazard / smoke tiles, paying AP,
+ * and ending the turn). A missing handler is a wiring bug, not a runtime
+ * choice — crash rather than swallow the press.
+ */
+function doUseItem(intent: Intent, ctx: ApplyIntentContext) {
+  if (typeof ctx.onUseItem !== 'function') {
+    throw new Error('applyIntent: use-item intent received but ctx.onUseItem is missing');
+  }
+  const { dx, dy } = intent;
+  if (!Number.isInteger(dx) || !Number.isInteger(dy) || (dx === 0 && dy === 0)) {
+    throw new Error(`applyIntent: use-item requires a non-zero integer aim (got ${dx}, ${dy})`);
+  }
+  ctx.onUseItem({ dx: dx as number, dy: dy as number });
 }
 
 function doFire(intent: Intent, ctx: ApplyIntentContext) {

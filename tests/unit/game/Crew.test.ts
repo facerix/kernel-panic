@@ -27,11 +27,7 @@ import {
   TARGETING_BONUS,
 } from '../../../src/game/constants.js';
 import { ITEM_ID } from '../../../src/game/items.js';
-import {
-  emptySalvage,
-  makeSalvage,
-  totalSalvage,
-} from '../../../src/game/salvage.js';
+import { emptySalvage, makeSalvage, totalSalvage } from '../../../src/game/salvage.js';
 import type { EntityInit, LootableEntity } from '../../../src/game/Entity.js';
 
 const baseProps = { id: 'c', x: 0, y: 0 };
@@ -131,11 +127,7 @@ test('Crew.initInventory is idempotent (no-op if already initialized)', () => {
   c.initInventory();
   c.inventory!.salvage = makeSalvage({ scrap: 5 });
   c.initInventory();
-  assert.equal(
-    c.inventory!.salvage.scrap,
-    5,
-    'should not reset an already-init inventory'
-  );
+  assert.equal(c.inventory!.salvage.scrap, 5, 'should not reset an already-init inventory');
 });
 
 test('Crew.collectSalvage transfers loot from adjacent corpse', () => {
@@ -159,11 +151,7 @@ test('Crew.collectSalvage transfers loot from adjacent corpse', () => {
   crew.collectSalvage(w, corpse);
   assert.equal(crew.inventory!.salvage.scrap, 2);
   assert.equal(totalSalvage(crew.inventory!.salvage), 2);
-  assert.equal(
-    totalSalvage(corpse.loot!.salvage),
-    0,
-    'corpse loot zeroed after collection'
-  );
+  assert.equal(totalSalvage(corpse.loot!.salvage), 0, 'corpse loot zeroed after collection');
   assert.equal(crew.ap, crew.maxAp - AP_COST.INTERACT, 'INTERACT AP cost applied');
 });
 
