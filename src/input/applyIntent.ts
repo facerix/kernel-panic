@@ -442,10 +442,20 @@ function doUseItem(intent: Intent, ctx: ApplyIntentContext) {
     throw new Error('applyIntent: use-item intent received but ctx.onUseItem is missing');
   }
   const { dx, dy } = intent;
-  if (!Number.isInteger(dx) || !Number.isInteger(dy) || (dx === 0 && dy === 0)) {
-    throw new Error(`applyIntent: use-item requires a non-zero integer aim (got ${dx}, ${dy})`);
+  if (
+    typeof dx !== 'number' ||
+    typeof dy !== 'number' ||
+    !Number.isInteger(dx) ||
+    !Number.isInteger(dy) ||
+    (dx === 0 && dy === 0) ||
+    Math.abs(dx) > 1 ||
+    Math.abs(dy) > 1
+  ) {
+    throw new Error(
+      `applyIntent: use-item requires a non-zero integer unit aim (got ${dx}, ${dy})`
+    );
   }
-  ctx.onUseItem({ dx: dx as number, dy: dy as number });
+  ctx.onUseItem({ dx, dy });
 }
 
 function doFire(intent: Intent, ctx: ApplyIntentContext) {

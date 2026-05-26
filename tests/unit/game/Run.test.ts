@@ -10,6 +10,8 @@ import { Terminal } from '../../../src/game/entities/Terminal.js';
 import { EVENT } from '../../../src/game/events.js';
 import { Turret } from '../../../src/game/Turret.js';
 import { CorpTurret } from '../../../src/game/entities/CorpTurret.js';
+import { ConsumablePickup } from '../../../src/game/entities/ConsumablePickup.js';
+import { restore, snapshot } from '../../../src/game/persistence.js';
 import { buildCrewMember } from '../../../src/game/archetypes/index.js';
 import { findPath } from '../../../src/game/Pathfinding.js';
 import { Rng } from '../../../src/rng.js';
@@ -435,6 +437,60 @@ test('player inventory is initialised at job deploy (enterCombat)', () => {
   // M4.2: fresh inventory has a typed-empty wallet.
   assert.deepEqual(run.player.inventory.salvage, emptySalvage());
   assert.deepEqual(run.player.inventory.consumables, []);
+});
+
+test('Run places deterministic consumable pickups from the contract seed', () => {
+  const first = new Run({ crewMember: makeCrew('razor'), seed: 1 });
+  first.enterBriefing(fakeContract({ seed: 4 }));
+  first.enterCombat();
+  const second = new Run({ crewMember: makeCrew('razor'), seed: 999 });
+  second.enterBriefing(fakeContract({ seed: 4 }));
+  second.enterCombat();
+
+  const serialize = run =>
+    [...run.world.entities.values()]
+      .filter(entity => entity instanceof ConsumablePickup)
+      .map(pickup => ({
+        id: pickup.id,
+        x: pickup.x,
+        y: pickup.y,
+        consumableId: pickup.consumableId,
+        label: pickup.label,
+      }));
+
+  const pickups = serialize(first);
+  assert.equal(pickups.length, 2, 'seed 4 should prove multi-pickup placement');
+  assert.deepEqual(serialize(second), pickups);
+});
+
+test('Run snapshot/restore preserves on-map consumable pickups', () => {
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 1 });
+  run.enterBriefing(fakeContract({ seed: 4 }));
+  run.enterCombat();
+  const before = [...run.world.entities.values()]
+    .filter(entity => entity instanceof ConsumablePickup)
+    .map(pickup => ({
+      id: pickup.id,
+      x: pickup.x,
+      y: pickup.y,
+      consumableId: pickup.consumableId,
+      label: pickup.label,
+    }));
+  assert.ok(before.length > 0, 'test seed should place at least one pickup');
+
+  const rec = snapshot(run);
+  assert.ok(rec.entities.some(entity => entity.archetype === 'consumable-pickup'));
+  const { world } = restore(rec);
+  const after = [...world.entities.values()]
+    .filter(entity => entity instanceof ConsumablePickup)
+    .map(pickup => ({
+      id: pickup.id,
+      x: pickup.x,
+      y: pickup.y,
+      consumableId: pickup.consumableId,
+      label: pickup.label,
+    }));
+  assert.deepEqual(after, before);
 });
 
 // --- M5: civilian:harmed emission --------------------------------------------

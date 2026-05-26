@@ -255,7 +255,13 @@ export class Crew extends Entity {
     }
     if (aim) {
       const { dx, dy } = aim;
-      if (!Number.isInteger(dx) || !Number.isInteger(dy) || (dx === 0 && dy === 0)) {
+      if (
+        !Number.isInteger(dx) ||
+        !Number.isInteger(dy) ||
+        (dx === 0 && dy === 0) ||
+        Math.abs(dx) > 1 ||
+        Math.abs(dy) > 1
+      ) {
         throw new Error(
           `useConsumable: invalid aim (${dx}, ${dy}) for "${itemId}" — must be a non-zero integer unit vector`
         );

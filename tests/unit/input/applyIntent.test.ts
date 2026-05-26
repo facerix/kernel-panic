@@ -326,6 +326,25 @@ test('interact intent crashes when ctx.onPlayerAction is missing (no silent no-o
   assert.throws(() => applyIntent({ type: 'interact' }, ctx), /onPlayerAction is missing/);
 });
 
+test('use-item intent forwards a validated aim direction to the shell', () => {
+  const { ctx } = buildCtx();
+  const aims = [];
+  ctx.onUseItem = aim => aims.push(aim);
+
+  applyIntent({ type: 'use-item', dx: 1, dy: -1 }, ctx);
+
+  assert.deepEqual(aims, [{ dx: 1, dy: -1 }]);
+});
+
+test('use-item intent crashes on missing handler or invalid aim', () => {
+  const { ctx } = buildCtx();
+  assert.throws(() => applyIntent({ type: 'use-item', dx: 1, dy: 0 }, ctx), /onUseItem/);
+  ctx.onUseItem = () => {};
+  assert.throws(() => applyIntent({ type: 'use-item', dx: 0, dy: 0 }, ctx), /requires/);
+  assert.throws(() => applyIntent({ type: 'use-item', dx: 2, dy: 0 }, ctx), /requires/);
+  assert.throws(() => applyIntent({ type: 'use-item', dx: 0.5, dy: 0 }, ctx), /requires/);
+});
+
 test('melee intent still resolves adjacent strikes (for AI / replay, not player keymap)', () => {
   const { ctx, log, drone } = buildCtx({ placeDrone: true });
   // Adjacent east of player at (2,2): park drone at (3,2).

@@ -21,10 +21,10 @@ Living plan for the post–Phase 2 slice of Kernel Panic: **contract objectives*
 | M2.11 — Recon / exhaustive mapping objectives | ✅ Done |
 | M2.12 — Escort / extract NPC objectives | ✅ Done |
 | M3 — Campaign history / chronicle | ➡️ Deferred to Phase 3 |
-| M4 — Salvage revision + typed salvage + field consumables | 🚧 In progress |
+| M4 — Salvage revision + typed salvage + field consumables | ✅ Complete |
 | M4.1 — Drone corpse removal on salvage | ✅ Done |
 | M4.2 — Typed salvage (Scrap / Chips / Bio / Data) | ✅ Done |
-| M4.3 — Field consumables (smoke / stim / incendiary) | 🔲 Planned |
+| M4.3 — Field consumables (smoke / stim / incendiary) | ✅ Done |
 | M5 — Hub, economy, Rep, crew tuning | 🔲 Planned |
 | M6 — Locked doors & access gating | 🔲 Planned |
 | M7 — Breaching, map mutation, location memory | 🔲 Planned |
@@ -596,11 +596,11 @@ Phase 2.5 milestones that follow (M4–M7) retain their original numbering for c
 
 ---
 
-### M4 — Salvage revision + typed salvage + field consumables 🚧
+### M4 — Salvage revision + typed salvage + field consumables ✅
 
 **Goal:** Align salvage with **spatial honesty** and **blueprint economy depth** ahead of Phase 3, and widen **combat pickups** beyond the Hub-bought inventory alone.
 
-**M4 is complete when M4.1–M4.3 are all ✅.** Slices ship in order so each builds on the last (typed salvage migration runs before consumables, since consumable drops/sales will use the typed schema).
+**M4 is complete.** M4.1–M4.3 are all ✅. Slices shipped in order so each built on the last (typed salvage migration ran before consumables, since consumable drops/sales use the typed schema).
 
 | Slice | Delivers |
 |-------|----------|
@@ -677,6 +677,8 @@ Phase 2.5 milestones that follow (M4–M7) retain their original numbering for c
 - `restoreCampaign` validates the salvage field as either legacy number or typed shape, then defers structural validation to the constructor's `migrateSalvage` call. `restoreCrewMember` migrates `inventory.salvage` the same way.
 - New `tests/unit/game/salvage.test.ts` (21 tests) pins primitive contracts + migration paths. Existing Campaign / Crew / Tech / Run / persistence test suites were updated in place to use `makeSalvage`/`totalSalvage` instead of raw numbers; a CorpTurret loot test in `Run.test.ts` locks in chips-only drops. Full suite: 916/916 green.
 
+#### M4.3 — Field consumables (smoke / stim / incendiary) ✅
+
 **Depends on:** M4.2 (typed salvage so pickup drops can grant typed components if/when consumables are also salvageable; pickup itself is an item, not salvage). M2.3 (hazards) for incendiary tile reuse.
 
 **Goal:** **Spawn-on-map** consumable pickups usable in the job: **smoke bomb**, **stim**, **incendiary bomb**. Widens combat pickups beyond Hub-bought inventory.
@@ -701,6 +703,20 @@ Phase 2.5 milestones that follow (M4–M7) retain their original numbering for c
 - No regression in existing M2.3 hazard tests.
 
 **Out of scope:** Breaching charges (M7); consumables crafted from typed salvage (deferred to Phase 3); AoE damage on throw impact for incendiary (it's a hazard-spawner, not a grenade).
+
+**Implementation notes:**
+
+- `ITEM_ID` now includes three job-scoped consumables: **Stim**, **Smoke Charge**, and **Incendiary Bomb**. Finn can sell them and map pickups grant the same item ids, so Hub-bought and field-found items serialize through the same `Crew.inventory.consumables` path.
+- `Crew.addConsumable` initializes the inventory if needed and stores consumables as item records. `Crew.useConsumable` costs `AP_COST.INTERACT`, removes exactly one matching item, and crashes on missing inventory, insufficient AP, missing item, unknown item, or aim-shape mismatch.
+- **Stim** is self-use: heals `STIM_HEAL = 2` HP without exceeding `maxHp`.
+- **Smoke Charge** is self-centered: stamps a radius-`SMOKE_RADIUS = 2` `TILE.SMOKE` cloud around the user. Smoke is passable, blocks LOS, records original tiles, survives the following corp turn, and is cleared/restored at the start of the next player turn (`SMOKE_DURATION_TURNS = 1`).
+- **Incendiary Bomb** uses the thrown-item aim flow: item inventory selects it, keyboard/touch enter `MODE.ITEM_AIM`, and the next unit direction throws exactly `INCENDIARY_THROW_DIST = 3` tiles. The shell enforces in-bounds + clear LOS before spending AP or consuming the item. On commit, it reuses `placeHazardCluster` to stamp persistent `TILE.HAZARD`; it is a terrain hazard, not impact damage.
+- `ConsumablePickup` is a passable neutral entity with glyph `*`, distinct from objective `Pickup` (`!`). `Run.enterCombat` places 0–2 pickups deterministically from the contract seed, with weighted count `0/1/2 = 25%/50%/25%` and uniform item type from the shipped pool.
+- `World.entityAt` remains movement/targeting occupancy and ignores passable pickups; `World.liveEntityAt` is the placement/restore occupancy guard and still sees them. This split prevents pickups from blocking movement while keeping snapshots from storing two live entities on one tile.
+- `applyIntent.doMove` collects a consumable pickup for free when the player walks onto it, adds the item to inventory, removes the pickup entity, and logs the pickup. If a corpse and pickup share a tile, the pickup is collected even when the player lacks AP to salvage; corpse salvage still obeys the M4.1 `AP_COST.INTERACT` rule.
+- Run snapshot/restore supports on-map consumable pickups via the `consumable-pickup` archetype and `consumablePickup` payload. Removed pickups are absent from later snapshots.
+- Combat inventory UI (`<item-inventory>`) can use consumables. Non-aimed items resolve immediately; aimed items delegate through `use-item` intents. Touch controls and keymap both support the item aim mode. Key help / renderer include smoke, hazard, and consumable pickup glyphs.
+- Tests added/updated across `items.test.ts`, `applyIntent.test.ts`, `Run.test.ts`, `World.test.ts`, persistence tests, and keymap/touch UI tests. Coverage pins stim healing cap, smoke passability/LOS/clear, incendiary descriptor + unit aim validation, walk-onto pickup collection, pickup/corpse co-location, deterministic Run placement, and pickup snapshot/restore.
 
 ---
 
