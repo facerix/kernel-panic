@@ -18,6 +18,14 @@ import { Curator } from './hub/Curator.js';
 import { Terminal } from './hub/Terminal.js';
 import { Finn } from './hub/Finn.js';
 import { Clinic } from './hub/Clinic.js';
+import {
+  applyFirstHubReveal,
+  normalizeHubReveals,
+  shouldSpawnClinic,
+  shouldSpawnFinn,
+  type HubRevealMessage,
+  type HubReveals,
+} from './hub/hubReveals.js';
 import { buildHub } from './hub/SafeSpace.js';
 import { getItemById, ITEM_SCOPE, metaKeyFor } from './items.js';
 import { OUTCOME, Run } from './Run.js';
@@ -48,6 +56,8 @@ export type CampaignOptions = {
   credits?: unknown;
   rep?: unknown;
   meta?: unknown;
+  hubReveals?: unknown;
+  completedJobs?: unknown;
   onPersist?: unknown;
   onResult?: unknown;
 };
@@ -114,6 +124,10 @@ export class Campaign {
   terminal: Terminal | null;
   clinic: Clinic | null;
   healedThisVisit: Set<string>;
+  hubReveals: HubReveals;
+  completedJobs: number;
+  /** Set by the latest `enterHub` when a reveal message fired; shell reads and clears. */
+  lastHubReveal: HubRevealMessage | null;
   exitTile: GridPoint | null;
 
   constructor({
@@ -124,6 +138,8 @@ export class Campaign {
     credits = 0,
     rep = REP.START,
     meta = {},
+    hubReveals,
+    completedJobs = 0,
     onPersist,
     onResult,
   }: CampaignOptions = {}) {
@@ -149,6 +165,14 @@ export class Campaign {
     if (meta === null || typeof meta !== 'object' || Array.isArray(meta)) {
       throw new TypeError('Campaign meta must be a plain object');
     }
+    if (
+      completedJobs !== undefined &&
+      (!Number.isInteger(completedJobs) || (completedJobs as number) < 0)
+    ) {
+      throw new RangeError(
+        `Campaign completedJobs must be a non-negative integer, got ${completedJobs}`
+      );
+    }
     if (onPersist !== undefined && typeof onPersist !== 'function') {
       throw new TypeError('Campaign: onPersist must be a function');
     }
@@ -164,6 +188,8 @@ export class Campaign {
     this.credits = credits;
     this.rep = rep;
     this.meta = { ...(meta as CampaignMeta) };
+    this.hubReveals = normalizeHubReveals(hubReveals, 'Campaign hubReveals');
+    this.completedJobs = (completedJobs as number) ?? 0;
     this.state = CAMPAIGN_STATE.HUB;
     this.activeRun = null;
     this.deployedMemberId = null;
@@ -184,6 +210,7 @@ export class Campaign {
     this.terminal = null;
     this.clinic = null;
     this.healedThisVisit = new Set();
+    this.lastHubReveal = null;
     this.exitTile = null;
 
     // Skip enterHub when crew is empty — the shell drives initial recruitment
@@ -200,6 +227,7 @@ export class Campaign {
     }
     this.recruitedThisVisit = false;
     this.healedThisVisit = new Set();
+    this.lastHubReveal = null;
     this.#tearDownHubWorld();
     const hub = buildHub();
     this.bus = new EventBus();
@@ -216,26 +244,35 @@ export class Campaign {
       x: hub.curatorSpawn.x,
       y: hub.curatorSpawn.y,
     });
-    this.finn = new Finn({
-      id: 'finn',
-      x: hub.finnSpawn.x,
-      y: hub.finnSpawn.y,
-    });
     this.terminal = new Terminal({
       id: 'terminal',
       x: hub.terminalSpawn.x,
       y: hub.terminalSpawn.y,
     });
-    this.clinic = new Clinic({
-      id: 'clinic',
-      x: hub.clinicSpawn.x,
-      y: hub.clinicSpawn.y,
-    });
+    this.lastHubReveal = applyFirstHubReveal(this);
+    if (shouldSpawnFinn(this.hubReveals)) {
+      this.finn = new Finn({
+        id: 'finn',
+        x: hub.finnSpawn.x,
+        y: hub.finnSpawn.y,
+      });
+    } else {
+      this.finn = null;
+    }
+    if (shouldSpawnClinic(this.hubReveals)) {
+      this.clinic = new Clinic({
+        id: 'clinic',
+        x: hub.clinicSpawn.x,
+        y: hub.clinicSpawn.y,
+      });
+    } else {
+      this.clinic = null;
+    }
     this.world.addEntity(this.player);
     this.world.addEntity(this.curator);
-    this.world.addEntity(this.finn);
     this.world.addEntity(this.terminal);
-    this.world.addEntity(this.clinic);
+    if (this.finn) this.world.addEntity(this.finn);
+    if (this.clinic) this.world.addEntity(this.clinic);
     this.queue = new TurnQueue([FACTION.PLAYER, FACTION.CORP]);
     this.exitTile = { ...hub.exitTile };
     this.state = CAMPAIGN_STATE.HUB;
@@ -319,6 +356,7 @@ export class Campaign {
     if (outcome === OUTCOME.DEATH) {
       this.flatlineMember(this.deployedMemberId);
     } else {
+      this.completedJobs += 1;
       addSalvage(this.salvage, extracted);
       if (completed) {
         const reward = this.activeRun.contract?.reward;

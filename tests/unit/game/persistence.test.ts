@@ -277,6 +277,7 @@ test('campaign snapshot/restore round-trips campaign scope', () => {
   campaign.rep = 62;
   campaign.meta = { someFlag: true };
   campaign.crew[1].flatlined = true;
+  campaign.enterHub();
 
   const recA = snapshotCampaign(campaign);
   const restored = restoreCampaign(recA);

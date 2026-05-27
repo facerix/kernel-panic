@@ -28,8 +28,8 @@ Living plan for the post–Phase 2 slice of Kernel Panic: **contract objectives*
 | M5 — Hub, economy, Rep, crew tuning | 🔲 Planned |
 | M5.1 — Rep tiers & contract access gate | ✅ Done |
 | M5.2 — Finn shop tabs + per-type salvage selling | ✅ Done |
-| M5.3 — Hub clinic NPC | 🔲 Planned |
-| M5.4 — Progressive Hub reveals | 🔲 Planned |
+| M5.3 — Hub clinic NPC | ✅ Done |
+| M5.4 — Progressive Hub reveals | ✅ Done |
 | M6 — Locked doors & access gating | 🔲 Planned |
 | M7 — Breaching, map mutation, location memory | 🔲 Planned |
 
@@ -829,7 +829,7 @@ Phase 2.5 milestones that follow (M4–M7) retain their original numbering for c
 
 ---
 
-#### M5.3 — Hub clinic NPC 🔲
+#### M5.3 — Hub clinic NPC ✅
 
 **Depends on:** M5.2 recommended (shop restructure clarifies Finn’s role vs. clinic’s role).
 
@@ -856,9 +856,20 @@ Phase 2.5 milestones that follow (M4–M7) retain their original numbering for c
 - Clinic NPC on Hub map with distinct glyph in key help.
 - `<clinic-modal>` (or equivalent) renders, is keyboard-navigable, and dismisses on Esc.
 
+**Implementation notes:**
+
+- `CLINIC_COST_PER_HP = 15` in `constants.ts`. `Campaign.healMember(memberId)` restores `hp = maxHp`, deducts `(maxHp - hp) * CLINIC_COST_PER_HP` Creds, and records the member in `healedThisVisit`; throws on wrong state, unknown id, flatlined, full HP, already healed this visit, or insufficient Creds.
+- **`Clinic`** (`src/game/hub/Clinic.ts`): NEUTRAL Hub entity, glyph `⧰`, id `clinic`, immobile (same pattern as Finn/Terminal). Shell copy refers to the NPC as **Patch**.
+- **Hub map:** No grid resize — kept 12×8. `HUB_CLINIC_SPAWN = { x: 2, y: 5 }` (bottom-left floor tile); `buildHub()` exposes `clinicSpawn`. `Campaign.enterHub()` spawns `Clinic` at that waypoint; `#tearDownHubWorld()` clears `campaign.clinic`.
+- **`healedThisVisit`:** `Set<string>` on Campaign, reset each `enterHub()`. `CampaignSnapshot.healedThisVisit?: string[]` serializes/restores as a set; pre-M5.3 saves default to `[]`. COMBAT/ENDED restore paths null `clinic` like other Hub NPC refs.
+- **`<clinic-modal>`** (`components/ClinicModal.ts`): Shadow DOM panel (Finn-shop CRT aesthetic). `setPatients(crew, { credits, healedMemberIds })` builds rows with status labels **FULL HP**, **FLATLINED**, **HEALED**, **INSUFFICIENT CREDS**, or **PATCH UP — N Cr**. ↑/↓ + Enter on healable rows; Esc / backdrop → `dismiss`. Emits `heal` `{ memberId }`.
+- **Shell** (`index.ts`, `index.html`): `presentClinic()` / `onClinicHeal` / `onClinicDismiss`; Space interact when Chebyshev-adjacent to `campaign.clinic`; modal blocks other Hub input while open; interact hint lists Patch alongside Finn/Curator/Terminal. `sw-core.js` precaches `ClinicModal.js`.
+- **Key help:** `⧰` → `Clinic (Patch)` in Hub tile legend (`KeyHelp.ts`).
+- **Tests:** 12 tests in `clinic.test.ts` (cost, restore, once-per-visit, multi-member, guards, `enterHub` reset, snapshot migration); `Campaign.test.ts` asserts clinic on Hub; `Finn.test.ts` asserts `clinicSpawn` walkable and distinct from other NPCs; `persistence.test.ts` round-trips `healedThisVisit`. Full suite: 963/963 green.
+
 ---
 
-#### M5.4 — Progressive Hub reveals 🔲
+#### M5.4 — Progressive Hub reveals ✅
 
 **Depends on:** M5.1–M5.3 (all features that will be conditionally shown/hidden must exist first).
 
@@ -879,9 +890,20 @@ Phase 2.5 milestones that follow (M4–M7) retain their original numbering for c
 **Acceptance:**
 
 - Unit tests: each reveal’s trigger condition fires correctly; flags persist and prevent re-fire; only one reveal per Hub visit; Finn/Clinic absent from world when their flag is unset.
-- Integration test: fresh campaign → first Hub (no Finn, no Clinic) → complete a run → return to Hub → Finn introduced → next Hub visit with Rep ≥ 65 → Terminal explained → next Hub visit with damaged crew → Clinic introduced.
+- Integration test: fresh campaign → first Hub (no Finn, no Clinic) → complete a run → return to Hub → Finn introduced → next Hub visit with damaged crew → Clinic introduced → next Hub visit with Rep ≥ 65 → Terminal explained.
 - Campaign snapshot round-trip preserves `hubReveals`.
 - Pre-M5.4 saves load with `hubReveals: {}` default and don’t crash.
+
+**Implementation notes:**
+
+- `src/game/hub/hubReveals.ts` owns reveal definitions in fixed order (Finn → Clinic → Terminal), trigger predicates, `applyFirstHubReveal`, and spawn/unlock helpers (`shouldSpawnFinn`, `shouldSpawnClinic`, `isTerminalRecruitmentUnlocked`). Clinic precedes Terminal so attrition healing is introduced before recruitment at Rep 65.
+- `Campaign.hubReveals` + `completedJobs` persist in `CampaignSnapshot`; `normalizeHubReveals` on load; pre-M5.4 saves default to `{}` / `0`.
+- `Campaign.enterHub()` applies at most one reveal (sets flag + `lastHubReveal`), then spawns Finn/Clinic only when their flags are set; Terminal always spawns.
+- Finn trigger: `completedJobs > 0` OR `credits > 0` OR `totalSalvage > 0`. `onJobEnd` EXIT increments `completedJobs`.
+- Terminal trigger: `rep >= REP.RECRUIT_THRESHOLD` (65) OR `pendingRecruitReward`. Shell blocks roster UI until `terminalExplained` (“access denied” flash).
+- Clinic trigger: any living crew member with `hp < maxHp`. Clinic absent until `clinicIntroduced`.
+- `<curator-briefing>` (`components/CuratorBriefing.ts`) — SystemStart-style full-screen modal; `setBriefing({ title, lines })` for diegetic copy. Hub reveals show here (titles per reveal in `hubReveals.ts`); status-line hint deferred until `[ CONTINUE ]` / Esc / Enter. Shell `presentHubRevealIfAny()` after `enterHubAndRender` and post-job `onNewRunRequested`; interact hints list only spawned NPCs.
+- 13 tests in `hubReveals.test.ts`; Campaign/persistence tests updated. Full suite: 976/976 green.
 
 ---
 

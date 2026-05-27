@@ -56,6 +56,7 @@ import { EscortNpc } from './entities/EscortNpc.js';
 import { Run, RUN_STATE } from './Run.js';
 import { Campaign, CAMPAIGN_STATE } from './Campaign.js';
 import { normalizeContractContext, normalizeObjective } from './hub/Curator.js';
+import { normalizeHubReveals } from './hub/hubReveals.js';
 import type { CrewInit } from './Crew.js';
 import type { Inventory, Gear } from './Crew.js';
 import type { TurretInit } from './Turret.js';
@@ -215,6 +216,17 @@ export type CampaignSnapshot = {
   rewardRecruitIds?: string[];
   /** M5.3: crew member ids healed at Patch's clinic this Hub visit. */
   healedThisVisit?: string[];
+  /** M5.4: progressive Hub introduction flags. Defaults to {} for pre-M5.4 saves. */
+  hubReveals?: HubRevealsSnapshot;
+  /** M5.4: count of jobs ended with EXIT (extract). Defaults to 0. */
+  completedJobs?: number;
+};
+
+/** Serializable shape of `Campaign.hubReveals`. */
+export type HubRevealsSnapshot = {
+  finnIntroduced?: boolean;
+  terminalExplained?: boolean;
+  clinicIntroduced?: boolean;
 };
 
 /**
@@ -251,6 +263,8 @@ export function snapshotCampaign(campaign: Campaign): CampaignSnapshot {
     pendingRecruitReward: campaign.pendingRecruitReward,
     rewardRecruitIds: [...campaign.rewardRecruitIds],
     healedThisVisit: [...campaign.healedThisVisit],
+    hubReveals: { ...campaign.hubReveals },
+    completedJobs: campaign.completedJobs,
   };
 }
 
@@ -360,6 +374,8 @@ export function restoreCampaign(record: unknown, options: RestoreCampaignOptions
     credits: record.credits ?? 0,
     rep: record.rep,
     meta: record.meta,
+    hubReveals: normalizeHubReveals(record.hubReveals, 'restoreCampaign hubReveals'),
+    completedJobs: record.completedJobs ?? 0,
     onPersist: options.onPersist,
     onResult: options.onResult,
   });
@@ -1082,6 +1098,14 @@ function validateCampaignRecord(record: unknown): asserts record is CampaignSnap
   }
   if (candidate.healedThisVisit !== undefined && !Array.isArray(candidate.healedThisVisit)) {
     throw new TypeError('restoreCampaign: healedThisVisit must be an array when present');
+  }
+  if (candidate.hubReveals !== undefined) {
+    normalizeHubReveals(candidate.hubReveals, 'restoreCampaign hubReveals');
+  }
+  if (candidate.completedJobs !== undefined) {
+    if (!Number.isInteger(candidate.completedJobs) || candidate.completedJobs < 0) {
+      throw new RangeError('restoreCampaign: completedJobs must be a non-negative integer');
+    }
   }
 }
 

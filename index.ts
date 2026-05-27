@@ -67,6 +67,7 @@ import { hasLineOfSight } from '/src/game/LineOfSight.js';
 import { ITEM_ID, getItemById } from '/src/game/items.js';
 import type { CampaignSnapshot } from '/src/game/persistence.js';
 import type { Contract } from '/src/game/hub/Curator.js';
+import { isTerminalRecruitmentUnlocked } from '/src/game/hub/hubReveals.js';
 import type { Crew } from '/src/game/Crew.js';
 import { resolveEntityLabel, type Entity } from '/src/game/Entity.js';
 import type { Run, RunResult, RunTelemetry, Outcome } from '/src/game/Run.js';
@@ -82,6 +83,8 @@ import '/components/ContractSelect.js';
 import '/components/RunBriefing.js';
 import '/components/CrashDump.js';
 import '/components/SystemStart.js';
+import '/components/CuratorBriefing.js';
+import type { CuratorBriefingContent } from '/components/CuratorBriefing.js';
 import '/components/InitialRecruit.js';
 import '/components/CrewList.js';
 import '/components/CrewRoster.js';
@@ -116,6 +119,9 @@ type CrashDumpElement = ModalElement & {
 };
 type SystemStartElement = ModalElement & {
   setSession(session: { seed: number }): void;
+};
+type CuratorBriefingElement = ModalElement & {
+  setBriefing(content: CuratorBriefingContent): void;
 };
 type InitialRecruitElement = ModalElement & {
   setCandidates(candidates: Crew[]): void;
@@ -195,6 +201,9 @@ let briefingEl: RunBriefingElement;
 let contractSelectEl: ContractSelectElement;
 let crashEl: CrashDumpElement;
 let systemStartEl: SystemStartElement;
+let curatorBriefingEl: CuratorBriefingElement;
+/** Status line to flash after the player dismisses a Hub reveal briefing. */
+let hubRevealFollowUpFlash: string | null = null;
 let initialRecruitEl: InitialRecruitElement;
 let resumeModalEl: ConfirmationModalElement;
 let quitCampaignModalEl: ConfirmationModalElement;
@@ -269,6 +278,7 @@ const allComponentsReady = Promise.all([
   customElements.whenDefined('crew-roster'),
   customElements.whenDefined('key-help'),
   customElements.whenDefined('system-start'),
+  customElements.whenDefined('curator-briefing'),
   customElements.whenDefined('initial-recruit'),
 ]);
 
@@ -311,6 +321,7 @@ async function boot() {
   briefingEl = mustGetElement<RunBriefingElement>('briefing');
   crashEl = mustGetElement<CrashDumpElement>('crash');
   systemStartEl = mustGetElement<SystemStartElement>('system-start');
+  curatorBriefingEl = mustGetElement<CuratorBriefingElement>('curator-briefing');
   initialRecruitEl = mustGetElement<InitialRecruitElement>('initial-recruit');
   resumeModalEl = mustGetElement<ConfirmationModalElement>('resume-modal');
   quitCampaignModalEl = mustGetElement<ConfirmationModalElement>('quit-campaign-modal');
@@ -353,6 +364,7 @@ async function boot() {
   briefingEl.addEventListener('dismiss', () => briefingEl.hide());
   crashEl.addEventListener('new-run', onNewRunRequested);
   systemStartEl.addEventListener('hub-enter', onSystemStartHubEnter);
+  curatorBriefingEl.addEventListener('dismiss', onCuratorBriefingDismiss);
   initialRecruitEl.addEventListener('recruited', onInitialRecruited);
 
   crewRosterEl.addEventListener('dismiss', () => crewRosterEl.hide());
@@ -470,6 +482,28 @@ function onInitialRecruited(evt: Event) {
  * Shared by both the post-initial-recruitment path and the normal
  * system-start path (when crew already exists).
  */
+/**
+ * Show a full-screen Curator briefing for a pending Hub reveal, if any.
+ * Defers `followUpFlash` to the status line until the player dismisses the modal.
+ */
+function presentHubRevealIfAny(followUpFlash: string): boolean {
+  if (!campaign?.lastHubReveal) return false;
+  const reveal = campaign.lastHubReveal;
+  campaign.lastHubReveal = null;
+  hubRevealFollowUpFlash = followUpFlash;
+  curatorBriefingEl.setBriefing({ title: reveal.title, lines: reveal.lines });
+  curatorBriefingEl.show();
+  return true;
+}
+
+function onCuratorBriefingDismiss(): void {
+  curatorBriefingEl.hide();
+  if (hubRevealFollowUpFlash) {
+    flash(hubRevealFollowUpFlash);
+    hubRevealFollowUpFlash = null;
+  }
+}
+
 function enterHubAndRender() {
   if (!campaign?.curator) {
     throw new Error('enterHubAndRender: hub not entered — curator is missing.');
@@ -479,7 +513,9 @@ function enterHubAndRender() {
   attachRepListeners();
   recomputeVision();
   renderShell();
-  flash('HUB — Curator has contracts when you are adjacent [Space].');
+  if (!presentHubRevealIfAny('HUB — Curator has contracts when you are adjacent [Space].')) {
+    flash('HUB — Curator has contracts when you are adjacent [Space].');
+  }
   // generate job options once on hub enter
   currentJobOptions = campaign.curator.generateContracts(campaign.rng, campaign);
 }
@@ -1174,6 +1210,10 @@ function handleInteract(): void {
     campaign.terminal &&
     isChebyshevAdjacent(campaign.player, campaign.terminal)
   ) {
+    if (!isTerminalRecruitmentUnlocked(campaign.hubReveals)) {
+      flash('TERMINAL — access denied. Systems locked.');
+      return;
+    }
     flash('TERMINAL — crew roster.');
     presentCrewRoster();
     return;
@@ -1183,9 +1223,11 @@ function handleInteract(): void {
     !campaign.curator ||
     !isChebyshevAdjacent(campaign.player, campaign.curator)
   ) {
-    flash(
-      'Step adjacent to Finn (shop), Patch (clinic), Curator (contract), or Terminal (roster).'
-    );
+    const hints = ['Curator (contract)'];
+    if (campaign.finn) hints.unshift('Finn (shop)');
+    if (campaign.clinic) hints.push('Patch (clinic)');
+    hints.push('Terminal (roster)');
+    flash(`Step adjacent to ${hints.join(', ')}.`);
     return;
   }
   // Gate: can't take contracts with no deployable crew.
@@ -1282,7 +1324,9 @@ function onNewRunRequested(): void {
       startFreshCampaign();
       return;
     } else {
-      flash('HUB — choose the next job.');
+      if (!presentHubRevealIfAny('HUB — choose the next job.')) {
+        flash('HUB — choose the next job.');
+      }
       // reset the current job options
       if (!campaign.curator) {
         throw new Error('onNewRunRequested: hub not entered — curator is missing.');
@@ -1821,6 +1865,7 @@ function isAnyBlockingModalOpen(): boolean {
   if (briefingEl?.isOpen) return true;
   if (crashEl?.isOpen) return true;
   if (systemStartEl?.isOpen) return true;
+  if (curatorBriefingEl?.isOpen) return true;
   if (initialRecruitEl?.isOpen) return true;
   if (crewRosterEl?.isOpen) return true;
   if (finnShopEl?.isOpen) return true;

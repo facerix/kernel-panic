@@ -27,6 +27,7 @@ const CacheConfig = {
       '/main.css',
       '/manifest.json',
       '/components/ConfirmationModal.js',
+      '/components/CuratorBriefing.js',
       '/components/ContractSelect.js',
       '/components/CrashDump.js',
       '/components/CrewList.js',

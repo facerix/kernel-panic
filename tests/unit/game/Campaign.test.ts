@@ -222,17 +222,29 @@ test('onJobEnd flatlines deaths and ends the campaign when everyone is gone', ()
   );
 });
 
-// --- M4: Campaign spawns Finn in the Hub ----------------------------------
+// --- M5.4: Progressive Hub reveals ----------------------------------------
 
-test('Campaign Hub world includes Finn NPC', () => {
+test('fresh Campaign Hub omits Finn and Clinic until introduced', () => {
   const campaign = new Campaign({ seed: 42 });
+  assert.equal(campaign.finn, null);
+  assert.equal(campaign.clinic, null);
+});
+
+test('Campaign Hub spawns Finn after finnIntroduced', () => {
+  const campaign = new Campaign({
+    seed: 42,
+    hubReveals: { finnIntroduced: true },
+  });
   assert.ok(campaign.finn, 'Finn should be spawned in the Hub');
   assert.equal(campaign.finn.glyph, '¥');
   assert.equal(campaign.finn.faction, 'neutral');
 });
 
-test('Campaign Hub world includes Patch clinic NPC', () => {
-  const campaign = new Campaign({ seed: 42 });
+test('Campaign Hub spawns Patch after clinicIntroduced', () => {
+  const campaign = new Campaign({
+    seed: 42,
+    hubReveals: { clinicIntroduced: true },
+  });
   assert.ok(campaign.clinic, 'Clinic should be spawned in the Hub');
   assert.equal(campaign.clinic.glyph, '⧰');
   assert.equal(campaign.clinic.faction, 'neutral');
