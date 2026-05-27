@@ -125,7 +125,12 @@ test('KeyCard: constructs as a passable neutral entity with the keycard glyph', 
 
 test('KeyCard: siteId marks a campaign-scoped keycard', () => {
   const kc = new KeyCard({
-    id: 'kc-1', x: 3, y: 1, doorId: 'door-0', label: 'Site card', siteId: 'site-42',
+    id: 'kc-1',
+    x: 3,
+    y: 1,
+    doorId: 'door-0',
+    label: 'Site card',
+    siteId: 'site-42',
   });
   assert.equal(kc.siteId, 'site-42');
 });
@@ -269,7 +274,10 @@ test('Run.addKeyItem: adds a run-scoped key item', () => {
 test('Run.addKeyItem: throws on duplicate id', () => {
   const run = new Run({ crewMember: makeCrew(), seed: 99 });
   run.addKeyItem({ id: 'kc-1', label: 'Card A', doorId: 'door-0' });
-  assert.throws(() => run.addKeyItem({ id: 'kc-1', label: 'Card B', doorId: 'door-1' }), /duplicate/);
+  assert.throws(
+    () => run.addKeyItem({ id: 'kc-1', label: 'Card B', doorId: 'door-1' }),
+    /duplicate/
+  );
 });
 
 test('Run.addKeyItem: throws on missing fields', () => {
@@ -334,7 +342,9 @@ test('onKeycardCollected: run-scoped keycard (no siteId) passes siteId: null', (
       advanceTurn: () => {},
       resetInputModes: () => {},
       onPlayerAction: () => {},
-      onKeycardCollected: kc => { collected = kc; },
+      onKeycardCollected: kc => {
+        collected = kc;
+      },
     }
   );
 
@@ -350,7 +360,12 @@ test('onKeycardCollected: campaign-scoped keycard (with siteId) passes siteId th
   crew.ap = 4;
   world.addEntity(crew);
   const kc = new KeyCard({
-    id: 'kc-1', x: 3, y: 1, doorId: 'door-0', label: 'Site card', siteId: 'site-42',
+    id: 'kc-1',
+    x: 3,
+    y: 1,
+    doorId: 'door-0',
+    label: 'Site card',
+    siteId: 'site-42',
   });
   world.addEntity(kc);
   const queue = new TurnQueue([FACTION.PLAYER, FACTION.CORP]);
@@ -367,7 +382,9 @@ test('onKeycardCollected: campaign-scoped keycard (with siteId) passes siteId th
       advanceTurn: () => {},
       resetInputModes: () => {},
       onPlayerAction: () => {},
-      onKeycardCollected: kc => { collected = kc; },
+      onKeycardCollected: kc => {
+        collected = kc;
+      },
     }
   );
 

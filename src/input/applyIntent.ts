@@ -91,7 +91,12 @@ export type ApplyIntentContext = {
    * `Run.addKeyItem`. The entity is removed from the world by
    * `collectTileLoot` itself.
    */
-  onKeycardCollected?: (keycard: { id: string; doorId: string; label: string; siteId: string | null }) => void;
+  onKeycardCollected?: (keycard: {
+    id: string;
+    doorId: string;
+    label: string;
+    siteId: string | null;
+  }) => void;
   canExit?: () => boolean;
   exitBlockedMessage?: () => string;
   /**
