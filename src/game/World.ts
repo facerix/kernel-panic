@@ -4,6 +4,7 @@ import { Interactable } from './entities/Interactable.js';
 import { Pickup } from './entities/Pickup.js';
 import { Door } from './entities/Door.js';
 import { ConsumablePickup, CONSUMABLE_PICKUP_GLYPH } from './entities/ConsumablePickup.js';
+import { KeyCard } from './entities/KeyCard.js';
 import { totalSalvage } from './salvage.js';
 import type { Grid } from './Grid.js';
 import type { Entity, LootableEntity } from './Entity.js';
@@ -316,6 +317,18 @@ export class World {
   objectivePickupAt(x: number, y: number): Pickup | null {
     for (const e of this.entities.values()) {
       if (e instanceof Pickup && e.alive && !e.secured && e.x === x && e.y === y) return e;
+    }
+    return null;
+  }
+
+  /**
+   * Walk-onto keycard pickup (M6.2), if any. Returns the first live `KeyCard`
+   * on the tile. The player auto-picks these up during `collectTileLoot`;
+   * collected into `Campaign.keyItems` (persistent inventory), not consumables.
+   */
+  keycardAt(x: number, y: number): KeyCard | null {
+    for (const e of this.entities.values()) {
+      if (e instanceof KeyCard && e.alive && e.x === x && e.y === y) return e;
     }
     return null;
   }

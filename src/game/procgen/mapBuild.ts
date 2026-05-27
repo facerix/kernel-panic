@@ -120,7 +120,10 @@ export function buildMap(options: BuildMapOptions): Map {
         return map;
       }
     } catch (error) {
-      if (!(error instanceof Error) || !error.message.includes('includePrefabDoors could not stamp')) {
+      if (
+        !(error instanceof Error) ||
+        !error.message.includes('includePrefabDoors could not stamp')
+      ) {
         throw error;
       }
     }
@@ -230,7 +233,9 @@ function buildMapOnce(mapRng: Rng, options: BuildMapOptions): Map {
     }
   }
   if (includePrefabDoors && doorStampIndex === null) {
-    throw new Error('buildMap: includePrefabDoors could not stamp a door prefab in a non-spawn leaf');
+    throw new Error(
+      'buildMap: includePrefabDoors could not stamp a door prefab in a non-spawn leaf'
+    );
   }
 
   // Connect every internal split using each subtree's first leaf centre
@@ -423,12 +428,9 @@ function doorLayoutSupportsLinkedContracts(map: Map): boolean {
       if (x === map.exitTile.x && y === map.exitTile.y) continue;
       if (!hasAdjacentPassableFloor(world, x, y)) continue;
 
-      const reachableNow =
-        findPath(world, player, { x, y }, { allowOccupiedGoal: false }) !== null;
+      const reachableNow = findPath(world, player, { x, y }, { allowOccupiedGoal: false }) !== null;
       if (reachableNow) {
-        if (
-          preservesExitRouteWithDoorUnlocked(world, player, map.exitTile, { x, y }, door)
-        ) {
+        if (preservesExitRouteWithDoorUnlocked(world, player, map.exitTile, { x, y }, door)) {
           unlockCandidates++;
         }
         continue;
@@ -494,15 +496,9 @@ function resolveSpawnAwayFromDoorAnchors(
 ): GridPoint {
   const onDoor = (x: number, y: number) => doorAnchors.some(door => door.x === x && door.y === y);
   const inRegion = (x: number, y: number) =>
-    x >= region.x &&
-    x < region.x + region.width &&
-    y >= region.y &&
-    y < region.y + region.height;
+    x >= region.x && x < region.x + region.width && y >= region.y && y < region.y + region.height;
   const isSpawnCandidate = (x: number, y: number) =>
-    inRegion(x, y) &&
-    grid.inBounds(x, y) &&
-    grid.tileAt(x, y) === TILE.FLOOR &&
-    !onDoor(x, y);
+    inRegion(x, y) && grid.inBounds(x, y) && grid.tileAt(x, y) === TILE.FLOOR && !onDoor(x, y);
 
   if (isSpawnCandidate(preferred.x, preferred.y)) {
     return preferred;

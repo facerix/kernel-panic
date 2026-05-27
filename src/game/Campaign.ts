@@ -31,7 +31,7 @@ import { getItemById, ITEM_SCOPE, metaKeyFor } from './items.js';
 import { OUTCOME, Run } from './Run.js';
 import type { Contract } from './hub/Curator.js';
 import type { Crew } from './Crew.js';
-import type { GridPoint } from '../types.js';
+import type { GridPoint, KeyItem } from '../types.js';
 import type { RunResult, Outcome } from './Run.js';
 
 export const CAMPAIGN_STATE = Object.freeze({
@@ -58,6 +58,7 @@ export type CampaignOptions = {
   meta?: unknown;
   hubReveals?: unknown;
   completedJobs?: unknown;
+  keyItems?: unknown;
   onPersist?: unknown;
   onResult?: unknown;
 };
@@ -126,6 +127,8 @@ export class Campaign {
   healedThisVisit: Set<string>;
   hubReveals: HubReveals;
   completedJobs: number;
+  /** M6.2: persistent key-item inventory — keycards survive across runs. */
+  keyItems: KeyItem[];
   /** Set by the latest `enterHub` when a reveal message fired; shell reads and clears. */
   lastHubReveal: HubRevealMessage | null;
   exitTile: GridPoint | null;
@@ -140,6 +143,7 @@ export class Campaign {
     meta = {},
     hubReveals,
     completedJobs = 0,
+    keyItems,
     onPersist,
     onResult,
   }: CampaignOptions = {}) {
@@ -190,6 +194,7 @@ export class Campaign {
     this.meta = { ...(meta as CampaignMeta) };
     this.hubReveals = normalizeHubReveals(hubReveals, 'Campaign hubReveals');
     this.completedJobs = (completedJobs as number) ?? 0;
+    this.keyItems = normalizeKeyItems(keyItems);
     this.state = CAMPAIGN_STATE.HUB;
     this.activeRun = null;
     this.deployedMemberId = null;
@@ -690,6 +695,41 @@ export class Campaign {
     this.#persist();
   }
 
+  // ─── Key items (M6.2) ───────────────────────────────────────────────────
+
+  /**
+   * Add a key item to the campaign's persistent inventory. Key items survive
+   * across runs and are never consumed on use (a keycard that unlocks a door
+   * stays in the inventory for revisit matching in M7.2).
+   */
+  addKeyItem(item: KeyItem): void {
+    if (!item || typeof item !== 'object') {
+      throw new TypeError('Campaign.addKeyItem: item must be an object');
+    }
+    if (typeof item.id !== 'string' || item.id.length === 0) {
+      throw new TypeError('Campaign.addKeyItem: item.id must be a non-empty string');
+    }
+    if (typeof item.label !== 'string' || item.label.length === 0) {
+      throw new TypeError('Campaign.addKeyItem: item.label must be a non-empty string');
+    }
+    if (typeof item.doorId !== 'string' || item.doorId.length === 0) {
+      throw new TypeError('Campaign.addKeyItem: item.doorId must be a non-empty string');
+    }
+    if (this.keyItems.some(k => k.id === item.id)) {
+      throw new Error(`Campaign.addKeyItem: duplicate key item "${item.id}"`);
+    }
+    this.keyItems.push({ ...item });
+    this.#persist();
+  }
+
+  /**
+   * Check whether the campaign inventory holds a key item that unlocks the
+   * given door id. Returns the matching `KeyItem` or `null`.
+   */
+  keyItemForDoor(doorId: string): KeyItem | null {
+    return this.keyItems.find(k => k.doorId === doorId) ?? null;
+  }
+
   getCrewMember(memberId: string): Crew | null {
     return this.crew.find(member => member.id === memberId) ?? null;
   }
@@ -715,6 +755,39 @@ export class Campaign {
     this.clinic = null;
     this.exitTile = null;
   }
+}
+
+/**
+ * M6.2: Normalize key items from a snapshot (or undefined for pre-M6.2 saves).
+ * Validates structure. Crashes on malformed entries per project policy.
+ */
+function normalizeKeyItems(raw: unknown): KeyItem[] {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) {
+    throw new TypeError('Campaign: keyItems must be an array when supplied');
+  }
+  return (raw as KeyItem[]).map((item, i) => {
+    if (!item || typeof item !== 'object') {
+      throw new TypeError(`Campaign: keyItems[${i}] must be an object`);
+    }
+    if (typeof item.id !== 'string' || item.id.length === 0) {
+      throw new TypeError(`Campaign: keyItems[${i}].id must be a non-empty string`);
+    }
+    if (typeof item.label !== 'string' || item.label.length === 0) {
+      throw new TypeError(`Campaign: keyItems[${i}].label must be a non-empty string`);
+    }
+    if (typeof item.doorId !== 'string' || item.doorId.length === 0) {
+      throw new TypeError(`Campaign: keyItems[${i}].doorId must be a non-empty string`);
+    }
+    const result: KeyItem = { id: item.id, label: item.label, doorId: item.doorId };
+    if (item.siteId !== undefined) {
+      if (typeof item.siteId !== 'string' || item.siteId.length === 0) {
+        throw new TypeError(`Campaign: keyItems[${i}].siteId must be a non-empty string when set`);
+      }
+      result.siteId = item.siteId;
+    }
+    return result;
+  });
 }
 
 function makeCampaignId(seed: number): string {

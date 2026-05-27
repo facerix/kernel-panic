@@ -81,8 +81,7 @@ test('spawn leaf never uses the checkpoint prefab', () => {
     });
     const door = map.doors[0];
     assert.ok(door, 'expected a door anchor');
-    const spawnCenterMatchesDoor =
-      map.spawns.player.x === door.x && map.spawns.player.y === door.y;
+    const spawnCenterMatchesDoor = map.spawns.player.x === door.x && map.spawns.player.y === door.y;
     assert.equal(spawnCenterMatchesDoor, false);
   }
 });

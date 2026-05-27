@@ -29,7 +29,9 @@ import {
   type SalvageType,
   type TypedSalvage,
 } from '/src/game/salvage.js';
+import { KEYCARD_GLYPH } from '/src/game/constants.js';
 import type { Item } from '/src/game/items.js';
+import type { KeyItem } from '/src/types.js';
 
 type ItemInventoryItem = Omit<Item, 'scope' | 'cost' | 'description' | 'needsTarget'> & {
   count: number;
@@ -136,6 +138,33 @@ const CSS = `
   font-weight: 400;
 }
 
+.key-item-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-bottom: 0.4rem;
+}
+
+.key-item-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  min-height: 1.6rem;
+}
+
+.key-item-row .key-glyph {
+  color: var(--inv-accent);
+  font-weight: 700;
+}
+
+.key-item-row .key-label {
+  color: var(--inv-text);
+  letter-spacing: 0.06em;
+}
+
 .empty {
   text-align: center;
   color: var(--inv-dim);
@@ -222,6 +251,7 @@ const SALVAGE_LABELS: Record<SalvageType, string> = {
 class ItemInventory extends HTMLElement {
   #items: ItemInventoryItem[] = [];
   #salvage: TypedSalvage = emptySalvage();
+  #keyItems: KeyItem[] = [];
   #ready = false;
   #bodyEl: HTMLElement | null = null;
   #titleEl: HTMLElement | null = null;
@@ -278,11 +308,14 @@ class ItemInventory extends HTMLElement {
   setContents({
     salvage = emptySalvage(),
     consumables = [] as Item[],
+    keyItems = [] as KeyItem[],
   }: {
     salvage?: TypedSalvage;
     consumables?: Item[];
+    keyItems?: KeyItem[];
   } = {}) {
     this.#salvage = salvage;
+    this.#keyItems = keyItems;
     // Aggregate by id so duplicates show as "Stim x2".
     const counts = new Map<string, number>();
     for (const c of consumables) {
@@ -354,6 +387,25 @@ class ItemInventory extends HTMLElement {
     }
     this.#bodyEl!.appendChild(salvageRows);
 
+    // ── KEY ITEMS section ──
+    // Only rendered when the player is carrying keycards. Unlike salvage
+    // (which always shows zero-count rows), key items are absence-hidden —
+    // an empty "KEY ITEMS: (none)" section would just be visual noise for
+    // the majority of runs that don't involve locked doors.
+    if (this.#keyItems.length > 0) {
+      this.#bodyEl!.appendChild(h('p', { className: 'section-label', textContent: 'KEY ITEMS' }));
+      const keyRows = h('div', { className: 'key-item-rows' });
+      for (const ki of this.#keyItems) {
+        const row = h('div', { className: 'key-item-row' });
+        row.append(
+          h('span', { className: 'key-glyph', textContent: KEYCARD_GLYPH }),
+          h('span', { className: 'key-label', textContent: ki.label })
+        );
+        keyRows.appendChild(row);
+      }
+      this.#bodyEl!.appendChild(keyRows);
+    }
+
     // ── CONSUMABLES section ──
     this.#bodyEl!.appendChild(h('p', { className: 'section-label', textContent: 'CONSUMABLES' }));
     if (this.#items.length === 0) {
@@ -388,9 +440,10 @@ class ItemInventory extends HTMLElement {
     // is itself useful information even with no items to activate).
     const hasConsumables = this.#items.length > 0;
     const walletIsEmpty = totalSalvage(this.#salvage) === 0;
+    const hasKeyItems = this.#keyItems.length > 0;
     if (hasConsumables) {
       this.#hintEl!.textContent = '[ ENTER use  ·  Esc close ]';
-    } else if (walletIsEmpty) {
+    } else if (walletIsEmpty && !hasKeyItems) {
       this.#hintEl!.textContent = 'Nothing carried. [ Esc close ]';
     } else {
       this.#hintEl!.textContent = '[ Esc close ]';

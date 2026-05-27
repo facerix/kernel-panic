@@ -50,14 +50,14 @@ function fakeContract(overrides = {}) {
   };
 }
 
-function retrieveDoorContract(seed) {
+function retrieveDoorContract(seed, overrides = {}) {
   return fakeContract({
     seed,
     objective: {
       kind: OBJECTIVES.RETRIEVE,
       title: 'Secure locked cache',
       briefing: 'Open the checkpoint, secure the cache, then extract.',
-      params: { target: 'locked-cache', doorId: 'door-0' },
+      params: { target: 'locked-cache', doorId: 'door-0', ...overrides },
     },
     label: 'locked cache test job',
     context: testContractContext(OBJECTIVES.RETRIEVE),
@@ -271,7 +271,7 @@ test('door-linked retrieve run places objective behind the door and unlock termi
   let run = null;
   for (let seed = 1; seed < 80 && !run; seed++) {
     const candidate = new Run({ crewMember: makeCrew(), seed });
-    candidate.enterBriefing(retrieveDoorContract(seed));
+    candidate.enterBriefing(retrieveDoorContract(seed, { unlockMethod: 'terminal' }));
     try {
       candidate.enterCombat();
       run = candidate;

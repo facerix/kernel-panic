@@ -183,6 +183,7 @@ function kindFromId(id: string): string {
   if (id.startsWith('corp-turret')) return 'Turret';
   if (id.startsWith('relay-node')) return 'Relay';
   if (id.startsWith('escort-npc')) return 'Escort';
+  if (id.startsWith('keycard')) return 'Keycard';
   if (id.includes('turret')) return 'Turret';
   if (id.startsWith('crew')) return 'Operative';
   return id;

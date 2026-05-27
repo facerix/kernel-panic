@@ -37,6 +37,7 @@ export const CONTACT_GLYPH = '&';
 export const DENY_TARGET_GLYPH = '◆';
 export const SYNC_PAD_GLYPH = '§';
 export const ESCORT_NPC_GLYPH = 'A';
+export const KEYCARD_GLYPH = 'κ';
 
 /** Numeric tile id — one of the `TILE` values. */
 export type TileId = (typeof TILE)[keyof typeof TILE];

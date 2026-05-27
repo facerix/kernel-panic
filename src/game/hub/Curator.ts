@@ -429,8 +429,7 @@ export function contractUsesDoorRouting(
   difficulty: ContractDifficulty
 ): boolean {
   return (
-    DOOR_ROUTING_DIFFICULTIES.has(difficulty) &&
-    DOOR_ROUTING_OBJECTIVE_KINDS.has(objective.kind)
+    DOOR_ROUTING_DIFFICULTIES.has(difficulty) && DOOR_ROUTING_OBJECTIVE_KINDS.has(objective.kind)
   );
 }
 

@@ -82,6 +82,24 @@ export type TurnActionStep = CorpDroneTurnStep | CorpCivilianTurnStep | NeutralC
  */
 export type TurnActionSteps = Generator<TurnActionStep, void, undefined>;
 
+/**
+ * M6.2: Key-item — keycards used to unlock doors. Comes in two scopes:
+ *   - **Campaign-scoped** (`siteId` set): stored in `Campaign.keyItems`,
+ *     survives across runs. Not consumed on use (M7.2 revisit).
+ *   - **Run-scoped** (no `siteId`): stored in `Run.keyItems`, discarded
+ *     when the run ends.
+ */
+export type KeyItem = {
+  /** Unique id (e.g. `'keycard-door-0-<seed>'`). */
+  id: string;
+  /** Display label for UI / log. */
+  label: string;
+  /** Stable `doorId` of the door this key opens. */
+  doorId: string;
+  /** Optional site id — populated by M7.2 location memory. */
+  siteId?: string;
+};
+
 export type Telemetry = {
   outcome: 'death' | 'exit' | 'campaign-over';
   campaignTerminal?: boolean;

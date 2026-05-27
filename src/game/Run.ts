@@ -58,6 +58,7 @@ import { CorpTurret } from './entities/CorpTurret.js';
 import { RelayNode } from './entities/RelayNode.js';
 import { ConsumablePickup } from './entities/ConsumablePickup.js';
 import { EscortNpc } from './entities/EscortNpc.js';
+import { KeyCard } from './entities/KeyCard.js';
 import { ITEM_ID, getItemById } from './items.js';
 import { resetCorpTurnStatusCache } from './corpTurnStatusCopy.js';
 import { NeutralCivilian } from './entities/NeutralCivilian.js';
@@ -73,7 +74,7 @@ import { buildMap } from './procgen/mapBuild.js';
 import { findPath } from './Pathfinding.js';
 import type { Contract } from './hub/Curator.js';
 import type { FactionId } from './constants.js';
-import type { GridPoint } from '../types.js';
+import type { GridPoint, KeyItem } from '../types.js';
 import type { Inventory, Gear } from './Crew.js';
 import type { AlarmState } from './World.js';
 
@@ -112,6 +113,7 @@ export type EntityArchetypeId =
   | 'relay-node'
   | 'consumable-pickup'
   | 'escort-npc'
+  | 'keycard'
   | 'entity';
 
 export type RunTelemetry = {
@@ -220,6 +222,11 @@ export type RunEntitySnapshot = {
     activated: boolean;
     armed: boolean;
   };
+  keycard?: {
+    doorId: string;
+    label: string;
+    siteId?: string;
+  };
 };
 
 export type RunSnapshot = {
@@ -246,6 +253,15 @@ export type RunSnapshot = {
   mapMemory?: MapMemorySnapshot;
   /** M4 pickup unification: removed objective pickups still count as secured. */
   objectiveProgress?: ObjectiveProgressSnapshot;
+  /** M6.2: run-scoped key items (keycards without a siteId). Defaults to []. */
+  keyItems?: KeyItemSnapshot[];
+};
+
+/** M6.2: Serializable run-scoped key item. */
+type KeyItemSnapshot = {
+  id: string;
+  label: string;
+  doorId: string;
 };
 
 export type RunResult = {
@@ -291,6 +307,8 @@ export class Run {
   telemetry: RunTelemetry;
   objectiveTimer: ObjectiveTimerSnapshot;
   mapSeen: Set<string>;
+  /** M6.2: run-scoped key items (keycards without a siteId). Lost on run end. */
+  keyItems: KeyItem[];
   onPersist: ((record: RunSnapshot) => void) | null;
   onResult: ((result: RunResult) => void) | null;
   _busUnsubs: (() => void)[];
@@ -327,6 +345,7 @@ export class Run {
     this.telemetry = freshTelemetry(this.archetype, this.seed);
     this.objectiveTimer = freshObjectiveTimer();
     this.mapSeen = new Set();
+    this.keyItems = [];
     this.onPersist = (onPersist as ((record: RunSnapshot) => void) | undefined) ?? null;
     this.onResult = (onResult as ((result: RunResult) => void) | undefined) ?? null;
 
@@ -485,6 +504,7 @@ export class Run {
       objectiveTimer: { ...this.objectiveTimer },
       mapMemory: { seen: this.mapSeenKeys() },
       objectiveProgress: { securedPickups: world.securedPickupIds() },
+      keyItems: this.keyItems.map(k => ({ id: k.id, label: k.label, doorId: k.doorId })),
     };
   }
 
@@ -501,6 +521,29 @@ export class Run {
   objectiveTurnsRemaining(): number | null {
     if (!this.contract || !this.queue) return null;
     return objectiveTurnsRemaining(this.contract, this.queue.turnNumber);
+  }
+
+  /**
+   * Add a run-scoped key item (keycard with no siteId). Crashes on duplicates
+   * per project policy — double-collection is always a bug.
+   */
+  addKeyItem(item: KeyItem): void {
+    if (!item || typeof item !== 'object') {
+      throw new TypeError('Run.addKeyItem: item must be an object');
+    }
+    if (typeof item.id !== 'string' || item.id.length === 0) {
+      throw new TypeError('Run.addKeyItem: item.id must be a non-empty string');
+    }
+    if (typeof item.label !== 'string' || item.label.length === 0) {
+      throw new TypeError('Run.addKeyItem: item.label must be a non-empty string');
+    }
+    if (typeof item.doorId !== 'string' || item.doorId.length === 0) {
+      throw new TypeError('Run.addKeyItem: item.doorId must be a non-empty string');
+    }
+    if (this.keyItems.some(k => k.id === item.id)) {
+      throw new Error(`Run.addKeyItem: duplicate key item "${item.id}"`);
+    }
+    this.keyItems.push({ id: item.id, label: item.label, doorId: item.doorId });
   }
 
   mapSeenKeys(): string[] {
@@ -731,23 +774,47 @@ export class Run {
     if (linkedDoorId) {
       assertDoorExists(this.world, linkedDoorId);
       if (this.contract.objective.kind !== OBJECTIVES.TERMINAL_SLICE) {
-        const terminalAnchor = findAccessibleInteractableAnchor(
-          this.world,
-          this.player,
-          this.exitTile,
-          this.rng,
-          linkedDoorId
-        );
-        this.world.addEntity(
-          new Terminal({
-            id: 'terminal-unlock-0',
-            x: terminalAnchor.x,
-            y: terminalAnchor.y,
-            label: 'Access terminal',
-            raisesAlarm: true,
-            unlocksId: linkedDoorId,
-          })
-        );
+        // M6.2: 50/50 roll — terminal unlock vs keycard unlock.
+        const unlockMethod = resolveUnlockMethod(this.contract, this.rng);
+        if (unlockMethod === 'terminal') {
+          // M6.2: decoupled placement — terminal can land anywhere reachable
+          // from spawn (not biased toward door proximity).
+          const terminalAnchor = findDecoupledTerminalAnchor(
+            this.world,
+            this.player,
+            this.exitTile,
+            this.rng,
+            linkedDoorId
+          );
+          this.world.addEntity(
+            new Terminal({
+              id: 'terminal-unlock-0',
+              x: terminalAnchor.x,
+              y: terminalAnchor.y,
+              label: 'Access terminal',
+              raisesAlarm: true,
+              unlocksId: linkedDoorId,
+            })
+          );
+        } else {
+          // M6.2: keycard placed on the spawn side as an alternative unlock.
+          const keycardAnchor = findDecoupledTerminalAnchor(
+            this.world,
+            this.player,
+            this.exitTile,
+            this.rng,
+            linkedDoorId
+          );
+          this.world.addEntity(
+            new KeyCard({
+              id: `keycard-${linkedDoorId}`,
+              x: keycardAnchor.x,
+              y: keycardAnchor.y,
+              doorId: linkedDoorId,
+              label: 'Access keycard',
+            })
+          );
+        }
       }
     }
     if (this.contract.objective.kind === OBJECTIVES.TERMINAL_SLICE) {
@@ -1104,6 +1171,19 @@ function objectiveDoorId(contract: Contract): string | null {
   return doorId;
 }
 
+export type UnlockMethod = 'terminal' | 'keycard';
+
+/**
+ * M6.2: Determine unlock method for a door-locked contract. If the contract
+ * params specify `unlockMethod`, use it; otherwise 50/50 from the seed rng.
+ * Deterministic per seed.
+ */
+function resolveUnlockMethod(contract: Contract, rng: Rng): UnlockMethod {
+  const explicit = contract.objective.params?.unlockMethod;
+  if (explicit === 'terminal' || explicit === 'keycard') return explicit;
+  return rng.next() < 0.5 ? 'terminal' : 'keycard';
+}
+
 export function turnLimitForContract(contract: Contract): number | null {
   const turnLimit = contract.objective.params?.turnLimit;
   return Number.isInteger(turnLimit) && Number(turnLimit) > 0 ? Number(turnLimit) : null;
@@ -1332,6 +1412,14 @@ function snapshotEntity(entity: Entity): RunEntitySnapshot {
       armed: entity.armed,
     };
   }
+  if (entity instanceof KeyCard) {
+    const kcSnap: NonNullable<RunEntitySnapshot['keycard']> = {
+      doorId: entity.doorId,
+      label: entity.label,
+    };
+    if (entity.siteId) kcSnap.siteId = entity.siteId;
+    base.keycard = kcSnap;
+  }
   return base;
 }
 
@@ -1353,6 +1441,7 @@ function archetypeOf(entity: Entity): EntityArchetypeId {
   if (entity instanceof RelayNode) return 'relay-node';
   if (entity instanceof ConsumablePickup) return 'consumable-pickup';
   if (entity instanceof EscortNpc) return 'escort-npc';
+  if (entity instanceof KeyCard) return 'keycard';
   if (entity instanceof Entity) return 'entity';
   throw new Error(`archetypeOf: cannot classify entity ${(entity as Entity | undefined)?.id}`);
 }
@@ -1592,14 +1681,59 @@ function findAccessibleInteractableAnchor(
   rng: Rng,
   doorId: string
 ): GridPoint {
-  return findInteractableAnchorByReachability(
-    world,
-    player,
-    exitTile,
-    rng,
-    'accessible',
-    doorId
+  return findInteractableAnchorByReachability(world, player, exitTile, rng, 'accessible', doorId);
+}
+
+/**
+ * M6.2: Decoupled terminal/keycard placement — find a reachable tile on the
+ * spawn side of the locked door, WITHOUT biasing toward door proximity. The
+ * entity (terminal or keycard) can land anywhere reachable from spawn, turning
+ * "find the unlock" into a routing puzzle.
+ *
+ * Reachability is validated by pathfinding from player spawn to the candidate
+ * with the door still locked (impassable). Falls back to near-door placement
+ * (the M6.1 behavior) if no remote tile qualifies.
+ */
+function findDecoupledTerminalAnchor(
+  world: World,
+  player: Entity,
+  exitTile: GridPoint,
+  rng: Rng,
+  doorId: string
+): GridPoint {
+  assertDoorExists(world, doorId);
+  const candidates: GridPoint[] = [];
+  for (let y = 1; y < world.grid.height - 1; y++) {
+    for (let x = 1; x < world.grid.width - 1; x++) {
+      if (!world.grid.isPassable(x, y)) continue;
+      if (x === player.x && y === player.y) continue;
+      if (x === exitTile.x && y === exitTile.y) continue;
+      if (world.liveEntityAt(x, y)) continue;
+      if (!hasAdjacentPassableTile(world, x, y)) continue;
+      // Must be reachable NOW (door still locked).
+      const reachableNow =
+        findPath(world, { x: player.x, y: player.y }, { x, y }, { allowOccupiedGoal: false }) !==
+        null;
+      if (!reachableNow) continue;
+      // Must preserve exit route after door is eventually unlocked.
+      if (!anchorPreservesExitRouteWithDoorUnlocked(world, player, exitTile, { x, y }, doorId)) {
+        continue;
+      }
+      candidates.push({ x, y });
+    }
+  }
+  if (candidates.length === 0) {
+    // Fall back to M6.1 near-door behavior.
+    return findAccessibleInteractableAnchor(world, player, exitTile, rng, doorId);
+  }
+  // Prefer remote tiles — the routing puzzle is more interesting when the
+  // player has to explore the spawn side.
+  const door = assertDoorExists(world, doorId);
+  const remote = candidates.filter(
+    c => chebyshev(c, door) > 2 && manhattan(c, exitTile) >= 4 && manhattan(c, player) >= 3
   );
+  if (remote.length > 0) return rng.pick(remote);
+  return rng.pick(candidates);
 }
 
 function findBehindDoorAnchor(
@@ -1637,9 +1771,7 @@ function findInteractableAnchorByReachability(
         null;
       if (mode === 'accessible') {
         if (!doorId) throw new Error('Run: accessible door anchor search missing doorId');
-        if (
-          !anchorPreservesExitRouteWithDoorUnlocked(world, player, exitTile, { x, y }, doorId)
-        ) {
+        if (!anchorPreservesExitRouteWithDoorUnlocked(world, player, exitTile, { x, y }, doorId)) {
           continue;
         }
         if (!reachableNow) continue;

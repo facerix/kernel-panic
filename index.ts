@@ -74,7 +74,7 @@ import type { Run, RunResult, RunTelemetry, Outcome } from '/src/game/Run.js';
 import type { Item } from '/src/game/items.js';
 import type { Intent } from '/src/input/applyIntent.js';
 import type { Mode } from '/src/input/keymap.js';
-import type { Telemetry, TurnActionStep } from '/src/types.js';
+import type { KeyItem, Telemetry, TurnActionStep } from '/src/types.js';
 
 import '/components/ConfirmationModal.js';
 import '/components/UpdateNotification.js';
@@ -150,6 +150,7 @@ type ItemInventoryElement = ModalElement & {
   setContents(contents: {
     salvage?: TypedSalvage;
     consumables?: NonNullable<Crew['inventory']>['consumables'];
+    keyItems?: KeyItem[];
   }): void;
   /** Legacy single-arg API — prefer `setContents`. */
   setItems(consumables: NonNullable<Crew['inventory']>['consumables']): void;
@@ -707,7 +708,11 @@ function presentItemInventory() {
   // This keeps the overlay's mental model simple: it always shows the
   // currently meaningful wallet for the state the player is standing in.
   if (campaign.state === CAMPAIGN_STATE.HUB) {
-    itemInventoryEl.setContents({ salvage: campaign.salvage, consumables: [] });
+    itemInventoryEl.setContents({
+      salvage: campaign.salvage,
+      consumables: [],
+      keyItems: campaign.keyItems,
+    });
     itemInventoryEl.show();
     return;
   }
@@ -716,6 +721,7 @@ function presentItemInventory() {
   itemInventoryEl.setContents({
     salvage: run.player.inventory.salvage,
     consumables: run.player.inventory.consumables,
+    keyItems: [...campaign.keyItems, ...run.keyItems],
   });
   itemInventoryEl.show();
 }
@@ -1066,6 +1072,16 @@ function handleIntent(intent: Intent): void {
     },
     onCorpseSalvaged: entity => {
       vision.forgetCorpse(entity);
+    },
+    keyItems: [...(campaign?.keyItems ?? []), ...(run as Run).keyItems],
+    onKeycardCollected: kc => {
+      if (kc.siteId) {
+        // Campaign-scoped: persists across runs (M7.2).
+        campaign?.addKeyItem({ id: kc.id, label: kc.label, doorId: kc.doorId, siteId: kc.siteId });
+      } else {
+        // Run-scoped: lives only in this run, discarded on run end.
+        (run as Run).addKeyItem({ id: kc.id, label: kc.label, doorId: kc.doorId });
+      }
     },
     onPlayerAction: (actionName: string) => {
       switch (actionName) {

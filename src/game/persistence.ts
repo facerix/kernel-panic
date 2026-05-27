@@ -54,6 +54,7 @@ import { CorpTurret } from './entities/CorpTurret.js';
 import { RelayNode } from './entities/RelayNode.js';
 import { ConsumablePickup } from './entities/ConsumablePickup.js';
 import { EscortNpc } from './entities/EscortNpc.js';
+import { KeyCard } from './entities/KeyCard.js';
 import { Run, RUN_STATE } from './Run.js';
 import { Campaign, CAMPAIGN_STATE } from './Campaign.js';
 import { normalizeContractContext, normalizeObjective } from './hub/Curator.js';
@@ -74,6 +75,7 @@ import type { CorpTurretInit } from './entities/CorpTurret.js';
 import type { RelayNodeInit } from './entities/RelayNode.js';
 import type { ConsumablePickupInit } from './entities/ConsumablePickup.js';
 import type { EscortNpcInit } from './entities/EscortNpc.js';
+import type { KeyCardInit } from './entities/KeyCard.js';
 import type { EntityInit } from './Entity.js';
 import type { FactionId } from './constants.js';
 import type {
@@ -89,6 +91,7 @@ import type {
   ObjectiveProgressSnapshot,
 } from './Run.js';
 import type { CampaignMeta, CampaignState } from './Campaign.js';
+import type { KeyItem } from '../types.js';
 
 const ARCHETYPE_KEY = Symbol.for('kernel-panic.archetype');
 
@@ -108,7 +111,8 @@ type RestoreEntityProps = Partial<
     CorpTurretInit &
     RelayNodeInit &
     ConsumablePickupInit &
-    EscortNpcInit
+    EscortNpcInit &
+    KeyCardInit
 > & {
   id: string;
   x: number;
@@ -140,6 +144,7 @@ const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) =
     'consumable-pickup': (props: RestoreEntityProps) =>
       new ConsumablePickup(props as ConsumablePickupInit),
     'escort-npc': (props: RestoreEntityProps) => new EscortNpc(props as EscortNpcInit),
+    keycard: (props: RestoreEntityProps) => new KeyCard(props as KeyCardInit),
     // Generic fallback so a future `Entity` subclass (NPCs, items) doesn't break
     // the round-trip when the full archetype landed but the loader hasn't.
     entity: (props: RestoreEntityProps) =>
@@ -224,6 +229,16 @@ export type CampaignSnapshot = {
   hubReveals?: HubRevealsSnapshot;
   /** M5.4: count of jobs ended with EXIT (extract). Defaults to 0. */
   completedJobs?: number;
+  /** M6.2: persistent key-item inventory (keycards). Defaults to []. */
+  keyItems?: KeyItemSnapshot[];
+};
+
+/** M6.2: Serializable key item. */
+export type KeyItemSnapshot = {
+  id: string;
+  label: string;
+  doorId: string;
+  siteId?: string;
 };
 
 /** Serializable shape of `Campaign.hubReveals`. */
@@ -269,6 +284,7 @@ export function snapshotCampaign(campaign: Campaign): CampaignSnapshot {
     healedThisVisit: [...campaign.healedThisVisit],
     hubReveals: { ...campaign.hubReveals },
     completedJobs: campaign.completedJobs,
+    keyItems: campaign.keyItems.map(k => ({ ...k })),
   };
 }
 
@@ -332,6 +348,7 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
     run.world.alarmActive = record.alarmActive ?? false;
   }
   run.restoreMapMemory(normalizeMapMemory(record.mapMemory));
+  normalizeRunKeyItems(record.keyItems).forEach(k => run.addKeyItem(k));
 
   const factionOrder = [FACTION.PLAYER, FACTION.CORP];
   if (record.currentFaction !== FACTION.PLAYER && record.currentFaction !== FACTION.CORP) {
@@ -380,6 +397,7 @@ export function restoreCampaign(record: unknown, options: RestoreCampaignOptions
     meta: record.meta,
     hubReveals: normalizeHubReveals(record.hubReveals, 'restoreCampaign hubReveals'),
     completedJobs: record.completedJobs ?? 0,
+    keyItems: record.keyItems,
     onPersist: options.onPersist,
     onResult: options.onResult,
   });
@@ -506,6 +524,11 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
     entityProps.activated = rec.escortNpc.activated;
     entityProps.armed = rec.escortNpc.armed;
   }
+  if (rec.archetype === 'keycard' && rec.keycard) {
+    entityProps.doorId = rec.keycard.doorId;
+    entityProps.label = rec.keycard.label;
+    if (rec.keycard.siteId) entityProps.siteId = rec.keycard.siteId;
+  }
   if (rec.archetype === 'terminal' && rec.terminal) {
     entityProps.label = rec.terminal.label;
     entityProps.sliced = rec.terminal.sliced;
@@ -555,6 +578,9 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
   }
   if (rec.archetype === 'escort-npc' && !rec.escortNpc) {
     throw new TypeError(`restore: escort NPC entity ${rec.id} requires escort state`);
+  }
+  if (rec.archetype === 'keycard' && !rec.keycard) {
+    throw new TypeError(`restore: keycard entity ${rec.id} requires keycard state`);
   }
   const entity = factory(entityProps);
   // Re-apply the live HP / AP / alive / stealth state. We can't pass current
@@ -754,6 +780,18 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
     }
     if (typeof rec.escortNpc.armed !== 'boolean') {
       throw new TypeError(`restore: escort NPC ${rec.id} armed must be boolean`);
+    }
+  }
+
+  if (rec.archetype === 'keycard' && rec.keycard) {
+    if (!(entity instanceof KeyCard)) {
+      throw new Error(`restore: keycard entity ${rec.id} did not restore as KeyCard`);
+    }
+    if (typeof rec.keycard.doorId !== 'string' || rec.keycard.doorId.length === 0) {
+      throw new TypeError(`restore: keycard ${rec.id} doorId must be a non-empty string`);
+    }
+    if (typeof rec.keycard.label !== 'string' || rec.keycard.label.length === 0) {
+      throw new TypeError(`restore: keycard ${rec.id} label must be a non-empty string`);
     }
   }
 
@@ -1048,6 +1086,32 @@ function normalizeObjectiveProgress(progress: unknown): ObjectiveProgressSnapsho
     }
   }
   return { securedPickups: [...candidate.securedPickups] };
+}
+
+/**
+ * M6.2: Normalize run-scoped key items from a snapshot (or undefined for
+ * pre-M6.2 saves). Validates structure. Crashes on malformed entries.
+ */
+function normalizeRunKeyItems(raw: unknown): KeyItem[] {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) {
+    throw new TypeError('restore: run keyItems must be an array when supplied');
+  }
+  return (raw as KeyItem[]).map((item, i) => {
+    if (!item || typeof item !== 'object') {
+      throw new TypeError(`restore: run keyItems[${i}] must be an object`);
+    }
+    if (typeof item.id !== 'string' || item.id.length === 0) {
+      throw new TypeError(`restore: run keyItems[${i}].id must be a non-empty string`);
+    }
+    if (typeof item.label !== 'string' || item.label.length === 0) {
+      throw new TypeError(`restore: run keyItems[${i}].label must be a non-empty string`);
+    }
+    if (typeof item.doorId !== 'string' || item.doorId.length === 0) {
+      throw new TypeError(`restore: run keyItems[${i}].doorId must be a non-empty string`);
+    }
+    return { id: item.id, label: item.label, doorId: item.doorId };
+  });
 }
 
 function freshObjectiveTimer(): ObjectiveTimerSnapshot {

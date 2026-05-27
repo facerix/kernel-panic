@@ -398,6 +398,8 @@ class KeyHelp extends HTMLElement {
         h('dd', { textContent: 'escort ally' }),
         h('dt', { textContent: '! *' }),
         h('dd', { textContent: 'dead drops' }),
+        h('dt', { textContent: 'κ' }),
+        h('dd', { textContent: 'access keycard' }),
       ]),
     ]);
 

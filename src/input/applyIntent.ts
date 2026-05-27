@@ -45,8 +45,10 @@ import { canFireRanged, resolveRanged, canMelee, resolveMelee } from '../game/Co
 import { hasLineOfSight, withinRange } from '../game/LineOfSight.js';
 import { entityLabel } from '../game/Entity.js';
 import { Interactable } from '../game/entities/Interactable.js';
+import { Door } from '../game/entities/Door.js';
 import { EVENT } from '../game/events.js';
 import { TILE } from '../game/constants.js';
+import type { KeyItem } from '../types.js';
 import type { Archetype } from '../game/archetypes/index.js';
 import type { World } from '../game/World.js';
 import type { TurnQueue } from '../game/TurnQueue.js';
@@ -82,8 +84,22 @@ export type ApplyIntentContext = {
   onUseItem?: (aim: { dx: number; dy: number }) => void;
   /** Called after looting removes a corpse — shell clears fog memory. */
   onCorpseSalvaged?: (entity: { x: number; y: number }) => void;
+  /**
+   * M6.2: Called when the player walks onto a keycard pickup. The shell
+   * routes based on `siteId`: campaign-scoped keycards (with siteId) go to
+   * `Campaign.addKeyItem`; run-scoped keycards (no siteId) go to
+   * `Run.addKeyItem`. The entity is removed from the world by
+   * `collectTileLoot` itself.
+   */
+  onKeycardCollected?: (keycard: { id: string; doorId: string; label: string; siteId: string | null }) => void;
   canExit?: () => boolean;
   exitBlockedMessage?: () => string;
+  /**
+   * M6.2: Merged key-item inventory (campaign + run-scoped). Passed to
+   * Door.interact so a matching keycard can unlock a locked door via
+   * bump-interact. Optional — tests that don't exercise keycards can omit it.
+   */
+  keyItems?: KeyItem[];
 };
 
 const KNOWN_INTENT_TYPES = new Set([
@@ -195,7 +211,12 @@ function doMove(intent: Intent, ctx: ApplyIntentContext) {
   if (occupant) {
     if (occupant.faction === FACTION.NEUTRAL || occupant.faction === player.faction) {
       if (occupant instanceof Interactable) {
-        const result = occupant.interact(world, player);
+        // M6.2: Door.interact accepts keyItems so a bump into a locked door
+        // checks for a matching keycard in the campaign inventory.
+        const result =
+          occupant instanceof Door
+            ? occupant.interact(world, player, ctx.keyItems)
+            : occupant.interact(world, player);
         if (result.message) log(result.message);
         if (result.ok) gateOnApExhausted(ctx);
         return;
@@ -245,6 +266,20 @@ function collectTileLoot(ctx: ApplyIntentContext) {
     player.addConsumable(consumablePickup.consumableId);
     world.removeEntity(consumablePickup.id);
     log(`> ${entityLabel(player)} picks up ${consumablePickup.label}.`);
+  }
+  // M6.2: walk-onto keycard collection. siteId determines scope:
+  //   - siteId set → campaign-scoped (persists across runs)
+  //   - no siteId  → run-scoped (discarded on run end)
+  const keycard = player.alive ? world.keycardAt(player.x, player.y) : null;
+  if (keycard) {
+    world.removeEntity(keycard.id);
+    ctx.onKeycardCollected?.({
+      id: keycard.id,
+      doorId: keycard.doorId,
+      label: keycard.label,
+      siteId: keycard.siteId,
+    });
+    log(`> ${entityLabel(player)} picks up ${keycard.label}.`);
   }
   const corpse =
     player.inventory && player.alive ? world.lootableCorpseAt(player.x, player.y) : null;

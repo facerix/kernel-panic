@@ -32,13 +32,14 @@ Living plan for the post–Phase 2 slice of Kernel Panic: **contract objectives*
 | M5.4 — Progressive Hub reveals | ✅ Done |
 | M6 — Locked doors & access gating | 🔲 Planned |
 | M6.1 — Prefab door entity + terminal unlock | ✅ Done |
-| M6.2 — Dynamic corridor door placement (higher-tier) | 🔲 Planned |
+| M6.2 — Decoupled terminal placement + KeyCard unlock path | ✅ Done |
+| M6.3 — Dynamic corridor door placement (higher-tier) | 🔲 Planned |
 | M7.1 — Breaching charges & demolition objectives | 🔲 Planned |
 | M7.2 — Location memory & site roster | 🔲 Planned |
 
 **Phase 2.5** is complete when:
 
-1. Every milestone in the table above is ✅ except M3 (deferred). M2 rolls up automatically when M2.1–M2.12 are all ✅. M6 rolls up when M6.1–M6.2 are both ✅. M7 rolls up when M7.1–M7.2 are both ✅.
+1. Every milestone in the table above is ✅ except M3 (deferred). M2 rolls up automatically when M2.1–M2.12 are all ✅. M6 rolls up when M6.1–M6.3 are all ✅. M7 rolls up when M7.1–M7.2 are both ✅.
 2. Full campaign loop from Phase 2 remains playable offline on iOS Safari + Chrome desktop: Hub → contract selection → job deployment → combat → extract or flatline → return to Hub, with Finn shop, Rep meter, recruitment, and new systems (objectives, salvage types, shop tabs, breaching, etc.) integrated per milestone specs.
 3. Phase 3 foundations in place: M2.10 recipe context supports future arc-awareness; M5 rep tiers leave room for Decker recruitment gating; M7 location schema accommodates a designated "Score target" site.
 4. `v0.2.5` tagged in git.
@@ -925,12 +926,13 @@ Phase 2.5 milestones that follow (M4–M7) retain their original numbering for c
 
 **Goal:** **Locked doors** as pathing blockers with **unlock** paths; gates access routing for objective contracts and prepares geometry for M7 breaching.
 
-**M6 is complete when M6.1–M6.2 are both ✅.** M6.1 ships the `Door` entity and prefab integration; M6.2 adds dynamic corridor placement so doors appear consistently in higher-tier runs rather than only when a door-bearing prefab happens to land.
+**M6 is complete when M6.1–M6.3 are all ✅.** M6.1 ships the `Door` entity and prefab integration; M6.2 decouples terminal placement from door proximity and introduces KeyCard as an alternative unlock path with persistent inventory; M6.3 adds dynamic corridor placement so doors appear consistently in higher-tier runs rather than only when a door-bearing prefab happens to land.
 
 | Slice | Delivers |
 |-------|----------|
 | **M6.1** | `Door` entity, terminal-linked unlock, prefab `\|` glyph, contract routing modifier |
-| **M6.2** | Dynamic locked-door placement in corridor bottlenecks for ELEVATED/CRITICAL tier runs |
+| **M6.2** | Decoupled terminal placement + KeyCard pickup + persistent key-item inventory category |
+| **M6.3** | Dynamic locked-door placement in corridor bottlenecks for ELEVATED/CRITICAL tier runs |
 
 ---
 
@@ -971,15 +973,61 @@ Phase 2.5 milestones that follow (M4–M7) retain their original numbering for c
 
 ---
 
-#### M6.2 — Dynamic corridor door placement (higher-tier runs) 🔲
+#### M6.2 — Decoupled terminal placement + KeyCard unlock path ✅
 
-**Depends on:** M6.1 (`Door` entity and unlock infrastructure exist).
+**Depends on:** M6.1 (`Door` entity, terminal-linked unlock, contract routing modifier).
+
+**Goal:** Two improvements to the door-unlock loop: (1) unlock terminals are no longer placed adjacent to the door — they can land **anywhere reachable from spawn** without crossing the locked door, turning "find the terminal" into a routing puzzle; (2) a **KeyCard** pickup is introduced as an alternative unlock path, with a 50/50 per-contract roll between terminal and keycard. KeyCards persist in campaign inventory as a new **key-item** category (not consumable, not salvage, not objective), paying off in M7.2 when the player revisits a location with a previously acquired card.
+
+**Scope:**
+
+- **Decoupled terminal placement:** When a door-locked contract rolls terminal-unlock, the paired `Terminal` (with `unlocksId`) is placed on any reachable floor tile on the spawn side of the locked door — not necessarily within 1–2 tiles. Reachability is validated via `findPath(spawn, terminalTile)` treating the locked door as impassable; if no valid placement exists, fall back to the M6.1 near-door placement.
+- **KeyCard pickup:** New `KeyCard` entity (extends `Pickup` or `Interactable`; glyph TBD, e.g. `⚿` or `κ`). Placed on a reachable floor tile on the spawn side of the locked door (same reachability constraint as decoupled terminals). Carries a `doorId` that matches the locked door it opens.
+- **KeyCard interaction with Door:** `Door.interact` gains a keycard check: if the interacting actor's campaign inventory contains a `KeyItem` with a matching `doorId`, the door unlocks (costs `AP_COST.INTERACT`). Both `Space`-interact and move-onto-door trigger this check. If the player lacks the matching keycard, the existing "locked — find an access terminal" message fires.
+- **KeyCard pickup interaction:** Walking onto or `Space`-interacting with the `KeyCard` entity adds it to `Campaign.keyItems` (new persistent inventory slot) and removes the pickup from the map. Same pattern as `ConsumablePickup` collection but targeting the key-item inventory.
+- **Persistent key-item inventory:** `Campaign.keyItems: KeyItem[]` — new array persisted in `CampaignSnapshot`. Each `KeyItem` carries `{ id: string, label: string, doorId: string, siteId?: string }`. `siteId` is nullable until M7.2 populates it; M7.2 location revisits can match keycards by `siteId` so doors rebuilt from the same seed are pre-unlockable.
+- **Unlock method roll:** `Run.enterCombat` (or `Run.#placeObjectiveInteractables`) rolls 50/50 via the contract seed rng: terminal-unlock (decoupled placement) or keycard-unlock. The roll result is deterministic per seed. Leave an expansion seam (e.g. `unlockMethod: 'terminal' | 'keycard'` in contract params or recipe context) so future recipes or difficulty tiers can bias the split.
+- **Key help:** KeyCard glyph added to combat tile legend.
+
+**Acceptance:**
+
+- Unit tests: decoupled terminal placement lands on a reachable tile (not adjacent to door); keycard placement lands on a reachable tile; both fail gracefully (no soft-lock) when map geometry is constrained.
+- KeyCard pickup adds to `Campaign.keyItems`; pickup entity removed from map.
+- Door interact with matching keycard: door unlocks, AP spent, keycard remains in inventory (not consumed).
+- Door interact without keycard: existing locked message, no state change.
+- Move-onto-door with matching keycard: same unlock behavior as Space-interact.
+- 50/50 roll is deterministic per seed; different seeds produce both outcomes across a sample.
+- `Campaign.keyItems` snapshot round-trip; pre-M6.2 saves default to `[]`.
+- Golden path: keycard contract → pick up keycard → walk to locked door → door unlocks → complete objective behind door → extract. Keycard persists in campaign inventory after extraction.
+- No regression in M6.1 terminal-linked door tests.
+
+**Phase 3 / M7 awareness:** KeyCards carry an optional `siteId` field. M7.2 populates `siteId` when location memory is established; revisiting a roster site with a matching keycard lets the player skip the unlock puzzle for that door. M6.2 does **not** implement site-aware matching — it stores the field for forward compatibility.
+
+**Implementation notes:**
+
+- **`KeyCard`** (`src/game/entities/KeyCard.ts`): Extends `Entity`, NEUTRAL faction, glyph `κ` (kappa). Passable — `World.entityAt` skips it; walk-onto collection via `collectTileLoot`. Carries `doorId: string` and `label: string`. `KEYCARD_GLYPH` exported from `constants.ts`.
+- **`KeyItem`** type added to `src/types.ts`: `{ id, label, doorId, siteId? }`. The persistent key-item record stored in `Campaign.keyItems`.
+- **`Campaign.keyItems: KeyItem[]`**: New persistent array, defaults to `[]` for pre-M6.2 saves. `normalizeKeyItems` validates on load; malformed entries crash. `Campaign.addKeyItem(item)` validates, rejects duplicates, and persists. `Campaign.keyItemForDoor(doorId)` looks up a matching keycard.
+- **`Door.interact`** gains optional third parameter `keyItems?: KeyItem[]`. When the door is locked and a matching keycard exists, spends `AP_COST.INTERACT`, calls `this.unlock()`, and returns success. Without a match, falls back to the locked message (now reads "find an access terminal or keycard").
+- **Decoupled terminal placement**: New `findDecoupledTerminalAnchor()` in `Run.ts` — finds reachable tiles on the spawn side without biasing toward door proximity (unlike M6.1's `findAccessibleInteractableAnchor` which preferred `chebyshev ≤ 2` from door). Prefers remote tiles (`chebyshev > 2` from door, `manhattan ≥ 4` from exit, `manhattan ≥ 3` from player). Falls back to M6.1 near-door placement when no remote tile qualifies.
+- **Unlock method roll**: `resolveUnlockMethod(contract, rng)` returns `'terminal' | 'keycard'`. Explicit `params.unlockMethod` takes precedence; otherwise 50/50 from the seed rng (deterministic per seed). Both terminal and keycard paths reuse `findDecoupledTerminalAnchor` for placement.
+- **Walk-onto collection**: `collectTileLoot` in `applyIntent.ts` now checks `world.keycardAt(x, y)` after consumable pickups. Collected keycards are removed from the world and passed to `ctx.onKeycardCollected` for the shell to wire to `Campaign.addKeyItem`.
+- **Bump-interact**: `doMove` now passes `ctx.keyItems` to `Door.interact` when the occupant is a `Door`, so bumping into a locked door with the matching keycard in the campaign inventory unlocks it.
+- **Persistence**: `RunEntitySnapshot` gains `keycard?: { doorId, label }`; `EntityArchetypeId` includes `'keycard'`; `ARCHETYPE_FACTORY['keycard']` entry in `persistence.ts`. `CampaignSnapshot` gains `keyItems?: KeyItemSnapshot[]`. Pre-M6.2 saves default to `[]`.
+- **Key help**: `κ` (access keycard) added to combat tile legend in `<key-help>`.
+- 32 new tests in `tests/unit/game/keycard.test.ts`: KeyCard construction/validation, `World.keycardAt`, entity passability, Campaign `keyItems` CRUD + duplicate guard + siteId, snapshot round-trip (campaign + run entity), pre-M6.2 save default, Door keycard unlock (matching, non-matching, no keyItems, already open, insufficient AP, non-consumption), `collectTileLoot` keycard pickup, 50/50 roll determinism (both outcomes across 100 seeds), explicit `unlockMethod` terminal/keycard, decoupled placement reachability (terminal and keycard), golden-path end-to-end, campaign persistence, locked message copy, bump-interact with/without keycard. Full suite: 1046/1046 green.
+
+---
+
+#### M6.3 — Dynamic corridor door placement (higher-tier runs) 🔲
+
+**Depends on:** M6.1 (`Door` entity and unlock infrastructure exist). M6.2 (decoupled terminal placement + keycard unlock path) recommended so dynamic doors can use either unlock method.
 
 **Goal:** ELEVATED and CRITICAL tier runs procedurally gain 1–2 locked corridor doors, ensuring players encounter access gating consistently — not only when a door-bearing prefab happens to land.
 
 **Rationale:** Prefab-only door placement is too sparse to feel systemic. Corridor bottlenecks are natural choke points; gating them with locked doors (and a paired unlock terminal) creates routing pressure that scales with difficulty without requiring every prefab to be authored with doors.
 
-**Not M6.2 (overlap with M6.1):** M6.1 follow-up wired the Curator to auto-set `params.requiresUnlock` on **ELEVATED/CRITICAL** contracts for the M6 routing objective kinds (`retrieve`, `handoff`, `deny`, `dual-site`, `recon`, `escort-extract`). That reuses the same difficulty tiers but is a **separate mechanism**: contract params → `Run.contractRequiresDoor` → checkpoint prefab door + objective routing. It does **not** implement this slice — no `placeDoors`, no corridor bottleneck scan, no connectivity validation, no 1–2 dynamic doors per tier. Sweep and terminal-slice jobs at ELEVATED/CRITICAL still get no doors until M6.2 lands. When implementing M6.2, treat Curator routing and procgen placement as **complementary**: prefab/objective-linked doors (M6.1) plus ambient corridor doors on tier alone (M6.2); dynamic doors are additive to any prefab doors already on the map.
+**Not M6.3 (overlap with M6.1):** M6.1 follow-up wired the Curator to auto-set `params.requiresUnlock` on **ELEVATED/CRITICAL** contracts for the M6 routing objective kinds (`retrieve`, `handoff`, `deny`, `dual-site`, `recon`, `escort-extract`). That reuses the same difficulty tiers but is a **separate mechanism**: contract params → `Run.contractRequiresDoor` → checkpoint prefab door + objective routing. It does **not** implement this slice — no `placeDoors`, no corridor bottleneck scan, no connectivity validation, no 1–2 dynamic doors per tier. Sweep and terminal-slice jobs at ELEVATED/CRITICAL still get no doors until M6.3 lands. When implementing M6.3, treat Curator routing and procgen placement as **complementary**: prefab/objective-linked doors (M6.1) plus ambient corridor doors on tier alone (M6.3); dynamic doors are additive to any prefab doors already on the map.
 
 **Scope:**
 
@@ -1008,12 +1056,13 @@ Phase 2.5 milestones that follow (M4–M7) retain their original numbering for c
 
 ---
 
-**M6 rollup acceptance (when both subs ✅):**
+**M6 rollup acceptance (when all subs ✅):**
 
 - `Door` entity, `unlockDoor`, prefab `|` glyph, snapshot archetype, and key help all shipped (M6.1).
-- Dynamic door placement fires for ELEVATED/CRITICAL runs with connectivity validation — no soft-lock possible from a dynamic door (M6.2).
-- Contract routing modifier (`params.doorId`) works end-to-end: objective props behind a locked door, terminal on the accessible side, unlock → access.
-- Tests for door entity, terminal-link unlock, bottleneck detection, connectivity guard, difficulty gating, and snapshot round-trip.
+- Unlock terminals placed anywhere reachable from spawn (not just adjacent to door); KeyCard pickup as alternative unlock path; persistent `Campaign.keyItems` inventory category; 50/50 terminal/keycard roll per door-locked contract (M6.2).
+- Dynamic door placement fires for ELEVATED/CRITICAL runs with connectivity validation — no soft-lock possible from a dynamic door (M6.3).
+- Contract routing modifier (`params.doorId`) works end-to-end: objective props behind a locked door, terminal or keycard on the accessible side, unlock → access.
+- Tests for door entity, terminal-link unlock, keycard pickup + door interaction, decoupled placement reachability, bottleneck detection, connectivity guard, difficulty gating, key-item persistence, and snapshot round-trip.
 
 ---
 
