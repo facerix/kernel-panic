@@ -289,8 +289,10 @@ export function* runPlayerAftermathSteps(
   // Every live entity standing on a HAZARD tile takes flat damage. Emits
   // ENTITY_DAMAGED so Run's death-detection listener fires normally, and
   // HAZARD_DAMAGE for presentation (shell log lines, flash effects).
+  // Objective pickups may sit on hazard anchors — they stay interactable.
   for (const entity of world.entities.values()) {
     if (!entity.alive) continue;
+    if (entity.isHazardImmune()) continue;
     if (world.grid.tileAt(entity.x, entity.y) !== TILE.HAZARD) continue;
     const damage = HAZARD_DAMAGE;
     entity.hp = Math.max(0, entity.hp - damage);

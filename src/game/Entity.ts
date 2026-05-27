@@ -102,6 +102,11 @@ export class Entity {
     return this.ap >= cost;
   }
 
+  /** Environmental hazards skip entities that override this to `true`. */
+  isHazardImmune(): boolean {
+    return false;
+  }
+
   /**
    * Whether `observer` can perceive this entity right now. Default yes;
    * stealthed entities require Chebyshev adjacency (dx,dy ∈ [-1,1]) — slide
