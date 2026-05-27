@@ -186,6 +186,10 @@ type NoisePayload = {
   origin?: { x: number; y: number };
 };
 
+type DoorUnlockPayload = {
+  label?: string;
+};
+
 let campaign: Campaign | null = null;
 let vision = new VisionField();
 let visionMoveUnsub: (() => void) | null = null;
@@ -361,7 +365,7 @@ async function boot() {
   contractSelectEl.addEventListener('contract-selected', onContractSelected);
   contractSelectEl.addEventListener('dismiss', () => contractSelectEl.hide());
   briefingEl.addEventListener('deploy', onBriefingDeploy);
-  briefingEl.addEventListener('dismiss', () => briefingEl.hide());
+  briefingEl.addEventListener('dismiss', onBriefingDismiss);
   crashEl.addEventListener('new-run', onNewRunRequested);
   systemStartEl.addEventListener('hub-enter', onSystemStartHubEnter);
   curatorBriefingEl.addEventListener('dismiss', onCuratorBriefingDismiss);
@@ -565,6 +569,16 @@ function onContractSelected(evt: Event) {
   presentBriefing(contract);
 }
 
+function onBriefingDismiss() {
+  briefingEl.hide();
+  // Hub briefing (no activeRun yet): dismiss returns to the canvas.
+  // Resumed mid-briefing (activeRun in BRIEFING): deployment already
+  // committed — re-present the modal instead of leaving a blank screen.
+  if (campaign?.activeRun?.state === RUN_STATE.BRIEFING) {
+    renderShell();
+  }
+}
+
 function onBriefingDeploy(evt: Event) {
   if (!campaign) return;
   const { memberId, contract } = (evt as CustomEvent<{ memberId?: string; contract?: Contract }>)
@@ -573,11 +587,24 @@ function onBriefingDeploy(evt: Event) {
   const member = campaign.getCrewMember(memberId);
   if (!member || member.flatlined) return;
   briefingEl.hide();
-  campaign.deployCrewMember(member.id, contract);
-  flash(`CURATOR: ${member.callsign} takes ${contract.label}. JACKING IN.`);
+
+  let run = campaign.activeRun;
+  if (run?.state === RUN_STATE.BRIEFING) {
+    // Resumed save: deployCrewMember already ran before the reload.
+    if (run.crewMember.id !== member.id) {
+      flash(
+        `DEPLOY LOCKED: ${run.crewMember.callsign ?? run.crewMember.id} is slotted for this contract.`
+      );
+      briefingEl.show();
+      return;
+    }
+  } else {
+    run = campaign.deployCrewMember(member.id, contract);
+    flash(`CURATOR: ${member.callsign} takes ${contract.label}. JACKING IN.`);
+  }
+
   // Go straight into combat — the player already reviewed the contract and
   // chose their operative in the combined briefing modal.
-  const run = campaign.activeRun;
   if (!run || run.state !== RUN_STATE.BRIEFING) {
     throw new Error(`[shell] expected deployed run to enter BRIEFING, got ${run?.state}`);
   }
@@ -1408,6 +1435,10 @@ function attachAnimationListeners(): void {
       if (!origin) return;
       const fired = runMuzzleFlash(renderer, paint, origin.x, origin.y);
       if (fired) animLock.push(ANIMATION_DURATIONS.MUZZLE_FLASH);
+    }),
+    run.bus.on(EVENT.DOOR_UNLOCKED, payload => {
+      const { label = 'Door' } = (payload ?? {}) as DoorUnlockPayload;
+      flash(`${label} unlocked — passage open.`);
     })
   );
 }

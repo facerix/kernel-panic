@@ -30,6 +30,8 @@ export const FACTION = Object.freeze({
 });
 
 export const TERMINAL_GLYPH = '‡';
+export const DOOR_LOCKED_GLYPH = '▪';
+export const DOOR_OPEN_GLYPH = '▫';
 export const PICKUP_GLYPH = '!';
 export const CONTACT_GLYPH = '&';
 export const DENY_TARGET_GLYPH = '◆';

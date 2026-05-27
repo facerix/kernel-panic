@@ -24,6 +24,8 @@ export type PrefabAnchorsSpec = {
   corpCivilians?: PrefabAnchor[];
   /** M5: neutral civilian spawn points. */
   neutralCivilians?: PrefabAnchor[];
+  /** M6.1: locked door entity anchors; ASCII `|` marks floor under the entity. */
+  doors?: PrefabAnchor[];
 };
 
 /**

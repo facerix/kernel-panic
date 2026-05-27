@@ -33,7 +33,7 @@ import { Grid } from './Grid.js';
 import { World } from './World.js';
 import { TurnQueue } from './TurnQueue.js';
 import { EventBus } from './events.js';
-import { FACTION, SALVAGE_TO_CRED_RATE } from './constants.js';
+import { DOOR_LOCKED_GLYPH, DOOR_OPEN_GLYPH, FACTION, SALVAGE_TO_CRED_RATE } from './constants.js';
 import { migrateSalvage, type TypedSalvage } from './salvage.js';
 import { Entity } from './Entity.js';
 import { Crew } from './Crew.js';
@@ -44,6 +44,7 @@ import { Turret } from './Turret.js';
 import { CorpDrone, DRONE_STATE } from './ai/CorpDrone.js';
 import { CorpCivilian } from './entities/CorpCivilian.js';
 import { NeutralCivilian } from './entities/NeutralCivilian.js';
+import { Door } from './entities/Door.js';
 import { Terminal } from './entities/Terminal.js';
 import { Pickup } from './entities/Pickup.js';
 import { Contact } from './entities/Contact.js';
@@ -63,6 +64,7 @@ import type { TurretInit } from './Turret.js';
 import type { CorpDroneProps } from './ai/CorpDrone.js';
 import type { CorpCivilianInit } from './entities/CorpCivilian.js';
 import type { NeutralCivilianInit } from './entities/NeutralCivilian.js';
+import type { DoorInit } from './entities/Door.js';
 import type { TerminalInit } from './entities/Terminal.js';
 import type { PickupInit } from './entities/Pickup.js';
 import type { ContactInit } from './entities/Contact.js';
@@ -96,6 +98,7 @@ type RestoreEntityProps = Partial<
     CorpDroneProps &
     CorpCivilianInit &
     NeutralCivilianInit &
+    DoorInit &
     EntityInit &
     TerminalInit &
     PickupInit &
@@ -126,6 +129,7 @@ const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) =
     'corp-civilian': (props: RestoreEntityProps) => new CorpCivilian(props as CorpCivilianInit),
     'neutral-civilian': (props: RestoreEntityProps) =>
       new NeutralCivilian(props as NeutralCivilianInit),
+    door: (props: RestoreEntityProps) => new Door(props as DoorInit),
     terminal: (props: RestoreEntityProps) => new Terminal(props as TerminalInit),
     pickup: (props: RestoreEntityProps) => new Pickup(props as PickupInit),
     contact: (props: RestoreEntityProps) => new Contact(props as ContactInit),
@@ -507,6 +511,11 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
     entityProps.sliced = rec.terminal.sliced;
     entityProps.armed = rec.terminal.armed;
     entityProps.raisesAlarm = rec.terminal.raisesAlarm;
+    entityProps.unlocksId = rec.terminal.unlocksId ?? null;
+  }
+  if (rec.archetype === 'door' && rec.door) {
+    entityProps.doorId = rec.door.doorId;
+    entityProps.locked = rec.door.locked;
   }
   if (rec.archetype === 'pickup' && rec.pickup) {
     entityProps.label = rec.pickup.label;
@@ -528,6 +537,9 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
   }
   if (rec.archetype === 'terminal' && !rec.terminal) {
     throw new TypeError(`restore: terminal entity ${rec.id} requires terminal state`);
+  }
+  if (rec.archetype === 'door' && !rec.door) {
+    throw new TypeError(`restore: door entity ${rec.id} requires door state`);
   }
   if (rec.archetype === 'pickup' && !rec.pickup) {
     throw new TypeError(`restore: pickup entity ${rec.id} requires pickup state`);
@@ -634,6 +646,32 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
     }
     if (typeof rec.terminal.raisesAlarm !== 'boolean') {
       throw new TypeError(`restore: terminal ${rec.id} raisesAlarm must be boolean`);
+    }
+    if (
+      rec.terminal.unlocksId !== undefined &&
+      rec.terminal.unlocksId !== null &&
+      (typeof rec.terminal.unlocksId !== 'string' || rec.terminal.unlocksId.length === 0)
+    ) {
+      throw new TypeError(
+        `restore: terminal ${rec.id} unlocksId must be null or a non-empty string`
+      );
+    }
+  }
+  if (rec.archetype === 'door' && rec.door) {
+    if (!(entity instanceof Door)) {
+      throw new Error(`restore: door entity ${rec.id} did not restore as Door`);
+    }
+    if (typeof rec.door.doorId !== 'string' || rec.door.doorId.length === 0) {
+      throw new TypeError(`restore: door ${rec.id} doorId must be a non-empty string`);
+    }
+    if (typeof rec.door.locked !== 'boolean') {
+      throw new TypeError(`restore: door ${rec.id} locked must be boolean`);
+    }
+    const expectedGlyph = rec.door.locked ? DOOR_LOCKED_GLYPH : DOOR_OPEN_GLYPH;
+    if (rec.glyph !== expectedGlyph) {
+      throw new Error(
+        `restore: door ${rec.id} glyph "${rec.glyph}" disagrees with locked=${rec.door.locked}`
+      );
     }
   }
   if (rec.archetype === 'pickup' && rec.pickup) {

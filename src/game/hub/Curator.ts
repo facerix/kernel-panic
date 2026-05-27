@@ -404,6 +404,52 @@ const DIFFICULTY_SPEC: Readonly<Record<ContractDifficulty, DifficultySpec>> = Ob
   }),
 });
 
+/** M6.1: objective families whose props can route behind a locked prefab door. */
+const DOOR_ROUTING_OBJECTIVE_KINDS: ReadonlySet<ObjectiveKind> = new Set([
+  OBJECTIVES.RETRIEVE,
+  OBJECTIVES.HANDOFF,
+  OBJECTIVES.DENY,
+  OBJECTIVES.DUAL_SITE,
+  OBJECTIVES.RECON,
+  OBJECTIVES.ESCORT_EXTRACT,
+]);
+
+/** M6.1: contract tiers that opt into prefab door spawn + door-linked routing. */
+const DOOR_ROUTING_DIFFICULTIES: ReadonlySet<ContractDifficulty> = new Set([
+  CONTRACT_DIFFICULTY.ELEVATED,
+  CONTRACT_DIFFICULTY.CRITICAL,
+]);
+
+/**
+ * Whether a generated contract should spawn prefab doors and apply M6 routing
+ * params (`requiresUnlock` → `door-0` in Run).
+ */
+export function contractUsesDoorRouting(
+  objective: ContractObjective,
+  difficulty: ContractDifficulty
+): boolean {
+  return (
+    DOOR_ROUTING_DIFFICULTIES.has(difficulty) &&
+    DOOR_ROUTING_OBJECTIVE_KINDS.has(objective.kind)
+  );
+}
+
+function applyDoorRoutingToObjective(
+  objective: ContractObjective,
+  difficulty: ContractDifficulty
+): ContractObjective {
+  if (!contractUsesDoorRouting(objective, difficulty)) {
+    return objective;
+  }
+  if (objective.params?.doorId !== undefined || objective.params?.requiresUnlock === true) {
+    return objective;
+  }
+  return {
+    ...objective,
+    params: { ...objective.params, requiresUnlock: true },
+  };
+}
+
 // M5.1: difficulty pools moved to REP_TIERS in constants.ts. Each Rep tier
 // carries its own pool — the Curator reads `campaign.rep` to select it.
 
@@ -473,7 +519,7 @@ export class Curator extends Entity {
       if (difficulty === CONTRACT_DIFFICULTY.CRITICAL) reward.recruit = true;
       contracts.push({
         seed,
-        objective: recipeContract.objective,
+        objective: applyDoorRoutingToObjective(recipeContract.objective, difficulty),
         difficulty,
         threatCount: spec.threatCount,
         label: recipeContract.label,
@@ -681,6 +727,7 @@ export function buildContractRecipeFixture({
   if (difficulty === CONTRACT_DIFFICULTY.CRITICAL) reward.recruit = true;
   return {
     ...partial,
+    objective: applyDoorRoutingToObjective(partial.objective, difficulty),
     seed,
     difficulty,
     threatCount: spec.threatCount,

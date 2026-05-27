@@ -43,6 +43,10 @@ test('declared anchors lie inside the prefab bounds', () => {
       assert.ok(a.x >= 0 && a.x < prefab.w);
       assert.ok(a.y >= 0 && a.y < prefab.h);
     }
+    for (const a of prefab.anchors.doors ?? []) {
+      assert.ok(a.x >= 0 && a.x < prefab.w);
+      assert.ok(a.y >= 0 && a.y < prefab.h);
+    }
     for (const path of prefab.patrolPaths) {
       assert.ok(path.length > 0, `${prefab.id} patrol path must not be empty`);
       for (const wp of path) {
@@ -68,6 +72,16 @@ test('cover anchors line up with COVER tiles in the parsed grid', () => {
 
 test('parsePrefab throws on unknown glyphs', () => {
   assert.throws(() => parsePrefab('...\n.X.\n...', { id: 'broken' }), /unknown glyph "X"/);
+});
+
+test('parsePrefab maps door glyphs to FLOOR and keeps explicit door anchors', () => {
+  const prefab = parsePrefab('.|.\n...', {
+    id: 'door-test',
+    anchors: { drones: [], cover: [], exit: [], doors: [{ x: 1, y: 0 }] },
+  });
+
+  assert.equal(prefab.tiles[1], TILE.FLOOR);
+  assert.deepEqual(prefab.anchors.doors, [{ x: 1, y: 0 }]);
 });
 
 test('parsePrefab throws on inconsistent row width', () => {
@@ -129,4 +143,11 @@ test('lab prefab exercises combat-depth anchors', () => {
       { x: 7, y: 4 },
     ]
   );
+});
+
+test('checkpoint prefab carries a door anchor', () => {
+  const checkpoint = PREFABS.checkpoint;
+  assert.equal(checkpoint.id, 'checkpoint');
+  assert.equal(checkpoint.anchors.doors?.length, 1);
+  assert.equal(checkpoint.tiles[2 * checkpoint.w + 3], TILE.FLOOR);
 });

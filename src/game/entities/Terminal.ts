@@ -7,16 +7,19 @@ export interface TerminalInit extends Omit<InteractableInit, 'glyph' | 'label'> 
   label?: string;
   sliced?: boolean;
   raisesAlarm?: boolean;
+  unlocksId?: string | null;
 }
 
 export class Terminal extends Interactable {
   sliced: boolean;
   raisesAlarm: boolean;
+  unlocksId: string | null;
 
   constructor({
     label = 'Terminal',
     sliced = false,
     raisesAlarm = true,
+    unlocksId = null,
     armed,
     ...props
   }: TerminalInit) {
@@ -29,6 +32,14 @@ export class Terminal extends Interactable {
     });
     this.sliced = !!sliced;
     this.raisesAlarm = !!raisesAlarm;
+    if (unlocksId !== null && unlocksId !== undefined) {
+      if (typeof unlocksId !== 'string' || unlocksId.length === 0) {
+        throw new TypeError('Terminal.unlocksId must be a non-empty string when set');
+      }
+      this.unlocksId = unlocksId;
+    } else {
+      this.unlocksId = null;
+    }
   }
 
   override interact(world: World, actor: Entity): InteractResult {
@@ -44,6 +55,9 @@ export class Terminal extends Interactable {
       };
     }
 
+    if (this.unlocksId) {
+      world.unlockDoor(this.unlocksId);
+    }
     actor.spendAp(AP_COST.INTERACT);
     this.sliced = true;
     this.secured = true;

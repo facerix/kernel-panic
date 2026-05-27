@@ -2,6 +2,7 @@ import { AP_COST, NOISE_RADIUS, PICKUP_GLYPH } from './constants.js';
 import { EVENT } from './events.js';
 import { Interactable } from './entities/Interactable.js';
 import { Pickup } from './entities/Pickup.js';
+import { Door } from './entities/Door.js';
 import { ConsumablePickup, CONSUMABLE_PICKUP_GLYPH } from './entities/ConsumablePickup.js';
 import { totalSalvage } from './salvage.js';
 import type { Grid } from './Grid.js';
@@ -19,6 +20,14 @@ import type { EventBus } from './events.js';
  * The event bus is **optional**: tests that don't care about emissions can
  * omit it entirely. Wiring tests pass one in and assert the payload shape.
  */
+
+export type DoorUnlockPayload = {
+  doorId: string;
+  label: string;
+  x: number;
+  y: number;
+  entityId: string;
+};
 
 export type WorldOptions = {
   events?: EventBus | null;
@@ -196,6 +205,34 @@ export class World {
 
   securedPickupCount(): number {
     return this.securedPickups.size;
+  }
+
+  unlockDoor(doorId: string): Door {
+    if (typeof doorId !== 'string' || doorId.length === 0) {
+      throw new TypeError('World.unlockDoor requires a non-empty doorId');
+    }
+    let found: Door | null = null;
+    for (const entity of this.entities.values()) {
+      if (!(entity instanceof Door) || entity.doorId !== doorId) continue;
+      if (found) {
+        throw new Error(`World.unlockDoor: duplicate doorId "${doorId}"`);
+      }
+      found = entity;
+    }
+    if (!found) {
+      throw new Error(`World.unlockDoor: no door with doorId "${doorId}"`);
+    }
+    const changed = found.unlock();
+    if (changed) {
+      this.events?.emit(EVENT.DOOR_UNLOCKED, {
+        doorId: found.doorId,
+        label: found.label,
+        x: found.x,
+        y: found.y,
+        entityId: found.id,
+      } satisfies DoorUnlockPayload);
+    }
+    return found;
   }
 
   /**

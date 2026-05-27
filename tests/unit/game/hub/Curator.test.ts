@@ -15,6 +15,7 @@ import {
   Curator,
   OBJECTIVES,
   assertLabelObjectiveRegistryInSync,
+  contractUsesDoorRouting,
   isObjective,
 } from '../../../../src/game/hub/Curator.js';
 import { buildHub } from '../../../../src/game/hub/SafeSpace.js';
@@ -458,4 +459,76 @@ test('buildHub returns a terminalSpawn distinct from other interactables', () =>
   assert.ok(!same(hub.terminalSpawn, hub.playerSpawn), 'terminal overlaps player spawn');
   assert.ok(!same(hub.terminalSpawn, hub.curatorSpawn), 'terminal overlaps curator');
   assert.ok(!same(hub.terminalSpawn, hub.exitTile), 'terminal overlaps exit tile');
+});
+
+test('M6 door routing applies to elevated/critical eligible objectives only', () => {
+  const standardRetrieve = buildContractRecipeFixture({
+    recipeId: 'retrieve-asset',
+    principalId: 'orchid-vector',
+    siteId: 'clinic',
+    assetId: 'clinic-records',
+    actionId: 'recover',
+    difficulty: CONTRACT_DIFFICULTY.STANDARD,
+    seed: 1,
+  });
+  assert.equal(standardRetrieve.objective.params?.requiresUnlock, undefined);
+  assert.equal(
+    contractUsesDoorRouting(standardRetrieve.objective, standardRetrieve.difficulty),
+    false
+  );
+
+  const elevatedRetrieve = buildContractRecipeFixture({
+    recipeId: 'retrieve-asset',
+    principalId: 'orchid-vector',
+    siteId: 'clinic',
+    assetId: 'clinic-records',
+    actionId: 'recover',
+    difficulty: CONTRACT_DIFFICULTY.ELEVATED,
+    seed: 2,
+  });
+  assert.equal(elevatedRetrieve.objective.params?.requiresUnlock, true);
+  assert.equal(
+    contractUsesDoorRouting(elevatedRetrieve.objective, elevatedRetrieve.difficulty),
+    true
+  );
+
+  const elevatedSweep = buildContractRecipeFixture({
+    recipeId: 'sweep-nodes',
+    principalId: 'port-warden-bureau',
+    siteId: 'skybridge',
+    assetId: 'skybridge-relay',
+    actionId: 'blind',
+    difficulty: CONTRACT_DIFFICULTY.ELEVATED,
+    seed: 3,
+  });
+  assert.equal(elevatedSweep.objective.params?.requiresUnlock, undefined);
+  assert.equal(contractUsesDoorRouting(elevatedSweep.objective, elevatedSweep.difficulty), false);
+});
+
+test('generateContracts adds door routing on elevated/critical board slots', () => {
+  let doorRouted = 0;
+  let eligibleNonRouted = 0;
+  for (let seed = 0; seed < 100; seed++) {
+    for (const contract of new Curator().generateContracts(new Rng(seed), { rep: 85 })) {
+      const usesDoor = contractUsesDoorRouting(contract.objective, contract.difficulty);
+      if (usesDoor) {
+        assert.equal(contract.objective.params?.requiresUnlock, true);
+        doorRouted++;
+      } else if (
+        contract.difficulty !== CONTRACT_DIFFICULTY.STANDARD &&
+        [
+          OBJECTIVES.RETRIEVE,
+          OBJECTIVES.HANDOFF,
+          OBJECTIVES.DENY,
+          OBJECTIVES.DUAL_SITE,
+          OBJECTIVES.RECON,
+          OBJECTIVES.ESCORT_EXTRACT,
+        ].includes(contract.objective.kind)
+      ) {
+        eligibleNonRouted++;
+      }
+    }
+  }
+  assert.ok(doorRouted > 0, 'expected some elevated/critical contracts to route behind doors');
+  assert.equal(eligibleNonRouted, 0, 'eligible elevated/critical contracts should all route doors');
 });

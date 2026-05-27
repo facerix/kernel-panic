@@ -12,6 +12,7 @@
  *   `.`  TILE.FLOOR
  *   `#`  TILE.WALL
  *   `=`  TILE.COVER
+ *   `|`  TILE.FLOOR + door anchor
  *
  * Drone anchors, optional waypoints, and exit candidate tiles are declared
  * separately in the `anchors` object so prefab authors aren't squeezing
@@ -33,6 +34,7 @@ import { ASCII as OFFICE_ASCII, METADATA as OFFICE_METADATA } from './office.js'
 import { ASCII as SERVER_ROOM_ASCII, METADATA as SERVER_ROOM_METADATA } from './server-room.js';
 import { ASCII as HALLWAY_ASCII, METADATA as HALLWAY_METADATA } from './hallway.js';
 import { ASCII as LAB_ASCII, METADATA as LAB_METADATA } from './lab.js';
+import { ASCII as CHECKPOINT_ASCII, METADATA as CHECKPOINT_METADATA } from './checkpoint.js';
 import type { ParsedPrefab, PrefabAscii, PrefabAnchor, PrefabMetadata } from './types.js';
 
 export type {
@@ -48,6 +50,7 @@ const GLYPH_TO_TILE = Object.freeze({
   '.': TILE.FLOOR,
   '#': TILE.WALL,
   '=': TILE.COVER,
+  '|': TILE.FLOOR,
 });
 
 /**
@@ -116,6 +119,7 @@ export function parsePrefab(ascii: PrefabAscii, metadata: PrefabMetadata): Parse
       metadata.id,
       'neutralCivilians'
     ),
+    doors: validateAnchors(metadata.anchors?.doors ?? [], w, h, metadata.id, 'doors'),
   };
   const patrolPaths = validatePatrolPaths(metadata.patrolPaths ?? [], w, h, metadata.id);
 
@@ -127,7 +131,7 @@ function validateAnchors<T extends PrefabAnchor>(
   w: number,
   h: number,
   prefabId: string,
-  kind: 'drones' | 'cover' | 'exit' | 'corpCivilians' | 'neutralCivilians'
+  kind: 'drones' | 'cover' | 'exit' | 'corpCivilians' | 'neutralCivilians' | 'doors'
 ): T[] {
   if (!Array.isArray(list)) {
     throw new TypeError(`prefab ${prefabId}: anchors.${kind} must be an array`);
@@ -202,6 +206,7 @@ export const PREFABS = Object.freeze({
   serverRoom: parsePrefab(SERVER_ROOM_ASCII, SERVER_ROOM_METADATA),
   hallway: parsePrefab(HALLWAY_ASCII, HALLWAY_METADATA),
   lab: parsePrefab(LAB_ASCII, LAB_METADATA),
+  checkpoint: parsePrefab(CHECKPOINT_ASCII, CHECKPOINT_METADATA),
 });
 
 /**

@@ -6,6 +6,7 @@ import { CONTRACT_DIFFICULTY, TILE } from '../../../../src/game/constants.js';
 import { World } from '../../../../src/game/World.js';
 import { findPath } from '../../../../src/game/Pathfinding.js';
 import { buildMap } from '../../../../src/game/procgen/mapBuild.js';
+import { PREFABS } from '../../../../src/game/procgen/prefabs/index.js';
 
 const W = 24;
 const H = 16;
@@ -17,6 +18,73 @@ test('buildMap is deterministic for the same seed', () => {
   assert.deepEqual(a.spawns, b.spawns);
   assert.deepEqual(a.exitTile, b.exitTile);
   assert.deepEqual(a.drones, b.drones);
+});
+
+test('checkpoint divider wall survives corridor carve (regression: map-debug seed)', () => {
+  const map = buildMap({ rng: new Rng(2015515018), width: W, height: H, threatCount: 2 });
+  const cp = PREFABS.checkpoint;
+  const doorCol = [0, 1, 2, 3, 4].map(y => map.grid.tileAt(4, 10 + y));
+  assert.deepEqual(
+    doorCol,
+    [TILE.WALL, TILE.WALL, TILE.FLOOR, TILE.WALL, TILE.WALL],
+    'checkpoint door column should be intact after mapgen'
+  );
+  assert.equal(cp.tiles[2 * cp.w + 3], TILE.FLOOR, 'prefab door cell is floor');
+});
+
+test('buildMap only returns door anchors when prefab doors are requested', () => {
+  const closed = buildMap({ rng: new Rng(0xdecafbad), width: W, height: H, threatCount: 2 });
+  const gated = buildMap({
+    rng: new Rng(0xdecafbad),
+    width: W,
+    height: H,
+    threatCount: 2,
+    includePrefabDoors: true,
+  });
+
+  assert.deepEqual(closed.doors, []);
+  assert.ok(gated.doors.length > 0, 'door-preferring maps should expose door anchors');
+  for (const door of gated.doors) {
+    assert.equal(gated.grid.tileAt(door.x, door.y), TILE.FLOOR);
+    assert.notDeepEqual(door, gated.spawns.player);
+    assert.notDeepEqual(door, gated.exitTile);
+  }
+});
+
+test('door-linked maps never spawn the player on a door anchor', () => {
+  for (let seed = 0; seed < 100; seed++) {
+    const map = buildMap({
+      rng: new Rng(seed),
+      width: W,
+      height: H,
+      threatCount: 3,
+      includePrefabDoors: true,
+    });
+    for (const door of map.doors) {
+      assert.notDeepEqual(
+        map.spawns.player,
+        door,
+        `seed ${seed}: player spawn must not coincide with door anchor`
+      );
+    }
+  }
+});
+
+test('spawn leaf never uses the checkpoint prefab', () => {
+  for (let seed = 0; seed < 50; seed++) {
+    const map = buildMap({
+      rng: new Rng(seed),
+      width: W,
+      height: H,
+      threatCount: 2,
+      includePrefabDoors: true,
+    });
+    const door = map.doors[0];
+    assert.ok(door, 'expected a door anchor');
+    const spawnCenterMatchesDoor =
+      map.spawns.player.x === door.x && map.spawns.player.y === door.y;
+    assert.equal(spawnCenterMatchesDoor, false);
+  }
 });
 
 test('buildMap does not perturb the caller rng (uses a forked substream)', () => {

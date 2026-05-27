@@ -1,0 +1,230 @@
+{
+  "prefs": {},
+  "runs": [],
+  "campaign": {
+    "id": "campaign-6abba4e4-mpoer944",
+    "type": "campaign",
+    "state": "COMBAT",
+    "seed": 1790682340,
+    "rng": { "seed": 1790682340, "state": 451248000 },
+    "crew": [
+      {
+        "archetype": "razor",
+        "id": "crew-init-2",
+        "callsign": "Wren",
+        "flatlined": false,
+        "hp": 9,
+        "maxHp": 9,
+        "ap": 0,
+        "maxAp": 4,
+        "alive": true,
+        "inventory": {
+          "salvage": { "scrap": 0, "chips": 0, "bio": 0, "data": 0 },
+          "consumables": [
+            {
+              "id": "incendiary",
+              "label": "",
+              "scope": "",
+              "cost": 0,
+              "description": "",
+              "needsTarget": false
+            },
+            {
+              "id": "incendiary",
+              "label": "",
+              "scope": "",
+              "cost": 0,
+              "description": "",
+              "needsTarget": false
+            },
+            {
+              "id": "smoke-charge",
+              "label": "",
+              "scope": "",
+              "cost": 0,
+              "description": "",
+              "needsTarget": false
+            },
+            {
+              "id": "incendiary",
+              "label": "",
+              "scope": "",
+              "cost": 0,
+              "description": "",
+              "needsTarget": false
+            },
+            {
+              "id": "smoke-charge",
+              "label": "",
+              "scope": "",
+              "cost": 0,
+              "description": "",
+              "needsTarget": false
+            },
+            {
+              "id": "smoke-charge",
+              "label": "",
+              "scope": "",
+              "cost": 0,
+              "description": "",
+              "needsTarget": false
+            },
+            {
+              "id": "smoke-charge",
+              "label": "",
+              "scope": "",
+              "cost": 0,
+              "description": "",
+              "needsTarget": false
+            },
+            {
+              "id": "stim",
+              "label": "",
+              "scope": "",
+              "cost": 0,
+              "description": "",
+              "needsTarget": false
+            },
+            {
+              "id": "smoke-charge",
+              "label": "",
+              "scope": "",
+              "cost": 0,
+              "description": "",
+              "needsTarget": false
+            },
+            {
+              "id": "incendiary",
+              "label": "",
+              "scope": "",
+              "cost": 0,
+              "description": "",
+              "needsTarget": false
+            }
+          ]
+        },
+        "gear": { "maxHpBonus": 6, "hitBonus": 0, "dodgeBonus": 0.5 }
+      },
+      {
+        "archetype": "merc",
+        "id": "crew-init-1",
+        "callsign": "Wraith",
+        "flatlined": false,
+        "hp": 3,
+        "maxHp": 3,
+        "ap": 4,
+        "maxAp": 4,
+        "alive": true,
+        "inventory": null,
+        "gear": null
+      }
+    ],
+    "salvage": { "scrap": 78, "chips": 8, "bio": 0, "data": 0 },
+    "credits": 540,
+    "rep": 100,
+    "meta": {},
+    "deployedMemberId": "crew-init-2",
+    "activeRun": {
+      "id": "run-bc403a7-mpojiv3c",
+      "type": "run",
+      "state": "BRIEFING",
+      "crewMemberId": "crew-init-2",
+      "archetype": "razor",
+      "seed": 197395367,
+      "rng": { "seed": 197395367, "state": 197395367 },
+      "contract": {
+        "seed": 197395367,
+        "objective": {
+          "kind": "deny",
+          "title": "Disable floodgate pump",
+          "briefing": "Find Null Saints' floodgate pump at water table, execute the override, then extract.",
+          "params": { "target": "floodgate", "requiresUnlock": true }
+        },
+        "difficulty": "critical",
+        "threatCount": 4,
+        "label": "// Flooded water table floodgate pump override",
+        "context": {
+          "recipeId": "deny-asset",
+          "principal": { "id": "null-saints", "label": "Null Saints", "groups": ["rival", "data"] },
+          "site": { "id": "water-table", "label": "water table", "groups": ["infrastructure"] },
+          "siteState": {
+            "id": "flooded",
+            "label": "Flooded",
+            "groups": ["damaged", "infrastructure"]
+          },
+          "asset": {
+            "id": "floodgate-pump",
+            "label": "floodgate pump",
+            "groups": ["deny", "infrastructure"]
+          },
+          "action": { "id": "override", "label": "override", "groups": ["deny", "terminal"] },
+          "tags": [
+            "meatspace",
+            "sabotage",
+            "objective:deny",
+            "principal:null-saints",
+            "principal:rival",
+            "principal:data",
+            "site:water-table",
+            "site:infrastructure",
+            "site-state:flooded",
+            "site-state:damaged",
+            "site-state:infrastructure",
+            "asset:floodgate-pump",
+            "asset:deny",
+            "asset:infrastructure",
+            "action:override",
+            "action:deny",
+            "action:terminal"
+          ]
+        },
+        "reward": { "credits": 103, "repDelta": 10, "recruit": true }
+      },
+      "telemetry": {
+        "archetype": "razor",
+        "seed": 197395367,
+        "turn": 1,
+        "kills": 0,
+        "lastDamageSource": null,
+        "lastAttacker": null,
+        "hpAtDeath": null,
+        "cause": null,
+        "outcome": null
+      }
+    },
+    "availableRecruits": [
+      {
+        "archetype": "merc",
+        "id": "recruit-0-55644",
+        "callsign": "Reaver",
+        "flatlined": false,
+        "hp": 3,
+        "maxHp": 3,
+        "ap": 4,
+        "maxAp": 4,
+        "alive": true,
+        "inventory": null,
+        "gear": null
+      },
+      {
+        "archetype": "razor",
+        "id": "recruit-1-37448",
+        "callsign": "Cipher",
+        "flatlined": false,
+        "hp": 3,
+        "maxHp": 3,
+        "ap": 4,
+        "maxAp": 4,
+        "alive": true,
+        "inventory": null,
+        "gear": null
+      }
+    ],
+    "recruitedThisVisit": false,
+    "pendingRecruitReward": false,
+    "rewardRecruitIds": ["recruit-0-55644", "recruit-1-37448"],
+    "healedThisVisit": [],
+    "hubReveals": { "finnIntroduced": true, "terminalExplained": true, "clinicIntroduced": true },
+    "completedJobs": 20
+  }
+}

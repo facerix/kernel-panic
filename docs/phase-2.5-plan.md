@@ -31,11 +31,14 @@ Living plan for the post–Phase 2 slice of Kernel Panic: **contract objectives*
 | M5.3 — Hub clinic NPC | ✅ Done |
 | M5.4 — Progressive Hub reveals | ✅ Done |
 | M6 — Locked doors & access gating | 🔲 Planned |
-| M7 — Breaching, map mutation, location memory | 🔲 Planned |
+| M6.1 — Prefab door entity + terminal unlock | ✅ Done |
+| M6.2 — Dynamic corridor door placement (higher-tier) | 🔲 Planned |
+| M7.1 — Breaching charges & demolition objectives | 🔲 Planned |
+| M7.2 — Location memory & site roster | 🔲 Planned |
 
 **Phase 2.5** is complete when:
 
-1. Every milestone in the table above is ✅ except M3 (deferred). M2 rolls up automatically when M2.1–M2.12 are all ✅.
+1. Every milestone in the table above is ✅ except M3 (deferred). M2 rolls up automatically when M2.1–M2.12 are all ✅. M6 rolls up when M6.1–M6.2 are both ✅. M7 rolls up when M7.1–M7.2 are both ✅.
 2. Full campaign loop from Phase 2 remains playable offline on iOS Safari + Chrome desktop: Hub → contract selection → job deployment → combat → extract or flatline → return to Hub, with Finn shop, Rep meter, recruitment, and new systems (objectives, salvage types, shop tabs, breaching, etc.) integrated per milestone specs.
 3. Phase 3 foundations in place: M2.10 recipe context supports future arc-awareness; M5 rep tiers leave room for Decker recruitment gating; M7 location schema accommodates a designated "Score target" site.
 4. `v0.2.5` tagged in git.
@@ -922,39 +925,201 @@ Phase 2.5 milestones that follow (M4–M7) retain their original numbering for c
 
 **Goal:** **Locked doors** as pathing blockers with **unlock** paths; gates access routing for objective contracts and prepares geometry for M7 breaching.
 
+**M6 is complete when M6.1–M6.2 are both ✅.** M6.1 ships the `Door` entity and prefab integration; M6.2 adds dynamic corridor placement so doors appear consistently in higher-tier runs rather than only when a door-bearing prefab happens to land.
+
+| Slice | Delivers |
+|-------|----------|
+| **M6.1** | `Door` entity, terminal-linked unlock, prefab `\|` glyph, contract routing modifier |
+| **M6.2** | Dynamic locked-door placement in corridor bottlenecks for ELEVATED/CRITICAL tier runs |
+
+---
+
+#### M6.1 — Prefab door entity + terminal unlock ✅
+
 **Scope:**
 
-- `Door` entity or tile flag: closed = impassable for pathing; open = floor.
-- Unlock sources: objective flag, keyed interactable, adjacent **hack terminal** (reuse M2.2 interactable).
-- **No** breaching charges, **no** destructible geometry (**M7**).
-- Prefab with at least one door gating a route (e.g. security checkpoint).
-- Optional **routing modifier** for M2.5–M2.8 and M2.11–M2.12 contracts: when `params` include `doorId` / `requiresUnlock`, objective props, required map regions, escorted NPCs, or extract paths sit behind a locked door until unlock. Does **not** replace owned `isObjectiveSatisfied` branches by itself.
+- `Door` **entity** (not a tile flag): closed = impassable (`passable: false`); unlocked = passable (`passable: true`). Entity approach keeps door state in the entity snapshot alongside all other interactive props. Doors can be opened, closed, locked, unlocked, and (in M7.1) breached.
+- Unlock sources: adjacent **hack terminal** (`Terminal.unlocksId` → `World.unlockDoor(doorId)`); objective flag (a contract recipe can link a terminal to a door via `params.doorId`). Direct key items are out of scope.
+- **No** breaching charges, **no** destructible geometry (**M7.1**).
+- Prefab with at least one door gating a route (e.g. security checkpoint: door between two rooms, terminal on the access side).
+- Optional **routing modifier** for M2.5–M2.8 and M2.11–M2.12 contracts: when `params` include `doorId` / `requiresUnlock`, `Run.#placeObjectiveInteractables` places objective props behind the linked door. Does **not** replace owned `isObjectiveSatisfied` branches by itself.
 
-**Acceptance (when implemented):**
+**Acceptance:**
 
-- Pathfinding tests: closed door blocks, open door allows; A* invalidates when door toggles mid-run.
+- Pathfinding tests: closed door blocks route; unlocked door allows route. A* adapts on next call (no cache — fresh every call already).
 - Snapshot door open/locked state; restore round-trip.
-- Golden path: door closed at start → unlock via interact → reach exit or reach a gated objective prop / region / NPC (paired with at least one objective contract in playtest).
+- Pre-M6 saves restore without door entities, no crash.
+- Golden path: terminal-slice + doorId contract → slice terminal → door opens → retrieve objective now reachable → extract.
+
+**Implementation notes:**
+
+- **`Door`** (`src/game/entities/Door.ts`): Extends `Entity`, NEUTRAL faction, glyphs `▪` (locked) / `▫` (open). `locked: boolean` controls `this.passable`. `doorId: string` is the stable key for terminal linking. `unlock()` sets `locked = false; this.passable = true`. No HP, no AI — purely a pathing blocker in M6; M7.1 gives doors HP so breaching charges can destroy them.
+- **`Terminal.unlocksId?: string`**: When set, a successful slice calls `world.unlockDoor(this.unlocksId)`. `World.unlockDoor(id)` finds the matching `Door` entity by `doorId`; throws if no matching door (crash over silent fallback).
+- **Prefab integration**: New `|` ASCII glyph in prefab strings → `TILE.FLOOR` tile + a `door` anchor in `ParsedPrefab.anchors`. `buildMap` translates door anchors to world coords; `Run.enterCombat` spawns `Door` entities with unique `doorId`s (`door-0`, `door-1`, …).
+- **Contract routing**: When a recipe sets `params.doorId`, `Run.#placeObjectiveInteractables` places the objective prop behind the matching door and links an unlock terminal to that `doorId`.
+- **Snapshot** (`persistence.ts`): New `EntityArchetypeId: 'door'`; `RunEntitySnapshot.door?: { doorId, locked }` payload; `ARCHETYPE_FACTORY['door']` entry. Pre-M6 saves have no door entities — no migration shim needed.
+- **Key help**: `▪` (locked door) + `▫` (open door) in combat tile legend.
+- **Implementation notes:**
+  - `Door` landed as a NEUTRAL entity with stable `doorId`, locked/open glyphs (`▪` / `▫`), and passability tied directly to `locked`.
+  - `World.unlockDoor(doorId)` throws on missing or duplicate ids; `Terminal.unlocksId` validates at construction/restore and unlocks before spending AP or marking the slice complete.
+  - Prefab parser accepts `|` as floor plus `anchors.doors`; `checkpoint` is the first door-bearing prefab. `buildMap({ includePrefabDoors: true })` prefers door prefabs and returns door anchors. Normal maps leave prefab doors open/absent so M6.1 does not accidentally soft-lock non-door contracts.
+  - Door-linked contracts (`params.doorId`, or `requiresUnlock` defaulting to `door-0`) spawn locked prefab doors, place an unlock terminal on the accessible side, and place retrieve / handoff / deny / dual-site / escort props behind the linked door when those objective families opt in.
+  - **Curator auto-routing:** `Curator.applyDoorRoutingToObjective` (exported helper: `contractUsesDoorRouting`) sets `params.requiresUnlock: true` on **ELEVATED** and **CRITICAL** contracts whose objective kind is in the M6 routing set (`retrieve`, `handoff`, `deny`, `dual-site`, `recon`, `escort-extract`). Recipes can still set `doorId` explicitly; existing door params are not overwritten. STANDARD contracts never get door params from the Curator.
+  - Snapshots now carry `EntityArchetypeId: 'door'` plus `door: { doorId, locked }`; terminal snapshots include `unlocksId`.
+  - Key help includes locked/open door glyphs in the combat legend.
+  - `tests/unit/game/door.test.ts` covers locked passability, glyph updates, `World.unlockDoor` missing/duplicate guards, terminal unlocks, pathfinding before/after unlock, snapshot round-trip for locked and open doors, and a door-linked retrieve golden path. Procgen tests cover `|` parsing and `buildMap` door-anchor opt-in.
+
+---
+
+#### M6.2 — Dynamic corridor door placement (higher-tier runs) 🔲
+
+**Depends on:** M6.1 (`Door` entity and unlock infrastructure exist).
+
+**Goal:** ELEVATED and CRITICAL tier runs procedurally gain 1–2 locked corridor doors, ensuring players encounter access gating consistently — not only when a door-bearing prefab happens to land.
+
+**Rationale:** Prefab-only door placement is too sparse to feel systemic. Corridor bottlenecks are natural choke points; gating them with locked doors (and a paired unlock terminal) creates routing pressure that scales with difficulty without requiring every prefab to be authored with doors.
+
+**Not M6.2 (overlap with M6.1):** M6.1 follow-up wired the Curator to auto-set `params.requiresUnlock` on **ELEVATED/CRITICAL** contracts for the M6 routing objective kinds (`retrieve`, `handoff`, `deny`, `dual-site`, `recon`, `escort-extract`). That reuses the same difficulty tiers but is a **separate mechanism**: contract params → `Run.contractRequiresDoor` → checkpoint prefab door + objective routing. It does **not** implement this slice — no `placeDoors`, no corridor bottleneck scan, no connectivity validation, no 1–2 dynamic doors per tier. Sweep and terminal-slice jobs at ELEVATED/CRITICAL still get no doors until M6.2 lands. When implementing M6.2, treat Curator routing and procgen placement as **complementary**: prefab/objective-linked doors (M6.1) plus ambient corridor doors on tier alone (M6.2); dynamic doors are additive to any prefab doors already on the map.
+
+**Scope:**
+
+- `placeDoors(world, difficulty, rng)` step in `buildMap` (after corridors are carved, before entity placement): identifies candidate corridor bottleneck tiles, places `Door` entities with connectivity validation, and spawns a paired unlock terminal on the accessible side.
+- **Bottleneck identification:** A corridor tile qualifies as a candidate if (a) it is `TILE.FLOOR`, (b) has exactly 2 floor neighbors in opposite directions (N/S or E/W — i.e. a single-tile-wide corridor segment), and (c) is not within N tiles of player spawn or exit (configurable buffer, e.g. 3).
+- **Connectivity validation (required):** After tentatively placing a door, run `findPath` from player spawn to exit and from spawn to each objective anchor with the door treated as impassable. If any path fails, skip this candidate and try the next. A placement that fails connectivity is a **no-op** (logged at debug level, not a crash — procgen randomness, not a bug). If no valid candidate exists, the run proceeds without a dynamic door.
+- **Paired unlock terminal:** Each dynamically placed door spawns a `Terminal` with `unlocksId` set to the door's `doorId`, placed on the accessible side (spawn side) of the door — within 1–2 tiles, on a floor tile not otherwise occupied.
+- **Difficulty gating:** STANDARD runs get 0 dynamic doors. ELEVATED runs get 1. CRITICAL runs get 1–2 (rng). Existing prefab doors are additive, not replaced.
+- **Snapshot**: Dynamic doors use the same `'door'` archetype as prefab doors; their paired terminals serialize as normal `'terminal'` entries. No new snapshot fields.
+
+**Acceptance:**
+
+- Unit tests on a fixed narrow-corridor map fixture: bottleneck tile identified correctly; door placed; connectivity check passes; terminal spawned on accessible side.
+- Connectivity guard test: door placement that severs spawn → exit path is skipped; run proceeds without door.
+- Difficulty gate test: STANDARD map → 0 dynamic doors; ELEVATED → 1; CRITICAL → 1 or 2.
+- Snapshot round-trip: dynamically placed doors restore correctly (same path as M6.1 doors).
+- No regression in M6.1 prefab door tests.
+
+**Implementation notes:**
+
+- `placeDoors` is a pure `buildMap` step that takes the constructed `World` (after prefab stamping and corridor carving), the difficulty tier, and the seeded rng. It mutates `world` by adding `Door` + paired `Terminal` entities. Returns the number of doors placed (0 is valid).
+- Bottleneck detection scans all FLOOR tiles for the N/S or E/W two-neighbor pattern. Candidates are shuffled with `rng` before iteration so placement is deterministic per seed.
+- Connectivity check reuses `findPath` from `Pathfinding.ts` with `extraBlockers` set to the candidate door's `"x,y"` key — no new infrastructure required.
+- Terminal placement for the dynamic unlock: walk up to 2 tiles from the door on the spawn side (BFS over FLOOR tiles not already occupied by an entity); first unoccupied floor tile wins. If no placement found within 2 tiles, skip the door candidate.
+- `buildMap` return type gains optional `dynamicDoorCount` for tests/diagnostics; not persisted.
+
+---
+
+**M6 rollup acceptance (when both subs ✅):**
+
+- `Door` entity, `unlockDoor`, prefab `|` glyph, snapshot archetype, and key help all shipped (M6.1).
+- Dynamic door placement fires for ELEVATED/CRITICAL runs with connectivity validation — no soft-lock possible from a dynamic door (M6.2).
+- Contract routing modifier (`params.doorId`) works end-to-end: objective props behind a locked door, terminal on the accessible side, unlock → access.
+- Tests for door entity, terminal-link unlock, bottleneck detection, connectivity guard, difficulty gating, and snapshot round-trip.
 
 ---
 
 ### M7 — Breaching, map mutation, location memory 🔲
 
-**Goal:** Deliver blueprint **Meatspace destruction + persistence** and optional **return visits** to the same fiction location across a campaign. Location persistence uses a **tiered model**: one designated target site (Phase 3's "Score" location) always persists; other sites persist opportunistically when the Curator sends the player back.
+**M7 is complete when M7.1–M7.2 are both ✅.** Split into two independent slices: M7.1 (breaching + demolition, playable within a single run) ships first; M7.2 (cross-run site roster + location memory) builds on M7.1's mutation delta schema.
+
+| Slice | Delivers |
+|-------|----------|
+| **M7.1** | Breaching charges + destructible walls + demolition objective + mutation delta schema |
+| **M7.2** | Location memory: site roster, tiered persistence, Curator revisit biasing, run re-entry from roster |
+
+---
+
+#### M7.1 — Breaching charges & demolition objectives 🔲
+
+**Depends on:** M6 (doors are entities and can be breached). M7.2 consumes the mutation delta schema M7.1 establishes, but M7.1 is self-contained.
+
+**Goal:** Player can buy a **breaching charge** from Finn, aim it at an adjacent wall or locked door, and destroy it. At least one Curator recipe generates a **demolition objective** that requires breaching a tagged target to complete.
 
 **Scope:**
 
-- **Breaching:** **Breaching charge** (or equivalent) sold via **Finn**; **destructible walls** (subset of tiles or tagged prefab regions); **new run objective** for **targeted demolition** (extends M1 Deny/destroy family with authored breach targets).
-- **Location persistence (tiered model):**
-  - **Site roster:** The campaign maintains a small roster of **named locations** (4–6, generated as contracts are accepted or seeded at campaign start — TBD). Each site has a stable key, a generated seed, and optional mutation state (tile deltas from breaching).
-  - **Tier 1 — Score target:** One site is flagged as the future Score target (Phase 3 populates this; M7 provides the schema slot and persistence machinery). This site **always** persists and is **always** available for revisit when the Curator offers contracts there.
-  - **Tier 2 — Opportunistic:** Other roster sites persist their geometry when revisited. The Curator may bias toward revisits (e.g. 30–50% chance a contract targets an existing roster site vs. generating a new one), but this is not guaranteed.
-  - **Storage:** Mutation deltas (changed tiles), not full grids — compact enough for localStorage on iOS Safari. Eviction policy: clear on campaign delete; cap roster size; corrupt entries crash rather than silently degrade.
-- **Persistence round-trip:** Wall/floor mutations **serialize** in the job snapshot as today; extend design so roster entries can be **loaded** as the base grid for a new run at the same site, with fresh objectives, occupants, and pickups layered on top.
+- `ITEM_ID.BREACHING_CHARGE`: Finn-sold item (UNKNOWN tier+); uses existing `ITEM_AIM` shell mode (same flow as M4.3 incendiary bomb); throw range 1 tile (adjacent only); AP cost `AP_COST.INTERACT`.
+- Valid targets: `TILE.WALL` tiles OR a locked `Door` entity within range. Non-wall, non-door targets reject with a clear error (crash for malformed aim, user-facing message for wrong tile type).
+- `World.breachWall(x, y)`: validates tile is `TILE.WALL`, throws otherwise; calls `grid.setTile(x, y, TILE.FLOOR)`; records `{ kind: 'tile', x, y, from: TILE.WALL, to: TILE.FLOOR }` in `World.mutationDeltas`. Door breach: `world.removeEntity(door.id)` + records `{ kind: 'entity-removed', id, x, y, archetype: 'door' }`.
+- `World.mutationDeltas: TileDelta[]` (new field): accumulated record of all wall/door mutations during the run. Serialized in `RunSnapshot.mutationDeltas?: TileDelta[]`; pre-M7.1 saves default to `[]`.
+- **Demolition objective**: Extend the `deny` family with `params.method: 'breach'` and `params.requiresBreach: true` on the matching `DenyTarget`. A `requiresBreach` deny target can only be destroyed by a breaching charge (combat attacks have no effect); `isObjectiveSatisfied` for deny is unchanged — it still checks destroyed DenyTarget count, but the destruction path is gated to breach only. Contract recipe adds a `breach`/`demolish` action token → generates `deny` + `requiresBreach` params (e.g. "Basement floodgate override" → breach).
 
-**Phase 3 awareness:** The location schema must include a `scoreTarget: boolean` flag (or equivalent) so Phase 3 can designate one site as the Score location. M7 does **not** implement Score-specific logic — it provides the persistence layer that Phase 3's campaign arc will drive.
+**Acceptance:**
 
-**Acceptance (when implemented):** Breach item + at least one wall type destructible; demolition objective in contract roll; site roster with tier-1/tier-2 persistence documented; location-keyed map cache with key schema, eviction on campaign delete, roster cap; tests for snapshot + cache hit/miss + corruption guard (crash over silent bad map); mutation delta round-trip for at least one breached wall.
+- `breachWall`: valid wall → FLOOR + delta recorded; non-wall throws; out-of-range throws.
+- Door breach: entity removed, mutation delta recorded.
+- `requiresBreach` DenyTarget: combat damage does nothing; breach destroys and satisfies objective.
+- Demolition objective gating in `isObjectiveSatisfied`.
+- Mutation deltas round-trip in `RunSnapshot`; pre-M7.1 saves default to `[]`.
+- Pathfinding before/after breach adapts automatically.
+- Finn sells breaching charge at UNKNOWN tier and above.
+
+**Implementation notes:**
+
+- `TileDelta` union type:
+  ```typescript
+  type TileDelta =
+    | { kind: 'tile'; x: number; y: number; from: TILE; to: TILE }
+    | { kind: 'entity-removed'; id: string; x: number; y: number; archetype: EntityArchetypeId }
+  ```
+  Lives in `src/types.ts`. Only terrain-relevant entity removals (doors) are recorded — drone/entity kills are not.
+- `Crew.useConsumable` for breaching charge validates the aimed tile: in-bounds, Chebyshev distance ≤ 1, `TILE.WALL` or `Door` entity present. Calls `world.breachWall(x, y)` or `world.removeEntity(door.id)` + mutation delta. AP spent after validation succeeds (crash over state corruption on bad aim).
+- `DenyTarget` gains optional `requiresBreach: boolean` (default false). When true, `Entity.damage()` is no-op'd with a log message ("reinforced — use breach"); the objective entity is only destroyed by the breach path.
+- Prefab or procgen places one breach-marked DenyTarget for demolition contracts using `findInteractableAnchor` (same bias logic as other objective props).
+- Breaching charge added to `getShopCatalog` with `minRepTier: 'UNKNOWN'`.
+- New `tests/unit/game/breach.test.ts`: breachWall valid/invalid, door breach, delta accumulation, requiresBreach combat no-op, demolition isObjectiveSatisfied, snapshot delta round-trip, pre-M7.1 save default.
+
+---
+
+#### M7.2 — Location memory & site roster 🔲
+
+**Depends on:** M7.1 (`TileDelta` schema established).
+
+**Goal:** Campaign maintains a **site roster** (up to 6 named locations). When the Curator sends the player back to a roster site, the map loads with prior breach holes and tile mutations intact. One slot is reserved for Phase 3's Score target.
+
+**Scope:**
+
+- `LocationSite` type:
+  ```typescript
+  type LocationSite = {
+    id: string              // stable seed-derived hash
+    seed: string            // deterministic map seed
+    label: string           // flavor label from contract
+    tier: 'score' | 'roster'
+    scoreTarget: boolean    // Phase 3 hook — always false in M7
+    mutationDeltas: TileDelta[]
+    lastVisitedJob: number  // campaign.completedJobs at last visit
+  }
+  ```
+- `CampaignSnapshot.siteRoster: LocationSite[]` (max 6). Eviction: when at capacity, evict oldest non-score `roster` site. Corrupt entry (invalid delta, unknown tile value) throws on load (crash over silent bad map).
+- **Curator revisit biasing**: 30–50% chance a generated contract targets an existing roster site instead of a fresh seed. When targeting a roster site, `contract.context.siteId` references the `LocationSite.id`. New sites added to roster on contract acceptance (or first `enterCombat` — pick one at impl).
+- **Run re-entry from roster**: `Run.enterCombat` checks `contract.context.siteId` → if found in roster, builds map from the site seed, then applies mutation deltas via `applyMutationDeltas(grid, deltas)` before entity/objective/pickup placement. Fresh objectives, enemies, and pickups layered on top of persisted geometry. `applyMutationDeltas` is pure (no side effects beyond grid mutation); throws on corrupt delta.
+- **On job end** (EXIT path): `world.mutationDeltas` merged into the roster entry for that site (`campaign.mergeSiteDeltas(siteId, deltas)`). Same-coordinate deltas: keep latest only.
+- **Phase 3 hook**: `scoreTarget: boolean` in schema; M7 never sets it true. Phase 3 finds Score site via `campaign.siteRoster.find(s => s.scoreTarget)`.
+
+**Acceptance:**
+
+- Roster add/evict: new site added on first contract; oldest non-score evicted at capacity; score site preserved even if oldest.
+- `applyMutationDeltas`: prior breaches restore as FLOOR on revisit; corrupt delta throws.
+- Run re-entry: map starts with prior breach holes; fresh enemies/objectives over restored geometry.
+- Curator biasing: seed-stable 30–50% revisit probability (deterministic from contract rng).
+- `CampaignSnapshot` round-trip for full roster including deltas.
+- Pre-M7.2 save loads with `siteRoster: []`, no crash.
+- Campaign delete clears roster (eviction on explicit wipe path).
+
+**Implementation notes:**
+
+- `LocationSite` and `TileDelta` in `src/types.ts`. `applyMutationDeltas(grid, deltas)` in new `src/game/locations.ts` (pure function); helper `mergeSiteDeltas(existing, incoming)` deduplicates by coord.
+- `Campaign.siteRoster` + `Campaign.completedJobs` already available (completedJobs added in M5.4). `Campaign.mergeSiteDeltas(siteId, deltas)` finds the roster entry and merges; throws if `siteId` not found.
+- Curator revisit biasing: `generateContracts` uses the seeded rng to decide roster-vs-fresh before token picking. When roster pick chosen, a random existing roster entry is targeted; the contract's `context.siteId` is set. The biasing probability (30–50%) is a constant; pick 40% at impl and document.
+- `normalizeLocationSite(raw)` validates each delta on campaign restore; throws on unrecognized `kind`, out-of-bounds coords, or unknown tile values.
+- New `tests/unit/game/locations.test.ts`: roster add/evict, score site preserved, delta application (two breaches → two FLOOR tiles), corrupt delta throws, revisit map starts with holes, delta merge deduplication, Curator revisit rate across seeds, snapshot round-trip, pre-M7.2 save default.
+
+---
+
+**M7 rollup acceptance (when both subs ✅):**
+
+- Breach item sold by Finn; at least one wall type destructible; demolition objective in contract roll with at least one golden-path test.
+- Site roster with tier-1 (score slot) / tier-2 (opportunistic) persistence documented; location-keyed map cache with key schema, eviction on campaign delete, roster cap enforced.
+- Tests: snapshot + cache hit/miss + corruption guard (crash over silent bad map); mutation delta round-trip for at least one breached wall; run re-entry proves prior geometry is intact.
 
 ---
 

@@ -49,6 +49,7 @@ import { CorpDrone } from './ai/CorpDrone.js';
 import { CorpCivilian } from './entities/CorpCivilian.js';
 import { Interactable } from './entities/Interactable.js';
 import { Terminal } from './entities/Terminal.js';
+import { Door } from './entities/Door.js';
 import { Pickup } from './entities/Pickup.js';
 import { Contact } from './entities/Contact.js';
 import { DenyTarget } from './entities/DenyTarget.js';
@@ -101,6 +102,7 @@ export type EntityArchetypeId =
   | 'drone'
   | 'corp-civilian'
   | 'neutral-civilian'
+  | 'door'
   | 'terminal'
   | 'pickup'
   | 'contact'
@@ -178,6 +180,11 @@ export type RunEntitySnapshot = {
     sliced: boolean;
     armed: boolean;
     raisesAlarm: boolean;
+    unlocksId: string | null;
+  };
+  door?: {
+    doorId: string;
+    locked: boolean;
   };
   pickup?: {
     label: string;
@@ -362,16 +369,32 @@ export class Run {
       height: COMBAT_MAP_HEIGHT,
       threatCount: this.contract.threatCount,
       difficulty: this.contract.difficulty,
+      includePrefabDoors: contractRequiresDoor(this.contract),
     });
     this.world = new World(map.grid, { events: this.bus });
     this.player = this.#makePlayer(map.spawns.player);
     this.world.addEntity(this.player);
+    for (let i = 0; i < map.doors.length; i++) {
+      const a = map.doors[i]!;
+      this.world.addEntity(
+        new Door({ id: `door-entity-${i}`, doorId: `door-${i}`, x: a.x, y: a.y })
+      );
+    }
+    this.queue = new TurnQueue([FACTION.PLAYER, FACTION.CORP]);
+    this.exitTile = { ...map.exitTile };
+    const doorLinkedContract = contractRequiresDoor(this.contract);
+    if (doorLinkedContract) {
+      // Place unlock terminals and door-gated props before drones so patrol
+      // anchors cannot consume every spawn-side interactable tile.
+      this.#placeObjectiveInteractables();
+    }
     for (let i = 0; i < map.drones.length; i++) {
       const a = map.drones[i]!;
+      const spawn = resolveEntitySpawnTile(this.world, a.x, a.y);
       const drone = new CorpDrone({
         id: `drone-${i}`,
-        x: a.x,
-        y: a.y,
+        x: spawn.x,
+        y: spawn.y,
         maxAp: 3,
         patrolWaypoints: a.waypoints,
       });
@@ -388,9 +411,9 @@ export class Run {
       const civ = new NeutralCivilian({ id: `neutral-civ-${i}`, x: a.x, y: a.y });
       this.world.addEntity(civ);
     }
-    this.queue = new TurnQueue([FACTION.PLAYER, FACTION.CORP]);
-    this.exitTile = { ...map.exitTile };
-    this.#placeObjectiveInteractables();
+    if (!doorLinkedContract) {
+      this.#placeObjectiveInteractables();
+    }
     this.#placeConsumablePickups();
     this.objectiveTimer = freshObjectiveTimer();
     this.mapSeen.clear();
@@ -704,8 +727,39 @@ export class Run {
 
   #placeObjectiveInteractables(): void {
     if (!this.world || !this.player || !this.contract || !this.exitTile) return;
+    const linkedDoorId = objectiveDoorId(this.contract);
+    if (linkedDoorId) {
+      assertDoorExists(this.world, linkedDoorId);
+      if (this.contract.objective.kind !== OBJECTIVES.TERMINAL_SLICE) {
+        const terminalAnchor = findAccessibleInteractableAnchor(
+          this.world,
+          this.player,
+          this.exitTile,
+          this.rng,
+          linkedDoorId
+        );
+        this.world.addEntity(
+          new Terminal({
+            id: 'terminal-unlock-0',
+            x: terminalAnchor.x,
+            y: terminalAnchor.y,
+            label: 'Access terminal',
+            raisesAlarm: true,
+            unlocksId: linkedDoorId,
+          })
+        );
+      }
+    }
     if (this.contract.objective.kind === OBJECTIVES.TERMINAL_SLICE) {
-      const anchor = findInteractableAnchor(this.world, this.player, this.exitTile, this.rng);
+      const anchor = linkedDoorId
+        ? findAccessibleInteractableAnchor(
+            this.world,
+            this.player,
+            this.exitTile,
+            this.rng,
+            linkedDoorId
+          )
+        : findInteractableAnchor(this.world, this.player, this.exitTile, this.rng);
       this.world.addEntity(
         new Terminal({
           id: 'terminal-0',
@@ -713,13 +767,16 @@ export class Run {
           y: anchor.y,
           label: this.contract.objective.title,
           raisesAlarm: true,
+          unlocksId: linkedDoorId,
         })
       );
     }
     if (this.contract.objective.kind === OBJECTIVES.RETRIEVE) {
       const count = objectiveCount(this.contract);
       for (let i = 0; i < count; i++) {
-        const anchor = findInteractableAnchor(this.world, this.player, this.exitTile, this.rng);
+        const anchor = linkedDoorId
+          ? findBehindDoorAnchor(this.world, this.player, this.exitTile, linkedDoorId, this.rng)
+          : findInteractableAnchor(this.world, this.player, this.exitTile, this.rng);
         this.world.addEntity(
           new Pickup({
             id: `pickup-${i}`,
@@ -736,7 +793,9 @@ export class Run {
     if (this.contract.objective.kind === OBJECTIVES.HANDOFF) {
       const count = objectiveCount(this.contract);
       for (let i = 0; i < count; i++) {
-        const anchor = findInteractableAnchor(this.world, this.player, this.exitTile, this.rng);
+        const anchor = linkedDoorId
+          ? findBehindDoorAnchor(this.world, this.player, this.exitTile, linkedDoorId, this.rng)
+          : findInteractableAnchor(this.world, this.player, this.exitTile, this.rng);
         this.world.addEntity(
           new Contact({
             id: `contact-${i}`,
@@ -750,7 +809,9 @@ export class Run {
     if (this.contract.objective.kind === OBJECTIVES.DENY) {
       const count = objectiveCount(this.contract);
       for (let i = 0; i < count; i++) {
-        const anchor = findInteractableAnchor(this.world, this.player, this.exitTile, this.rng);
+        const anchor = linkedDoorId
+          ? findBehindDoorAnchor(this.world, this.player, this.exitTile, linkedDoorId, this.rng)
+          : findInteractableAnchor(this.world, this.player, this.exitTile, this.rng);
         this.world.addEntity(
           new DenyTarget({
             id: `deny-target-${i}`,
@@ -764,7 +825,9 @@ export class Run {
     if (this.contract.objective.kind === OBJECTIVES.DUAL_SITE) {
       const count = dualSiteObjectiveCount(this.contract);
       for (let i = 0; i < count; i++) {
-        const anchor = findInteractableAnchor(this.world, this.player, this.exitTile, this.rng);
+        const anchor = linkedDoorId
+          ? findBehindDoorAnchor(this.world, this.player, this.exitTile, linkedDoorId, this.rng)
+          : findInteractableAnchor(this.world, this.player, this.exitTile, this.rng);
         this.world.addEntity(
           new SyncPad({
             id: `sync-pad-${i}`,
@@ -783,7 +846,9 @@ export class Run {
       this.#placeSweepTargets();
     }
     if (this.contract.objective.kind === OBJECTIVES.ESCORT_EXTRACT) {
-      const anchor = findInteractableAnchor(this.world, this.player, this.exitTile, this.rng);
+      const anchor = linkedDoorId
+        ? findBehindDoorAnchor(this.world, this.player, this.exitTile, linkedDoorId, this.rng)
+        : findInteractableAnchor(this.world, this.player, this.exitTile, this.rng);
       this.world.addEntity(
         new EscortNpc({
           id: 'escort-npc-0',
@@ -1024,6 +1089,21 @@ function isObjectiveFamilySatisfied(
   }
 }
 
+function contractRequiresDoor(contract: Contract): boolean {
+  return !!objectiveDoorId(contract) || contract.objective.params?.requiresUnlock === true;
+}
+
+function objectiveDoorId(contract: Contract): string | null {
+  const doorId = contract.objective.params?.doorId;
+  if (doorId === undefined || doorId === null) {
+    return contract.objective.params?.requiresUnlock === true ? 'door-0' : null;
+  }
+  if (typeof doorId !== 'string' || doorId.length === 0) {
+    throw new TypeError('Run: objective params.doorId must be a non-empty string when set');
+  }
+  return doorId;
+}
+
 export function turnLimitForContract(contract: Contract): number | null {
   const turnLimit = contract.objective.params?.turnLimit;
   return Number.isInteger(turnLimit) && Number(turnLimit) > 0 ? Number(turnLimit) : null;
@@ -1193,6 +1273,13 @@ function snapshotEntity(entity: Entity): RunEntitySnapshot {
       sliced: entity.sliced,
       armed: entity.armed,
       raisesAlarm: entity.raisesAlarm,
+      unlocksId: entity.unlocksId,
+    };
+  }
+  if (entity instanceof Door) {
+    base.door = {
+      doorId: entity.doorId,
+      locked: entity.locked,
     };
   }
   if (entity instanceof Pickup) {
@@ -1256,6 +1343,7 @@ function archetypeOf(entity: Entity): EntityArchetypeId {
   if (entity instanceof CorpDrone) return 'drone';
   if (entity instanceof CorpCivilian) return 'corp-civilian';
   if (entity instanceof NeutralCivilian) return 'neutral-civilian';
+  if (entity instanceof Door) return 'door';
   if (entity instanceof Terminal) return 'terminal';
   if (entity instanceof Pickup) return 'pickup';
   if (entity instanceof Contact) return 'contact';
@@ -1497,6 +1585,207 @@ function findInteractableAnchor(
   return rng.pick(candidates);
 }
 
+function findAccessibleInteractableAnchor(
+  world: World,
+  player: Entity,
+  exitTile: GridPoint,
+  rng: Rng,
+  doorId: string
+): GridPoint {
+  return findInteractableAnchorByReachability(
+    world,
+    player,
+    exitTile,
+    rng,
+    'accessible',
+    doorId
+  );
+}
+
+function findBehindDoorAnchor(
+  world: World,
+  player: Entity,
+  exitTile: GridPoint,
+  doorId: string,
+  rng: Rng
+): GridPoint {
+  assertDoorExists(world, doorId);
+  return findInteractableAnchorByReachability(world, player, exitTile, rng, 'behind-door', doorId);
+}
+
+function findInteractableAnchorByReachability(
+  world: World,
+  player: Entity,
+  exitTile: GridPoint,
+  rng: Rng,
+  mode: 'accessible' | 'behind-door',
+  doorId?: string
+): GridPoint {
+  const door = doorId ? assertDoorExists(world, doorId) : null;
+  const candidates: GridPoint[] = [];
+  const nearDoorCandidates: GridPoint[] = [];
+  for (let y = 1; y < world.grid.height - 1; y++) {
+    for (let x = 1; x < world.grid.width - 1; x++) {
+      if (!world.grid.isPassable(x, y)) continue;
+      if (x === player.x && y === player.y) continue;
+      if (x === exitTile.x && y === exitTile.y) continue;
+      if (world.liveEntityAt(x, y)) continue;
+      if (!hasAdjacentPassableTile(world, x, y)) continue;
+
+      const reachableNow =
+        findPath(world, { x: player.x, y: player.y }, { x, y }, { allowOccupiedGoal: false }) !==
+        null;
+      if (mode === 'accessible') {
+        if (!doorId) throw new Error('Run: accessible door anchor search missing doorId');
+        if (
+          !anchorPreservesExitRouteWithDoorUnlocked(world, player, exitTile, { x, y }, doorId)
+        ) {
+          continue;
+        }
+        if (!reachableNow) continue;
+        candidates.push({ x, y });
+        if (door && chebyshev({ x, y }, door) <= 2) nearDoorCandidates.push({ x, y });
+        continue;
+      }
+      if (reachableNow) continue;
+      if (!doorId) throw new Error('Run: behind-door anchor search missing doorId');
+      if (!anchorPreservesExitRouteWithDoorUnlocked(world, player, exitTile, { x, y }, doorId)) {
+        continue;
+      }
+      if (isReachableWithDoorUnlocked(world, player, { x, y }, doorId)) candidates.push({ x, y });
+    }
+  }
+  if (mode === 'accessible') {
+    if (candidates.length === 0) {
+      throw new Error('Run: door-linked contract has no accessible terminal anchor');
+    }
+    return rng.pick(nearDoorCandidates.length > 0 ? nearDoorCandidates : candidates);
+  }
+  if (candidates.length === 0 && doorId) {
+    return findBehindDoorFallbackAnchor(world, player, exitTile, rng, doorId);
+  }
+  if (candidates.length === 0) {
+    throw new Error(`Run: door-linked contract has no legal anchor behind ${doorId}`);
+  }
+  return rng.pick(candidates);
+}
+
+function findBehindDoorFallbackAnchor(
+  world: World,
+  player: Entity,
+  exitTile: GridPoint,
+  rng: Rng,
+  doorId: string
+): GridPoint {
+  assertDoorExists(world, doorId);
+  const spawnSide = reachableCellKeysFromPlayer(world, player);
+  const candidates: GridPoint[] = [];
+  for (let y = 1; y < world.grid.height - 1; y++) {
+    for (let x = 1; x < world.grid.width - 1; x++) {
+      if (!world.grid.isPassable(x, y)) continue;
+      if (x === player.x && y === player.y) continue;
+      if (x === exitTile.x && y === exitTile.y) continue;
+      if (world.liveEntityAt(x, y)) continue;
+      if (!hasAdjacentPassableTile(world, x, y)) continue;
+      if (spawnSide.has(coordKey(x, y))) continue;
+      if (!isReachableWithDoorUnlocked(world, player, { x, y }, doorId)) continue;
+      if (!anchorPreservesExitRouteWithDoorUnlocked(world, player, exitTile, { x, y }, doorId)) {
+        continue;
+      }
+      candidates.push({ x, y });
+    }
+  }
+  if (candidates.length === 0) {
+    throw new Error(`Run: door-linked contract has no legal anchor behind ${doorId}`);
+  }
+  return rng.pick(candidates);
+}
+
+function reachableCellKeysFromPlayer(world: World, player: Entity): Set<string> {
+  const reachable = new Set<string>();
+  const queue: GridPoint[] = [{ x: player.x, y: player.y }];
+  reachable.add(coordKey(player.x, player.y));
+  for (let i = 0; i < queue.length; i++) {
+    const point = queue[i]!;
+    for (const [dx, dy] of [
+      [-1, 0],
+      [1, 0],
+      [0, -1],
+      [0, 1],
+      [-1, -1],
+      [-1, 1],
+      [1, -1],
+      [1, 1],
+    ]) {
+      const x = point.x + dx;
+      const y = point.y + dy;
+      const key = coordKey(x, y);
+      if (reachable.has(key)) continue;
+      if (!world.grid.inBounds(x, y)) continue;
+      if (!world.grid.isPassable(x, y)) continue;
+      if (world.entityAt(x, y)) continue;
+      reachable.add(key);
+      queue.push({ x, y });
+    }
+  }
+  return reachable;
+}
+
+function isReachableWithDoorUnlocked(
+  world: World,
+  player: Entity,
+  target: GridPoint,
+  doorId: string
+): boolean {
+  const door = assertDoorExists(world, doorId);
+  const wasLocked = door.locked;
+  try {
+    door.unlock();
+    return (
+      findPath(world, { x: player.x, y: player.y }, target, { allowOccupiedGoal: false }) !== null
+    );
+  } finally {
+    if (wasLocked) door.lock();
+    else door.unlock();
+  }
+}
+
+function anchorPreservesExitRouteWithDoorUnlocked(
+  world: World,
+  player: Entity,
+  exitTile: GridPoint,
+  anchor: GridPoint,
+  doorId: string
+): boolean {
+  const door = assertDoorExists(world, doorId);
+  const wasLocked = door.locked;
+  try {
+    door.unlock();
+    return anchorPreservesExitRoute(world, player, exitTile, anchor);
+  } finally {
+    if (wasLocked) door.lock();
+    else door.unlock();
+  }
+}
+
+function assertDoorExists(world: World, doorId: string): Door {
+  if (typeof doorId !== 'string' || doorId.length === 0) {
+    throw new TypeError('Run: doorId must be a non-empty string');
+  }
+  let found: Door | null = null;
+  for (const entity of world.entities.values()) {
+    if (!(entity instanceof Door) || entity.doorId !== doorId) continue;
+    if (found) {
+      throw new Error(`Run: duplicate doorId "${doorId}"`);
+    }
+    found = entity;
+  }
+  if (!found) {
+    throw new Error(`Run: no door with doorId "${doorId}"`);
+  }
+  return found;
+}
+
 /**
  * Anchor finder for **passable** props (M4.3 consumable pickups). Unlike
  * `findInteractableAnchor`, this does *not* run the exit-route preservation
@@ -1601,6 +1890,36 @@ function hasAdjacentPassableTile(world: World, x: number, y: number): boolean {
     const ty = y + dy;
     return world.grid.inBounds(tx, ty) && world.grid.isPassable(tx, ty) && !world.entityAt(tx, ty);
   });
+}
+
+/** When a procgen anchor is already occupied, walk outward for the nearest empty floor. */
+function resolveEntitySpawnTile(world: World, x: number, y: number): GridPoint {
+  if (!world.liveEntityAt(x, y)) return { x, y };
+  const queue: GridPoint[] = [{ x, y }];
+  const seen = new Set([coordKey(x, y)]);
+  for (let i = 0; i < queue.length; i++) {
+    const point = queue[i]!;
+    for (const [dx, dy] of [
+      [-1, 0],
+      [1, 0],
+      [0, -1],
+      [0, 1],
+    ]) {
+      const nx = point.x + dx;
+      const ny = point.y + dy;
+      const key = coordKey(nx, ny);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (!world.grid.inBounds(nx, ny)) continue;
+      if (!world.grid.isPassable(nx, ny)) continue;
+      if (world.liveEntityAt(nx, ny)) {
+        queue.push({ x: nx, y: ny });
+        continue;
+      }
+      return { x: nx, y: ny };
+    }
+  }
+  throw new Error(`Run: no empty floor tile near occupied anchor (${x}, ${y})`);
 }
 
 function manhattan(a: GridPoint, b: GridPoint): number {

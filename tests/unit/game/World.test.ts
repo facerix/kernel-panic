@@ -6,6 +6,7 @@ import { Entity } from '../../../src/game/Entity.js';
 import { World } from '../../../src/game/World.js';
 import { ConsumablePickup } from '../../../src/game/entities/ConsumablePickup.js';
 import { Pickup } from '../../../src/game/entities/Pickup.js';
+import { Door } from '../../../src/game/entities/Door.js';
 import { TILE, FACTION, AP_COST } from '../../../src/game/constants.js';
 import { makeSalvage } from '../../../src/game/salvage.js';
 
@@ -446,4 +447,33 @@ test('World.blockerKeys excludes dead entities', () => {
   assert.equal(keys.size, 1);
   assert.ok(keys.has('1,1'));
   assert.equal(keys.has('3,2'), false, 'corpse should not occlude LOS');
+});
+
+test('World.unlockDoor emits door:unlocked only when the door was locked', async () => {
+  const { EventBus, EVENT } = await import('../../../src/game/events.js');
+  const bus = new EventBus();
+  const w = new World(new Grid(7, 3), { events: bus });
+  const door = new Door({
+    id: 'door-entity-0',
+    doorId: 'door-0',
+    label: 'Checkpoint door',
+    x: 3,
+    y: 1,
+  });
+  w.addEntity(door);
+  const unlocked = [];
+  bus.on(EVENT.DOOR_UNLOCKED, payload => unlocked.push(payload));
+
+  w.unlockDoor('door-0');
+  w.unlockDoor('door-0');
+
+  assert.equal(unlocked.length, 1);
+  assert.deepEqual(unlocked[0], {
+    doorId: 'door-0',
+    label: 'Checkpoint door',
+    x: 3,
+    y: 1,
+    entityId: 'door-entity-0',
+  });
+  assert.equal(door.locked, false);
 });

@@ -384,6 +384,8 @@ class KeyHelp extends HTMLElement {
         h('dd', { textContent: 'corp asset' }),
         h('dt', { textContent: '~' }),
         h('dd', { textContent: 'relay node' }),
+        h('dt', { textContent: '▪ ▫' }),
+        h('dd', { textContent: 'locked / open door' }),
       ]),
       h('dl', { className: 'rows' }, [
         h('dt', { textContent: '‡' }),

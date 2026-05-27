@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { Campaign } from '../../../src/game/Campaign.js';
-import { Run } from '../../../src/game/Run.js';
+import { Campaign, CAMPAIGN_STATE } from '../../../src/game/Campaign.js';
+import { Run, RUN_STATE } from '../../../src/game/Run.js';
 import { buildContractRecipeFixture, OBJECTIVES } from '../../../src/game/hub/Curator.js';
 import { Terminal } from '../../../src/game/entities/Terminal.js';
 import {
@@ -319,6 +319,20 @@ test('campaign snapshot captures an active briefing job', () => {
   assert.equal(restored.activeRun.state, 'BRIEFING');
   assert.equal(restored.activeRun.contract.label, 'briefing job');
   assert.equal(restored.activeRun.crewMember.id, campaign.crew[2].id);
+});
+
+test('resumed briefing run enters combat without redeploying', () => {
+  const campaign = new Campaign({ seed: 0xbeef });
+  campaign.deployCrewMember(campaign.crew[2].id, fakeContract({ label: 'briefing job' }));
+  const restored = restoreCampaign(snapshotCampaign(campaign));
+
+  assert.equal(restored.state, CAMPAIGN_STATE.COMBAT);
+  assert.equal(restored.activeRun!.state, RUN_STATE.BRIEFING);
+
+  restored.activeRun!.enterCombat();
+  assert.equal(restored.activeRun!.state, RUN_STATE.COMBAT);
+  assert.ok(restored.activeRun!.world);
+  assert.ok(restored.activeRun!.player);
 });
 
 test('campaign snapshot preserves generated contract context metadata', () => {

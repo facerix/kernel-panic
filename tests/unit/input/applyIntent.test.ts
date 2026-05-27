@@ -19,6 +19,7 @@ import { Turret } from '../../../src/game/Turret.js';
 import { CorpDrone } from '../../../src/game/ai/CorpDrone.js';
 import { ConsumablePickup } from '../../../src/game/entities/ConsumablePickup.js';
 import { Pickup } from '../../../src/game/entities/Pickup.js';
+import { Door } from '../../../src/game/entities/Door.js';
 import { ITEM_ID } from '../../../src/game/items.js';
 import { Rng } from '../../../src/rng.js';
 import { applyIntent, pickFireTarget, PLAYER_ACTIONS } from '../../../src/input/applyIntent.js';
@@ -119,6 +120,23 @@ test('move into a wall is denied (logs MOVE DENIED, no mutation)', () => {
   assert.equal(player.x, 1);
   assert.equal(player.y, 1);
   assert.ok(log.some(l => l.includes('MOVE DENIED')));
+});
+
+test('move into a locked door gives door feedback without routing generic interact', () => {
+  const { ctx, log, calls, player, world } = buildCtx({ placeDrone: false });
+  const door = new Door({ id: 'door-0', doorId: 'door-0', x: 4, y: 2 });
+  world.addEntity(door);
+  player.x = 3;
+  player.y = 2;
+  const beforeAp = player.ap;
+
+  applyIntent({ type: 'move', dx: 1, dy: 0 }, ctx);
+
+  assert.equal(player.x, 3);
+  assert.equal(player.y, 2);
+  assert.equal(player.ap, beforeAp);
+  assert.equal(calls.interact, 0);
+  assert.ok(log.some(l => l.includes('locked')));
 });
 
 test('move onto exit logs objective block when canExit says no', () => {

@@ -44,6 +44,7 @@ import { totalSalvage, formatSalvageCompact } from '../game/salvage.js';
 import { canFireRanged, resolveRanged, canMelee, resolveMelee } from '../game/Combat.js';
 import { hasLineOfSight, withinRange } from '../game/LineOfSight.js';
 import { entityLabel } from '../game/Entity.js';
+import { Interactable } from '../game/entities/Interactable.js';
 import { EVENT } from '../game/events.js';
 import { TILE } from '../game/constants.js';
 import type { Archetype } from '../game/archetypes/index.js';
@@ -193,6 +194,12 @@ function doMove(intent: Intent, ctx: ApplyIntentContext) {
   const occupant = world.entityAt(nx, ny);
   if (occupant) {
     if (occupant.faction === FACTION.NEUTRAL || occupant.faction === player.faction) {
+      if (occupant instanceof Interactable) {
+        const result = occupant.interact(world, player);
+        if (result.message) log(result.message);
+        if (result.ok) gateOnApExhausted(ctx);
+        return;
+      }
       return doInteract(ctx);
     }
     return doMelee({ type: 'melee', dx: intent.dx, dy: intent.dy }, ctx);
