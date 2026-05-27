@@ -3,7 +3,7 @@ import { World } from './World.js';
 import { TurnQueue } from './TurnQueue.js';
 import { EventBus } from './events.js';
 import { Entity } from './Entity.js';
-import { FACTION, REP, RECRUIT, SALVAGE_SELL_RATE } from './constants.js';
+import { FACTION, REP, RECRUIT, SALVAGE_SELL_RATE, CLINIC_COST_PER_HP } from './constants.js';
 import {
   SALVAGE_TYPES,
   addSalvage,
@@ -17,6 +17,7 @@ import { buildCrewMember, RECRUIT_ARCHETYPE_POOL } from './archetypes/index.js';
 import { Curator } from './hub/Curator.js';
 import { Terminal } from './hub/Terminal.js';
 import { Finn } from './hub/Finn.js';
+import { Clinic } from './hub/Clinic.js';
 import { buildHub } from './hub/SafeSpace.js';
 import { getItemById, ITEM_SCOPE, metaKeyFor } from './items.js';
 import { OUTCOME, Run } from './Run.js';
@@ -111,6 +112,8 @@ export class Campaign {
   curator: Curator | null;
   finn: Finn | null;
   terminal: Terminal | null;
+  clinic: Clinic | null;
+  healedThisVisit: Set<string>;
   exitTile: GridPoint | null;
 
   constructor({
@@ -179,6 +182,8 @@ export class Campaign {
     this.curator = null;
     this.finn = null;
     this.terminal = null;
+    this.clinic = null;
+    this.healedThisVisit = new Set();
     this.exitTile = null;
 
     // Skip enterHub when crew is empty — the shell drives initial recruitment
@@ -194,6 +199,7 @@ export class Campaign {
       throw new Error(`Campaign.enterHub: illegal transition from ${this.state}`);
     }
     this.recruitedThisVisit = false;
+    this.healedThisVisit = new Set();
     this.#tearDownHubWorld();
     const hub = buildHub();
     this.bus = new EventBus();
@@ -220,10 +226,16 @@ export class Campaign {
       x: hub.terminalSpawn.x,
       y: hub.terminalSpawn.y,
     });
+    this.clinic = new Clinic({
+      id: 'clinic',
+      x: hub.clinicSpawn.x,
+      y: hub.clinicSpawn.y,
+    });
     this.world.addEntity(this.player);
     this.world.addEntity(this.curator);
     this.world.addEntity(this.finn);
     this.world.addEntity(this.terminal);
+    this.world.addEntity(this.clinic);
     this.queue = new TurnQueue([FACTION.PLAYER, FACTION.CORP]);
     this.exitTile = { ...hub.exitTile };
     this.state = CAMPAIGN_STATE.HUB;
@@ -604,6 +616,42 @@ export class Campaign {
     this.#persist();
   }
 
+  /**
+   * Restore a crew member to full HP at Patch's clinic. Once per Hub visit
+   * per member. Cost is `(maxHp - hp) * CLINIC_COST_PER_HP`. Throws on all
+   * illegal preconditions — crash over silent fallback.
+   */
+  healMember(memberId: string): void {
+    if (this.state !== CAMPAIGN_STATE.HUB) {
+      throw new Error(`Campaign.healMember: illegal from ${this.state}`);
+    }
+    const member = this.getCrewMember(memberId);
+    if (!member) {
+      throw new Error(`Campaign.healMember: unknown crew member "${memberId}"`);
+    }
+    if (member.flatlined) {
+      throw new Error(`Campaign.healMember: ${member.callsign ?? member.id} is flatlined`);
+    }
+    if (member.hp >= member.maxHp) {
+      throw new Error(`Campaign.healMember: ${member.callsign ?? member.id} is at full HP`);
+    }
+    if (this.healedThisVisit.has(memberId)) {
+      throw new Error(
+        `Campaign.healMember: ${member.callsign ?? member.id} already healed this visit`
+      );
+    }
+    const cost = (member.maxHp - member.hp) * CLINIC_COST_PER_HP;
+    if (this.credits < cost) {
+      throw new Error(
+        `Campaign.healMember: insufficient Creds (have ${this.credits}, need ${cost})`
+      );
+    }
+    this.credits -= cost;
+    member.hp = member.maxHp;
+    this.healedThisVisit.add(memberId);
+    this.#persist();
+  }
+
   getCrewMember(memberId: string): Crew | null {
     return this.crew.find(member => member.id === memberId) ?? null;
   }
@@ -626,6 +674,7 @@ export class Campaign {
     this.curator = null;
     this.finn = null;
     this.terminal = null;
+    this.clinic = null;
     this.exitTile = null;
   }
 }

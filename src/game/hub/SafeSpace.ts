@@ -6,14 +6,14 @@
  *
  * Layout (12×8, walls outline the room, `D` is the exit door,
  * `C` is the Curator, `F` is Finn the fence, `‡` is the loadout Terminal,
- * `@` is the player spawn):
+ * `⧰` is Patch the clinic, `@` is the player spawn):
  *
  *   ############
  *   #..........#
  *   #.C..F...‡.#
  *   #..........#
  *   #..........#
- *   #.....@....#
+ *   #⧰....@....#
  *   #..........¤
  *   ############
  *
@@ -35,6 +35,7 @@ export const HUB_CURATOR_SPAWN = Object.freeze({ x: 2, y: 2 });
 // heading for the Curator). Walkable FLOOR, distinct from every other named
 // tile in the hub.
 export const HUB_FINN_SPAWN = Object.freeze({ x: 5, y: 2 });
+export const HUB_CLINIC_SPAWN = Object.freeze({ x: 2, y: 5 });
 export const HUB_TERMINAL_SPAWN = Object.freeze({ x: 9, y: 2 });
 export const HUB_EXIT_TILE = Object.freeze({ x: 11, y: 6 });
 
@@ -58,6 +59,7 @@ export function buildHub() {
     playerSpawn: { ...HUB_PLAYER_SPAWN },
     curatorSpawn: { ...HUB_CURATOR_SPAWN },
     finnSpawn: { ...HUB_FINN_SPAWN },
+    clinicSpawn: { ...HUB_CLINIC_SPAWN },
     terminalSpawn: { ...HUB_TERMINAL_SPAWN },
     exitTile: { ...HUB_EXIT_TILE },
   };

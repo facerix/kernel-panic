@@ -213,6 +213,8 @@ export type CampaignSnapshot = {
   pendingRecruitReward?: boolean;
   /** M8: available recruit ids that bypass the Rep gate because they were job rewards. */
   rewardRecruitIds?: string[];
+  /** M5.3: crew member ids healed at Patch's clinic this Hub visit. */
+  healedThisVisit?: string[];
 };
 
 /**
@@ -248,6 +250,7 @@ export function snapshotCampaign(campaign: Campaign): CampaignSnapshot {
     recruitedThisVisit: campaign.recruitedThisVisit,
     pendingRecruitReward: campaign.pendingRecruitReward,
     rewardRecruitIds: [...campaign.rewardRecruitIds],
+    healedThisVisit: [...campaign.healedThisVisit],
   };
 }
 
@@ -369,6 +372,7 @@ export function restoreCampaign(record: unknown, options: RestoreCampaignOptions
   campaign.recruitedThisVisit = record.recruitedThisVisit ?? false;
   campaign.pendingRecruitReward = record.pendingRecruitReward ?? false;
   campaign.rewardRecruitIds = new Set(record.rewardRecruitIds ?? []);
+  campaign.healedThisVisit = new Set(record.healedThisVisit ?? []);
 
   if (record.activeRun) {
     const member = campaign.getCrewMember(record.activeRun.crewMemberId);
@@ -390,6 +394,7 @@ export function restoreCampaign(record: unknown, options: RestoreCampaignOptions
     campaign.curator = null;
     campaign.finn = null;
     campaign.terminal = null;
+    campaign.clinic = null;
     campaign.exitTile = null;
   } else {
     campaign.state = record.state;
@@ -404,6 +409,7 @@ export function restoreCampaign(record: unknown, options: RestoreCampaignOptions
     campaign.curator = null;
     campaign.finn = null;
     campaign.terminal = null;
+    campaign.clinic = null;
     campaign.exitTile = null;
   }
 
@@ -1073,6 +1079,9 @@ function validateCampaignRecord(record: unknown): asserts record is CampaignSnap
     typeof candidate.recruitedThisVisit !== 'boolean'
   ) {
     throw new TypeError('restoreCampaign: recruitedThisVisit must be a boolean when present');
+  }
+  if (candidate.healedThisVisit !== undefined && !Array.isArray(candidate.healedThisVisit)) {
+    throw new TypeError('restoreCampaign: healedThisVisit must be an array when present');
   }
 }
 

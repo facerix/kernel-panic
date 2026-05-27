@@ -367,6 +367,8 @@ class KeyHelp extends HTMLElement {
       h('dd', { textContent: 'Curator' }),
       h('dt', { textContent: '¥' }),
       h('dd', { textContent: "Finn's shop" }),
+      h('dt', { textContent: '⧰' }),
+      h('dd', { textContent: 'Clinic (Patch)' }),
       h('dt', { textContent: '‡' }),
       h('dd', { textContent: 'Crew terminal' }),
     ]);

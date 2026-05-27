@@ -231,6 +231,13 @@ test('Campaign Hub world includes Finn NPC', () => {
   assert.equal(campaign.finn.faction, 'neutral');
 });
 
+test('Campaign Hub world includes Patch clinic NPC', () => {
+  const campaign = new Campaign({ seed: 42 });
+  assert.ok(campaign.clinic, 'Clinic should be spawned in the Hub');
+  assert.equal(campaign.clinic.glyph, '⧰');
+  assert.equal(campaign.clinic.faction, 'neutral');
+});
+
 // --- M4: Campaign.purchase ------------------------------------------------
 
 test('sellSalvage converts campaign salvage into Creds at per-type rates', () => {

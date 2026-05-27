@@ -130,3 +130,19 @@ test('buildHub returns a finnSpawn on walkable floor, distinct from other NPCs',
   assert.ok(!same(hub.finnSpawn, hub.terminalSpawn), 'finn overlaps terminal');
   assert.ok(!same(hub.finnSpawn, hub.exitTile), 'finn overlaps exit tile');
 });
+
+test('buildHub returns a clinicSpawn on walkable floor, distinct from other NPCs', () => {
+  const hub = buildHub();
+  const same = (a: { x: number; y: number }, b: { x: number; y: number }) =>
+    a.x === b.x && a.y === b.y;
+
+  assert.ok(hub.clinicSpawn, 'expected clinicSpawn in buildHub() result');
+  assert.equal(typeof hub.clinicSpawn.x, 'number');
+  assert.equal(typeof hub.clinicSpawn.y, 'number');
+  assert.equal(hub.grid.isPassable(hub.clinicSpawn.x, hub.clinicSpawn.y), true);
+  assert.ok(!same(hub.clinicSpawn, hub.playerSpawn), 'clinic overlaps player spawn');
+  assert.ok(!same(hub.clinicSpawn, hub.curatorSpawn), 'clinic overlaps curator');
+  assert.ok(!same(hub.clinicSpawn, hub.finnSpawn), 'clinic overlaps finn');
+  assert.ok(!same(hub.clinicSpawn, hub.terminalSpawn), 'clinic overlaps terminal');
+  assert.ok(!same(hub.clinicSpawn, hub.exitTile), 'clinic overlaps exit tile');
+});

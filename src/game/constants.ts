@@ -203,6 +203,9 @@ export const SHOP_COST = Object.freeze({
   REFLEX_WEAVE: 80,
 });
 
+/** M5.3: Patch clinic — Creds per HP restored (partial heal not offered). */
+export const CLINIC_COST_PER_HP = 15;
+
 /**
  * Curator contract tiers (M8). `threatCount` is stored directly on each
  * generated contract; difficulty drives civilian caps and patrol pressure.

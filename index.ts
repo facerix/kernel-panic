@@ -86,6 +86,7 @@ import '/components/InitialRecruit.js';
 import '/components/CrewList.js';
 import '/components/CrewRoster.js';
 import '/components/FinnShop.js';
+import '/components/ClinicModal.js';
 import '/components/ItemInventory.js';
 import '/components/KeyHelp.js';
 
@@ -135,6 +136,9 @@ type FinnShopElement = ModalElement & {
     crew: Crew[],
     balances: { credits: number; salvage: TypedSalvage }
   ): void;
+};
+type ClinicModalElement = ModalElement & {
+  setPatients(crew: Crew[], balances: { credits: number; healedMemberIds?: string[] }): void;
 };
 type ItemInventoryElement = ModalElement & {
   setContents(contents: {
@@ -197,6 +201,7 @@ let quitCampaignModalEl: ConfirmationModalElement;
 let touchPadEl: TouchPadElement;
 let crewRosterEl: CrewRosterElement;
 let finnShopEl: FinnShopElement;
+let clinicModalEl: ClinicModalElement;
 let itemInventoryEl: ItemInventoryElement;
 let keyHelpEl: KeyHelpElement;
 let logEl: HTMLElement;
@@ -256,6 +261,7 @@ const allComponentsReady = Promise.all([
   customElements.whenDefined('update-notification'),
   customElements.whenDefined('confirmation-modal'),
   customElements.whenDefined('finn-shop'),
+  customElements.whenDefined('clinic-modal'),
   customElements.whenDefined('item-inventory'),
   customElements.whenDefined('contract-select'),
   customElements.whenDefined('touch-pad'),
@@ -311,6 +317,7 @@ async function boot() {
   touchPadEl = mustGetElement<TouchPadElement>('touch-pad');
   crewRosterEl = mustGetElement<CrewRosterElement>('crew-roster');
   finnShopEl = mustGetElement<FinnShopElement>('finn-shop');
+  clinicModalEl = mustGetElement<ClinicModalElement>('clinic-modal');
   itemInventoryEl = mustGetElement<ItemInventoryElement>('item-inventory');
   keyHelpEl = mustGetElement<KeyHelpElement>('key-help');
   logEl = mustQuery<HTMLElement>('.game-log');
@@ -354,6 +361,9 @@ async function boot() {
   finnShopEl.addEventListener('purchase', onFinnPurchase);
   finnShopEl.addEventListener('sell-salvage', onFinnSellSalvage);
   finnShopEl.addEventListener('dismiss', () => finnShopEl.hide());
+
+  clinicModalEl.addEventListener('heal', onClinicHeal);
+  clinicModalEl.addEventListener('dismiss', onClinicDismiss);
 
   itemInventoryEl.addEventListener('use-item', onUseItem);
   itemInventoryEl.addEventListener('dismiss', () => itemInventoryEl.hide());
@@ -554,6 +564,35 @@ function presentFinnShop() {
     salvage: campaign.salvage,
   });
   finnShopEl.show();
+}
+
+function presentClinic() {
+  if (!campaign || !campaign.clinic) return;
+  clinicModalEl.setPatients(campaign.crew, {
+    credits: campaign.credits,
+    healedMemberIds: [...campaign.healedThisVisit],
+  });
+  clinicModalEl.show();
+}
+
+function onClinicHeal(evt: Event) {
+  if (!campaign) return;
+  const { memberId } = (evt as CustomEvent<{ memberId?: string }>).detail;
+  if (!memberId) return;
+  const member = campaign.getCrewMember(memberId);
+  try {
+    campaign.healMember(memberId);
+  } catch (err) {
+    flash(`HEAL FAILED: ${errorMessage(err)}`);
+    return;
+  }
+  const label = member?.callsign ?? memberId;
+  flash(`PATCH: ${label} patched up. CREDS ${campaign.credits}.`);
+  presentClinic();
+}
+
+function onClinicDismiss() {
+  clinicModalEl.hide();
 }
 
 function onFinnPurchase(evt: Event) {
@@ -904,6 +943,7 @@ function performQuitCampaign(): void {
   crashEl.hide();
   crewRosterEl.hide();
   finnShopEl.hide();
+  clinicModalEl.hide();
   itemInventoryEl.hide();
 
   pendingJobResult = null;
@@ -1124,6 +1164,11 @@ function handleInteract(): void {
     presentFinnShop();
     return;
   }
+  if (campaign.player && campaign.clinic && isChebyshevAdjacent(campaign.player, campaign.clinic)) {
+    flash('PATCH — clinic services.');
+    presentClinic();
+    return;
+  }
   if (
     campaign.player &&
     campaign.terminal &&
@@ -1138,7 +1183,9 @@ function handleInteract(): void {
     !campaign.curator ||
     !isChebyshevAdjacent(campaign.player, campaign.curator)
   ) {
-    flash('Step adjacent to Finn (shop), Curator (contract), or Terminal (roster).');
+    flash(
+      'Step adjacent to Finn (shop), Patch (clinic), Curator (contract), or Terminal (roster).'
+    );
     return;
   }
   // Gate: can't take contracts with no deployable crew.
@@ -1601,6 +1648,9 @@ function proximityHint(): string {
     if (run.terminal && isChebyshevAdjacent(run.player, run.terminal)) {
       return 'TERMINAL — press [Space] for roster.';
     }
+    if (run.clinic && isChebyshevAdjacent(run.player, run.clinic)) {
+      return 'PATCH — press [Space] for clinic.';
+    }
     if (run.exitTile && isChebyshevAdjacent(run.player, run.exitTile)) {
       return 'EXIT (¤) one step away.';
     }
@@ -1774,6 +1824,7 @@ function isAnyBlockingModalOpen(): boolean {
   if (initialRecruitEl?.isOpen) return true;
   if (crewRosterEl?.isOpen) return true;
   if (finnShopEl?.isOpen) return true;
+  if (clinicModalEl?.isOpen) return true;
   if (itemInventoryEl?.isOpen) return true;
   // <confirmation-modal> uses a native <dialog> internally; treat any open
   // attribute as "blocking".

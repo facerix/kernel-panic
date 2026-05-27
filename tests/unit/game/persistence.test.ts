@@ -291,6 +291,20 @@ test('campaign snapshot/restore round-trips campaign scope', () => {
   assert.equal(restored.crew[1].flatlined, true);
 });
 
+test('campaign snapshot round-trips healedThisVisit', () => {
+  const campaign = new Campaign({ seed: 0xface });
+  campaign.crew[0].hp = 1;
+  campaign.credits = 200;
+  campaign.healMember(campaign.crew[0].id);
+
+  const recA = snapshotCampaign(campaign);
+  const restored = restoreCampaign(recA);
+  const recB = snapshotCampaign(restored);
+
+  assert.deepEqual(recB.healedThisVisit, recA.healedThisVisit);
+  assert.deepEqual([...restored.healedThisVisit], recA.healedThisVisit);
+});
+
 test('campaign snapshot captures an active briefing job', () => {
   const campaign = new Campaign({ seed: 0xbeef });
   campaign.deployCrewMember(campaign.crew[2].id, fakeContract({ label: 'briefing job' }));
@@ -378,6 +392,10 @@ test('restoreCampaign throws on corrupt campaign records', () => {
   assert.throws(() => restoreCampaign({ ...rec, salvage: -1 }), /salvage/);
   assert.throws(() => restoreCampaign({ ...rec, credits: -1 }), /credits/);
   assert.throws(() => restoreCampaign({ ...rec, rep: 101 }), /rep/);
+  assert.throws(
+    () => restoreCampaign({ ...rec, healedThisVisit: 'bad' }),
+    /healedThisVisit/
+  );
 });
 
 test('restoreCampaign migrates legacy "vouch" key to "rep"', () => {
