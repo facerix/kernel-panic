@@ -392,10 +392,7 @@ test('restoreCampaign throws on corrupt campaign records', () => {
   assert.throws(() => restoreCampaign({ ...rec, salvage: -1 }), /salvage/);
   assert.throws(() => restoreCampaign({ ...rec, credits: -1 }), /credits/);
   assert.throws(() => restoreCampaign({ ...rec, rep: 101 }), /rep/);
-  assert.throws(
-    () => restoreCampaign({ ...rec, healedThisVisit: 'bad' }),
-    /healedThisVisit/
-  );
+  assert.throws(() => restoreCampaign({ ...rec, healedThisVisit: 'bad' }), /healedThisVisit/);
 });
 
 test('restoreCampaign migrates legacy "vouch" key to "rep"', () => {
