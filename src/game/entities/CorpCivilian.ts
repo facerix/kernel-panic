@@ -19,6 +19,7 @@
  */
 
 import { Entity, type EntityInit } from '../Entity.js';
+import { EscortNpc } from './EscortNpc.js';
 import { FACTION, SIGHT_RANGE } from '../constants.js';
 import { hasLineOfSight, withinRange } from '../LineOfSight.js';
 import type { TurnActionStep, TurnActionSteps } from '../../types.js';
@@ -74,12 +75,13 @@ export class CorpCivilian extends Entity {
   }
 
   /**
-   * Find the first living PLAYER-faction entity in LOS + range. Returns null
-   * if nobody is visible.
+   * Find the first living deployed crew member in LOS + range. Escort extract
+   * NPCs are player-aligned but not intruders — ignore them for alarm checks.
    */
   #findPlayerTarget(world: World): Entity | null {
     for (const entity of world.entities.values()) {
       if (!entity.alive || entity.faction !== FACTION.PLAYER) continue;
+      if (entity instanceof EscortNpc) continue;
       if (!withinRange(this.x, this.y, entity.x, entity.y, this.sightRange)) continue;
       const blockers = world.blockerKeys();
       if (!hasLineOfSight(world.grid, this.x, this.y, entity.x, entity.y, { blockers })) continue;

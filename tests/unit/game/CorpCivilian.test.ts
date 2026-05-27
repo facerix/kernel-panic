@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { CorpCivilian } from '../../../src/game/entities/CorpCivilian.js';
+import { EscortNpc } from '../../../src/game/entities/EscortNpc.js';
 import { Entity } from '../../../src/game/Entity.js';
 import { Grid } from '../../../src/game/Grid.js';
 import { World } from '../../../src/game/World.js';
@@ -149,6 +150,47 @@ test('CorpCivilian does nothing when dead', () => {
   civ.takeTurn(world, new Rng(1));
   assert.equal(alarms.length, 0, 'dead civilian cannot alarm');
   assert.equal(world.alarmActive, false);
+});
+
+test('CorpCivilian does NOT alarm when only an escort NPC is in LOS', () => {
+  const { world, bus } = makeWorld();
+  const civ = new CorpCivilian({ id: 'civ-0', x: 2, y: 2 });
+  const escort = new EscortNpc({ id: 'escort-npc-0', x: 4, y: 2, label: 'Witness' });
+  world.addEntity(civ);
+  world.addEntity(escort);
+
+  const alarms: unknown[] = [];
+  bus.on(EVENT.ALARM, (p: unknown) => alarms.push(p));
+
+  const steps = civ.takeTurn(world, new Rng(1));
+  assert.equal(steps.length, 0, 'escort allies must not trip the facility alarm');
+  assert.equal(alarms.length, 0);
+  assert.equal(world.alarmActive, false);
+});
+
+test('CorpCivilian still alarms on crew when escort is also visible', () => {
+  const { world, bus } = makeWorld();
+  const civ = new CorpCivilian({ id: 'civ-0', x: 2, y: 2 });
+  const player = makePlayer(4, 2);
+  const escort = new EscortNpc({
+    id: 'escort-npc-0',
+    x: 4,
+    y: 3,
+    label: 'Witness',
+    activated: true,
+  });
+  world.addEntity(civ);
+  world.addEntity(player);
+  world.addEntity(escort);
+
+  const alarms: unknown[] = [];
+  bus.on(EVENT.ALARM, (p: unknown) => alarms.push(p));
+
+  const steps = civ.takeTurn(world, new Rng(1));
+  assert.equal(steps.length, 1);
+  assert.equal(alarms.length, 1);
+  const payload = alarms[0] as Record<string, unknown>;
+  assert.equal(payload.target, player, 'alarm should target the crew member, not the escort');
 });
 
 test('CorpCivilian constructor validates sightRange', () => {
