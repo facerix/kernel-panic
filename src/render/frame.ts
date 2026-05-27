@@ -87,15 +87,19 @@ export function buildFrame(world: World, camera: Camera, options: BuildFrameOpti
   const { vision } = options;
   const cells: Glyph[] = Array.from({ length: width * height });
 
-  // Index entities once so we don't pay an O(n) scan per cell. Two-pass:
-  // dead first, then live, so a live entity standing on a corpse's tile
-  // overwrites it — the live silhouette is what the player needs to react to.
+  // Index entities once so we don't pay an O(n) scan per cell. Three-pass:
+  // dead first, then passable live props, then impassable live actors — so a
+  // drone stepping onto a walk-onto consumable pickup still renders the drone,
+  // and a live entity standing on a corpse's tile still wins the cell.
   const entityIndex: Map<string, Entity> = new Map();
   for (const e of world.entities.values()) {
     if (!e.alive) entityIndex.set(`${e.x},${e.y}`, e);
   }
   for (const e of world.entities.values()) {
-    if (e.alive) entityIndex.set(`${e.x},${e.y}`, e);
+    if (e.alive && e.passable) entityIndex.set(`${e.x},${e.y}`, e);
+  }
+  for (const e of world.entities.values()) {
+    if (e.alive && !e.passable) entityIndex.set(`${e.x},${e.y}`, e);
   }
 
   for (let dy = 0; dy < height; dy++) {

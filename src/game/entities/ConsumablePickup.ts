@@ -1,8 +1,8 @@
 /**
  * Walk-onto consumable pickup (M4.3). A loose item dropped on the combat
  * grid that the player auto-collects by stepping on its tile. Distinct from
- * the M2.5 objective `Pickup` (which uses glyph `!` and the adjacency
- * Space-interact loop): consumables are flavor / loot, never gated by
+ * the M2.5 objective `Pickup` (glyph `!`, walk-onto secure for retrieve
+ * objectives): consumables are flavor / loot, never gated by
  * extraction, and don't appear in `isObjectiveSatisfied`.
  *
  * Key shape choices:

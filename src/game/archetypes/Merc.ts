@@ -1,5 +1,5 @@
 import { Crew } from '../Crew.js';
-import { TILE, AP_COST } from '../constants.js';
+import { TILE, AP_COST, FACTION } from '../constants.js';
 import type { CrewInit } from '../Crew.js';
 import type { World } from '../World.js';
 
@@ -45,9 +45,14 @@ export const CALLSIGNS = Object.freeze([
  *   - A hostile is on the landing tile but the knockback destination is
  *     blocked (wall, OOB, occupied) — the Merc needs a clear lane.
  *   - A friendly entity occupies the landing tile.
- *   - The landing tile is not walkable terrain (FLOOR or EXIT).
+ *   - An impassable neutral prop (objective pickup, terminal, …) blocks
+ *     the landing tile. Walk-onto consumable pickups (`*`) are passable and
+ *     do not block — the Merc lands and collects them like a normal step.
+ *   - The landing tile is not walkable terrain (same passability as a normal
+ *     step: floor, exit, smoke, hazard — not cover or wall).
  *
- * If the landing tile is empty, vault is pure repositioning (no damage).
+ * If the landing tile is empty (or only holds a walk-onto consumable), vault
+ * is pure repositioning (no damage).
  */
 export class Merc extends Crew {
   override archetype = 'Merc';
@@ -84,31 +89,42 @@ export class Merc extends Crew {
     if (!world.grid.inBounds(landX, landY)) {
       return { ok: false, reason: 'out-of-bounds' };
     }
-    // Landing must be walkable terrain (floor or exit), not cover/wall — no
-    // chaining vaults across two cover tiles.
-    const landTile = world.grid.tileAt(landX, landY);
-    if (landTile !== TILE.FLOOR && landTile !== TILE.EXIT) {
+    // Landing must match normal movement passability — not cover/wall. Pickups
+    // can spawn on hazard/smoke tiles; vault must reach them like a walk.
+    if (!world.grid.isPassable(landX, landY)) {
       return { ok: false, reason: 'blocked' };
     }
 
-    const occupant = world.entityAt(landX, landY);
+    let occupant = world.entityAt(landX, landY);
+    if (!occupant && world.consumablePickupAt(landX, landY)) {
+      return { ok: true, occupant: null };
+    }
     if (occupant) {
       if (occupant.faction === this.faction) {
         // Can't body-check an ally.
         return { ok: false, reason: 'friendly-occupied' };
       }
-      // Hostile on the landing tile — need a clear knockback lane.
-      const kbX = landX + dx;
-      const kbY = landY + dy;
-      if (!world.grid.inBounds(kbX, kbY)) {
-        return { ok: false, reason: 'knockback-oob' };
-      }
-      const kbTile = world.grid.tileAt(kbX, kbY);
-      if (kbTile !== TILE.FLOOR && kbTile !== TILE.EXIT && kbTile !== TILE.COVER) {
-        return { ok: false, reason: 'knockback-blocked' };
-      }
-      if (world.entityAt(kbX, kbY)) {
-        return { ok: false, reason: 'knockback-occupied' };
+      if (occupant.passable || world.consumablePickupAt(landX, landY)) {
+        // Walk-onto floor props — land and collect, no body-check.
+        occupant = null;
+      } else if (occupant.faction === FACTION.NEUTRAL) {
+        // Impassable neutrals (objective props, terminals) aren't knockback
+        // targets; they simply block the landing tile.
+        return { ok: false, reason: 'blocked' };
+      } else {
+        // Hostile on the landing tile — need a clear knockback lane.
+        const kbX = landX + dx;
+        const kbY = landY + dy;
+        if (!world.grid.inBounds(kbX, kbY)) {
+          return { ok: false, reason: 'knockback-oob' };
+        }
+        const kbTile = world.grid.tileAt(kbX, kbY);
+        if (!world.grid.isPassable(kbX, kbY) && kbTile !== TILE.COVER) {
+          return { ok: false, reason: 'knockback-blocked' };
+        }
+        if (world.entityAt(kbX, kbY)) {
+          return { ok: false, reason: 'knockback-occupied' };
+        }
       }
     }
 

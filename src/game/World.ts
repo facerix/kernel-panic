@@ -1,7 +1,8 @@
-import { AP_COST, NOISE_RADIUS } from './constants.js';
+import { AP_COST, NOISE_RADIUS, PICKUP_GLYPH } from './constants.js';
 import { EVENT } from './events.js';
 import { Interactable } from './entities/Interactable.js';
-import { ConsumablePickup } from './entities/ConsumablePickup.js';
+import { Pickup } from './entities/Pickup.js';
+import { ConsumablePickup, CONSUMABLE_PICKUP_GLYPH } from './entities/ConsumablePickup.js';
 import { totalSalvage } from './salvage.js';
 import type { Grid } from './Grid.js';
 import type { Entity, LootableEntity } from './Entity.js';
@@ -207,11 +208,12 @@ export class World {
    * placement helpers — should use {@link liveEntityAt}. Use
    * {@link anyEntityAt} for *any* occupant regardless of `alive`/`passable`,
    * {@link lootableCorpseAt} for salvage targets, or
-   * {@link consumablePickupAt} for walk-onto consumables.
+   * {@link consumablePickupAt} for walk-onto consumables, or
+   * {@link objectivePickupAt} for retrieve objective pickups.
    */
   entityAt(x: number, y: number): Entity | null {
     for (const e of this.entities.values()) {
-      if (e.alive && !e.passable && e.x === x && e.y === y) return e;
+      if (e.alive && e.x === x && e.y === y && !this.#isWalkThrough(e)) return e;
     }
     return null;
   }
@@ -266,6 +268,17 @@ export class World {
   consumablePickupAt(x: number, y: number): ConsumablePickup | null {
     for (const e of this.entities.values()) {
       if (e instanceof ConsumablePickup && e.alive && e.x === x && e.y === y) return e;
+    }
+    return null;
+  }
+
+  /**
+   * Walk-onto retrieve objective pickup (M2.5), if any. Passable `Pickup`
+   * props are secured when the player (or a perk landing) enters the tile.
+   */
+  objectivePickupAt(x: number, y: number): Pickup | null {
+    for (const e of this.entities.values()) {
+      if (e instanceof Pickup && e.alive && !e.secured && e.x === x && e.y === y) return e;
     }
     return null;
   }
@@ -335,10 +348,33 @@ export class World {
     const set = new Set<string>();
     for (const e of this.entities.values()) {
       if (!e.alive) continue;
-      if (e.passable) continue;
+      if (this.#isWalkThrough(e)) continue;
       set.add(`${e.x},${e.y}`);
     }
     return set;
+  }
+
+  /** Walk-onto / walk-through floor props — never movement or LOS blockers. */
+  #isWalkThrough(e: Entity): boolean {
+    return (
+      e.passable || this.#isConsumablePickupEntity(e) || this.#isObjectivePickupEntity(e)
+    );
+  }
+
+  #isConsumablePickupEntity(e: Entity): boolean {
+    if (e instanceof ConsumablePickup) return true;
+    const consumableId = (e as ConsumablePickup).consumableId;
+    return (
+      e.glyph === CONSUMABLE_PICKUP_GLYPH &&
+      typeof consumableId === 'string' &&
+      consumableId.length > 0
+    );
+  }
+
+  #isObjectivePickupEntity(e: Entity): boolean {
+    if (e instanceof Pickup) return true;
+    const label = (e as Pickup).label;
+    return e.glyph === PICKUP_GLYPH && typeof label === 'string' && label.length > 0;
   }
 
   /**
@@ -350,8 +386,8 @@ export class World {
   /**
    * Move an entity to an absolute position without AP cost or noise.
    * Validates bounds, passability, and occupancy — crashes on violations
-   * (same contract as `moveEntity`). Emits `ENTITY_MOVED` so vision
-   * recompute and AI hooks still fire.
+   * (same contract as `moveEntity`, including passable floor props). Emits
+   * `ENTITY_MOVED` so vision recompute and AI hooks still fire.
    *
    * Use cases: vault knockback, neutral civilian flee — movements that are
    * mechanically free but must still update the world consistently.
@@ -369,7 +405,7 @@ export class World {
     if (!this.grid.isPassable(x, y)) {
       throw new Error(`relocateEntity: (${x}, ${y}) is not passable`);
     }
-    const blocker = this.liveEntityAt(x, y);
+    const blocker = this.entityAt(x, y);
     if (blocker && blocker !== entity) {
       throw new Error(`relocateEntity: (${x}, ${y}) is occupied by ${blocker.id}`);
     }

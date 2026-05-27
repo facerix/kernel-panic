@@ -5,6 +5,7 @@ import { Grid } from '../../../src/game/Grid.js';
 import { Entity } from '../../../src/game/Entity.js';
 import { World } from '../../../src/game/World.js';
 import { ConsumablePickup } from '../../../src/game/entities/ConsumablePickup.js';
+import { Pickup } from '../../../src/game/entities/Pickup.js';
 import { TILE, FACTION, AP_COST } from '../../../src/game/constants.js';
 import { makeSalvage } from '../../../src/game/salvage.js';
 
@@ -60,6 +61,36 @@ test('World.entityAt ignores passable pickups; liveEntityAt still resolves them'
   w.addEntity(pickup);
   assert.equal(w.entityAt(2, 2), null, 'movement / targeting queries stay pickup-blind');
   assert.equal(w.liveEntityAt(2, 2), pickup, 'placement / restore queries see live pickups');
+});
+
+test('World.entityAt ignores objective pickups; objectivePickupAt resolves them', () => {
+  const w = new World(new Grid(5, 5));
+  const pickup = new Pickup({ id: 'pickup-0', x: 2, y: 2, label: 'Cache' });
+  w.addEntity(pickup);
+  assert.equal(w.entityAt(2, 2), null);
+  assert.equal(w.objectivePickupAt(2, 2)?.id, 'pickup-0');
+});
+
+test('World.entityAt ignores objective pickups even when passable flag is wrong', () => {
+  const w = new World(new Grid(5, 5));
+  const pickup = new Pickup({ id: 'pickup-0', x: 2, y: 2, label: 'Cache' });
+  pickup.passable = false;
+  w.addEntity(pickup);
+  assert.equal(w.entityAt(2, 2), null, 'retrieve pickups are always walk-through');
+});
+
+test('World.entityAt ignores consumable pickups even when passable flag is wrong', () => {
+  const w = new World(new Grid(5, 5));
+  const pickup = new ConsumablePickup({
+    id: 'consumable-pickup-0',
+    x: 2,
+    y: 2,
+    consumableId: 'stim',
+    label: 'Stim',
+  });
+  pickup.passable = false;
+  w.addEntity(pickup);
+  assert.equal(w.entityAt(2, 2), null, 'consumables are always walk-through');
 });
 
 test('World.addEntity rejects live placement on passable pickups', () => {
@@ -361,7 +392,7 @@ test('World.relocateEntity throws on occupied tile', () => {
   assert.equal(p.y, 2);
 });
 
-test('World.relocateEntity throws on passable pickup tile', () => {
+test('World.relocateEntity allows passable pickup tiles', () => {
   const w = new World(new Grid(5, 5));
   const p = makePlayer(2, 2);
   w.addEntity(p);
@@ -374,7 +405,10 @@ test('World.relocateEntity throws on passable pickup tile', () => {
       label: 'Stim',
     })
   );
-  assert.throws(() => w.relocateEntity(p, 3, 3), /occupied/i);
+  w.relocateEntity(p, 3, 3);
+  assert.equal(p.x, 3);
+  assert.equal(p.y, 3);
+  assert.equal(w.consumablePickupAt(3, 3)?.id, 'consumable-pickup-0');
 });
 
 test('World.relocateEntity throws on impassable tile', () => {

@@ -87,13 +87,31 @@ function pickupsIn(run: Run): Pickup[] {
 }
 
 describe('Pickup', () => {
-  it('constructs as a neutral interactable with the pickup glyph', () => {
+  it('constructs as a passable neutral interactable with the pickup glyph', () => {
     const pickup = new Pickup({ id: 'pickup-0', x: 5, y: 5, label: 'Sublevel cache' });
     assert.equal(pickup.faction, FACTION.NEUTRAL);
     assert.equal(pickup.glyph, PICKUP_GLYPH);
     assert.equal(pickup.label, 'Sublevel cache');
+    assert.equal(pickup.passable, true);
     assert.equal(pickup.secured, false);
     assert.equal(pickup.armed, true);
+  });
+
+  it('secureWalkOnto records progress and removes the prop without INTERACT AP', () => {
+    const world = makeWorld();
+    const pickup = new Pickup({ id: 'pickup-0', x: 5, y: 5, label: 'Dead drop' });
+    const player = new Merc({ id: 'crew-merc', x: 4, y: 5 });
+    world.addEntity(pickup);
+    world.addEntity(player);
+    const beforeAp = player.ap;
+    world.moveEntity(player, 1, 0);
+
+    world.objectivePickupAt(5, 5)!.secureWalkOnto(world);
+
+    assert.equal(pickup.secured, true);
+    assert.equal(world.entities.has(pickup.id), false);
+    assert.equal(world.securedPickupCount(), 1);
+    assert.equal(player.ap, beforeAp - 1, 'walk-onto secure costs MOVE only, not INTERACT');
   });
 
   it('secures once, removes itself from the world, and rejects repeat interaction', () => {
@@ -194,9 +212,13 @@ describe('retrieve runs', () => {
     assert.equal(results.length, 0);
 
     relocateAdjacentTo(run, pickup);
-    const result = pickup.interact(run.world!, run.player!);
-    assert.equal(result.ok, true);
-    assert.equal(run.world!.entities.has(pickup.id), false);
+    const world = run.world!;
+    const player = run.player!;
+    world.moveEntity(player, pickup.x - player.x, pickup.y - player.y);
+    assert.equal(player.x, pickup.x);
+    assert.equal(player.y, pickup.y);
+    world.objectivePickupAt(pickup.x, pickup.y)!.secureWalkOnto(world);
+    assert.equal(world.entities.has(pickup.id), false);
     assert.equal(isObjectiveSatisfied(run.contract!, run.world), true);
 
     run.bus!.emit('entity:moved', {
@@ -268,7 +290,10 @@ describe('retrieve runs', () => {
     assert.ok(pickup);
 
     relocateAdjacentTo(run, pickup);
-    pickup.interact(run.world!, run.player!);
+    const world = run.world!;
+    const player = run.player!;
+    world.moveEntity(player, pickup.x - player.x, pickup.y - player.y);
+    world.objectivePickupAt(pickup.x, pickup.y)!.secureWalkOnto(world);
 
     const rec = snapshot(run);
     const pickupRec = rec.entities.find(entity => entity.id === pickup.id);

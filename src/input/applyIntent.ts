@@ -216,21 +216,32 @@ function doMove(intent: Intent, ctx: ApplyIntentContext) {
     // just clear the line to flush any existing stale log line
     log('');
   }
+  collectTileLoot(ctx);
+  // Intentionally no per-step move line — coordinates + AP spammed the game log.
+  gateOnApExhausted(ctx);
+}
+
+/**
+ * Walk-onto loot for the player's current tile — objective pickups (M2.5),
+ * consumable pickups (M4.3), and lootable corpses (M4.1). Shared by normal
+ * moves, Vault, and Slide so perk landings behave like stepping onto the tile.
+ */
+function collectTileLoot(ctx: ApplyIntentContext) {
+  const { world, player, log } = ctx;
+  const objectivePickup = player.alive ? world.objectivePickupAt(player.x, player.y) : null;
+  if (objectivePickup) {
+    objectivePickup.secureWalkOnto(world);
+    log(`> ${entityLabel(player)} secures ${objectivePickup.label}.`);
+  }
   const consumablePickup = player.alive ? world.consumablePickupAt(player.x, player.y) : null;
   if (consumablePickup) {
     player.addConsumable(consumablePickup.consumableId);
     world.removeEntity(consumablePickup.id);
     log(`> ${entityLabel(player)} picks up ${consumablePickup.label}.`);
   }
-  // M4.1: stepping onto a lootable corpse auto-salvages it. Parallels the
-  // M4.3 consumable pickup walk-onto path above: movement has already paid AP,
-  // so this route does not charge the standalone interact cost again.
   const corpse =
     player.inventory && player.alive ? world.lootableCorpseAt(player.x, player.y) : null;
   if (corpse) {
-    // M4.2: typed salvage. Show the picked-up total + the wallet's
-    // post-pickup compact breakdown so the player sees both the immediate
-    // delta and the running typed total.
     const amount = totalSalvage(corpse.loot!.salvage);
     player.collectSalvage(world, corpse, { spendAp: false });
     ctx.onCorpseSalvaged?.(corpse);
@@ -238,8 +249,6 @@ function doMove(intent: Intent, ctx: ApplyIntentContext) {
       `> ${entityLabel(player)} salvages +${amount} — carrying ${formatSalvageCompact(player.inventory!.salvage)}, ${player.ap} AP left.`
     );
   }
-  // Intentionally no per-step move line — coordinates + AP spammed the game log.
-  gateOnApExhausted(ctx);
 }
 
 /**
@@ -351,6 +360,7 @@ function doVault(intent: Intent, ctx: ApplyIntentContext) {
     log(`> ${playerLabel} vaulted to (${player.x}, ${player.y}) — ${player.ap} AP left.`);
   }
 
+  collectTileLoot(ctx);
   gateOnApExhausted(ctx);
 }
 
@@ -370,6 +380,7 @@ function doSlide(intent: Intent, ctx: ApplyIntentContext) {
     `> ${playerLabel} slid to (${player.x}, ${player.y}) — CLOAKED until next turn (` +
       `${player.ap} AP left).`
   );
+  collectTileLoot(ctx);
   gateOnApExhausted(ctx);
 }
 

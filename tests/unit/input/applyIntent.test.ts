@@ -18,6 +18,7 @@ import { Tech } from '../../../src/game/archetypes/Tech.js';
 import { Turret } from '../../../src/game/Turret.js';
 import { CorpDrone } from '../../../src/game/ai/CorpDrone.js';
 import { ConsumablePickup } from '../../../src/game/entities/ConsumablePickup.js';
+import { Pickup } from '../../../src/game/entities/Pickup.js';
 import { ITEM_ID } from '../../../src/game/items.js';
 import { Rng } from '../../../src/rng.js';
 import { applyIntent, pickFireTarget, PLAYER_ACTIONS } from '../../../src/input/applyIntent.js';
@@ -184,6 +185,22 @@ test('move onto a corpse with 1 AP still salvages after the move spends AP', () 
   );
 });
 
+test('move onto an objective pickup secures it without routing to interact', () => {
+  const { ctx, log, player, world, calls } = buildCtx({ placeDrone: false });
+  world.addEntity(new Pickup({ id: 'pickup-0', x: 2, y: 3, label: 'Sublevel cache' }));
+  const beforeAp = player.ap;
+
+  applyIntent({ type: 'move', dx: 0, dy: 1 }, ctx);
+
+  assert.equal(player.x, 2);
+  assert.equal(player.y, 3);
+  assert.equal(world.entities.has('pickup-0'), false);
+  assert.equal(world.securedPickupCount(), 1);
+  assert.equal(player.ap, beforeAp - 1, 'only MOVE AP spent');
+  assert.equal(calls.interact, 0, 'walk-onto must not fire the interact shell handler');
+  assert.ok(log.some(l => l.includes('secures Sublevel cache')));
+});
+
 test('move onto a consumable pickup adds it to inventory and removes the pickup', () => {
   const { ctx, log, player, world } = buildCtx({ placeDrone: false });
   world.addEntity(
@@ -252,6 +269,87 @@ test('special intent routes to Vault on a Merc and lands two tiles away', () => 
   applyIntent({ type: 'special', dx: 1, dy: 0 }, ctx);
   assert.equal(player.x, 4);
   assert.equal(player.y, 2);
+});
+
+test('vault onto an objective pickup secures it', () => {
+  const { ctx, log, player, world } = buildCtx({ archetype: 'merc', placeDrone: false });
+  world.addEntity(new Pickup({ id: 'pickup-0', x: 4, y: 2, label: 'Cache' }));
+  applyIntent({ type: 'special', dx: 1, dy: 0 }, ctx);
+  assert.equal(player.x, 4);
+  assert.equal(world.entities.has('pickup-0'), false);
+  assert.equal(world.securedPickupCount(), 1);
+  assert.ok(log.some(l => l.includes('secures Cache')));
+});
+
+test('vault onto a consumable pickup collects it', () => {
+  const { ctx, log, player, world } = buildCtx({ archetype: 'merc', placeDrone: false });
+  player.initInventory();
+  world.addEntity(
+    new ConsumablePickup({
+      id: 'consumable-pickup-0',
+      x: 4,
+      y: 2,
+      consumableId: ITEM_ID.STIM,
+      label: 'Stim',
+    })
+  );
+  applyIntent({ type: 'special', dx: 1, dy: 0 }, ctx);
+  assert.equal(player.x, 4);
+  assert.equal(player.y, 2);
+  assert.equal(player.inventory?.consumables[0]?.id, ITEM_ID.STIM);
+  assert.equal(world.entities.has('consumable-pickup-0'), false);
+  assert.ok(log.some(l => l.includes('picks up Stim')));
+});
+
+test('vault onto consumable succeeds when knockback lane beyond landing is a wall', () => {
+  const { ctx, log, player, world } = buildCtx({ archetype: 'merc', placeDrone: false });
+  player.initInventory();
+  world.grid.setTile(5, 2, TILE.WALL);
+  const pickup = new ConsumablePickup({
+    id: 'consumable-pickup-0',
+    x: 4,
+    y: 2,
+    consumableId: ITEM_ID.STIM,
+    label: 'Stim',
+  });
+  pickup.passable = false;
+  world.addEntity(pickup);
+  applyIntent({ type: 'special', dx: 1, dy: 0 }, ctx);
+  assert.equal(player.x, 4);
+  assert.equal(player.y, 2);
+  assert.equal(player.inventory?.consumables[0]?.id, ITEM_ID.STIM);
+  assert.ok(log.some(l => l.includes('vaulted')));
+  assert.ok(log.some(l => l.includes('picks up Stim')));
+});
+
+test('slide onto an objective pickup secures it', () => {
+  const { ctx, log, player, world } = buildCtx({ archetype: 'razor', placeDrone: false });
+  world.addEntity(new Pickup({ id: 'pickup-0', x: 2, y: 4, label: 'Cache' }));
+  applyIntent({ type: 'special', dx: 0, dy: 1 }, ctx);
+  assert.equal(player.x, 2);
+  assert.equal(player.y, 4);
+  assert.equal(world.entities.has('pickup-0'), false);
+  assert.ok(log.some(l => l.includes('secures Cache')));
+});
+
+test('slide onto a consumable pickup collects it', () => {
+  const { ctx, log, player, world } = buildCtx({ archetype: 'razor', placeDrone: false });
+  player.initInventory();
+  world.addEntity(
+    new ConsumablePickup({
+      id: 'consumable-pickup-0',
+      x: 2,
+      y: 4,
+      consumableId: ITEM_ID.INCENDIARY,
+      label: 'Incendiary',
+    })
+  );
+  applyIntent({ type: 'special', dx: 0, dy: 1 }, ctx);
+  assert.equal(player.x, 2);
+  assert.equal(player.y, 4);
+  assert.equal(player.inventory?.consumables[0]?.id, ITEM_ID.INCENDIARY);
+  assert.equal(world.entities.has('consumable-pickup-0'), false);
+  assert.ok(log.some(l => l.includes('picks up Incendiary')));
 });
 
 test('special intent routes to Deploy on a Tech and places a Turret adjacent', () => {

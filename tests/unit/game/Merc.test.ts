@@ -6,6 +6,7 @@ import { Entity } from '../../../src/game/Entity.js';
 import { Grid } from '../../../src/game/Grid.js';
 import { World } from '../../../src/game/World.js';
 import { TILE, FACTION, AP_COST } from '../../../src/game/constants.js';
+import { ConsumablePickup } from '../../../src/game/entities/ConsumablePickup.js';
 
 const makeWorld = ({ grid, mercAt = [3, 3], extraEntities = [] } = {}) => {
   const g = grid ?? new Grid(8, 8);
@@ -206,4 +207,60 @@ test('Merc.vault is repeatable (no one-shot gate)', () => {
   merc.vault(world, 1, 0); // hop over (6,3), land at (7,3)
   assert.equal(merc.x, 7);
   assert.equal(merc.ap, 8 - 2 * AP_COST.VAULT);
+});
+
+test('Merc.canVault and vault allow landing on a passable consumable pickup', () => {
+  const g = new Grid(8, 8);
+  g.setTile(4, 3, TILE.COVER);
+  const pickup = new ConsumablePickup({
+    id: 'consumable-pickup-0',
+    x: 5,
+    y: 3,
+    consumableId: 'stim',
+    label: 'Stim',
+  });
+  const { world, merc } = makeWorld({ grid: g, extraEntities: [pickup] });
+  assert.equal(merc.canVault(world, 1, 0).ok, true);
+  merc.vault(world, 1, 0);
+  assert.equal(merc.x, 5);
+  assert.equal(merc.y, 3);
+  assert.equal(world.consumablePickupAt(5, 3)?.id, 'consumable-pickup-0');
+});
+
+test('Merc.canVault allows consumable landing when knockback lane is a wall (no body-check)', () => {
+  const g = new Grid(8, 8);
+  g.setTile(4, 3, TILE.COVER);
+  g.setTile(6, 3, TILE.WALL);
+  const pickup = new ConsumablePickup({
+    id: 'consumable-pickup-0',
+    x: 5,
+    y: 3,
+    consumableId: 'stim',
+    label: 'Stim',
+  });
+  pickup.passable = false;
+  const { world, merc } = makeWorld({ grid: g, extraEntities: [pickup] });
+  const check = merc.canVault(world, 1, 0);
+  assert.equal(check.ok, true, 'consumables are not knockback targets');
+  merc.vault(world, 1, 0);
+  assert.equal(merc.x, 5);
+  assert.equal(merc.y, 3);
+});
+
+test('Merc.canVault allows landing on a consumable placed on a hazard tile', () => {
+  const g = new Grid(8, 8);
+  g.setTile(4, 3, TILE.COVER);
+  g.setTile(5, 3, TILE.HAZARD);
+  const pickup = new ConsumablePickup({
+    id: 'consumable-pickup-0',
+    x: 5,
+    y: 3,
+    consumableId: 'stim',
+    label: 'Stim',
+  });
+  const { world, merc } = makeWorld({ grid: g, extraEntities: [pickup] });
+  assert.equal(merc.canVault(world, 1, 0).ok, true);
+  merc.vault(world, 1, 0);
+  assert.equal(merc.x, 5);
+  assert.equal(merc.y, 3);
 });

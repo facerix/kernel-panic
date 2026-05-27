@@ -14,6 +14,7 @@ import {
   MEMORY_DIM,
   dimColor,
 } from '../../../src/render/palette.js';
+import { ConsumablePickup } from '../../../src/game/entities/ConsumablePickup.js';
 import { VisionField } from '../../../src/game/Vision.js';
 
 const fixture = () => {
@@ -78,6 +79,24 @@ test('buildFrame: a live entity standing on a corpse tile renders the live entit
   w.entities.set(live.id, live);
   const frame = buildFrame(w, { x: 0, y: 0, width: 6, height: 4 });
   assert.equal(cellAt(frame, 3, 1).char, '@', 'live entity overrides corpse on the same tile');
+});
+
+test('buildFrame: a live impassable entity overrides a passable pickup on the same tile', () => {
+  const g = new Grid(6, 4);
+  const w = new World(g);
+  const pickup = new ConsumablePickup({
+    id: 'consumable-pickup-0',
+    x: 3,
+    y: 1,
+    consumableId: 'stim',
+    label: 'Stim',
+  });
+  const drone = new Entity({ id: 'd', x: 3, y: 1, faction: FACTION.CORP, glyph: 'd' });
+  // Co-located live actors bypass addEntity's placement guard (legal after movement).
+  w.entities.set(pickup.id, pickup);
+  w.entities.set(drone.id, drone);
+  const frame = buildFrame(w, { x: 0, y: 0, width: 6, height: 4 });
+  assert.equal(cellAt(frame, 3, 1).char, 'd', 'drone overrides consumable pickup glyph');
 });
 
 test('buildFrame translates by camera offset (top-left becomes world (cx, cy))', () => {
