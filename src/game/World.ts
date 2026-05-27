@@ -356,9 +356,7 @@ export class World {
 
   /** Walk-onto / walk-through floor props — never movement or LOS blockers. */
   #isWalkThrough(e: Entity): boolean {
-    return (
-      e.passable || this.#isConsumablePickupEntity(e) || this.#isObjectivePickupEntity(e)
-    );
+    return e.passable || this.#isConsumablePickupEntity(e) || this.#isObjectivePickupEntity(e);
   }
 
   #isConsumablePickupEntity(e: Entity): boolean {
