@@ -197,11 +197,9 @@ main {
   flex-direction: column;
   gap: 0.2em;
 
-  /* Four reserved rows: stats, context, and two activity lines. Each row holds its
-   * own line so toggling text never reflows the canvas above. When a
-   * proximity hint is active it takes the upper activity slot (`.hint`);
-   * otherwise both show rolling action logs. Stable rows never wrap — at
-   * narrow viewports it ellipsizes rather than spilling. */
+  /* Four reserved rows: stats, context, and two activity lines. Each row holds
+   * its own line so toggling text never reflows the canvas above. Stable rows
+   * never wrap - at narrow viewports they ellipsize rather than spilling. */
   .game-shell__stats {
     color: #6ae8c8;
     height: 1.1rem;
@@ -263,6 +261,9 @@ main {
     height: 1.1rem;
     font-style: italic;
     letter-spacing: 0.03em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 
     &.hint {
       font-style: normal;
@@ -293,7 +294,7 @@ main {
   align-items: center;
   gap: 0.5rem;
   width: 100%;
-  max-width: min(960px, 100%);
+  max-width: min(960px, max(320px, calc((100dvh - 13.25rem) * 1.6)), 100%);
 }
 
 .game-stage > #game-canvas {

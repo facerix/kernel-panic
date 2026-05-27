@@ -33,6 +33,7 @@ import { fittingPrefabs } from './prefabs/index.js';
 import { Entity } from '../Entity.js';
 import { World } from '../World.js';
 import { Door } from '../entities/Door.js';
+import { Terminal } from '../entities/Terminal.js';
 import { findPath } from '../Pathfinding.js';
 import type { Rng } from '../../rng.js';
 import type { GridPoint } from '../../types.js';
@@ -44,6 +45,8 @@ const DEFAULT_THREAT_COUNT = 2;
 const DEFAULT_MAX_CORP_CIVILIANS = 1;
 const DEFAULT_MAX_NEUTRAL_CIVILIANS = 1;
 const MAX_DOOR_LAYOUT_ATTEMPTS = 48;
+const DYNAMIC_DOOR_BUFFER = 3;
+const DYNAMIC_TERMINAL_MAX_STEPS = 2;
 
 /**
  * The outermost 1-tile rim of the grid is always reserved for WALL. The BSP
@@ -64,13 +67,20 @@ export type CivilianAnchor = {
   x: number;
   y: number;
 };
+export type DynamicDoorAnchor = {
+  door: GridPoint;
+  terminal: GridPoint;
+};
 export type Map = {
   grid: Grid;
   spawns: { player: GridPoint };
   drones: EntityAnchor[];
   corpCivilians: CivilianAnchor[];
   neutralCivilians: CivilianAnchor[];
+  /** Prefab/authored door anchors only. Dynamic doors are in `dynamicDoors`. */
   doors: GridPoint[];
+  dynamicDoors: DynamicDoorAnchor[];
+  dynamicDoorCount: number;
   exitTile: GridPoint;
 };
 
@@ -286,6 +296,23 @@ function buildMapOnce(mapRng: Rng, options: BuildMapOptions): Map {
     );
   }
 
+  const dynamicDoorWorld = new World(grid);
+  for (let i = 0; i < doorAnchors.length; i++) {
+    const door = doorAnchors[i]!;
+    dynamicDoorWorld.addEntity(
+      new Door({
+        id: `prefab-door-probe-${i}`,
+        doorId: `prefab-door-${i}`,
+        x: door.x,
+        y: door.y,
+      })
+    );
+  }
+  const dynamicDoors = placeDoors(dynamicDoorWorld, difficulty, mapRng, {
+    spawn: playerSpawn,
+    exitTile,
+  });
+
   // Drones — two passes:
   //   1) Use authored drone anchors from non-spawn leaves first; each anchor
   //      carries the nearest authored patrol path for its prefab.
@@ -301,6 +328,8 @@ function buildMapOnce(mapRng: Rng, options: BuildMapOptions): Map {
     (x === playerSpawn.x && y === playerSpawn.y) ||
     (x === exitTile.x && y === exitTile.y) ||
     doorAnchors.some(a => a.x === x && a.y === y) ||
+    dynamicDoors.some(a => a.door.x === x && a.door.y === y) ||
+    dynamicDoors.some(a => a.terminal.x === x && a.terminal.y === y) ||
     droneAnchors.some(a => a.x === x && a.y === y) ||
     corpCivilians.some(a => a.x === x && a.y === y) ||
     neutralCivilians.some(a => a.x === x && a.y === y);
@@ -384,8 +413,88 @@ function buildMapOnce(mapRng: Rng, options: BuildMapOptions): Map {
         !(door.x === playerSpawn.x && door.y === playerSpawn.y) &&
         !(door.x === exitTile.x && door.y === exitTile.y)
     ),
+    dynamicDoors,
+    dynamicDoorCount: dynamicDoors.length,
     exitTile,
   };
+}
+
+export type PlaceDoorsOptions = {
+  spawn: GridPoint;
+  exitTile: GridPoint;
+  objectiveAnchors?: readonly GridPoint[];
+  reserved?: ReadonlySet<string>;
+};
+
+export function placeDoors(
+  world: World,
+  difficulty: ContractDifficulty,
+  rng: Rng,
+  options: PlaceDoorsOptions
+): DynamicDoorAnchor[] {
+  if (difficulty === CONTRACT_DIFFICULTY.STANDARD) return [];
+  const targetCount = difficulty === CONTRACT_DIFFICULTY.CRITICAL ? rng.intRange(1, 3) : 1;
+  const placed: DynamicDoorAnchor[] = [];
+  const candidates = shuffleDoorCandidates(
+    findCorridorDoorCandidates(world, options.spawn, options.exitTile, options.reserved),
+    rng
+  );
+
+  for (const candidate of candidates) {
+    if (placed.length >= targetCount) break;
+    const doorId = `dynamic-door-${placed.length}`;
+    const door = new Door({
+      id: `dynamic-door-entity-${placed.length}`,
+      doorId,
+      x: candidate.x,
+      y: candidate.y,
+    });
+    try {
+      world.addEntity(door);
+    } catch {
+      continue;
+    }
+
+    const terminalAnchors = findDynamicTerminalAnchors(
+      world,
+      options.spawn,
+      options.exitTile,
+      door,
+      {
+        objectiveAnchors: options.objectiveAnchors,
+        reserved: options.reserved,
+      }
+    );
+    const terminalAnchor =
+      terminalAnchors.find(anchor =>
+        dynamicDoorPreservesConnectivity(world, options, door, anchor)
+      ) ?? null;
+    if (!terminalAnchor) {
+      world.removeEntity(door.id);
+      continue;
+    }
+
+    const terminal = new Terminal({
+      id: `dynamic-door-terminal-${placed.length}`,
+      x: terminalAnchor.x,
+      y: terminalAnchor.y,
+      label: 'Access terminal',
+      raisesAlarm: true,
+      unlocksId: door.doorId,
+    });
+    try {
+      world.addEntity(terminal);
+    } catch {
+      world.removeEntity(door.id);
+      continue;
+    }
+    placed.push({
+      door: { x: door.x, y: door.y },
+      terminal: { x: terminal.x, y: terminal.y },
+    });
+  }
+
+  return placed;
 }
 
 function doorLayoutSupportsLinkedContracts(map: Map): boolean {
@@ -486,6 +595,195 @@ function hasAdjacentPassableFloor(world: World, x: number, y: number): boolean {
     }
   }
   return false;
+}
+
+function findCorridorDoorCandidates(
+  world: World,
+  spawn: GridPoint,
+  exitTile: GridPoint,
+  reserved: ReadonlySet<string> | undefined
+): GridPoint[] {
+  const candidates: GridPoint[] = [];
+  for (let y = 1; y < world.grid.height - 1; y++) {
+    for (let x = 1; x < world.grid.width - 1; x++) {
+      if (world.grid.tileAt(x, y) !== TILE.FLOOR) continue;
+      if (world.liveEntityAt(x, y)) continue;
+      if (reserved?.has(coordKey(x, y))) continue;
+      if (manhattan({ x, y }, spawn) < DYNAMIC_DOOR_BUFFER) continue;
+      if (manhattan({ x, y }, exitTile) < DYNAMIC_DOOR_BUFFER) continue;
+      const north = isFloorNeighbour(world, x, y - 1);
+      const south = isFloorNeighbour(world, x, y + 1);
+      const west = isFloorNeighbour(world, x - 1, y);
+      const east = isFloorNeighbour(world, x + 1, y);
+      const vertical = north && south && !west && !east;
+      const horizontal = west && east && !north && !south;
+      if (vertical || horizontal) candidates.push({ x, y });
+    }
+  }
+  return candidates;
+}
+
+function findDynamicTerminalAnchors(
+  world: World,
+  spawn: GridPoint,
+  exitTile: GridPoint,
+  door: Door,
+  options: Pick<PlaceDoorsOptions, 'objectiveAnchors' | 'reserved'>
+): GridPoint[] {
+  const anchors: GridPoint[] = [];
+  const queue: Array<GridPoint & { distance: number }> = [{ x: door.x, y: door.y, distance: 0 }];
+  const seen = new Set([coordKey(door.x, door.y)]);
+  for (let i = 0; i < queue.length; i++) {
+    const point = queue[i]!;
+    if (point.distance >= DYNAMIC_TERMINAL_MAX_STEPS) continue;
+    for (const [dx, dy] of CARDINAL_OFFSETS) {
+      const x = point.x + dx;
+      const y = point.y + dy;
+      const key = coordKey(x, y);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (!world.grid.inBounds(x, y)) continue;
+      if (world.grid.tileAt(x, y) !== TILE.FLOOR) continue;
+      if (options.reserved?.has(key)) continue;
+      if (x === spawn.x && y === spawn.y) continue;
+      if (x === exitTile.x && y === exitTile.y) continue;
+      if (world.liveEntityAt(x, y)) continue;
+      const anchor = { x, y };
+      if (findPath(world, spawn, anchor, { allowOccupiedGoal: false }) !== null) {
+        anchors.push(anchor);
+      }
+      queue.push({ x, y, distance: point.distance + 1 });
+    }
+  }
+  return anchors;
+}
+
+function dynamicDoorPreservesConnectivity(
+  world: World,
+  options: PlaceDoorsOptions,
+  door: Door,
+  terminalAnchor: GridPoint
+): boolean {
+  const terminalBlocker = coordKey(terminalAnchor.x, terminalAnchor.y);
+  const targets = [options.exitTile, ...(options.objectiveAnchors ?? [])];
+  const wasLocked = door.locked;
+  try {
+    door.unlock();
+    for (const target of targets) {
+      const baselineReachable =
+        findPath(world, options.spawn, target, {
+          allowOccupiedGoal: false,
+          extraBlockers: new Set([terminalBlocker]),
+        }) !== null;
+      if (!baselineReachable) continue;
+      door.lock();
+      const reachableWithDoorLocked =
+        findPath(world, options.spawn, target, {
+          allowOccupiedGoal: false,
+          extraBlockers: new Set([terminalBlocker]),
+        }) !== null;
+      door.unlock();
+      if (!reachableWithDoorLocked) return false;
+    }
+    door.lock();
+    return dynamicDoorGatesReachableArea(world, options, door, terminalAnchor);
+  } finally {
+    if (wasLocked) door.lock();
+    else door.unlock();
+  }
+}
+
+function dynamicDoorGatesReachableArea(
+  world: World,
+  options: PlaceDoorsOptions,
+  door: Door,
+  terminalAnchor: GridPoint
+): boolean {
+  const terminalKey = coordKey(terminalAnchor.x, terminalAnchor.y);
+  const extraBlockers = new Set<string>();
+  const lockedReachable = reachableCellKeys(world, options.spawn, extraBlockers);
+  const wasLocked = door.locked;
+  try {
+    door.unlock();
+    const openReachable = reachableCellKeys(world, options.spawn, extraBlockers);
+    for (const key of openReachable) {
+      if (lockedReachable.has(key)) continue;
+      if (key === coordKey(door.x, door.y)) continue;
+      if (key === terminalKey) continue;
+      if (options.reserved?.has(key)) continue;
+      return true;
+    }
+    return false;
+  } finally {
+    if (wasLocked) door.lock();
+    else door.unlock();
+  }
+}
+
+function reachableCellKeys(
+  world: World,
+  start: GridPoint,
+  extraBlockers: ReadonlySet<string>
+): Set<string> {
+  const reachable = new Set<string>();
+  const startKey = coordKey(start.x, start.y);
+  const queue: GridPoint[] = [{ ...start }];
+  reachable.add(startKey);
+  for (let i = 0; i < queue.length; i++) {
+    const point = queue[i]!;
+    for (const [dx, dy] of EIGHT_WAY_OFFSETS) {
+      const x = point.x + dx;
+      const y = point.y + dy;
+      const key = coordKey(x, y);
+      if (reachable.has(key)) continue;
+      if (!world.grid.inBounds(x, y)) continue;
+      if (!world.grid.isPassable(x, y)) continue;
+      if (extraBlockers.has(key)) continue;
+      if (world.entityAt(x, y)) continue;
+      reachable.add(key);
+      queue.push({ x, y });
+    }
+  }
+  return reachable;
+}
+
+const CARDINAL_OFFSETS = Object.freeze([
+  Object.freeze([-1, 0]),
+  Object.freeze([1, 0]),
+  Object.freeze([0, -1]),
+  Object.freeze([0, 1]),
+] as const);
+
+const EIGHT_WAY_OFFSETS = Object.freeze([
+  Object.freeze([-1, -1]),
+  Object.freeze([0, -1]),
+  Object.freeze([1, -1]),
+  Object.freeze([-1, 0]),
+  Object.freeze([1, 0]),
+  Object.freeze([-1, 1]),
+  Object.freeze([0, 1]),
+  Object.freeze([1, 1]),
+] as const);
+
+function isFloorNeighbour(world: World, x: number, y: number): boolean {
+  return world.grid.inBounds(x, y) && world.grid.tileAt(x, y) === TILE.FLOOR;
+}
+
+function shuffleDoorCandidates(candidates: GridPoint[], rng: Rng): GridPoint[] {
+  const out = candidates.map(candidate => ({ ...candidate }));
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = rng.intRange(0, i + 1);
+    [out[i], out[j]] = [out[j]!, out[i]!];
+  }
+  return out;
+}
+
+function coordKey(x: number, y: number): string {
+  return `${x},${y}`;
+}
+
+function manhattan(a: GridPoint, b: GridPoint): number {
+  return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
 }
 
 function resolveSpawnAwayFromDoorAnchors(

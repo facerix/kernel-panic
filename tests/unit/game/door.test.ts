@@ -306,3 +306,124 @@ test('door-linked retrieve run places objective behind the door and unlock termi
     'pickup becomes reachable once the door unlocks'
   );
 });
+
+test('elevated non-routing runs can receive dynamic corridor doors with paired terminals', () => {
+  let run = null;
+  for (let seed = 1; seed < 120 && !run; seed++) {
+    const candidate = new Run({ crewMember: makeCrew(), seed });
+    candidate.enterBriefing(
+      fakeContract({
+        seed,
+        difficulty: 'elevated',
+        objective: {
+          kind: OBJECTIVES.SWEEP,
+          title: 'Clear the site',
+          briefing: 'Clear active threats, then extract.',
+          params: { sweepTarget: 'drone-all' },
+        },
+        context: testContractContext(OBJECTIVES.SWEEP),
+      })
+    );
+    candidate.enterCombat();
+    const dynamicTerminal = [...candidate.world.entities.values()].find(
+      entity => entity instanceof Terminal && entity.id.startsWith('terminal-dynamic-door-')
+    );
+    if (dynamicTerminal) run = candidate;
+  }
+  assert.ok(run, 'expected at least one deterministic seed to produce a dynamic door');
+
+  const dynamicTerminal = [...run.world.entities.values()].find(
+    entity => entity instanceof Terminal && entity.id.startsWith('terminal-dynamic-door-')
+  );
+  assert.ok(dynamicTerminal instanceof Terminal);
+  const dynamicDoor = [...run.world.entities.values()].find(
+    entity => entity instanceof Door && entity.doorId === dynamicTerminal.unlocksId
+  );
+  assert.ok(dynamicDoor instanceof Door);
+  assert.equal(dynamicDoor.locked, true);
+  assert.ok(
+    findPath(run.world, { x: run.player.x, y: run.player.y }, run.exitTile, {
+      allowOccupiedGoal: false,
+    }),
+    'dynamic door must not block extraction while locked'
+  );
+
+  relocateAdjacentTo(run, dynamicTerminal);
+  const result = dynamicTerminal.interact(run.world, run.player);
+
+  assert.equal(result.ok, true);
+  assert.equal(dynamicDoor.locked, false);
+});
+
+test('dynamic corridor doors snapshot/restore through existing door and terminal archetypes', () => {
+  let run = null;
+  for (let seed = 1; seed < 120 && !run; seed++) {
+    const candidate = new Run({ crewMember: makeCrew(), seed });
+    candidate.enterBriefing(
+      fakeContract({
+        seed,
+        difficulty: 'elevated',
+        objective: {
+          kind: OBJECTIVES.SWEEP,
+          title: 'Clear the site',
+          briefing: 'Clear active threats, then extract.',
+          params: { sweepTarget: 'drone-all' },
+        },
+        context: testContractContext(OBJECTIVES.SWEEP),
+      })
+    );
+    candidate.enterCombat();
+    const hasDynamicTerminal = [...candidate.world.entities.values()].some(
+      entity => entity instanceof Terminal && entity.id.startsWith('terminal-dynamic-door-')
+    );
+    if (hasDynamicTerminal) run = candidate;
+  }
+  assert.ok(run);
+
+  const rec = snapshot(run);
+  const restored = restore(rec);
+  const restoredTerminal = [...restored.world.entities.values()].find(
+    entity => entity instanceof Terminal && entity.id.startsWith('terminal-dynamic-door-')
+  );
+  assert.ok(restoredTerminal instanceof Terminal);
+  const restoredDoor = [...restored.world.entities.values()].find(
+    entity => entity instanceof Door && entity.doorId === restoredTerminal.unlocksId
+  );
+  assert.ok(restoredDoor instanceof Door);
+  assert.equal(restoredDoor.locked, true);
+});
+
+test('dynamic access terminals do not satisfy terminal-slice objectives', () => {
+  let run = null;
+  for (let seed = 1; seed < 160 && !run; seed++) {
+    const candidate = new Run({ crewMember: makeCrew(), seed });
+    candidate.enterBriefing(
+      fakeContract({
+        seed,
+        difficulty: 'elevated',
+        objective: {
+          kind: OBJECTIVES.TERMINAL_SLICE,
+          title: 'Slice the target terminal',
+          briefing: 'Slice the target terminal, then extract.',
+        },
+        context: testContractContext(OBJECTIVES.TERMINAL_SLICE),
+      })
+    );
+    candidate.enterCombat();
+    const dynamicTerminal = [...candidate.world.entities.values()].find(
+      entity => entity instanceof Terminal && entity.id.startsWith('terminal-dynamic-door-')
+    );
+    if (dynamicTerminal) run = candidate;
+  }
+  assert.ok(run);
+
+  const dynamicTerminal = [...run.world.entities.values()].find(
+    entity => entity instanceof Terminal && entity.id.startsWith('terminal-dynamic-door-')
+  );
+  assert.ok(dynamicTerminal instanceof Terminal);
+  relocateAdjacentTo(run, dynamicTerminal);
+  const result = dynamicTerminal.interact(run.world, run.player);
+
+  assert.equal(result.ok, true);
+  assert.equal(run.isObjectiveSatisfied(), false);
+});

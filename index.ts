@@ -60,6 +60,7 @@ import {
 import { KeyboardController } from '/src/input/KeyboardController.js';
 import { MODE } from '/src/input/keymap.js';
 import { applyIntent, PLAYER_ACTIONS } from '/src/input/applyIntent.js';
+import { recordStatusActionLine, statusActionRows } from '/src/statusActivityRows.js';
 
 import { placeSmoke, clearSmoke } from '/src/game/Smoke.js';
 import { placeHazardCluster } from '/src/game/Run.js';
@@ -244,13 +245,13 @@ let pendingJobResult: PendingJobResult | null = null;
 let activeSmokeOverlays: SmokeOverlay[] = [];
 
 /**
- * Two most recent intent-result log lines (melee, fire, perk use, denials,
- * etc.). `lastActionLine` is the newest; `prevActionLine` is one step back.
- * Both render in the status bar's two activity rows — unless a proximity
- * hint is active, which bumps `prevActionLine` out of the upper slot.
+ * Recent intent-result log lines (melee, fire, perk use, denials, etc.).
+ * Stored newest-first, then rendered oldest-to-newest so a single interaction
+ * burst stays readable: terminal side effects (door unlock, alarm/Rep) remain
+ * visible beside the terminal result instead of disappearing into the log.
  */
-let lastActionLine = '';
-let prevActionLine = '';
+let actionLineHistory: string[] = [];
+let pendingActionLineCount = 0;
 
 /**
  * Plain-text body after `CORP —` from the last status paint while the queue
@@ -1642,10 +1643,10 @@ function statusLine(modeHint: Mode): string {
   const statsInner = joinStatusParts([stateLabel(), identity, `${aphp}${stealthTag}`, turnInfo]);
   const stats = `<span class="game-shell__stats">${statsInner}</span>`;
   const contextRow = `<span class="game-shell__context">${context}</span>`;
-  // Two activity rows below the stable status rows. Ephemeral, non-logged status
-  // (proximity hints, corp mood) takes the upper slot when present,
-  // bumping the previous action line; otherwise both rows show the last
-  // two action logs. The reserved heights keep geometry constant.
+  // Two activity rows below the stable status rows. A single fresh action can
+  // share the HUD with ephemeral, non-logged status (proximity hints, corp
+  // mood). Short same-interaction bursts take both rows so side effects like
+  // door unlocks stay visible instead of disappearing into the log.
   let ephemeral = '';
   const hintText = proximityHint();
   if (hintText) {
@@ -1668,10 +1669,12 @@ function statusLine(modeHint: Mode): string {
     ephemeral = `<span class="game-shell__activity corp"><span class="faction-tag">CORP</span> — ${corpToneActivityBody}</span>`;
     corpToneActivityBody = null;
   }
-  const upper = ephemeral
-    ? ephemeral
-    : `<span class="game-shell__activity">${prevActionLine ?? ''}</span>`;
-  const lower = `<span class="game-shell__activity">${lastActionLine ?? ''}</span>`;
+  const activityRows = statusActionRows(actionLineHistory, pendingActionLineCount, !!ephemeral);
+  pendingActionLineCount = 0;
+  const [upper, lower] = activityRows.map(row => {
+    if (row.source === 'ephemeral') return ephemeral;
+    return `<span class="game-shell__activity">${escapeHtml(row.text)}</span>`;
+  });
   return stats + contextRow + upper + lower;
 }
 
@@ -1777,10 +1780,11 @@ function flash(line: string): void {
   if (scene?.state === RUN_STATE.COMBAT && scene.queue?.currentFaction === FACTION.PLAYER) {
     corpToneActivityBody = null;
   }
-  prevActionLine = lastActionLine;
-  lastActionLine = line.replace(/^>\s*/, '');
-  if (lastActionLine) {
-    logLines.unshift(`> ${lastActionLine}`);
+  actionLineHistory = recordStatusActionLine(actionLineHistory, line);
+  pendingActionLineCount = Math.min(pendingActionLineCount + 1, actionLineHistory.length);
+  const currentActionLine = actionLineHistory[0] ?? '';
+  if (currentActionLine) {
+    logLines.unshift(`> ${currentActionLine}`);
     if (logLines.length > 20) logLines.splice(20);
     logContentEl.textContent = logLines.join('\n');
   }

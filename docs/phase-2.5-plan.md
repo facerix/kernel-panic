@@ -30,10 +30,10 @@ Living plan for the post–Phase 2 slice of Kernel Panic: **contract objectives*
 | M5.2 — Finn shop tabs + per-type salvage selling | ✅ Done |
 | M5.3 — Hub clinic NPC | ✅ Done |
 | M5.4 — Progressive Hub reveals | ✅ Done |
-| M6 — Locked doors & access gating | 🔲 Planned |
+| M6 — Locked doors & access gating | ✅ Complete |
 | M6.1 — Prefab door entity + terminal unlock | ✅ Done |
 | M6.2 — Decoupled terminal placement + KeyCard unlock path | ✅ Done |
-| M6.3 — Dynamic corridor door placement (higher-tier) | 🔲 Planned |
+| M6.3 — Dynamic corridor door placement (higher-tier) | ✅ Done |
 | M7.1 — Breaching charges & demolition objectives | 🔲 Planned |
 | M7.2 — Location memory & site roster | 🔲 Planned |
 
@@ -920,7 +920,7 @@ Phase 2.5 milestones that follow (M4–M7) retain their original numbering for c
 
 ---
 
-### M6 — Locked doors & access gating 🔲
+### M6 — Locked doors & access gating ✅
 
 **Depends on:** M2.2 (door **unlock** via terminal interact or shared interactable flags). Sets up M7 **breaching** without shipping charges or wall deletion here.
 
@@ -1019,7 +1019,7 @@ Phase 2.5 milestones that follow (M4–M7) retain their original numbering for c
 
 ---
 
-#### M6.3 — Dynamic corridor door placement (higher-tier runs) 🔲
+#### M6.3 — Dynamic corridor door placement (higher-tier runs) ✅
 
 **Depends on:** M6.1 (`Door` entity and unlock infrastructure exist). M6.2 (decoupled terminal placement + keycard unlock path) recommended so dynamic doors can use either unlock method.
 
@@ -1053,6 +1053,8 @@ Phase 2.5 milestones that follow (M4–M7) retain their original numbering for c
 - Connectivity check reuses `findPath` from `Pathfinding.ts` with `extraBlockers` set to the candidate door's `"x,y"` key — no new infrastructure required.
 - Terminal placement for the dynamic unlock: walk up to 2 tiles from the door on the spawn side (BFS over FLOOR tiles not already occupied by an entity); first unoccupied floor tile wins. If no placement found within 2 tiles, skip the door candidate.
 - `buildMap` return type gains optional `dynamicDoorCount` for tests/diagnostics; not persisted.
+- Shipped in `src/game/procgen/mapBuild.ts` as `placeDoors(world, difficulty, rng, { spawn, exitTile })`, returning `dynamicDoors` plus `dynamicDoorCount` diagnostics. `Run.enterCombat` instantiates dynamic doors after prefab doors so objective-linked `door-0` remains stable; paired dynamic terminals serialize through the existing `terminal` archetype. Terminal-slice completion now ignores dynamic access terminals so ambient locks cannot satisfy the slice objective.
+- Tests added in `tests/unit/game/procgen/mapBuild.test.ts` and `tests/unit/game/door.test.ts`: fixed-loop bottleneck placement, severed-corridor skip, difficulty gating, buildMap diagnostics, elevated non-routing run integration, snapshot round-trip, and terminal-slice access-terminal regression. Full suite: 1065/1065 green.
 
 ---
 

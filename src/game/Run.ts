@@ -433,6 +433,7 @@ export class Run {
     if (!doorLinkedContract) {
       this.#placeObjectiveInteractables();
     }
+    this.#placeDynamicDoorEntities(map.dynamicDoors, map.doors.length);
     this.#placeConsumablePickups();
     this.objectiveTimer = freshObjectiveTimer();
     this.mapSeen.clear();
@@ -983,6 +984,46 @@ export class Run {
     }
   }
 
+  #placeDynamicDoorEntities(
+    dynamicDoors: Array<{ door: GridPoint; terminal: GridPoint }>,
+    doorIndexOffset: number
+  ): void {
+    if (!this.world) return;
+    let placed = 0;
+    for (let i = 0; i < dynamicDoors.length; i++) {
+      const a = dynamicDoors[i]!;
+      if (this.world.liveEntityAt(a.door.x, a.door.y)) continue;
+      if (this.world.liveEntityAt(a.terminal.x, a.terminal.y)) continue;
+      const doorIndex = doorIndexOffset + placed;
+      const door = new Door({
+        id: `door-entity-${doorIndex}`,
+        doorId: `door-${doorIndex}`,
+        x: a.door.x,
+        y: a.door.y,
+      });
+      const terminal = new Terminal({
+        id: `terminal-dynamic-door-${placed}`,
+        x: a.terminal.x,
+        y: a.terminal.y,
+        label: 'Access terminal',
+        raisesAlarm: true,
+        unlocksId: door.doorId,
+      });
+      this.world.addEntity(door);
+      this.world.addEntity(terminal);
+      if (
+        this.player &&
+        this.exitTile &&
+        findPath(this.world, this.player, this.exitTile, { allowOccupiedGoal: false }) === null
+      ) {
+        this.world.removeEntity(terminal.id);
+        this.world.removeEntity(door.id);
+        continue;
+      }
+      placed++;
+    }
+  }
+
   #placeCorpTurret(index: number): void {
     if (!this.world || !this.player || !this.exitTile) return;
     const anchor = findInteractableAnchor(this.world, this.player, this.exitTile, this.rng);
@@ -1451,7 +1492,7 @@ function isTerminalSliceSatisfied(contract: Contract, world?: World | null): boo
   const required = objectiveCount(contract);
   let sliced = 0;
   for (const entity of world.entities.values()) {
-    if (entity instanceof Terminal && entity.sliced) sliced++;
+    if (entity instanceof Terminal && entity.sliced && /^terminal-\d+$/.test(entity.id)) sliced++;
   }
   return sliced >= required;
 }

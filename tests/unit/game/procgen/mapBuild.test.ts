@@ -3,13 +3,50 @@ import assert from 'node:assert/strict';
 
 import { Rng } from '../../../../src/rng.js';
 import { CONTRACT_DIFFICULTY, TILE } from '../../../../src/game/constants.js';
+import { Grid } from '../../../../src/game/Grid.js';
 import { World } from '../../../../src/game/World.js';
+import { Door } from '../../../../src/game/entities/Door.js';
+import { Terminal } from '../../../../src/game/entities/Terminal.js';
 import { findPath } from '../../../../src/game/Pathfinding.js';
-import { buildMap } from '../../../../src/game/procgen/mapBuild.js';
+import { buildMap, placeDoors } from '../../../../src/game/procgen/mapBuild.js';
 import { PREFABS } from '../../../../src/game/procgen/prefabs/index.js';
 
 const W = 24;
 const H = 16;
+
+function simpleCorridorWorld() {
+  const grid = new Grid(7, 3, TILE.WALL);
+  for (let x = 1; x < 6; x++) grid.setTile(x, 1, TILE.FLOOR);
+  return new World(grid);
+}
+
+function sideRoomWorld() {
+  const grid = new Grid(15, 9, TILE.WALL);
+  for (let x = 1; x <= 13; x++) {
+    grid.setTile(x, 4, TILE.FLOOR);
+    grid.setTile(x, 5, TILE.FLOOR);
+  }
+  for (let x = 6; x <= 8; x++) {
+    grid.setTile(x, 1, TILE.FLOOR);
+    grid.setTile(x, 2, TILE.FLOOR);
+  }
+  grid.setTile(7, 3, TILE.FLOOR);
+  return new World(grid);
+}
+
+function bypassConnectorWorld() {
+  const grid = new Grid(15, 9, TILE.WALL);
+  for (let x = 1; x <= 13; x++) {
+    grid.setTile(x, 3, TILE.FLOOR);
+    grid.setTile(x, 5, TILE.FLOOR);
+  }
+  for (const x of [1, 7, 13]) {
+    for (let y = 3; y <= 5; y++) {
+      grid.setTile(x, y, TILE.FLOOR);
+    }
+  }
+  return new World(grid);
+}
 
 test('buildMap is deterministic for the same seed', () => {
   const a = buildMap({ rng: new Rng(0xdecafbad), width: W, height: H, threatCount: 2 });
@@ -49,6 +86,120 @@ test('buildMap only returns door anchors when prefab doors are requested', () =>
     assert.notDeepEqual(door, gated.spawns.player);
     assert.notDeepEqual(door, gated.exitTile);
   }
+});
+
+test('placeDoors identifies a meaningful bottleneck and pairs a reachable unlock terminal', () => {
+  const world = sideRoomWorld();
+  const placed = placeDoors(world, CONTRACT_DIFFICULTY.ELEVATED, new Rng(7), {
+    spawn: { x: 1, y: 4 },
+    exitTile: { x: 13, y: 4 },
+  });
+
+  assert.equal(placed.length, 1);
+  const door = [...world.entities.values()].find(entity => entity instanceof Door);
+  const terminal = [...world.entities.values()].find(entity => entity instanceof Terminal);
+  assert.ok(door instanceof Door);
+  assert.ok(terminal instanceof Terminal);
+  assert.equal(terminal.unlocksId, door.doorId);
+  assert.equal(world.grid.tileAt(door.x, door.y), TILE.FLOOR);
+  assert.equal(world.grid.tileAt(terminal.x, terminal.y), TILE.FLOOR);
+  const terminalAdjacentReachable = [
+    { x: terminal.x - 1, y: terminal.y },
+    { x: terminal.x + 1, y: terminal.y },
+    { x: terminal.x, y: terminal.y - 1 },
+    { x: terminal.x, y: terminal.y + 1 },
+  ].some(
+    point =>
+      world.grid.inBounds(point.x, point.y) &&
+      world.grid.isPassable(point.x, point.y) &&
+      !world.entityAt(point.x, point.y) &&
+      findPath(world, { x: 1, y: 4 }, point, { allowOccupiedGoal: false })
+  );
+  assert.ok(
+    terminalAdjacentReachable,
+    'terminal should be reachable while the dynamic door is locked'
+  );
+  assert.ok(
+    findPath(world, { x: 1, y: 4 }, { x: 13, y: 4 }, { allowOccupiedGoal: false }),
+    'dynamic door must preserve spawn-to-exit connectivity while locked'
+  );
+});
+
+test('placeDoors skips a bottleneck that would sever spawn-to-exit connectivity', () => {
+  const world = simpleCorridorWorld();
+  const placed = placeDoors(world, CONTRACT_DIFFICULTY.ELEVATED, new Rng(7), {
+    spawn: { x: 1, y: 1 },
+    exitTile: { x: 5, y: 1 },
+  });
+
+  assert.deepEqual(placed, []);
+  assert.equal([...world.entities.values()].filter(entity => entity instanceof Door).length, 0);
+});
+
+test('placeDoors skips connector doors that do not gate any additional floor', () => {
+  const world = bypassConnectorWorld();
+  const placed = placeDoors(world, CONTRACT_DIFFICULTY.ELEVATED, new Rng(7), {
+    spawn: { x: 1, y: 3 },
+    exitTile: { x: 13, y: 3 },
+  });
+
+  assert.deepEqual(placed, []);
+  assert.equal([...world.entities.values()].filter(entity => entity instanceof Door).length, 0);
+  assert.equal([...world.entities.values()].filter(entity => entity instanceof Terminal).length, 0);
+});
+
+test('placeDoors gates count by difficulty', () => {
+  const standard = sideRoomWorld();
+  assert.equal(
+    placeDoors(standard, CONTRACT_DIFFICULTY.STANDARD, new Rng(1), {
+      spawn: { x: 1, y: 4 },
+      exitTile: { x: 13, y: 4 },
+    }).length,
+    0
+  );
+
+  const elevated = sideRoomWorld();
+  assert.equal(
+    placeDoors(elevated, CONTRACT_DIFFICULTY.ELEVATED, new Rng(1), {
+      spawn: { x: 1, y: 4 },
+      exitTile: { x: 13, y: 4 },
+    }).length,
+    1
+  );
+
+  const critical = sideRoomWorld();
+  const criticalCount = placeDoors(critical, CONTRACT_DIFFICULTY.CRITICAL, new Rng(1), {
+    spawn: { x: 1, y: 4 },
+    exitTile: { x: 13, y: 4 },
+  }).length;
+  assert.ok(criticalCount >= 1 && criticalCount <= 2);
+});
+
+test('buildMap returns dynamic door diagnostics separately from prefab door anchors', () => {
+  const standard = buildMap({
+    rng: new Rng(0xdecafbad),
+    width: W,
+    height: H,
+    threatCount: 2,
+    difficulty: CONTRACT_DIFFICULTY.STANDARD,
+  });
+  assert.equal(standard.dynamicDoorCount, 0);
+  assert.deepEqual(standard.dynamicDoors, []);
+
+  let elevated: ReturnType<typeof buildMap> | null = null;
+  for (let seed = 1; seed < 80 && !elevated; seed++) {
+    const candidate = buildMap({
+      rng: new Rng(seed),
+      width: W,
+      height: H,
+      threatCount: 2,
+      difficulty: CONTRACT_DIFFICULTY.ELEVATED,
+    });
+    if (candidate.dynamicDoorCount > 0) elevated = candidate;
+  }
+  assert.ok(elevated, 'expected at least one deterministic seed to place a dynamic door');
+  assert.equal(elevated.dynamicDoorCount, elevated.dynamicDoors.length);
+  assert.deepEqual(elevated.doors, [], 'ambient doors must not masquerade as prefab doors');
 });
 
 test('door-linked maps never spawn the player on a door anchor', () => {
