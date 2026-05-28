@@ -117,6 +117,8 @@ UpdateNotification (dispatched by component)
 
 **Service Worker:** Automatically detects dev mode via `isDevelopmentMode()` in `domUtils.js`.
 
+**Service worker precache:** Offline install precaches a hand-maintained list in `sw-core.js` → `CacheConfig.getCoreResources()`. When you add a new runtime module under `src/` or `components/` that the PWA loads (imported from `index.ts`, `about.ts`, a web component, or any module in that graph), add its compiled URL to that list — e.g. `/src/game/entities/Door.js`, not the `.ts` path. Skip `debug/` (not part of the offline shell) and modules that are only `import type` (they erase at compile time; e.g. `src/types.ts`). After changing the list, bump the cache version in `sw.js` / `sw-dev.js` so clients pick up the new precache on update.
+
 ## Things to Avoid
 
 1. ❌ Frameworks (React, Vue, etc.)
@@ -147,4 +149,4 @@ UpdateNotification (dispatched by component)
 
 **Before:** Offline support? DataStore? Using `h()`? Types strict?
 
-**After:** `npm run format` → `npm run lint` → `npm test` → fix issues → verify in browser
+**After:** `npm run format` → `npm run lint` → `npm test` → fix issues → verify in browser. New `src/` or `components/` module in the PWA import graph? Update `sw-core.js` `getCoreResources()` (and SW cache version if needed).
