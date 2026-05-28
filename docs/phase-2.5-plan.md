@@ -25,7 +25,7 @@ Living plan for the post–Phase 2 slice of Kernel Panic: **contract objectives*
 | M4.1 — Drone corpse removal on salvage | ✅ Done |
 | M4.2 — Typed salvage (Scrap / Chips / Bio / Data) | ✅ Done |
 | M4.3 — Field consumables (smoke / stim / incendiary) | ✅ Done |
-| M5 — Hub, economy, Rep, crew tuning | 🔲 Planned |
+| M5 — Hub, economy, Rep, crew tuning | ✅ Complete |
 | M5.1 — Rep tiers & contract access gate | ✅ Done |
 | M5.2 — Finn shop tabs + per-type salvage selling | ✅ Done |
 | M5.3 — Hub clinic NPC | ✅ Done |
@@ -1118,6 +1118,75 @@ Phase 2.5 milestones that follow (M4–M7) retain their original numbering for c
 - Breaching charge added to `getShopCatalog` with `minRepTier: 'UNKNOWN'`.
 - New `tests/unit/game/breach.test.ts`: breachWall valid/invalid, door breach, delta accumulation, requiresBreach combat no-op, demolition isObjectiveSatisfied, snapshot delta round-trip, pre-M7.1 save default.
 
+**Implementation plan (pre-coding breakdown):**
+
+*Step 1 — Types & constants (`src/types.ts`, `src/game/constants.ts`, `src/game/items.ts`)*
+
+- `src/types.ts`: add `TileDelta` union type (see scope above).
+- `src/game/constants.ts`: add `BREACHING_CHARGE_RANGE = 1`.
+- `src/game/items.ts`: add `ITEM_ID.BREACHING_CHARGE = 'breaching-charge'`; catalog entry with `isAimed: true`, `minRepTier: REP_TIER.UNKNOWN`.
+
+*Step 2 — `World.mutationDeltas` + `breachWall` (`src/game/World.ts`)*
+
+- Add `mutationDeltas: TileDelta[] = []` in constructor.
+- `breachWall(x, y)`: throw if out-of-bounds or not `TILE.WALL`; `grid.setTile(x, y, TILE.FLOOR)`; push tile delta.
+- `breachDoor(doorId)`: find by doorId (throw if not found); push `entity-removed` delta; `removeEntity(door.id)`. Mirror of existing `unlockDoor`.
+
+*Step 3 — `DenyTarget.requiresBreach` (`src/game/entities/DenyTarget.ts`)*
+
+- Add `requiresBreach: boolean` (default `false`) to `DenyTargetInit` and constructor.
+- Override `damage(amount)`: when `requiresBreach === true`, emit a log event (`"[Asset] reinforced — use a breaching charge"`) and return without mutating HP. No silent swallowing — must be assertable in tests.
+- Persistence (`src/game/persistence.ts`): add `requiresBreach?: boolean` to the `denyTarget` snapshot payload; pass through in `ARCHETYPE_FACTORY['deny-target']`; absent field on pre-M7.1 saves defaults to `false`.
+
+*Step 4 — `Crew.useConsumable` extension (`src/game/Crew.ts`)*
+
+- Expand `isAimed` check: `ITEM_ID.INCENDIARY || ITEM_ID.BREACHING_CHARGE`.
+- Add `case ITEM_ID.BREACHING_CHARGE:`: compute target `tx = x + dx, ty = y + dy`; validate Chebyshev ≤ `BREACHING_CHARGE_RANGE` and in-bounds (throw on malformed); deduct AP, remove item from inventory; return `{ type: 'breach', tx, ty }`.
+- Shell (`index.ts`) resolves tile/door at `(tx, ty)` and calls `world.breachWall` or `world.breachDoor`. Tile-type validation (WALL-or-Door check) lives in the shell pre-check — same split as incendiary's LOS pre-check — so the item is not consumed for an invalid target.
+
+*Step 5 — Catalog + Finn*
+
+- Add breaching charge to `getShopCatalog` with `minRepTier: REP_TIER.UNKNOWN`.
+
+*Step 6 — Curator demolition recipe (`src/game/hub/Curator.ts`)*
+
+- Add `'demolish'` action token to the lexicon (`['deny']` group).
+- Add one `deny` recipe where `params()` returns `{ target: 'floodgate', requiresBreach: true }` (e.g. "Basement floodgate override"). A second recipe can go in the same PR if trivial.
+- `assertLabelObjectiveRegistryInSync` already covers `deny` — no new coverage needed.
+
+*Step 7 — `Run` objective placement (`src/game/Run.ts`)*
+
+- In `Run.#placeObjectiveInteractables`: for `deny` contracts, if `contract.objective.params?.requiresBreach === true`, spawn `new DenyTarget({ ..., requiresBreach: true })`.
+- `isObjectiveSatisfied` deny path already counts dead DenyTargets — unchanged, breach just becomes the only destruction path for that variant.
+
+*Step 8 — Persistence (`src/game/persistence.ts`)*
+
+- Add `mutationDeltas?: TileDelta[]` to `RunSnapshot` type; serialize from `world.mutationDeltas`; restore by setting on the world post-construction; pre-M7.1 saves default to `[]`.
+- Validate deltas on restore (throw on unrecognized `kind`, out-of-bounds, unknown `TILE` values).
+
+*Step 9 — Shell (`index.ts`)*
+
+- `applyConsumableResult` / `resolveAimedUseItem` handles `result.type === 'breach'`: check for Door entity first at `(tx, ty)`, then WALL tile, then surface user-facing "invalid target" message. Door breach uses `world.breachDoor`; wall breach uses `world.breachWall`; wrong tile → message only, item already not consumed (pre-checked).
+
+*Step 10 — Tests (`tests/unit/game/breach.test.ts`)*
+
+1. `breachWall` valid wall → FLOOR + delta recorded
+2. `breachWall` non-wall tile → throws
+3. Door breach → entity removed, delta recorded
+4. `requiresBreach` DenyTarget: `damage()` no-ops (HP unchanged, event emitted)
+5. Breach-only DenyTarget destroyed by breach path
+6. Demolition `isObjectiveSatisfied` satisfied only after breach-destruction
+7. Mutation deltas snapshot round-trip
+8. Pre-M7.1 save restore defaults `mutationDeltas` to `[]`
+9. Pathfinding: breach opens a route (A* finds path after `breachWall`)
+10. Finn catalog includes breaching charge at UNKNOWN tier
+
+**Open questions for M7.1:**
+
+1. **Breach aim validation split:** Should the shell validate the aimed tile type (WALL or Door) *before* committing `useConsumable` (like incendiary's LOS pre-check), or should `Crew.useConsumable` do it? Proposal: shell validates tile type; `useConsumable` validates range/in-bounds only — consistent with the incendiary split and keeps `Crew` world-agnostic. Item is not consumed if the shell rejects the target.
+
+2. **Demolition recipe count:** Ship one recipe ("Basement floodgate override") or two in M7.1? One is sufficient to prove the mechanic; a second can be added trivially in the same PR.
+
 ---
 
 #### M7.2 — Location memory & site roster 🔲
@@ -1163,6 +1232,87 @@ Phase 2.5 milestones that follow (M4–M7) retain their original numbering for c
 - Curator revisit biasing: `generateContracts` uses the seeded rng to decide roster-vs-fresh before token picking. When roster pick chosen, a random existing roster entry is targeted; the contract's `context.siteId` is set. The biasing probability (30–50%) is a constant; pick 40% at impl and document.
 - `normalizeLocationSite(raw)` validates each delta on campaign restore; throws on unrecognized `kind`, out-of-bounds coords, or unknown tile values.
 - New `tests/unit/game/locations.test.ts`: roster add/evict, score site preserved, delta application (two breaches → two FLOOR tiles), corrupt delta throws, revisit map starts with holes, delta merge deduplication, Curator revisit rate across seeds, snapshot round-trip, pre-M7.2 save default.
+
+**Implementation plan (pre-coding breakdown):**
+
+*Step 1 — Types (`src/types.ts`, `src/game/hub/Curator.ts`)*
+
+- `src/types.ts`: add `LocationSite` type (see scope above).
+- `src/game/hub/Curator.ts`: extend `ContractContext` with `locationSiteId?: string` (references a `LocationSite.id` from the roster — distinct from the existing `context.site` lexicon token). Update `normalizeContractContext` to validate this optional field (empty string throws).
+
+*Step 2 — `src/game/locations.ts` (new file)*
+
+Pure utility module — no side effects beyond grid mutation in `applyMutationDeltas`:
+- `applyMutationDeltas(grid, deltas)`: replay deltas in order; throw on unrecognized `kind`, out-of-bounds coords, or unknown tile values.
+- `mergeSiteDeltas(existing, incoming)`: concat, dedup by coordinate key (`"x,y"`), keep latest for each coord.
+- `normalizeLocationSite(raw)`: structural validation; throws on bad delta, unknown `tier`, non-boolean `scoreTarget`, etc.
+- `generateSiteId(seed)`: deterministic ID from map seed (simple stable hash — `String(seed)` is sufficient for the current pool size).
+
+*Step 3 — `Campaign` extensions (`src/game/Campaign.ts`)*
+
+- Add `siteRoster: LocationSite[] = []`.
+- `addSiteToRoster(site)`: if `site.id` already present, update `lastVisitedJob`; if at capacity (6), evict oldest `tier === 'roster'` by `lastVisitedJob`; score-tier sites are never evicted. If roster is full of score sites (degenerate — only one score slot in M7), log and skip.
+- `mergeSiteDeltas(siteId, deltas)`: find entry, apply `mergeSiteDeltas`, throw if not found.
+- `findRosterSite(siteId)`: simple lookup.
+- `CampaignSnapshot` gains `siteRoster?: LocationSiteSnapshot[]`; normalized via `normalizeLocationSite` on restore; pre-M7.2 saves default to `[]`.
+
+*Step 4 — Curator revisit biasing (`src/game/hub/Curator.ts`)*
+
+- Add `siteRoster?: LocationSite[]` to `ContractCampaign` type.
+- In `generateContracts`: per slot, roll 40% revisit chance from seeded rng. If roster is non-empty and roll hits: pick random roster entry (seeded), use `site.seed` as contract seed, set `context.locationSiteId = site.id`. Fresh objective/principal/asset tokens still generated — same geometry, new job.
+- Shell passes `campaign.siteRoster` when calling `generateContracts`.
+
+*Step 5 — `Run.enterCombat` delta application (`src/game/Run.ts`)*
+
+- After `buildMap`, before entity/objective placement: check `contract.context.locationSiteId`.
+- If found in campaign roster: call `applyMutationDeltas(world.grid, site.mutationDeltas)`.
+- On first visit (no `locationSiteId` or site not yet in roster): add to roster via `campaign.addSiteToRoster` with the run's seed, label, and `lastVisitedJob = campaign.completedJobs`.
+- Expose `run.mutationDeltas` getter: `return this.world.mutationDeltas`.
+
+*Step 6 — Job-end delta merge (shell `index.ts`)*
+
+On EXIT path in `onJobEnd`:
+```ts
+const deltas = run.mutationDeltas;
+const locationSiteId = run.contract.context.locationSiteId;
+if (locationSiteId && deltas.length > 0) {
+  campaign.mergeSiteDeltas(locationSiteId, deltas);
+}
+```
+
+*Step 7 — KeyCard `siteId` population*
+
+When placing a `KeyCard` in `Run.#placeObjectiveInteractables` for a door-locked contract: if `contract.context.locationSiteId` is set, assign `keycard.siteId = contract.context.locationSiteId`. Upgrades the keycard from run-scoped to campaign-scoped; existing M6.2 `onKeycardCollected` routing handles the rest.
+
+*Step 8 — Persistence (`src/game/persistence.ts`)*
+
+- `RunSnapshot.mutationDeltas` already handled in M7.1.
+- `CampaignSnapshot.siteRoster?: LocationSiteSnapshot[]`: serialize/restore via `normalizeLocationSite`; validate each delta on load (throw on corruption).
+
+*Step 9 — Tests (`tests/unit/game/locations.test.ts`)*
+
+1. Roster add: new site appears in roster
+2. Roster evict: oldest non-score evicted at capacity (6)
+3. Score-slot preservation: score-tier site is never evicted
+4. `applyMutationDeltas`: two breaches → two FLOOR tiles
+5. Corrupt delta (unknown `kind`) → throws
+6. Corrupt delta (out-of-bounds coord) → throws
+7. `mergeSiteDeltas` dedup: two same-coord deltas → only latest survives
+8. Run re-entry: FLOOR where WALL was; fresh entities spawn over restored geometry
+9. Curator revisit rate: across 100 seeds with non-empty roster, ~40% carry `locationSiteId`
+10. `CampaignSnapshot` round-trip preserves full roster including deltas
+11. Pre-M7.2 save restore: `siteRoster` defaults to `[]`
+12. Campaign delete clears roster
+
+**Open questions for M7.2:**
+
+1. **`siteId` naming collision:** The existing `ContractContext` already has a `site` lexicon token (e.g. `'pier-9'`, `'warehouse'`). The new location-memory field is a different concept. Proposal: add `locationSiteId?: string` to `ContractContext` (not `siteId`) to avoid confusion. Confirm before coding.
+
+2. **Site entry timing:** Plan says "contract acceptance or `enterCombat`." Proposal: `enterCombat`, because the full `LocationSite` shape (seed, label, tier) isn't available until the map is built. Confirm.
+
+3. **Site ID generation:** `String(seed)` is stable and testable for the current pool size (max 6 sites). A hash is only needed if seed values could collide — unlikely. Confirm or specify a different scheme.
+
+4. **Revisit biasing when roster is stale:** If all roster sites are CRITICAL-tier and the player is BURNED (STANDARD only), should the Curator skip the revisit roll or still allow revisiting a CRITICAL-seed map at STANDARD difficulty? Proposal: revisit biasing is independent of difficulty — the site geometry is reused, but difficulty and objective are freshly rolled. This seems intentional (the map memory is the payoff, not a difficulty gate).
 
 ---
 
