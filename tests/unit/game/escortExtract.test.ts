@@ -279,9 +279,16 @@ describe('escort runs', () => {
     });
 
     assert.equal(run.state, RUN_STATE.RESULT, 'abort extraction ends the run');
-    const abortResult = results[0] as { outcome: string; telemetry: { objectiveComplete: boolean } };
+    const abortResult = results[0] as {
+      outcome: string;
+      telemetry: { objectiveComplete: boolean };
+    };
     assert.equal(abortResult.outcome, OUTCOME.EXIT);
-    assert.equal(abortResult.telemetry.objectiveComplete, false, 'leaving escort behind is an abort');
+    assert.equal(
+      abortResult.telemetry.objectiveComplete,
+      false,
+      'leaving escort behind is an abort'
+    );
   });
 
   it('extracts when the escort catches up while the player is already on the exit', () => {

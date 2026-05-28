@@ -168,9 +168,16 @@ describe('deny runs', () => {
       to: { x: run.exitTile.x, y: run.exitTile.y },
     });
     assert.equal(run.state, RUN_STATE.RESULT, 'abort extraction ends the run');
-    const abortResult = results[0] as { outcome: string; telemetry: { objectiveComplete: boolean } };
+    const abortResult = results[0] as {
+      outcome: string;
+      telemetry: { objectiveComplete: boolean };
+    };
     assert.equal(abortResult.outcome, OUTCOME.EXIT);
-    assert.equal(abortResult.telemetry.objectiveComplete, false, 'abort marks objective incomplete');
+    assert.equal(
+      abortResult.telemetry.objectiveComplete,
+      false,
+      'abort marks objective incomplete'
+    );
   });
 
   it('extraction after objective completion marks objective complete', () => {
