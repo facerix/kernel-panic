@@ -37,6 +37,12 @@ import { World } from './World.js';
 import { TurnQueue } from './TurnQueue.js';
 import { EventBus, EVENT } from './events.js';
 import { FACTION, TILE, SALVAGE_DROP_MIN, SALVAGE_DROP_MAX } from './constants.js';
+import {
+  anchorPreservesExplorationReachability,
+  coordKey,
+  explorationReachableKeys,
+  hasAdjacentPassableTile,
+} from './mapConnectivity.js';
 import { makeSalvage, type TypedSalvage } from './salvage.js';
 import { Entity, type LootableEntity } from './Entity.js';
 import { Hostile } from './Hostile.js';
@@ -1248,25 +1254,7 @@ export function reconEligibleCellKeys(world: World | null | undefined): Set<stri
   if (!world) return new Set();
   const player = playerInWorld(world);
   if (!player) return allPassableCellKeys(world);
-  const eligible = new Set<string>();
-  const queue: GridPoint[] = [{ x: player.x, y: player.y }];
-  eligible.add(coordKey(player.x, player.y));
-  for (let i = 0; i < queue.length; i++) {
-    const point = queue[i]!;
-    for (let dy = -1; dy <= 1; dy++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        if (dx === 0 && dy === 0) continue;
-        const x = point.x + dx;
-        const y = point.y + dy;
-        if (!world.grid.isPassable(x, y)) continue;
-        const key = coordKey(x, y);
-        if (eligible.has(key)) continue;
-        eligible.add(key);
-        queue.push({ x, y });
-      }
-    }
-  }
-  return eligible;
+  return explorationReachableKeys(world, { x: player.x, y: player.y });
 }
 
 export function reconObjectiveProgress(
@@ -1285,10 +1273,6 @@ export function reconObjectiveProgress(
 function isTurnLimitExpired(contract: Contract, turnNumber: number): boolean {
   const remaining = objectiveTurnsRemaining(contract, turnNumber);
   return remaining !== null && remaining <= 0;
-}
-
-function coordKey(x: number, y: number): string {
-  return `${x},${y}`;
 }
 
 function parseCoordKey(key: string, context: string): GridPoint {
@@ -1694,7 +1678,7 @@ function findInteractableAnchor(
       if (x === exitTile.x && y === exitTile.y) continue;
       if (world.liveEntityAt(x, y)) continue;
       if (!hasAdjacentPassableTile(world, x, y)) continue;
-      if (!anchorPreservesExitRoute(world, player, exitTile, { x, y })) continue;
+      if (!anchorPreservesExplorationReachabilityForAnchor(world, player, { x, y })) continue;
       candidates.push({ x, y });
     }
   }
@@ -1732,8 +1716,9 @@ function findAccessibleInteractableAnchor(
  * "find the unlock" into a routing puzzle.
  *
  * Reachability is validated by pathfinding from player spawn to the candidate
- * with the door still locked (impassable). Falls back to near-door placement
- * (the M6.1 behavior) if no remote tile qualifies.
+ * with the door still locked (impassable). Candidates must not sit on exploration
+ * chokepoints on the spawn side. Falls back to near-door placement (the M6.1
+ * behavior) if no remote tile qualifies.
  */
 function findDecoupledTerminalAnchor(
   world: World,
@@ -1756,8 +1741,10 @@ function findDecoupledTerminalAnchor(
         findPath(world, { x: player.x, y: player.y }, { x, y }, { allowOccupiedGoal: false }) !==
         null;
       if (!reachableNow) continue;
-      // Must preserve exit route after door is eventually unlocked.
-      if (!anchorPreservesExitRouteWithDoorUnlocked(world, player, exitTile, { x, y }, doorId)) {
+      // Must preserve spawn-side exploration reachability while door is locked.
+      if (
+        !anchorPreservesExplorationReachabilityForDoorAnchor(world, player, { x, y }, doorId, false)
+      ) {
         continue;
       }
       candidates.push({ x, y });
@@ -1812,7 +1799,15 @@ function findInteractableAnchorByReachability(
         null;
       if (mode === 'accessible') {
         if (!doorId) throw new Error('Run: accessible door anchor search missing doorId');
-        if (!anchorPreservesExitRouteWithDoorUnlocked(world, player, exitTile, { x, y }, doorId)) {
+        if (
+          !anchorPreservesExplorationReachabilityForDoorAnchor(
+            world,
+            player,
+            { x, y },
+            doorId,
+            false
+          )
+        ) {
           continue;
         }
         if (!reachableNow) continue;
@@ -1822,7 +1817,9 @@ function findInteractableAnchorByReachability(
       }
       if (reachableNow) continue;
       if (!doorId) throw new Error('Run: behind-door anchor search missing doorId');
-      if (!anchorPreservesExitRouteWithDoorUnlocked(world, player, exitTile, { x, y }, doorId)) {
+      if (
+        !anchorPreservesExplorationReachabilityForDoorAnchor(world, player, { x, y }, doorId, true)
+      ) {
         continue;
       }
       if (isReachableWithDoorUnlocked(world, player, { x, y }, doorId)) candidates.push({ x, y });
@@ -1851,7 +1848,7 @@ function findBehindDoorFallbackAnchor(
   doorId: string
 ): GridPoint {
   assertDoorExists(world, doorId);
-  const spawnSide = reachableCellKeysFromPlayer(world, player);
+  const spawnSide = explorationReachableKeys(world, { x: player.x, y: player.y });
   const candidates: GridPoint[] = [];
   for (let y = 1; y < world.grid.height - 1; y++) {
     for (let x = 1; x < world.grid.width - 1; x++) {
@@ -1862,7 +1859,9 @@ function findBehindDoorFallbackAnchor(
       if (!hasAdjacentPassableTile(world, x, y)) continue;
       if (spawnSide.has(coordKey(x, y))) continue;
       if (!isReachableWithDoorUnlocked(world, player, { x, y }, doorId)) continue;
-      if (!anchorPreservesExitRouteWithDoorUnlocked(world, player, exitTile, { x, y }, doorId)) {
+      if (
+        !anchorPreservesExplorationReachabilityForDoorAnchor(world, player, { x, y }, doorId, true)
+      ) {
         continue;
       }
       candidates.push({ x, y });
@@ -1874,67 +1873,27 @@ function findBehindDoorFallbackAnchor(
   return rng.pick(candidates);
 }
 
-function reachableCellKeysFromPlayer(world: World, player: Entity): Set<string> {
-  const reachable = new Set<string>();
-  const queue: GridPoint[] = [{ x: player.x, y: player.y }];
-  reachable.add(coordKey(player.x, player.y));
-  for (let i = 0; i < queue.length; i++) {
-    const point = queue[i]!;
-    for (const [dx, dy] of [
-      [-1, 0],
-      [1, 0],
-      [0, -1],
-      [0, 1],
-      [-1, -1],
-      [-1, 1],
-      [1, -1],
-      [1, 1],
-    ]) {
-      const x = point.x + dx;
-      const y = point.y + dy;
-      const key = coordKey(x, y);
-      if (reachable.has(key)) continue;
-      if (!world.grid.inBounds(x, y)) continue;
-      if (!world.grid.isPassable(x, y)) continue;
-      if (world.entityAt(x, y)) continue;
-      reachable.add(key);
-      queue.push({ x, y });
-    }
-  }
-  return reachable;
-}
-
-function isReachableWithDoorUnlocked(
+function anchorPreservesExplorationReachabilityForAnchor(
   world: World,
   player: Entity,
-  target: GridPoint,
-  doorId: string
+  anchor: GridPoint
 ): boolean {
-  const door = assertDoorExists(world, doorId);
-  const wasLocked = door.locked;
-  try {
-    door.unlock();
-    return (
-      findPath(world, { x: player.x, y: player.y }, target, { allowOccupiedGoal: false }) !== null
-    );
-  } finally {
-    if (wasLocked) door.lock();
-    else door.unlock();
-  }
+  return anchorPreservesExplorationReachability(world, { x: player.x, y: player.y }, anchor);
 }
 
-function anchorPreservesExitRouteWithDoorUnlocked(
+function anchorPreservesExplorationReachabilityForDoorAnchor(
   world: World,
   player: Entity,
-  exitTile: GridPoint,
   anchor: GridPoint,
-  doorId: string
+  doorId: string,
+  doorUnlocked: boolean
 ): boolean {
   const door = assertDoorExists(world, doorId);
   const wasLocked = door.locked;
   try {
-    door.unlock();
-    return anchorPreservesExitRoute(world, player, exitTile, anchor);
+    if (doorUnlocked) door.unlock();
+    else door.lock();
+    return anchorPreservesExplorationReachabilityForAnchor(world, player, anchor);
   } finally {
     if (wasLocked) door.lock();
     else door.unlock();
@@ -1959,9 +1918,28 @@ function assertDoorExists(world: World, doorId: string): Door {
   return found;
 }
 
+function isReachableWithDoorUnlocked(
+  world: World,
+  player: Entity,
+  target: GridPoint,
+  doorId: string
+): boolean {
+  const door = assertDoorExists(world, doorId);
+  const wasLocked = door.locked;
+  try {
+    door.unlock();
+    return (
+      findPath(world, { x: player.x, y: player.y }, target, { allowOccupiedGoal: false }) !== null
+    );
+  } finally {
+    if (wasLocked) door.lock();
+    else door.unlock();
+  }
+}
+
 /**
  * Anchor finder for **passable** props (M4.3 consumable pickups). Unlike
- * `findInteractableAnchor`, this does *not* run the exit-route preservation
+ * `findInteractableAnchor`, this does *not* run the exploration-reachability
  * check — a passable entity cannot seal a corridor. Returns `null` when no
  * legal tile is available, leaving the caller to gracefully stop placing
  * rather than crash an otherwise valid run.
@@ -1988,26 +1966,6 @@ function findConsumablePickupAnchor(
   }
   if (candidates.length === 0) return null;
   return rng.pick(candidates);
-}
-
-/**
- * True when blocking `anchor` with an impassable entity still leaves a route
- * from the player spawn to the exit. Prevents objective props from sealing
- * 1-tile corridors that procgen carved as the only link between regions.
- */
-function anchorPreservesExitRoute(
-  world: World,
-  player: Entity,
-  exitTile: GridPoint,
-  anchor: GridPoint
-): boolean {
-  const blockers = new Set([coordKey(anchor.x, anchor.y)]);
-  return (
-    findPath(world, { x: player.x, y: player.y }, exitTile, {
-      allowOccupiedGoal: false,
-      extraBlockers: blockers,
-    }) !== null
-  );
 }
 
 /**
@@ -2049,20 +2007,6 @@ export function placeHazardCluster(world: World, center: GridPoint, rng: Rng): n
     placed++;
   }
   return placed;
-}
-
-function hasAdjacentPassableTile(world: World, x: number, y: number): boolean {
-  const offsets = [
-    { dx: -1, dy: 0 },
-    { dx: 1, dy: 0 },
-    { dx: 0, dy: -1 },
-    { dx: 0, dy: 1 },
-  ];
-  return offsets.some(({ dx, dy }) => {
-    const tx = x + dx;
-    const ty = y + dy;
-    return world.grid.inBounds(tx, ty) && world.grid.isPassable(tx, ty) && !world.entityAt(tx, ty);
-  });
 }
 
 /** When a procgen anchor is already occupied, walk outward for the nearest empty floor. */

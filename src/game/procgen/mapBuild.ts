@@ -35,6 +35,12 @@ import { World } from '../World.js';
 import { Door } from '../entities/Door.js';
 import { Terminal } from '../entities/Terminal.js';
 import { findPath } from '../Pathfinding.js';
+import {
+  anchorPreservesExplorationReachability,
+  coordKey,
+  explorationReachableKeys,
+  hasAdjacentPassableTile,
+} from '../mapConnectivity.js';
 import type { Rng } from '../../rng.js';
 import type { GridPoint } from '../../types.js';
 import type { BspNode } from './bsp.js';
@@ -535,11 +541,11 @@ function doorLayoutSupportsLinkedContracts(map: Map): boolean {
       if (!world.grid.isPassable(x, y)) continue;
       if (x === player.x && y === player.y) continue;
       if (x === map.exitTile.x && y === map.exitTile.y) continue;
-      if (!hasAdjacentPassableFloor(world, x, y)) continue;
+      if (!hasAdjacentPassableTile(world, x, y)) continue;
 
       const reachableNow = findPath(world, player, { x, y }, { allowOccupiedGoal: false }) !== null;
       if (reachableNow) {
-        if (preservesExitRouteWithDoorUnlocked(world, player, map.exitTile, { x, y }, door)) {
+        if (preservesExplorationWithDoorState(world, player, { x, y }, door, false)) {
           unlockCandidates++;
         }
         continue;
@@ -550,7 +556,7 @@ function doorLayoutSupportsLinkedContracts(map: Map): boolean {
       door.lock();
       if (
         reachableWhenUnlocked &&
-        preservesExitRouteWithDoorUnlocked(world, player, map.exitTile, { x, y }, door)
+        preservesExplorationWithDoorState(world, player, { x, y }, door, true)
       ) {
         behindCandidates++;
       }
@@ -559,42 +565,22 @@ function doorLayoutSupportsLinkedContracts(map: Map): boolean {
   return unlockCandidates > 0 && behindCandidates > 0;
 }
 
-function preservesExitRouteWithDoorUnlocked(
+function preservesExplorationWithDoorState(
   world: World,
   player: Entity,
-  exitTile: GridPoint,
   anchor: GridPoint,
-  door: Door
+  door: Door,
+  doorUnlocked: boolean
 ): boolean {
   const wasLocked = door.locked;
   try {
-    door.unlock();
-    return (
-      findPath(world, player, exitTile, {
-        allowOccupiedGoal: false,
-        extraBlockers: new Set([`${anchor.x},${anchor.y}`]),
-      }) !== null
-    );
+    if (doorUnlocked) door.unlock();
+    else door.lock();
+    return anchorPreservesExplorationReachability(world, { x: player.x, y: player.y }, anchor);
   } finally {
     if (wasLocked) door.lock();
     else door.unlock();
   }
-}
-
-function hasAdjacentPassableFloor(world: World, x: number, y: number): boolean {
-  for (const [dx, dy] of [
-    [-1, 0],
-    [1, 0],
-    [0, -1],
-    [0, 1],
-  ]) {
-    const tx = x + dx;
-    const ty = y + dy;
-    if (world.grid.inBounds(tx, ty) && world.grid.isPassable(tx, ty) && !world.entityAt(tx, ty)) {
-      return true;
-    }
-  }
-  return false;
 }
 
 function findCorridorDoorCandidates(
@@ -649,9 +635,15 @@ function findDynamicTerminalAnchors(
       if (x === exitTile.x && y === exitTile.y) continue;
       if (world.liveEntityAt(x, y)) continue;
       const anchor = { x, y };
-      if (findPath(world, spawn, anchor, { allowOccupiedGoal: false }) !== null) {
-        anchors.push(anchor);
+      if (findPath(world, spawn, anchor, { allowOccupiedGoal: false }) === null) {
+        queue.push({ x, y, distance: point.distance + 1 });
+        continue;
       }
+      if (!anchorPreservesExplorationReachability(world, spawn, anchor)) {
+        queue.push({ x, y, distance: point.distance + 1 });
+        continue;
+      }
+      anchors.push(anchor);
       queue.push({ x, y, distance: point.distance + 1 });
     }
   }
@@ -700,12 +692,11 @@ function dynamicDoorGatesReachableArea(
   terminalAnchor: GridPoint
 ): boolean {
   const terminalKey = coordKey(terminalAnchor.x, terminalAnchor.y);
-  const extraBlockers = new Set<string>();
-  const lockedReachable = reachableCellKeys(world, options.spawn, extraBlockers);
+  const lockedReachable = explorationReachableKeys(world, options.spawn);
   const wasLocked = door.locked;
   try {
     door.unlock();
-    const openReachable = reachableCellKeys(world, options.spawn, extraBlockers);
+    const openReachable = explorationReachableKeys(world, options.spawn);
     for (const key of openReachable) {
       if (lockedReachable.has(key)) continue;
       if (key === coordKey(door.x, door.y)) continue;
@@ -720,49 +711,11 @@ function dynamicDoorGatesReachableArea(
   }
 }
 
-function reachableCellKeys(
-  world: World,
-  start: GridPoint,
-  extraBlockers: ReadonlySet<string>
-): Set<string> {
-  const reachable = new Set<string>();
-  const startKey = coordKey(start.x, start.y);
-  const queue: GridPoint[] = [{ ...start }];
-  reachable.add(startKey);
-  for (let i = 0; i < queue.length; i++) {
-    const point = queue[i]!;
-    for (const [dx, dy] of EIGHT_WAY_OFFSETS) {
-      const x = point.x + dx;
-      const y = point.y + dy;
-      const key = coordKey(x, y);
-      if (reachable.has(key)) continue;
-      if (!world.grid.inBounds(x, y)) continue;
-      if (!world.grid.isPassable(x, y)) continue;
-      if (extraBlockers.has(key)) continue;
-      if (world.entityAt(x, y)) continue;
-      reachable.add(key);
-      queue.push({ x, y });
-    }
-  }
-  return reachable;
-}
-
 const CARDINAL_OFFSETS = Object.freeze([
   Object.freeze([-1, 0]),
   Object.freeze([1, 0]),
   Object.freeze([0, -1]),
   Object.freeze([0, 1]),
-] as const);
-
-const EIGHT_WAY_OFFSETS = Object.freeze([
-  Object.freeze([-1, -1]),
-  Object.freeze([0, -1]),
-  Object.freeze([1, -1]),
-  Object.freeze([-1, 0]),
-  Object.freeze([1, 0]),
-  Object.freeze([-1, 1]),
-  Object.freeze([0, 1]),
-  Object.freeze([1, 1]),
 ] as const);
 
 function isFloorNeighbour(world: World, x: number, y: number): boolean {
@@ -776,10 +729,6 @@ function shuffleDoorCandidates(candidates: GridPoint[], rng: Rng): GridPoint[] {
     [out[i], out[j]] = [out[j]!, out[i]!];
   }
   return out;
-}
-
-function coordKey(x: number, y: number): string {
-  return `${x},${y}`;
 }
 
 function manhattan(a: GridPoint, b: GridPoint): number {

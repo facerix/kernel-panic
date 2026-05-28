@@ -21,6 +21,7 @@
 
 import type { World } from './World.js';
 import type { GridPoint } from '../types.js';
+import { coordKey } from './mapConnectivity.js';
 
 const NEIGHBOURS = Object.freeze([
   Object.freeze([-1, -1]),
@@ -32,8 +33,6 @@ const NEIGHBOURS = Object.freeze([
   Object.freeze([0, 1]),
   Object.freeze([1, 1]),
 ]);
-
-const keyOf = (x: number, y: number): string => `${x},${y}`;
 
 /**
  * Chebyshev (king-move) distance — the heuristic we use, exposed so callers
@@ -83,8 +82,8 @@ export function findPath(
     );
   }
 
-  const startKey = keyOf(start.x, start.y);
-  const goalKey = keyOf(goal.x, goal.y);
+  const startKey = coordKey(start.x, start.y);
+  const goalKey = coordKey(goal.x, goal.y);
   if (startKey === goalKey) return [];
 
   // Note: we *don't* gate on the start tile being passable. A drone could
@@ -100,7 +99,7 @@ export function findPath(
 
   while (!open.isEmpty()) {
     const cur = open.pop() as GridPoint;
-    const ck = keyOf(cur.x, cur.y);
+    const ck = coordKey(cur.x, cur.y);
     if (ck === goalKey) {
       return reconstruct(cameFrom, ck);
     }
@@ -115,7 +114,7 @@ export function findPath(
       const ny = cur.y + dy;
       if (!world.grid.inBounds(nx, ny)) continue;
       if (!world.grid.isPassable(nx, ny)) continue;
-      const nk = keyOf(nx, ny);
+      const nk = coordKey(nx, ny);
       const isGoal = nk === goalKey;
       // Entity occupation: blocks every tile except, optionally, the goal.
       if (!(isGoal && allowOccupiedGoal) && world.entityAt(nx, ny)) continue;
@@ -150,7 +149,7 @@ function reconstruct(cameFrom: Map<string, GridPoint>, endKey: string): GridPoin
     const [xs, ys] = key.split(',');
     path.push({ x: Number(xs), y: Number(ys) });
     const prev = cameFrom.get(key);
-    key = keyOf(prev!.x, prev!.y);
+    key = coordKey(prev!.x, prev!.y);
   }
   path.reverse();
   return path;

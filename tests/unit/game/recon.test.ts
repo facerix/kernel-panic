@@ -19,6 +19,7 @@ import {
 import { Merc } from '../../../src/game/archetypes/Merc.js';
 import { Grid } from '../../../src/game/Grid.js';
 import { World } from '../../../src/game/World.js';
+import { Terminal } from '../../../src/game/entities/Terminal.js';
 import { EventBus } from '../../../src/game/events.js';
 import { VisionField } from '../../../src/game/Vision.js';
 import { OBJECTIVES } from '../../../src/game/hub/Curator.js';
@@ -93,6 +94,37 @@ describe('recon objective accounting', () => {
     });
     assert.equal(isObjectiveSatisfied(contract, world, undefined, { reconSeen: partial }), false);
     assert.equal(isObjectiveSatisfied(contract, world, undefined, { reconSeen: eligible }), true);
+  });
+
+  it('excludes pockets sealed by impassable entities from required recon tiles', () => {
+    const grid = new Grid(7, 5, TILE.WALL);
+    for (const [x, y] of [
+      [1, 1],
+      [2, 1],
+      [3, 1],
+      [1, 2],
+      [2, 2],
+      [3, 2],
+      [5, 3],
+    ]) {
+      grid.setTile(x, y, TILE.FLOOR);
+    }
+    grid.setTile(4, 2, TILE.FLOOR);
+    const world = new World(grid, { events: new EventBus() });
+    world.addEntity(new Merc({ id: 'crew-merc', x: 1, y: 1 }));
+    world.addEntity(
+      new Terminal({
+        id: 'terminal-bridge',
+        x: 4,
+        y: 2,
+        label: 'Access terminal',
+      })
+    );
+
+    const eligible = reconEligibleCellKeys(world);
+
+    assert.equal(eligible.has('5,3'), false);
+    assert.equal(eligible.size, 6);
   });
 });
 

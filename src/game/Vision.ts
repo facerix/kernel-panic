@@ -15,14 +15,13 @@
 
 import { hasLineOfSight } from './LineOfSight.js';
 import { SIGHT_RANGE } from './constants.js';
+import { coordKey } from './mapConnectivity.js';
 import type { Entity } from './Entity.js';
 import type { Grid } from './Grid.js';
 
 type RecomputeOptions = {
   blockers?: Set<string> | null;
 };
-
-const keyOf = (x: number, y: number): string => `${x},${y}`;
 
 export class VisionField {
   visible: Set<string>;
@@ -51,7 +50,7 @@ export class VisionField {
    * Cleared with {@link resetFogState} when a new combat episode starts.
    */
   memoriseCorpse(entity: Entity) {
-    const k = keyOf(entity.x, entity.y);
+    const k = coordKey(entity.x, entity.y);
     this.memorisedCorpses.set(k, {
       x: entity.x,
       y: entity.y,
@@ -61,7 +60,7 @@ export class VisionField {
 
   /** Drop a memorised corpse after looting removes it from the world. */
   forgetCorpse(entity: { x: number; y: number }) {
-    this.memorisedCorpses.delete(keyOf(entity.x, entity.y));
+    this.memorisedCorpses.delete(coordKey(entity.x, entity.y));
   }
 
   /** Clear all corpse memory — used when tearing down fog for a new grid. */
@@ -129,7 +128,7 @@ export class VisionField {
         const dy = y - oy;
         if (dx * dx + dy * dy > r2) continue;
         if (!hasLineOfSight(grid, ox, oy, x, y, { blockers })) continue;
-        const k = keyOf(x, y);
+        const k = coordKey(x, y);
         this.visible.add(k);
         this.seen.add(k);
       }
@@ -137,10 +136,10 @@ export class VisionField {
   }
 
   isVisible(x: number, y: number): boolean {
-    return this.visible.has(keyOf(x, y));
+    return this.visible.has(coordKey(x, y));
   }
 
   hasSeen(x: number, y: number): boolean {
-    return this.seen.has(keyOf(x, y));
+    return this.seen.has(coordKey(x, y));
   }
 }
