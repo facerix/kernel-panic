@@ -42,7 +42,7 @@ export type Item = {
   needsTarget: boolean;
   /**
    * In-combat aim flag (M4.3). `true` for thrown consumables that resolve
-   * along a (dx, dy) direction selected via `MODE.ITEM_AIM` (incendiary).
+   * along a (dx, dy) direction selected via `MODE.AIM` / `aimKind: 'use-item'`
    * Default `false` — stim self-targets, smoke auto-centers on the thrower.
    * The inventory overlay reads this to decide whether to emit a plain
    * `use-item` event or hand control to direction picking.

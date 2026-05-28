@@ -1,6 +1,6 @@
 import { dispatch, MODE } from './keymap.js';
 import type { Intent } from './applyIntent.js';
-import type { Mode } from './keymap.js';
+import type { AimKind, Mode } from './keymap.js';
 
 /**
  * DOM-side input wrapper. Listens for keydown on a target element (defaults
@@ -31,6 +31,8 @@ export class KeyboardController {
   onModeChange: (mode: Mode) => void;
   isBlocked: () => boolean;
   mode: Mode;
+  /** Active when `mode === MODE.AIM`; selects fire / special / use-item. */
+  aimKind: AimKind | null;
   attached: boolean;
 
   constructor({ target = document, onIntent, onModeChange, isBlocked }: KeyboardControllerInit) {
@@ -45,6 +47,7 @@ export class KeyboardController {
     this.onModeChange = onModeChange ?? (() => {});
     this.isBlocked = isBlocked ?? (() => false);
     this.mode = MODE.IDLE;
+    this.aimKind = null;
     this.attached = false;
     this.handleKeyDown = this.handleKeyDown.bind(this);
   }
@@ -67,11 +70,13 @@ export class KeyboardController {
     // a key pressed mid-animation can't sneak a mode transition through.
     if (this.isBlocked()) return;
     const previousMode = this.mode;
-    const { intent, nextMode } = dispatch(evt.key, this.mode);
-    if (intent || nextMode !== previousMode) evt.preventDefault();
-    if (nextMode !== previousMode) {
-      this.mode = nextMode as Mode;
-      this.onModeChange(nextMode as Mode);
+    const previousAimKind = this.aimKind;
+    const { intent, nextMode, aimKind } = dispatch(evt.key, this.mode, this.aimKind);
+    if (intent || nextMode !== previousMode || aimKind !== previousAimKind) evt.preventDefault();
+    if (nextMode !== previousMode || aimKind !== previousAimKind) {
+      this.mode = nextMode;
+      this.aimKind = aimKind;
+      this.onModeChange(nextMode);
     }
     if (intent) this.onIntent(intent);
   }

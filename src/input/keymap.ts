@@ -1,24 +1,25 @@
 /**
- * Pure input dispatcher. Maps `(key, mode)` to `{ intent, nextMode }` so the
- * game loop is input-source agnostic — the same intent stream powers both
+ * Pure input dispatcher. Maps `(key, mode, aimKind)` to `{ intent, nextMode, aimKind }`
+ * so the game loop is input-source agnostic — the same intent stream powers both
  * the keyboard controller and the M7 on-screen touch pad (which synthesizes
  * keystrokes via `src/input/touchpad.js`).
  *
  * The dispatcher is a small mode machine. IDLE is the default; pressing an
  * "aim" key (`f` for fire, `x` for the archetype-specific "special action")
- * enters an aiming mode where the next directional press
- * resolves into a targeted intent. Wait / pass turn is `.` in IDLE
- * (`end-turn` intent). Interact (Curator, Terminal, …) is Space in IDLE;
- * `i` is unbound (reserved for a future inventory milestone). `Q` emits
- * `quit-campaign` in IDLE only — the shell confirms, deletes the save, and
- * starts a new campaign (not routed through `applyIntent`).
+ * enters `MODE.AIM` with an `aimKind` tag that decides which targeted intent
+ * the next directional press resolves into. Thrown consumables enter the same
+ * aim mode programmatically (`aimKind: 'use-item'`). Wait / pass turn is `.`
+ * in IDLE (`end-turn` intent). Interact (Curator, Terminal, …) is Space in IDLE;
+ * `i` opens inventory. `Q` emits `quit-campaign` in IDLE only — the shell
+ * confirms, deletes the save, and starts a new campaign (not routed through
+ * `applyIntent`).
  *
  * The archetype-specific perks — Merc's Vault, Razor's Slide, Tech's Deploy
- * Turret — collapse into a single `special` intent here at the dispatcher
- * layer (one key, one aim mode). `applyIntent.doSpecial` then routes the
- * intent to the right verb based on the player class. Rationale: one mental
- * model for the player ("press the perk key, pick a direction"), one set of
- * touch-pad buttons, no key-bind collisions with WASD movement.
+ * Turret — share one `aimKind: 'special'` here at the dispatcher layer (one
+ * key, one aim mode). `applyIntent.doSpecial` then routes the intent to the
+ * right verb based on the player class. Rationale: one mental model for the
+ * player ("press the perk key, pick a direction"), one set of touch-pad
+ * buttons, no key-bind collisions with WASD movement.
  *
  * Intents are plain serializable objects so they can be replayed for tests,
  * undo, or networked play later.
@@ -29,26 +30,35 @@
  * gameplay verbs (touch-pad synthesis continues to use lower-case keys).
  */
 
+import type { Intent } from './applyIntent.js';
+
 export const MODE = Object.freeze({
   IDLE: 'IDLE',
-  FIRE_AIM: 'FIRE_AIM',
   /**
-   * Unified archetype-perk aim mode. Replaces the M1 `VAULT_AIM` and
-   * `SLIDE_AIM` modes; the active player's class decides what `special`
-   * resolves to at intent-apply time.
+   * Unified directional aim mode. Replaces the separate `FIRE_AIM`,
+   * `SPECIAL_AIM`, and `ITEM_AIM` modes — `aimKind` selects which targeted
+   * intent a direction press emits. Entered from IDLE via `f` / `x`, or
+   * programmatically by the shell when an inventory item needs a direction.
    */
-  SPECIAL_AIM: 'SPECIAL_AIM',
-  /**
-   * Thrown-consumable aim mode (M4.3). Entered programmatically by the shell
-   * — not via a keypress — when the inventory overlay confirms an aimed
-   * consumable (incendiary). The shell stashes the pending `itemId`; the
-   * next direction press emits `use-item { dx, dy }` and the shell pairs
-   * that with its stashed id. Escape cancels back to IDLE.
-   */
-  ITEM_AIM: 'ITEM_AIM',
+  AIM: 'AIM',
 });
 
 export type Mode = (typeof MODE)[keyof typeof MODE];
+
+/** Which targeted intent `MODE.AIM` resolves into. Values match intent `type`. */
+export const AIM_KIND = Object.freeze({
+  FIRE: 'fire',
+  SPECIAL: 'special',
+  USE_ITEM: 'use-item',
+});
+
+export type AimKind = (typeof AIM_KIND)[keyof typeof AIM_KIND];
+
+export type DispatchResult = {
+  intent: Intent | null;
+  nextMode: Mode;
+  aimKind: AimKind | null;
+};
 
 const DIRECTION_KEYS = {
   ArrowUp: [0, -1],
@@ -68,89 +78,101 @@ const DIRECTION_KEYS = {
 
 const directionFor = (key: string) => DIRECTION_KEYS[key as keyof typeof DIRECTION_KEYS] ?? null;
 
-const noChange = (mode: string) => ({ intent: null, nextMode: mode });
+const idle = (): DispatchResult => ({ intent: null, nextMode: MODE.IDLE, aimKind: null });
 
-function dispatchIdle(key: string) {
+const stayAim = (aimKind: AimKind): DispatchResult => ({
+  intent: null,
+  nextMode: MODE.AIM,
+  aimKind,
+});
+
+function dispatchIdle(key: string): DispatchResult {
   const dir = directionFor(key);
   if (dir) {
-    return { intent: { type: 'move', dx: dir[0], dy: dir[1] }, nextMode: MODE.IDLE };
+    return {
+      intent: { type: 'move', dx: dir[0], dy: dir[1] },
+      nextMode: MODE.IDLE,
+      aimKind: null,
+    };
   }
   switch (key) {
     case 'Q':
-      return { intent: { type: 'quit-campaign' }, nextMode: MODE.IDLE };
+      return { intent: { type: 'quit-campaign' }, nextMode: MODE.IDLE, aimKind: null };
     case '.':
       // Wait / pass turn — same intent as the touch-pad WAIT button (`.`).
-      return { intent: { type: 'end-turn' }, nextMode: MODE.IDLE };
+      return { intent: { type: 'end-turn' }, nextMode: MODE.IDLE, aimKind: null };
     case ' ':
       // Interact — context-sensitive verb resolved by the shell (Hub Curator
       // → briefing, future terminals/items in combat). Keymap stays dumb;
       // the shell decides what `interact` means in the current Run.state.
-      return { intent: { type: 'interact' }, nextMode: MODE.IDLE };
+      return { intent: { type: 'interact' }, nextMode: MODE.IDLE, aimKind: null };
     case 'i':
       // Inventory — opens the consumable inventory during combat. The shell
       // presents `<item-inventory>` and handles `use-item` events. In the Hub
       // this is a no-op (Finn's shop uses Space-interact).
-      return { intent: { type: 'inventory' }, nextMode: MODE.IDLE };
+      return { intent: { type: 'inventory' }, nextMode: MODE.IDLE, aimKind: null };
     case 'Escape':
-      return { intent: { type: 'cancel' }, nextMode: MODE.IDLE };
+      return { intent: { type: 'cancel' }, nextMode: MODE.IDLE, aimKind: null };
     case 'f':
-      return { intent: null, nextMode: MODE.FIRE_AIM };
+      return stayAim(AIM_KIND.FIRE);
     case 'x':
       // Unified archetype perk. The intent layer dispatches by class —
       // Merc → vault, Razor → slide, Tech → deploy. `x` is unused elsewhere
       // and avoids the WASD collision that would block `d` for deploy.
-      return { intent: null, nextMode: MODE.SPECIAL_AIM };
+      return stayAim(AIM_KIND.SPECIAL);
     default:
-      return noChange(MODE.IDLE);
+      return idle();
   }
 }
 
-function dispatchFireAim(key: string) {
+function dispatchAim(key: string, aimKind: AimKind): DispatchResult {
   if (key === 'Escape') {
-    return { intent: { type: 'cancel' }, nextMode: MODE.IDLE };
+    return { intent: { type: 'cancel' }, nextMode: MODE.IDLE, aimKind: null };
   }
   const dir = directionFor(key);
   if (dir) {
-    return { intent: { type: 'fire', dx: dir[0], dy: dir[1] }, nextMode: MODE.IDLE };
+    if (aimKind === AIM_KIND.USE_ITEM) {
+      // The shell pairs this with its stashed `pendingAimItemId`; the keymap
+      // stays dumb about which consumable is being thrown.
+      return {
+        intent: { type: 'use-item', dx: dir[0], dy: dir[1] },
+        nextMode: MODE.IDLE,
+        aimKind: null,
+      };
+    }
+    return {
+      intent: { type: aimKind, dx: dir[0], dy: dir[1] },
+      nextMode: MODE.IDLE,
+      aimKind: null,
+    };
   }
-  return noChange(MODE.FIRE_AIM);
+  return stayAim(aimKind);
 }
 
-function dispatchSpecialAim(key: string) {
-  if (key === 'Escape') {
-    return { intent: { type: 'cancel' }, nextMode: MODE.IDLE };
+/** Player-facing status / banner label for an active aim kind. */
+export function aimKindLabel(aimKind: AimKind): string {
+  switch (aimKind) {
+    case AIM_KIND.FIRE:
+      return 'FIRE';
+    case AIM_KIND.SPECIAL:
+      return 'SPECIAL';
+    case AIM_KIND.USE_ITEM:
+      return 'THROW';
+    default:
+      throw new Error(`keymap: unknown aimKind "${aimKind as string}"`);
   }
-  const dir = directionFor(key);
-  if (dir) {
-    return { intent: { type: 'special', dx: dir[0], dy: dir[1] }, nextMode: MODE.IDLE };
-  }
-  return noChange(MODE.SPECIAL_AIM);
 }
 
-function dispatchItemAim(key: string) {
-  if (key === 'Escape') {
-    return { intent: { type: 'cancel' }, nextMode: MODE.IDLE };
-  }
-  const dir = directionFor(key);
-  if (dir) {
-    // The shell pairs this with its stashed `pendingAimItemId`; the keymap
-    // stays dumb about which consumable is being thrown.
-    return { intent: { type: 'use-item', dx: dir[0], dy: dir[1] }, nextMode: MODE.IDLE };
-  }
-  return noChange(MODE.ITEM_AIM);
-}
-
-export function dispatch(key: string, mode: string) {
+export function dispatch(key: string, mode: Mode, aimKind: AimKind | null = null): DispatchResult {
   switch (mode) {
     case MODE.IDLE:
       return dispatchIdle(key);
-    case MODE.FIRE_AIM:
-      return dispatchFireAim(key);
-    case MODE.SPECIAL_AIM:
-      return dispatchSpecialAim(key);
-    case MODE.ITEM_AIM:
-      return dispatchItemAim(key);
+    case MODE.AIM:
+      if (!aimKind) {
+        throw new Error('keymap: MODE.AIM requires an aimKind');
+      }
+      return dispatchAim(key, aimKind);
     default:
-      throw new Error(`keymap: unknown mode "${mode}"`);
+      throw new Error(`keymap: unknown mode "${mode as string}"`);
   }
 }

@@ -8,17 +8,13 @@ import {
   TOUCHPAD_DIRECTIONS,
   TOUCHPAD_SHELL_ACTIONS,
 } from '../../../src/input/touchpad.js';
-import { MODE } from '../../../src/input/keymap.js';
+import { AIM_KIND, MODE } from '../../../src/input/keymap.js';
 
 test('TOUCHPAD_DIRECTIONS lists all 8 compass directions', () => {
   assert.deepEqual([...TOUCHPAD_DIRECTIONS].sort(), ['E', 'N', 'NE', 'NW', 'S', 'SE', 'SW', 'W']);
 });
 
 test('TOUCHPAD_ACTIONS includes the six gameplay actions (perks unified as `special`)', () => {
-  // Vault and slide collapsed into one `special` button alongside the new
-  // Tech deploy verb — same unified-perk-key model as the keyboard layer.
-  // M4 added `inventory` for the consumable use overlay. Melee is bump-only
-  // on the D-pad; no dedicated touch action.
   assert.deepEqual([...TOUCHPAD_ACTIONS].sort(), [
     'cancel',
     'end-turn',
@@ -63,10 +59,11 @@ test('IDLE + quit-campaign touch button emits quit-campaign intent', () => {
   assert.equal(r.nextMode, MODE.IDLE);
 });
 
-test('FIRE_AIM + quit-campaign touch button stays in FIRE_AIM', () => {
-  const r = dispatchTouchAction('quit-campaign', MODE.FIRE_AIM);
+test('AIM (fire) + quit-campaign touch button stays in AIM', () => {
+  const r = dispatchTouchAction('quit-campaign', MODE.AIM, AIM_KIND.FIRE);
   assert.equal(r.intent, null);
-  assert.equal(r.nextMode, MODE.FIRE_AIM);
+  assert.equal(r.nextMode, MODE.AIM);
+  assert.equal(r.aimKind, AIM_KIND.FIRE);
 });
 
 test('syntheticKeyFor throws on an unknown button (crash > silent fallback)', () => {
@@ -74,8 +71,6 @@ test('syntheticKeyFor throws on an unknown button (crash > silent fallback)', ()
   assert.throws(() => syntheticKeyFor(''), /unknown button/i);
   assert.throws(() => syntheticKeyFor(null), /unknown button/i);
 });
-
-// --- Direction taps in IDLE → move intents -----------------------------
 
 test('IDLE + direction button emits a move intent in that direction', () => {
   const cases = [
@@ -107,16 +102,15 @@ test('IDLE + cancel button emits cancel intent', () => {
   assert.equal(r.nextMode, MODE.IDLE);
 });
 
-// --- Action button → aim mode → direction → targeted intent -----------
-
-test('IDLE + fire button enters FIRE_AIM with no intent yet', () => {
+test('IDLE + fire button enters AIM (fire) with no intent yet', () => {
   const r = dispatchTouchAction('fire', MODE.IDLE);
   assert.equal(r.intent, null, 'aiming alone produces no intent');
-  assert.equal(r.nextMode, MODE.FIRE_AIM);
+  assert.equal(r.nextMode, MODE.AIM);
+  assert.equal(r.aimKind, AIM_KIND.FIRE);
 });
 
-test('FIRE_AIM + direction emits a directional fire and returns to IDLE', () => {
-  const r = dispatchTouchAction('E', MODE.FIRE_AIM);
+test('AIM (fire) + direction emits a directional fire and returns to IDLE', () => {
+  const r = dispatchTouchAction('E', MODE.AIM, AIM_KIND.FIRE);
   assert.deepEqual(r.intent, { type: 'fire', dx: 1, dy: 0 });
   assert.equal(r.nextMode, MODE.IDLE);
 });
@@ -125,59 +119,50 @@ test('syntheticKeyFor rejects legacy melee button id (removed from pad)', () => 
   assert.throws(() => syntheticKeyFor('melee'), /unknown button/i);
 });
 
-test('IDLE + special button enters SPECIAL_AIM', () => {
-  // One archetype-perk button covers Vault / Slide / Deploy. The aim mode
-  // is shared; the actual verb is dispatched by `applyIntent.doSpecial`
-  // based on the live player's class.
+test('IDLE + special button enters AIM (special)', () => {
   const r = dispatchTouchAction('special', MODE.IDLE);
   assert.equal(r.intent, null);
-  assert.equal(r.nextMode, MODE.SPECIAL_AIM);
+  assert.equal(r.nextMode, MODE.AIM);
+  assert.equal(r.aimKind, AIM_KIND.SPECIAL);
 });
 
-test('SPECIAL_AIM + direction emits a special intent', () => {
-  const r = dispatchTouchAction('S', MODE.SPECIAL_AIM);
+test('AIM (special) + direction emits a special intent', () => {
+  const r = dispatchTouchAction('S', MODE.AIM, AIM_KIND.SPECIAL);
   assert.deepEqual(r.intent, { type: 'special', dx: 0, dy: 1 });
   assert.equal(r.nextMode, MODE.IDLE);
 });
 
-test('SPECIAL_AIM + diagonal direction emits a diagonal special intent', () => {
-  const r = dispatchTouchAction('NE', MODE.SPECIAL_AIM);
+test('AIM (special) + diagonal direction emits a diagonal special intent', () => {
+  const r = dispatchTouchAction('NE', MODE.AIM, AIM_KIND.SPECIAL);
   assert.deepEqual(r.intent, { type: 'special', dx: 1, dy: -1 });
   assert.equal(r.nextMode, MODE.IDLE);
 });
 
-// --- Cancel inside aim modes drops back to IDLE -------------------------
-
-test('FIRE_AIM + cancel button drops back to IDLE with cancel intent', () => {
-  const r = dispatchTouchAction('cancel', MODE.FIRE_AIM);
+test('AIM (fire) + cancel button drops back to IDLE with cancel intent', () => {
+  const r = dispatchTouchAction('cancel', MODE.AIM, AIM_KIND.FIRE);
   assert.deepEqual(r.intent, { type: 'cancel' });
   assert.equal(r.nextMode, MODE.IDLE);
 });
 
-test('SPECIAL_AIM + cancel button drops back to IDLE with cancel intent', () => {
-  const r = dispatchTouchAction('cancel', MODE.SPECIAL_AIM);
+test('AIM (special) + cancel button drops back to IDLE with cancel intent', () => {
+  const r = dispatchTouchAction('cancel', MODE.AIM, AIM_KIND.SPECIAL);
   assert.deepEqual(r.intent, { type: 'cancel' });
   assert.equal(r.nextMode, MODE.IDLE);
 });
 
-// --- Aim mode is sticky on noise (matches keyboard behaviour) -----------
-
-test('FIRE_AIM + end-turn button does NOT fire; stays in FIRE_AIM', () => {
-  // The keymap treats non-directional keys as no-ops inside aim modes so
-  // the user can't accidentally fire the wait shortcut. Touch inherits that
-  // by going through the same dispatcher.
-  const r = dispatchTouchAction('end-turn', MODE.FIRE_AIM);
+test('AIM (fire) + end-turn button does NOT fire; stays in AIM', () => {
+  const r = dispatchTouchAction('end-turn', MODE.AIM, AIM_KIND.FIRE);
   assert.equal(r.intent, null);
-  assert.equal(r.nextMode, MODE.FIRE_AIM);
+  assert.equal(r.nextMode, MODE.AIM);
+  assert.equal(r.aimKind, AIM_KIND.FIRE);
 });
 
-test('SPECIAL_AIM + end-turn button stays in SPECIAL_AIM', () => {
-  const r = dispatchTouchAction('end-turn', MODE.SPECIAL_AIM);
+test('AIM (special) + end-turn button stays in AIM', () => {
+  const r = dispatchTouchAction('end-turn', MODE.AIM, AIM_KIND.SPECIAL);
   assert.equal(r.intent, null);
-  assert.equal(r.nextMode, MODE.SPECIAL_AIM);
+  assert.equal(r.nextMode, MODE.AIM);
+  assert.equal(r.aimKind, AIM_KIND.SPECIAL);
 });
-
-// --- Unknown button surface ---------------------------------------------
 
 test('dispatchTouchAction throws on an unknown button', () => {
   assert.throws(() => dispatchTouchAction('jump', MODE.IDLE), /unknown button/i);

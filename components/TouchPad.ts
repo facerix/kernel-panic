@@ -26,9 +26,9 @@
  */
 
 import { h } from '/src/domUtils.js';
-import { MODE } from '/src/input/keymap.js';
+import { AIM_KIND, MODE, aimKindLabel } from '/src/input/keymap.js';
 import { dispatchTouchAction } from '/src/input/touchpad.js';
-import type { Mode } from '/src/input/keymap.js';
+import type { AimKind, Mode } from '/src/input/keymap.js';
 
 const FORCE_SHOW_PARAM = 'touch';
 const FORCE_SHOW_VALUE = 'force';
@@ -70,19 +70,15 @@ const ACTION_BUTTONS = Object.freeze([
 
 const META_BUTTONS = Object.freeze([{ id: 'quit-campaign', label: 'QUIT', shortcut: 'Q' }]);
 
-const AIM_MODE_LABEL = Object.freeze({
-  [MODE.IDLE]: '',
-  [MODE.FIRE_AIM]: 'FIRE — pick a direction',
-  [MODE.SPECIAL_AIM]: 'SPECIAL — pick a direction',
-  // M4.3 thrown-consumable aim (incendiary). Entered by the shell when the
-  // inventory overlay confirms an aimed item, not by a direct keypress.
-  [MODE.ITEM_AIM]: 'THROW — pick a direction',
+const AIM_KIND_LABEL = Object.freeze({
+  [AIM_KIND.FIRE]: 'FIRE — pick a direction',
+  [AIM_KIND.SPECIAL]: 'SPECIAL — pick a direction',
+  [AIM_KIND.USE_ITEM]: 'THROW — pick a direction',
 });
 
-const AIM_MODE_ACTION = Object.freeze({
-  [MODE.FIRE_AIM]: 'fire',
-  [MODE.SPECIAL_AIM]: 'special',
-  [MODE.ITEM_AIM]: 'use-item',
+const AIM_KIND_ACTION = Object.freeze({
+  [AIM_KIND.FIRE]: 'fire',
+  [AIM_KIND.SPECIAL]: 'special',
 });
 
 const CSS = `
@@ -242,6 +238,7 @@ button:focus-visible {
 
 class TouchPad extends HTMLElement {
   #mode: Mode = MODE.IDLE;
+  #aimKind: AimKind | null = null;
   #buttonsById = new Map();
   #banner: HTMLElement | null = null;
   #boundOnPointerDown: ((evt: PointerEvent) => void) | null = null;
@@ -292,19 +289,29 @@ class TouchPad extends HTMLElement {
    * Sync the touch pad's mode externally — useful when the harness rebuilds
    * the scenario (reset) and wants aim state cleared.
    */
-  setMode(mode: Mode) {
+  setMode(mode: Mode, aimKind: AimKind | null = null) {
     if (!Object.values(MODE).includes(mode)) {
       throw new Error(`<touch-pad>: unknown mode "${mode}"`);
     }
-    if (this.#mode === mode) return;
+    const nextAimKind = mode === MODE.AIM ? aimKind : null;
+    if (mode === MODE.AIM && !nextAimKind) {
+      throw new Error('<touch-pad>: MODE.AIM requires an aimKind');
+    }
+    if (this.#mode === mode && this.#aimKind === nextAimKind) return;
     const previousMode = this.#mode;
+    const previousAimKind = this.#aimKind;
     this.#mode = mode;
+    this.#aimKind = nextAimKind;
     this.#renderMode();
-    this.#emit('mode-change', { mode, previousMode });
+    this.#emit('mode-change', { mode, aimKind: nextAimKind, previousMode, previousAimKind });
   }
 
   get mode() {
     return this.#mode;
+  }
+
+  get aimKind() {
+    return this.#aimKind;
   }
 
   /**
@@ -422,12 +429,14 @@ class TouchPad extends HTMLElement {
     if (this.#isBlocked()) return;
 
     const previousMode = this.#mode;
-    const { intent, nextMode } = dispatchTouchAction(buttonId, this.#mode);
+    const previousAimKind = this.#aimKind;
+    const { intent, nextMode, aimKind } = dispatchTouchAction(buttonId, this.#mode, this.#aimKind);
 
-    if (nextMode !== previousMode) {
-      this.#mode = nextMode as Mode;
+    if (nextMode !== previousMode || aimKind !== previousAimKind) {
+      this.#mode = nextMode;
+      this.#aimKind = aimKind;
       this.#renderMode();
-      this.#emit('mode-change', { mode: nextMode, previousMode });
+      this.#emit('mode-change', { mode: nextMode, aimKind, previousMode, previousAimKind });
     }
     if (intent) this.#emit('intent', intent);
   }
@@ -435,9 +444,15 @@ class TouchPad extends HTMLElement {
   #renderMode() {
     if (!this.#ready) return;
     if (this.#banner) {
-      this.#banner.textContent = AIM_MODE_LABEL[this.#mode] ?? '';
+      this.#banner.textContent =
+        this.#mode === MODE.AIM && this.#aimKind
+          ? (AIM_KIND_LABEL[this.#aimKind] ?? `${aimKindLabel(this.#aimKind)} — pick a direction`)
+          : '';
     }
-    const activeAction = AIM_MODE_ACTION[this.#mode as keyof typeof AIM_MODE_ACTION] ?? null;
+    const activeAction =
+      this.#mode === MODE.AIM && this.#aimKind
+        ? (AIM_KIND_ACTION[this.#aimKind as keyof typeof AIM_KIND_ACTION] ?? null)
+        : null;
     for (const [id, btn] of this.#buttonsById) {
       if (!btn) continue;
       const isActive = id === activeAction;

@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { dispatch, MODE } from '../../../src/input/keymap.js';
+import { AIM_KIND, dispatch, MODE } from '../../../src/input/keymap.js';
 
 function noIdleChange() {
-  return { intent: null, nextMode: MODE.IDLE };
+  return { intent: null, nextMode: MODE.IDLE, aimKind: null };
 }
 
 test('IDLE + arrow keys produce move intents in the right direction', () => {
@@ -18,6 +18,7 @@ test('IDLE + arrow keys produce move intents in the right direction', () => {
     const r = dispatch(key, MODE.IDLE);
     assert.deepEqual(r.intent, { type: 'move', dx, dy }, `${key} should emit move(${dx}, ${dy})`);
     assert.equal(r.nextMode, MODE.IDLE);
+    assert.equal(r.aimKind, null);
   }
 });
 
@@ -47,13 +48,11 @@ test('IDLE + Space emits interact and stays IDLE', () => {
   assert.equal(r.nextMode, MODE.IDLE);
 });
 
-test('IDLE + x enters SPECIAL_AIM with no intent yet', () => {
-  // The unified perk key. Replaces M1's per-archetype `v` (vault) and
-  // `t` (slide) bindings; the live archetype decides the resolved verb at
-  // intent-apply time in `applyIntent.doSpecial`.
+test('IDLE + x enters AIM (special) with no intent yet', () => {
   const r = dispatch('x', MODE.IDLE);
   assert.equal(r.intent, null, 'aiming alone produces no intent');
-  assert.equal(r.nextMode, MODE.SPECIAL_AIM);
+  assert.equal(r.nextMode, MODE.AIM);
+  assert.equal(r.aimKind, AIM_KIND.SPECIAL);
 });
 
 test('IDLE + Escape emits cancel and stays IDLE', () => {
@@ -68,9 +67,6 @@ test('IDLE + unknown key produces no intent and no mode change', () => {
   assert.equal(r.nextMode, MODE.IDLE);
 });
 
-// Once-removed `v` (Vault) and `t` (Slide) shortcuts no longer enter an
-// aim mode — they're plain noise inside IDLE now. `v` still has no other
-// meaning so a press is dropped; `t` is unassigned at IDLE too.
 test('IDLE + v is a no-op (collapsed into the unified `x` perk key)', () => {
   const r = dispatch('v', MODE.IDLE);
   assert.equal(r.intent, null);
@@ -83,28 +79,30 @@ test('IDLE + t is a no-op (collapsed into the unified `x` perk key)', () => {
   assert.equal(r.nextMode, MODE.IDLE);
 });
 
-test('SPECIAL_AIM + arrow emits a special intent and returns to IDLE', () => {
-  const r = dispatch('ArrowRight', MODE.SPECIAL_AIM);
+test('AIM (special) + arrow emits a special intent and returns to IDLE', () => {
+  const r = dispatch('ArrowRight', MODE.AIM, AIM_KIND.SPECIAL);
   assert.deepEqual(r.intent, { type: 'special', dx: 1, dy: 0 });
   assert.equal(r.nextMode, MODE.IDLE);
+  assert.equal(r.aimKind, null);
 });
 
-test('SPECIAL_AIM + diagonal key emits a diagonal special', () => {
-  const r = dispatch('q', MODE.SPECIAL_AIM);
+test('AIM (special) + diagonal key emits a diagonal special', () => {
+  const r = dispatch('q', MODE.AIM, AIM_KIND.SPECIAL);
   assert.deepEqual(r.intent, { type: 'special', dx: -1, dy: -1 });
   assert.equal(r.nextMode, MODE.IDLE);
 });
 
-test('SPECIAL_AIM + Escape cancels back to IDLE', () => {
-  const r = dispatch('Escape', MODE.SPECIAL_AIM);
+test('AIM (special) + Escape cancels back to IDLE', () => {
+  const r = dispatch('Escape', MODE.AIM, AIM_KIND.SPECIAL);
   assert.deepEqual(r.intent, { type: 'cancel' });
   assert.equal(r.nextMode, MODE.IDLE);
 });
 
-test('SPECIAL_AIM + non-directional key stays in SPECIAL_AIM with no intent', () => {
-  const r = dispatch(' ', MODE.SPECIAL_AIM);
+test('AIM (special) + non-directional key stays in AIM with no intent', () => {
+  const r = dispatch(' ', MODE.AIM, AIM_KIND.SPECIAL);
   assert.equal(r.intent, null, 'space should not be confused for a direction');
-  assert.equal(r.nextMode, MODE.SPECIAL_AIM);
+  assert.equal(r.nextMode, MODE.AIM);
+  assert.equal(r.aimKind, AIM_KIND.SPECIAL);
 });
 
 test('dispatch is case-sensitive for letter keys (uppercase is ignored except Q)', () => {
@@ -120,56 +118,64 @@ test('IDLE + Q emits quit-campaign intent', () => {
   assert.equal(r.nextMode, MODE.IDLE);
 });
 
-test('FIRE_AIM + Q stays in FIRE_AIM (quit is IDLE-only)', () => {
-  const r = dispatch('Q', MODE.FIRE_AIM);
+test('AIM (fire) + Q stays in AIM (quit is IDLE-only)', () => {
+  const r = dispatch('Q', MODE.AIM, AIM_KIND.FIRE);
   assert.equal(r.intent, null);
-  assert.equal(r.nextMode, MODE.FIRE_AIM);
+  assert.equal(r.nextMode, MODE.AIM);
+  assert.equal(r.aimKind, AIM_KIND.FIRE);
 });
 
 test('dispatch rejects an unknown mode (crash over silent fallback)', () => {
-  assert.throws(() => dispatch('ArrowUp', 'NOPE'), /unknown mode/i);
+  assert.throws(() => dispatch('ArrowUp', 'NOPE' as typeof MODE.IDLE), /unknown mode/i);
 });
 
-test('IDLE + f enters FIRE_AIM with no intent yet', () => {
+test('MODE.AIM without aimKind throws (crash over silent fallback)', () => {
+  assert.throws(() => dispatch('ArrowUp', MODE.AIM), /requires an aimKind/i);
+});
+
+test('IDLE + f enters AIM (fire) with no intent yet', () => {
   const r = dispatch('f', MODE.IDLE);
   assert.equal(r.intent, null);
-  assert.equal(r.nextMode, MODE.FIRE_AIM);
+  assert.equal(r.nextMode, MODE.AIM);
+  assert.equal(r.aimKind, AIM_KIND.FIRE);
 });
 
-test('FIRE_AIM + arrow emits a fire intent and returns to IDLE', () => {
-  const r = dispatch('ArrowRight', MODE.FIRE_AIM);
+test('AIM (fire) + arrow emits a fire intent and returns to IDLE', () => {
+  const r = dispatch('ArrowRight', MODE.AIM, AIM_KIND.FIRE);
   assert.deepEqual(r.intent, { type: 'fire', dx: 1, dy: 0 });
   assert.equal(r.nextMode, MODE.IDLE);
 });
 
-test('FIRE_AIM + diagonal key emits a diagonal fire', () => {
-  const r = dispatch('e', MODE.FIRE_AIM);
+test('AIM (fire) + diagonal key emits a diagonal fire', () => {
+  const r = dispatch('e', MODE.AIM, AIM_KIND.FIRE);
   assert.deepEqual(r.intent, { type: 'fire', dx: 1, dy: -1 });
   assert.equal(r.nextMode, MODE.IDLE);
 });
 
-test('FIRE_AIM + Escape cancels back to IDLE', () => {
-  const r = dispatch('Escape', MODE.FIRE_AIM);
+test('AIM (fire) + Escape cancels back to IDLE', () => {
+  const r = dispatch('Escape', MODE.AIM, AIM_KIND.FIRE);
   assert.deepEqual(r.intent, { type: 'cancel' });
   assert.equal(r.nextMode, MODE.IDLE);
 });
 
-test('FIRE_AIM + non-directional key stays in FIRE_AIM with no intent', () => {
-  const r = dispatch(' ', MODE.FIRE_AIM);
+test('AIM (fire) + non-directional key stays in AIM with no intent', () => {
+  const r = dispatch(' ', MODE.AIM, AIM_KIND.FIRE);
   assert.equal(r.intent, null);
-  assert.equal(r.nextMode, MODE.FIRE_AIM);
+  assert.equal(r.nextMode, MODE.AIM);
+  assert.equal(r.aimKind, AIM_KIND.FIRE);
 });
 
-// `melee` remains a valid `applyIntent` type for AI / replay; the player
-// keymap no longer binds `m` (bump-to-melee uses `move`).
+test('AIM (use-item) + direction emits use-item intent', () => {
+  const r = dispatch('ArrowRight', MODE.AIM, AIM_KIND.USE_ITEM);
+  assert.deepEqual(r.intent, { type: 'use-item', dx: 1, dy: 0 });
+  assert.equal(r.nextMode, MODE.IDLE);
+});
 
 test('IDLE + m is a no-op (melee is bump-only for the player keymap)', () => {
   const r = dispatch('m', MODE.IDLE);
   assert.equal(r.intent, null);
   assert.equal(r.nextMode, MODE.IDLE);
 });
-
-// --- M8: context-sensitive interact verb (Space) ----------------------
 
 test('IDLE + i emits inventory intent (M4)', () => {
   const r = dispatch('i', MODE.IDLE);
@@ -183,8 +189,9 @@ test('IDLE + I (uppercase) is a no-op (case-sensitive)', () => {
   assert.equal(r.nextMode, MODE.IDLE);
 });
 
-test('SPECIAL_AIM + Q (uppercase) does not resolve a direction', () => {
-  const r = dispatch('Q', MODE.SPECIAL_AIM);
+test('AIM (special) + Q (uppercase) does not resolve a direction', () => {
+  const r = dispatch('Q', MODE.AIM, AIM_KIND.SPECIAL);
   assert.equal(r.intent, null);
-  assert.equal(r.nextMode, MODE.SPECIAL_AIM);
+  assert.equal(r.nextMode, MODE.AIM);
+  assert.equal(r.aimKind, AIM_KIND.SPECIAL);
 });

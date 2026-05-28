@@ -43,7 +43,7 @@ export const RECRUIT_ARCHETYPE_POOL = Object.freeze(['merc', 'merc', 'razor', 'r
 
 /**
  * All three archetypes share a single perk key (`x`) — the keymap collapses
- * vault/slide/deploy into one `MODE.SPECIAL_AIM` aim mode that dispatches by
+ * vault/slide/deploy into one `MODE.AIM` / `aimKind: 'special'` flow that dispatches by
  * archetype at the intent layer (`applyIntent.doSpecial`). The per-archetype
  * `perkLabel` is what `<key-help>` surfaces in the combat intro text, so
  * the visible verb stays archetype-specific even though the keystroke doesn't.

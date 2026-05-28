@@ -31,7 +31,7 @@ import { TILE, FACTION } from '/src/game/constants.js';
 import { AsciiRenderer } from '/src/render/AsciiRenderer.js';
 import { CrtFilter } from '/src/render/CrtFilter.js';
 import { KeyboardController } from '/src/input/KeyboardController.js';
-import { MODE } from '/src/input/keymap.js';
+import { AIM_KIND, MODE, aimKindLabel } from '/src/input/keymap.js';
 import { applyIntent as applyPlayerIntent, PLAYER_ACTIONS } from '/src/input/applyIntent.js';
 import { VisionField } from '/src/game/Vision.js';
 import { Rng } from '/src/rng.js';
@@ -40,7 +40,7 @@ import type { Intent } from '/src/input/applyIntent.js';
 import type { Archetype } from '/src/game/archetypes';
 import { entityLabel, resolveEntityLabel, type Entity } from '/src/game/Entity.js';
 import type { TurnActionStep } from '/src/types.js';
-import type { Mode } from '/src/input/keymap.js';
+import type { AimKind, Mode } from '/src/input/keymap.js';
 import type TouchPad from '/components/TouchPad';
 import type { PlayerAftermathStep } from '/src/game/combatTurnPipeline.js';
 
@@ -147,10 +147,11 @@ function log(line: string) {
   if (logLines.length > 200) logLines.splice(0, logLines.length - 200);
 }
 
-function rerender(modeHint = '') {
+function rerender(state: { mode: Mode; aimKind: AimKind | null } = activeInputState()) {
   renderer.draw(world, player, { vision });
   crt.apply();
-  const aim = modeHint && modeHint !== MODE.IDLE ? `  |  MODE: ${modeHint}` : '';
+  const aim =
+    state.mode === MODE.AIM && state.aimKind ? `  |  AIM: ${aimKindLabel(state.aimKind)}` : '';
   const droneStatus = drone.alive
     ? `DRONE @(${drone.x},${drone.y}) HP ${drone.hp}/${drone.maxHp} [${drone.state.toUpperCase()}]`
     : 'DRONE DOWN';
@@ -278,9 +279,10 @@ function formatCorpAction(actor: Entity, action: TurnActionStep) {
   }
 }
 
-function logModeChange(nextMode: Mode) {
-  if (nextMode === MODE.FIRE_AIM) log('> FIRE — pick a direction (Esc to cancel).');
-  if (nextMode === MODE.SPECIAL_AIM) {
+function logModeChange(state: { mode: Mode; aimKind: AimKind | null }) {
+  if (state.mode !== MODE.AIM || !state.aimKind) return;
+  if (state.aimKind === AIM_KIND.FIRE) log('> FIRE — pick a direction (Esc to cancel).');
+  if (state.aimKind === AIM_KIND.SPECIAL) {
     // Surface the archetype-specific verb so the banner still reads naturally
     // even though the keystroke and mode are now shared.
     const verb =
@@ -295,16 +297,21 @@ function logModeChange(nextMode: Mode) {
   }
 }
 
-function activeMode() {
+function activeInputState(): { mode: Mode; aimKind: AimKind | null } {
   // Show whichever input is currently aiming. Touch wins ties so the banner
   // matches the visible highlight on the pad.
-  if (touchPad && touchPad.mode !== MODE.IDLE) return touchPad.mode;
-  return input.mode ?? MODE.IDLE;
+  if (touchPad && touchPad.mode !== MODE.IDLE) {
+    return { mode: touchPad.mode, aimKind: touchPad.aimKind ?? null };
+  }
+  return { mode: input.mode ?? MODE.IDLE, aimKind: input.aimKind ?? null };
 }
 
 function resetInputModes() {
   if (touchPad) touchPad.setMode(MODE.IDLE);
-  if (input) input.mode = MODE.IDLE;
+  if (input) {
+    input.mode = MODE.IDLE;
+    input.aimKind = null;
+  }
 }
 
 function bindUI() {
@@ -317,15 +324,15 @@ function bindUI() {
       if (intent?.type === 'quit-campaign') {
         log('> QUIT CAMPAIGN is only wired in the M8 shell (no-op in harness).');
         resetInputModes();
-        rerender(activeMode());
+        rerender();
         return;
       }
       applyIntent(intent);
-      rerender(activeMode());
+      rerender();
     },
-    onModeChange: (nextMode: Mode) => {
-      logModeChange(nextMode);
-      rerender(activeMode());
+    onModeChange: () => {
+      logModeChange(activeInputState());
+      rerender();
     },
   });
   input.attach();
@@ -337,15 +344,15 @@ function bindUI() {
       if (intent?.type === 'quit-campaign') {
         log('> QUIT CAMPAIGN is only wired in the M8 shell (no-op in harness).');
         resetInputModes();
-        rerender(activeMode());
+        rerender();
         return;
       }
       applyIntent(intent);
-      rerender(activeMode());
+      rerender();
     });
-    touchPad.addEventListener('mode-change', evt => {
-      logModeChange((evt as CustomEvent<{ mode: Mode }>).detail!.mode);
-      rerender(activeMode());
+    touchPad.addEventListener('mode-change', () => {
+      logModeChange(activeInputState());
+      rerender();
     });
   }
 
@@ -355,25 +362,25 @@ function bindUI() {
     if (evt.key === 'r' || evt.key === 'R') {
       buildScenario();
       resetInputModes();
-      rerender(activeMode());
+      rerender();
       evt.preventDefault();
     } else if (evt.key === '1') {
       archetype = 'merc';
       buildScenario();
       resetInputModes();
-      rerender(activeMode());
+      rerender();
       evt.preventDefault();
     } else if (evt.key === '2') {
       archetype = 'razor';
       buildScenario();
       resetInputModes();
-      rerender(activeMode());
+      rerender();
       evt.preventDefault();
     } else if (evt.key === '3') {
       archetype = 'tech';
       buildScenario();
       resetInputModes();
-      rerender(activeMode());
+      rerender();
       evt.preventDefault();
     }
   });

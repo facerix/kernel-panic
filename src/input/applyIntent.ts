@@ -77,7 +77,7 @@ export type ApplyIntentContext = {
    * Resolve a thrown consumable along the supplied aim direction (M4.3).
    * The shell stashes the `pendingAimItemId` when the inventory overlay
    * confirmed an aimed consumable; this callback pairs that id with the
-   * direction picked in `MODE.ITEM_AIM`. Optional — harness tests that
+   * direction picked in `MODE.AIM` with `aimKind: 'use-item'`. Optional — harness tests that
    * never exercise thrown items can leave it unset, and `doUseItem` will
    * crash if a `use-item` intent arrives without a handler (loud wiring
    * error per the module docstring).
@@ -487,7 +487,7 @@ function doInventory(ctx: ApplyIntentContext) {
 
 /**
  * Thrown-consumable resolution (M4.3). The keymap emits `use-item { dx, dy }`
- * from `MODE.ITEM_AIM`; the shell stashes the pending `itemId` when it
+ * from `MODE.AIM` / `aimKind: 'use-item'`; the shell stashes the pending `itemId` when it
  * entered that mode (so the keymap can stay item-agnostic, mirroring the
  * `special` intent's archetype-agnostic shape). We delegate to the shell's
  * `onUseItem` callback because Crew lives outside the World — the shell

@@ -181,7 +181,7 @@ export const SMOKE_RADIUS = 2;
 export const SMOKE_DURATION_TURNS = 1;
 /**
  * Incendiary bomb (M4.3): thrown along an aim direction (dx, dy) selected via
- * `MODE.ITEM_AIM`. The target tile is `thrower + dir * INCENDIARY_THROW_DIST`;
+ * `MODE.AIM` with `aimKind: 'use-item'`. The target tile is `thrower + dir * INCENDIARY_THROW_DIST`;
  * LOS from thrower → target must be clear (no lobbing through walls). The
  * hazard cluster shape and size come from `placeHazardCluster` (M2.3 — a
  * 5–9 tile diamond/cross of `TILE.HAZARD`), so we don't need a separate

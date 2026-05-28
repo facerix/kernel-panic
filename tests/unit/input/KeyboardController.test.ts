@@ -69,7 +69,7 @@ test('isBlocked() === true short-circuits keydown — no intent, no mode change'
   });
   ctrl.attach();
 
-  target.keydown('f'); // would normally enter FIRE_AIM
+  target.keydown('f'); // would normally enter MODE.AIM (fire)
   target.keydown('ArrowUp'); // would normally emit move
 
   assert.equal(ctrl.mode, MODE.IDLE, 'mode must not advance while blocked');

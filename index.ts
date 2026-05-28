@@ -59,7 +59,7 @@ import {
   triggerShake,
 } from '/src/render/animations.js';
 import { KeyboardController } from '/src/input/KeyboardController.js';
-import { MODE } from '/src/input/keymap.js';
+import { AIM_KIND, MODE, aimKindLabel } from '/src/input/keymap.js';
 import { applyIntent, PLAYER_ACTIONS } from '/src/input/applyIntent.js';
 import { recordStatusActionLine, statusActionRows } from '/src/statusActivityRows.js';
 
@@ -76,7 +76,7 @@ import { resolveEntityLabel, type Entity } from '/src/game/Entity.js';
 import type { Run, RunResult, RunTelemetry, Outcome } from '/src/game/Run.js';
 import type { Item } from '/src/game/items.js';
 import type { Intent } from '/src/input/applyIntent.js';
-import type { Mode } from '/src/input/keymap.js';
+import type { AimKind, Mode } from '/src/input/keymap.js';
 import type { KeyItem, Telemetry, TurnActionStep } from '/src/types.js';
 
 import '/components/ConfirmationModal.js';
@@ -163,8 +163,13 @@ type KeyHelpElement = ModalElement & {
 };
 type TouchPadElement = HTMLElement & {
   mode: Mode;
-  setMode(mode: Mode): void;
+  aimKind: AimKind | null;
+  setMode(mode: Mode, aimKind?: AimKind | null): void;
   setBlocked(predicate: (() => boolean) | null): void;
+};
+type InputState = {
+  mode: Mode;
+  aimKind: AimKind | null;
 };
 type ConfirmationModalElement = HTMLElement & {
   showModal(message: string, context?: unknown): void;
@@ -376,10 +381,10 @@ async function boot() {
       handleIntent(intent);
       paint();
     },
-    onModeChange: (nextMode: Mode) => {
+    onModeChange: () => {
       // Keep the keyboard / touchpad in lock-step so the cross-input cancel
       // rule the M7 harness established still holds in the shell.
-      paint(nextMode);
+      paint();
     },
     isBlocked: () => animLock.isLocked() || isAnyBlockingModalOpen(),
   });
@@ -436,8 +441,8 @@ async function boot() {
     handleIntent((evt as CustomEvent<Intent>).detail);
     paint();
   });
-  touchPadEl.addEventListener('mode-change', evt => {
-    paint((evt as CustomEvent<{ mode: Mode }>).detail.mode);
+  touchPadEl.addEventListener('mode-change', () => {
+    paint();
   });
   touchPadEl.setBlocked(() => animLock.isLocked() || isAnyBlockingModalOpen());
 
@@ -757,8 +762,9 @@ function presentItemInventory() {
 /**
  * Stashed item id for M4.3 thrown-consumable aim flow. Set when the
  * inventory overlay confirmed an aimed consumable (incendiary) and we
- * flipped the input controllers into `MODE.ITEM_AIM`; consumed when the
- * subsequent `use-item { dx, dy }` intent arrives or cleared on cancel.
+ * flipped the input controllers into `MODE.AIM` with `aimKind: 'use-item'`;
+ * consumed when the subsequent `use-item { dx, dy }` intent arrives or cleared
+ * on cancel.
  *
  * Kept at module scope (not inside `onUseItem`) because the aim resolution
  * happens in a separate event tick from the inventory click — the keypress
@@ -774,7 +780,7 @@ function onUseItem(evt: Event) {
   const { itemId } = (evt as CustomEvent<{ itemId?: string }>).detail;
   if (!itemId) return;
   // Aimed consumables (incendiary): close the inventory overlay, switch the
-  // input controllers into ITEM_AIM, and wait for the next direction press.
+  // input controllers into unified aim mode, and wait for the next direction.
   // Crew.useConsumable will be called from `resolveAimedUseItem` once the
   // aim direction is in.
   let descriptor: Item;
@@ -794,10 +800,8 @@ function onUseItem(evt: Event) {
     }
     pendingAimItemId = itemId;
     itemInventoryEl.hide();
-    keyboard.mode = MODE.ITEM_AIM;
-    touchPadEl.setMode(MODE.ITEM_AIM);
+    setInputAim(AIM_KIND.USE_ITEM);
     flash(`AIM ${descriptor.label.toUpperCase()} — pick a direction (Esc to cancel).`);
-    paint(MODE.ITEM_AIM);
     return;
   }
   try {
@@ -888,8 +892,8 @@ function resolveAimedUseItem(aim: { dx: number; dy: number }, run: Run): void {
   const itemId = pendingAimItemId;
   if (!itemId) {
     // Direction press arrived without a stashed item — shouldn't be reachable
-    // (the keymap only emits use-item from ITEM_AIM, which only the shell
-    // can enter), but crash loud if it does so the wiring bug surfaces.
+    // (the keymap only emits use-item from MODE.AIM / use-item aimKind, which
+    // only the shell can enter), but crash loud if it does so the wiring bug
     throw new Error('[shell] use-item intent received without pendingAimItemId');
   }
   pendingAimItemId = null;
@@ -1622,10 +1626,10 @@ function renderShell(): void {
   paint();
 }
 
-function paint(modeHint: Mode = activeMode()): void {
+function paint(stateHint: InputState = activeInputState()): void {
   const run = currentScene();
   if (canvas.hidden) {
-    setStatus(statusLine(modeHint));
+    setStatus(statusLine(stateHint));
     return;
   }
   if (!run || !run.world || !run.player) return;
@@ -1639,16 +1643,17 @@ function paint(modeHint: Mode = activeMode()): void {
   renderer.draw(run.world, run.player, { vision: activeVision, blastOverlayKeys });
   crt.alertTint = run.state === RUN_STATE.COMBAT && run.world.alarmActive;
   crt.apply();
-  setStatus(statusLine(modeHint));
+  setStatus(statusLine(stateHint));
 }
 
-function statusLine(modeHint: Mode): string {
+function statusLine(state: InputState): string {
   const run = currentScene();
   if (!run) return '';
   if (run.state !== RUN_STATE.COMBAT) {
     corpToneActivityBody = null;
   }
-  const aim = modeHint && modeHint !== MODE.IDLE ? `AIM ${modeHint}` : '';
+  const aim =
+    state.mode === MODE.AIM && state.aimKind ? `AIM ${aimKindLabel(state.aimKind)}` : '';
   const player = run.player;
   if (!player) return stateLabel();
   if (!run.queue) return stateLabel();
@@ -1876,16 +1881,26 @@ function setStatus(richText: string): void {
   if (statusEl) statusEl.innerHTML = richText;
 }
 
-function activeMode(): Mode {
-  if (touchPadEl && touchPadEl.mode && touchPadEl.mode !== MODE.IDLE) return touchPadEl.mode;
-  return keyboard?.mode ?? MODE.IDLE;
+function activeInputState(): InputState {
+  if (touchPadEl && touchPadEl.mode !== MODE.IDLE) {
+    return { mode: touchPadEl.mode, aimKind: touchPadEl.aimKind ?? null };
+  }
+  return { mode: keyboard?.mode ?? MODE.IDLE, aimKind: keyboard?.aimKind ?? null };
+}
+
+function setInputAim(aimKind: AimKind): void {
+  keyboard.mode = MODE.AIM;
+  keyboard.aimKind = aimKind;
+  touchPadEl.setMode(MODE.AIM, aimKind);
+  paint({ mode: MODE.AIM, aimKind });
 }
 
 function resetInputModes(): void {
   touchPadEl.setMode(MODE.IDLE);
   keyboard.mode = MODE.IDLE;
+  keyboard.aimKind = null;
   // Clear any half-armed thrown-consumable aim (M4.3). Esc-cancel from
-  // ITEM_AIM, or a cross-controller cancel, must not leave a stashed item
+  // aim mode, or a cross-controller cancel, must not leave a stashed item
   // hanging — a later inventory click would otherwise mismatch.
   pendingAimItemId = null;
 }

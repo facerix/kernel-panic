@@ -19,7 +19,7 @@
  */
 
 import { dispatch } from './keymap.js';
-import type { Mode } from './keymap.js';
+import type { AimKind, DispatchResult, Mode } from './keymap.js';
 
 const DIRECTION_KEYS = Object.freeze({
   N: 'ArrowUp',
@@ -69,6 +69,10 @@ export function syntheticKeyFor(buttonId: string): string {
  * Returns the same `{ intent, nextMode }` shape `dispatch` returns, so the
  * harness can reuse its existing applyIntent/onModeChange paths verbatim.
  */
-export function dispatchTouchAction(buttonId: string, mode: Mode) {
-  return dispatch(syntheticKeyFor(buttonId), mode);
+export function dispatchTouchAction(
+  buttonId: string,
+  mode: Mode,
+  aimKind: AimKind | null = null
+): DispatchResult {
+  return dispatch(syntheticKeyFor(buttonId), mode, aimKind);
 }
