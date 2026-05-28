@@ -218,8 +218,7 @@ let curatorBriefingEl: CuratorBriefingElement;
 /** Status line to flash after the player dismisses a Hub reveal briefing. */
 let hubRevealFollowUpFlash: string | null = null;
 let initialRecruitEl: InitialRecruitElement;
-let resumeModalEl: ConfirmationModalElement;
-let quitCampaignModalEl: ConfirmationModalElement;
+let confirmationModalEl: ConfirmationModalElement;
 let touchPadEl: TouchPadElement;
 let crewRosterEl: CrewRosterElement;
 let finnShopEl: FinnShopElement;
@@ -361,8 +360,7 @@ async function boot() {
   systemStartEl = mustGetElement<SystemStartElement>('system-start');
   curatorBriefingEl = mustGetElement<CuratorBriefingElement>('curator-briefing');
   initialRecruitEl = mustGetElement<InitialRecruitElement>('initial-recruit');
-  resumeModalEl = mustGetElement<ConfirmationModalElement>('resume-modal');
-  quitCampaignModalEl = mustGetElement<ConfirmationModalElement>('quit-campaign-modal');
+  confirmationModalEl = mustGetElement<ConfirmationModalElement>('confirm-modal');
   touchPadEl = mustGetElement<TouchPadElement>('touch-pad');
   crewRosterEl = mustGetElement<CrewRosterElement>('crew-roster');
   finnShopEl = mustGetElement<FinnShopElement>('finn-shop');
@@ -431,10 +429,24 @@ async function boot() {
     });
   }
 
-  quitCampaignModalEl.addEventListener('confirm', evt => {
+  confirmationModalEl.addEventListener('confirm', evt => {
+    // const detail = (evt as CustomEvent<{ context?: { kind?: string } }>).detail;
     const detail = (evt as CustomEvent<{ context?: { kind?: string } }>).detail;
-    if (detail?.context?.kind !== 'quit-campaign') return;
-    performQuitCampaign();
+    switch (detail?.context) {
+      case 'resume-campaign':
+        // not currently implemented
+        break;
+      case 'quit-campaign':
+        performQuitCampaign();
+        break;
+      case 'abort-run':
+        const run = campaign?.activeRun;
+        if (run) {
+          run.confirmAbort();
+          paint();
+        }
+        break;
+    }
   });
 
   touchPadEl.addEventListener('intent', evt => {
@@ -636,6 +648,15 @@ function onBriefingDeploy(evt: Event) {
     run = campaign.deployCrewMember(member.id, contract);
     flash(`CURATOR: ${member.callsign} takes ${contract.label}. JACKING IN.`);
   }
+
+  // Wire abort confirmation so stepping on exit with an incomplete objective
+  // pops a modal instead of silently ending the run.
+  run.onAbortRequested = () => {
+    confirmationModalEl.showModal(
+      `Objective incomplete. Abort extraction?\n\nYou will lose all rewards and take a REP ${REP.ABORT_PENALTY} penalty.`,
+      'abort-run'
+    );
+  };
 
   // Go straight into combat — the player already reviewed the contract and
   // chose their operative in the combined briefing modal.
@@ -1057,10 +1078,11 @@ function isConfirmationDialogOpen(el: HTMLElement | null | undefined): boolean {
 
 function presentQuitCampaignConfirm() {
   if (!campaign) return;
-  if (isConfirmationDialogOpen(quitCampaignModalEl)) return;
-  quitCampaignModalEl.showModal('Delete this campaign and all progress? This cannot be undone.', {
-    kind: 'quit-campaign',
-  });
+  if (isConfirmationDialogOpen(confirmationModalEl)) return;
+  confirmationModalEl.showModal(
+    'Delete this campaign and all progress? This cannot be undone.',
+    'quit-campaign'
+  );
 }
 
 function performQuitCampaign(): void {
@@ -1652,8 +1674,7 @@ function statusLine(state: InputState): string {
   if (run.state !== RUN_STATE.COMBAT) {
     corpToneActivityBody = null;
   }
-  const aim =
-    state.mode === MODE.AIM && state.aimKind ? `AIM ${aimKindLabel(state.aimKind)}` : '';
+  const aim = state.mode === MODE.AIM && state.aimKind ? `AIM ${aimKindLabel(state.aimKind)}` : '';
   const player = run.player;
   if (!player) return stateLabel();
   if (!run.queue) return stateLabel();
@@ -2002,8 +2023,7 @@ function isAnyBlockingModalOpen(): boolean {
   if (itemInventoryEl?.isOpen) return true;
   // <confirmation-modal> uses a native <dialog> internally; treat any open
   // attribute as "blocking".
-  if (isConfirmationDialogOpen(resumeModalEl)) return true;
-  if (isConfirmationDialogOpen(quitCampaignModalEl)) return true;
+  if (isConfirmationDialogOpen(confirmationModalEl)) return true;
   return false;
 }
 

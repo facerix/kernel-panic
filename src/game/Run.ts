@@ -282,6 +282,11 @@ export type RunOptions = {
   seed?: unknown;
   onPersist?: unknown;
   onResult?: unknown;
+  /** Called when the player reaches the exit with an incomplete objective.
+   *  The shell should show a confirmation prompt; call `run.confirmAbort()`
+   *  to finalise the abort extraction, or do nothing to let the player
+   *  stay on the exit tile and keep playing. */
+  onAbortRequested?: unknown;
 };
 
 type EntityDamagedPayload = {
@@ -318,9 +323,10 @@ export class Run {
   keyItems: KeyItem[];
   onPersist: ((record: RunSnapshot) => void) | null;
   onResult: ((result: RunResult) => void) | null;
+  onAbortRequested: (() => void) | null;
   _busUnsubs: (() => void)[];
 
-  constructor({ id, crewMember, seed, onPersist, onResult }: RunOptions = {}) {
+  constructor({ id, crewMember, seed, onPersist, onResult, onAbortRequested }: RunOptions = {}) {
     if (typeof seed !== 'number' || !Number.isFinite(seed)) {
       throw new TypeError(`Run requires a finite numeric seed, got ${seed}`);
     }
@@ -335,6 +341,9 @@ export class Run {
     }
     if (onResult !== undefined && typeof onResult !== 'function') {
       throw new TypeError('Run: onResult must be a function');
+    }
+    if (onAbortRequested !== undefined && typeof onAbortRequested !== 'function') {
+      throw new TypeError('Run: onAbortRequested must be a function');
     }
 
     this.id = id ?? makeRunId(seed);
@@ -355,6 +364,7 @@ export class Run {
     this.keyItems = [];
     this.onPersist = (onPersist as ((record: RunSnapshot) => void) | undefined) ?? null;
     this.onResult = (onResult as ((result: RunResult) => void) | undefined) ?? null;
+    this.onAbortRequested = (onAbortRequested as (() => void) | undefined) ?? null;
 
     /** @type {Array<() => void>} active bus subscriptions */
     this._busUnsubs = [];
@@ -758,6 +768,15 @@ export class Run {
     }
     const objectiveComplete = this.isObjectiveSatisfied();
     const objectiveExpired = this.#isTimedObjectiveExpired();
+    if (!objectiveComplete && !objectiveExpired) {
+      // Abort: objective incomplete — ask the shell for confirmation before
+      // finalising. If no callback is registered, extract immediately (tests,
+      // harness).
+      if (this.onAbortRequested) {
+        this.onAbortRequested();
+        return;
+      }
+    }
     this.telemetry.cause = objectiveComplete
       ? 'exit-reached'
       : objectiveExpired
@@ -768,6 +787,23 @@ export class Run {
       telemetry: {
         objectiveComplete,
         objectiveExpired,
+      },
+    });
+  }
+
+  /**
+   * Finalise an abort extraction after the shell confirms. Safe to call only
+   * while the run is still in COMBAT (if the player moved away from the exit
+   * tile before confirming, the run stays live and this is a no-op).
+   */
+  confirmAbort(): void {
+    if (this.state !== RUN_STATE.COMBAT) return;
+    this.telemetry.cause = 'abort';
+    this.enterResult({
+      outcome: OUTCOME.EXIT,
+      telemetry: {
+        objectiveComplete: false,
+        objectiveExpired: false,
       },
     });
   }
