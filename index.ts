@@ -33,6 +33,7 @@ import {
   REP,
   REP_LABEL,
   INCENDIARY_THROW_DIST,
+  BREACHING_CHARGE_RANGE,
 } from '/src/game/constants.js';
 import {
   advanceFromPlayerTurn,
@@ -64,6 +65,7 @@ import { recordStatusActionLine, statusActionRows } from '/src/statusActivityRow
 
 import { placeSmoke, clearSmoke } from '/src/game/Smoke.js';
 import { placeHazardCluster } from '/src/game/Run.js';
+import { blastCells } from '/src/game/breachBlast.js';
 import { hasLineOfSight } from '/src/game/LineOfSight.js';
 import { ITEM_ID, getItemById } from '/src/game/items.js';
 import type { CampaignSnapshot } from '/src/game/persistence.js';
@@ -243,6 +245,31 @@ let pendingJobResult: PendingJobResult | null = null;
  * grid. Cleared at the start of the player's next turn (`onPlayerTurnReady`).
  */
 let activeSmokeOverlays: SmokeOverlay[] = [];
+/** Hazard-glyph blast flash — cleared on a short timer after each detonation. */
+let activeBreachBlastOverlayKeys = new Set<string>();
+let breachBlastOverlayTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearBreachBlastOverlay(repaint = false): void {
+  if (breachBlastOverlayTimer) {
+    clearTimeout(breachBlastOverlayTimer);
+    breachBlastOverlayTimer = null;
+  }
+  if (activeBreachBlastOverlayKeys.size === 0) return;
+  activeBreachBlastOverlayKeys.clear();
+  if (repaint) paint();
+}
+
+function showBreachBlastOverlay(cx: number, cy: number): void {
+  clearBreachBlastOverlay(false);
+  for (const { x, y } of blastCells(cx, cy)) {
+    activeBreachBlastOverlayKeys.add(`${x},${y}`);
+  }
+  breachBlastOverlayTimer = setTimeout(() => {
+    breachBlastOverlayTimer = null;
+    activeBreachBlastOverlayKeys.clear();
+    paint();
+  }, ANIMATION_DURATIONS.BREACH_BLAST_OVERLAY);
+}
 
 /**
  * Recent intent-result log lines (melee, fire, perk use, denials, etc.).
@@ -837,6 +864,16 @@ function applyUseConsumableResult(
     recomputeVision();
     return;
   }
+  if (result.type === 'breach') {
+    const { tx, ty } = result as { tx: number; ty: number };
+    if (!Number.isInteger(tx) || !Number.isInteger(ty)) {
+      throw new Error('[shell] breaching charge returned invalid target data');
+    }
+    run.world.placeBreachingCharge(tx, ty);
+    flash(`BREACHING CHARGE planted. Detonates end of turn. ${run.player.ap} AP left.`);
+    recomputeVision();
+    return;
+  }
   throw new Error(`[shell] applyUseConsumableResult: unknown result.type "${result.type}"`);
 }
 
@@ -871,6 +908,22 @@ function resolveAimedUseItem(aim: { dx: number; dy: number }, run: Run): void {
     const blockers = run.world.blockerKeys();
     if (!hasLineOfSight(run.world.grid, run.player.x, run.player.y, cx, cy, { blockers })) {
       flash('USE FAILED: target is behind cover.');
+      paint();
+      return;
+    }
+  }
+  if (itemId === ITEM_ID.BREACHING_CHARGE) {
+    const tx = run.player.x + aim.dx * BREACHING_CHARGE_RANGE;
+    const ty = run.player.y + aim.dy * BREACHING_CHARGE_RANGE;
+    const plantCheck = run.world.canPlaceBreachingCharge(tx, ty);
+    if (!plantCheck.ok) {
+      const msg =
+        plantCheck.reason === 'blocked'
+          ? 'USE FAILED: need clear ground to plant.'
+          : plantCheck.reason === 'occupied' || plantCheck.reason === 'charge-present'
+            ? 'USE FAILED: that tile is blocked.'
+            : 'USE FAILED: target is off the map.';
+      flash(msg);
       paint();
       return;
     }
@@ -1060,14 +1113,6 @@ function handleIntent(intent: Intent): void {
     log: (line: string) => flash(line),
     advanceTurn,
     resetInputModes,
-    canExit: () => {
-      if (!isRun(run) || !run.contract) return true;
-      return run.canExtract();
-    },
-    exitBlockedMessage: () => {
-      if (!isRun(run) || !run.contract) return 'Complete your objective before extraction.';
-      return `Complete objective first: ${run.contract.objective.title}.`;
-    },
     onUseItem: (aim: { dx: number; dy: number }) => {
       resolveAimedUseItem(aim, run as Run);
     },
@@ -1140,7 +1185,10 @@ function advanceTurn(): void {
         world,
         rng: run.rng,
         onStep,
-        onFinish,
+        onFinish: () => {
+          clearBreachBlastOverlay(false);
+          onFinish();
+        },
         animLock,
         stepDelayMs: PLAYER_AFTERMATH_ACTION_DELAY_MS,
         lockMarginMs: ANIMATION_DURATIONS.MUZZLE_FLASH,
@@ -1148,11 +1196,19 @@ function advanceTurn(): void {
       });
     },
     onCorpTurnReady: () => {
+      clearBreachBlastOverlay(false);
       recomputeVision();
       paint();
     },
     onPlayerAftermathStep: step => {
       const scene = currentScene();
+      if (step.type === 'breach-detonate') {
+        showBreachBlastOverlay(step.charge.x, step.charge.y);
+        if (scene?.player && vision.isVisible(step.charge.x, step.charge.y)) {
+          triggerShake(stageEl);
+          animLock.push(ANIMATION_DURATIONS.SHAKE);
+        }
+      }
       if (
         scene?.player &&
         isPlayerAftermathStepLogVisible(step, (x, y) => vision.isVisible(x, y), scene.player.id)
@@ -1361,6 +1417,9 @@ function onNewRunRequested(): void {
     if (outcome === 'exit' && objectiveComplete && civilianHarmsThisJob === 0) {
       const actual = campaign.adjustRep(REP.CLEAN_COMPLETION_BONUS);
       flash(`REP +${actual}: clean extraction — no civilian casualties.`);
+    }
+    if (outcome === 'exit' && !objectiveComplete) {
+      flash(`ABORT: Objective abandoned. REP ${REP.ABORT_PENALTY}.`);
     }
     campaign.onJobEnd({ outcome, salvage, completed: objectiveComplete });
     if (campaign.state === CAMPAIGN_STATE.ENDED) {
@@ -1573,7 +1632,11 @@ function paint(modeHint: Mode = activeMode()): void {
   // Hub is a safe space — no fog of war. Vision is only meaningful during
   // combat where LOS and drone stealth detection matter.
   const activeVision = run.state === RUN_STATE.COMBAT ? vision : undefined;
-  renderer.draw(run.world, run.player, { vision: activeVision });
+  const blastOverlayKeys =
+    run.state === RUN_STATE.COMBAT && activeBreachBlastOverlayKeys.size > 0
+      ? activeBreachBlastOverlayKeys
+      : undefined;
+  renderer.draw(run.world, run.player, { vision: activeVision, blastOverlayKeys });
   crt.alertTint = run.state === RUN_STATE.COMBAT && run.world.alarmActive;
   crt.apply();
   setStatus(statusLine(modeHint));

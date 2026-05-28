@@ -129,7 +129,7 @@ describe('recon objective accounting', () => {
 });
 
 describe('recon runs', () => {
-  it('gates extraction until the full eligible map is recorded as seen', () => {
+  it('allows abort extraction before recon is complete', () => {
     const results: unknown[] = [];
     const run = new Run({
       crewMember: makeCrew('razor'),
@@ -145,13 +145,27 @@ describe('recon runs', () => {
     assert.ok(startProgress.mapped < startProgress.required);
     assert.equal(run.isObjectiveSatisfied(), false);
 
+    // Reaching exit before recon is complete is an abort extraction.
     run.bus!.emit('entity:moved', {
       entity: run.player,
       from: { x: run.player!.x, y: run.player!.y },
       to: { x: run.exitTile!.x, y: run.exitTile!.y },
     });
-    assert.equal(run.state, RUN_STATE.COMBAT, 'extract is blocked before recon is complete');
-    assert.equal(results.length, 0);
+    assert.equal(run.state, RUN_STATE.RESULT, 'abort extraction ends the run');
+    const abortResult = results[0] as { outcome: string; telemetry: { objectiveComplete: boolean } };
+    assert.equal(abortResult.outcome, OUTCOME.EXIT);
+    assert.equal(abortResult.telemetry.objectiveComplete, false, 'abort marks objective incomplete');
+  });
+
+  it('extraction after full recon marks objective complete', () => {
+    const results: unknown[] = [];
+    const run = new Run({
+      crewMember: makeCrew('razor'),
+      seed: 211,
+      onResult: result => results.push(result),
+    });
+    run.enterBriefing(makeReconContract());
+    run.enterCombat();
 
     run.recordReconSeen(reconEligibleCellKeys(run.world!));
     assert.equal(run.isObjectiveSatisfied(), true);
@@ -162,7 +176,9 @@ describe('recon runs', () => {
       to: { x: run.exitTile!.x, y: run.exitTile!.y },
     });
     assert.equal(run.state, RUN_STATE.RESULT);
-    assert.equal((results[0] as { outcome: string }).outcome, OUTCOME.EXIT);
+    const result = results[0] as { outcome: string; telemetry: { objectiveComplete: boolean } };
+    assert.equal(result.outcome, OUTCOME.EXIT);
+    assert.equal(result.telemetry.objectiveComplete, true);
   });
 
   it('snapshot/restore round-trips recon map knowledge', () => {

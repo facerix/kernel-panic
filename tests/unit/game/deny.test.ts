@@ -140,7 +140,7 @@ describe('deny objective satisfaction', () => {
 });
 
 describe('deny runs', () => {
-  it('spawns a deny target and gates extraction until the target is destroyed', () => {
+  it('spawns a deny target and allows abort or completion extraction', () => {
     const results: unknown[] = [];
     const run = new Run({
       crewMember: makeCrew('razor'),
@@ -161,24 +161,41 @@ describe('deny runs', () => {
     );
     assert.equal(isObjectiveSatisfied(run.contract!, run.world), false);
 
+    // Reaching exit before objective is an abort extraction.
     run.bus!.emit('entity:moved', {
       entity: run.player,
       from: { x: run.player!.x, y: run.player!.y },
       to: { x: run.exitTile.x, y: run.exitTile.y },
     });
-    assert.equal(run.state, RUN_STATE.COMBAT, 'extract is blocked before deny target is destroyed');
-    assert.equal(results.length, 0);
+    assert.equal(run.state, RUN_STATE.RESULT, 'abort extraction ends the run');
+    const abortResult = results[0] as { outcome: string; telemetry: { objectiveComplete: boolean } };
+    assert.equal(abortResult.outcome, OUTCOME.EXIT);
+    assert.equal(abortResult.telemetry.objectiveComplete, false, 'abort marks objective incomplete');
+  });
 
+  it('extraction after objective completion marks objective complete', () => {
+    const results: unknown[] = [];
+    const run = new Run({
+      crewMember: makeCrew('razor'),
+      seed: 42,
+      onResult: result => results.push(result),
+    });
+    run.enterBriefing(makeDenyContract());
+    run.enterCombat();
+
+    const [target] = denyTargetsIn(run);
     target.damage(target.maxHp);
     assert.equal(isObjectiveSatisfied(run.contract!, run.world), true);
 
     run.bus!.emit('entity:moved', {
       entity: run.player,
       from: { x: run.player!.x, y: run.player!.y },
-      to: { x: run.exitTile.x, y: run.exitTile.y },
+      to: { x: run.exitTile!.x, y: run.exitTile!.y },
     });
     assert.equal(run.state, RUN_STATE.RESULT);
-    assert.equal((results[0] as { outcome: string }).outcome, OUTCOME.EXIT);
+    const result = results[0] as { outcome: string; telemetry: { objectiveComplete: boolean } };
+    assert.equal(result.outcome, OUTCOME.EXIT);
+    assert.equal(result.telemetry.objectiveComplete, true);
   });
 
   it('places count-many deny targets', () => {

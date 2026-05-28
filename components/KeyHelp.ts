@@ -74,7 +74,7 @@ const CSS = `
   padding: 1rem 1.4rem 1.25rem;
   box-shadow: var(--help-shadow);
   min-width: min(380px, 92vw);
-  max-width: min(560px, 96vw);
+  max-width: min(640px, 96vw);
 }
 
 .title {
@@ -357,6 +357,8 @@ class KeyHelp extends HTMLElement {
               h('dd', { textContent: 'smoke' }),
               h('dt', { textContent: '▓' }),
               h('dd', { textContent: 'hazard' }),
+              h('dt', { textContent: '%' }),
+              h('dd', { textContent: 'rubble' }),
             ]
           : []
       ),
@@ -400,6 +402,8 @@ class KeyHelp extends HTMLElement {
         h('dd', { textContent: 'dead drops' }),
         h('dt', { textContent: 'κ' }),
         h('dd', { textContent: 'access keycard' }),
+        h('dt', { textContent: 'ø' }),
+        h('dd', { textContent: 'breaching charge' }),
       ]),
     ]);
 

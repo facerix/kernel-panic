@@ -34,6 +34,7 @@ export class RelayNode extends Entity {
       glyph: RELAY_NODE_GLYPH,
       maxAp: 0,
       maxHp,
+      anchored: true,
     });
     this.label = label;
   }

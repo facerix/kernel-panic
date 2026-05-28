@@ -183,7 +183,7 @@ describe('retrieve objective satisfaction', () => {
 });
 
 describe('retrieve runs', () => {
-  it('spawns a pickup and gates extraction until the pickup is secured', () => {
+  it('spawns a pickup and allows abort or completion extraction', () => {
     const results: unknown[] = [];
     const run = new Run({
       crewMember: makeCrew('razor'),
@@ -203,14 +203,30 @@ describe('retrieve runs', () => {
     );
     assert.equal(isObjectiveSatisfied(run.contract!, run.world), false);
 
+    // Reaching exit before securing pickup is an abort extraction.
     run.bus!.emit('entity:moved', {
       entity: run.player,
       from: { x: run.player!.x, y: run.player!.y },
       to: { x: run.exitTile.x, y: run.exitTile.y },
     });
-    assert.equal(run.state, RUN_STATE.COMBAT, 'extract is blocked before retrieve is secured');
-    assert.equal(results.length, 0);
+    assert.equal(run.state, RUN_STATE.RESULT, 'abort extraction ends the run');
+    const abortResult = results[0] as { outcome: string; telemetry: { objectiveComplete: boolean } };
+    assert.equal(abortResult.outcome, OUTCOME.EXIT);
+    assert.equal(abortResult.telemetry.objectiveComplete, false, 'abort marks objective incomplete');
+  });
 
+  it('extraction after securing pickup marks objective complete', () => {
+    const results: unknown[] = [];
+    const run = new Run({
+      crewMember: makeCrew('razor'),
+      seed: 42,
+      onResult: result => results.push(result),
+    });
+    run.enterBriefing(makeRetrieveContract());
+    run.enterCombat();
+
+    const [pickup] = pickupsIn(run);
+    assert.ok(pickup);
     relocateAdjacentTo(run, pickup);
     const world = run.world!;
     const player = run.player!;
@@ -224,10 +240,12 @@ describe('retrieve runs', () => {
     run.bus!.emit('entity:moved', {
       entity: run.player,
       from: { x: run.player!.x, y: run.player!.y },
-      to: { x: run.exitTile.x, y: run.exitTile.y },
+      to: { x: run.exitTile!.x, y: run.exitTile!.y },
     });
     assert.equal(run.state, RUN_STATE.RESULT);
-    assert.equal((results[0] as { outcome: string }).outcome, OUTCOME.EXIT);
+    const result = results[0] as { outcome: string; telemetry: { objectiveComplete: boolean } };
+    assert.equal(result.outcome, OUTCOME.EXIT);
+    assert.equal(result.telemetry.objectiveComplete, true);
   });
 
   it('places count-many pickups for retrieve contracts', () => {

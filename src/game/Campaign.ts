@@ -323,6 +323,14 @@ export class Campaign {
       },
     });
     this.activeRun.enterBriefing(contract);
+    // Breach contracts auto-grant a breaching charge so the objective is always
+    // completable, even before Finn's shop is unlocked.
+    if (
+      contract.objective.params?.requiresBreach &&
+      !member.inventory?.consumables.some(c => c.id === 'breaching-charge')
+    ) {
+      member.addConsumable('breaching-charge');
+    }
     this.state = CAMPAIGN_STATE.COMBAT;
     this.#persist();
     return this.activeRun;
@@ -362,12 +370,15 @@ export class Campaign {
       this.flatlineMember(this.deployedMemberId);
     } else {
       this.completedJobs += 1;
-      addSalvage(this.salvage, extracted);
       if (completed) {
+        addSalvage(this.salvage, extracted);
         const reward = this.activeRun.contract?.reward;
         this.credits += reward?.credits ?? 0;
         if (reward) this.adjustRep(reward.repDelta);
         if (reward?.recruit) this.pendingRecruitReward = true;
+      } else {
+        // Abort extraction: objective abandoned — rep penalty, no rewards.
+        this.adjustRep(REP.ABORT_PENALTY);
       }
     }
     // Clear job-scoped salvage (extracted or forfeited on death).

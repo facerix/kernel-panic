@@ -235,6 +235,7 @@ button.row[aria-current='true'] .cursor {
 const ITEM_LABELS = {
   stim: 'Stim',
   'smoke-charge': 'Smoke Charge',
+  'breaching-charge': 'Breaching Charge',
 };
 
 /**

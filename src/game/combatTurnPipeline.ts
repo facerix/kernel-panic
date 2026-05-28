@@ -5,6 +5,9 @@ import { entityLabel } from './Entity.js';
 import { TILE, HAZARD_DAMAGE, REP, FACTION } from './constants.js';
 import { EVENT } from './events.js';
 import { chebyshev, findPath } from './Pathfinding.js';
+import { detonateBreachingCharge } from './breachBlast.js';
+import { BreachingCharge } from './entities/BreachingCharge.js';
+import type { BlastCasualty } from './breachBlast.js';
 import type { Entity } from './Entity.js';
 import type { NeutralCivilianTurnStep } from '../types.js';
 import type { GridPoint } from '../types.js';
@@ -55,7 +58,15 @@ export type EscortAftermathStep = {
   step: EscortFollowStep;
 };
 
+export type BreachDetonateAftermathStep = {
+  type: 'breach-detonate';
+  charge: BreachingCharge;
+  terrainBreached: number;
+  casualties: BlastCasualty[];
+};
+
 export type PlayerAftermathStep =
+  | BreachDetonateAftermathStep
   | TurretAftermathStep
   | NeutralCivilianAftermathStep
   | EscortAftermathStep
@@ -89,6 +100,14 @@ export function isPlayerAftermathStepLogVisible(
     // the tile is in current LOS.
     if (step.entity.id === playerId) return true;
     return isTileVisible(step.entity.x, step.entity.y);
+  }
+  if (step.type === 'breach-detonate') {
+    if (isTileVisible(step.charge.x, step.charge.y)) return true;
+    for (const c of step.casualties) {
+      if (c.entity.id === playerId) return true;
+      if (isTileVisible(c.entity.x, c.entity.y)) return true;
+    }
+    return false;
   }
   return true;
 }
@@ -255,6 +274,17 @@ export function* runPlayerAftermathSteps(
   rng: Rng,
   opts?: PlayerAftermathOpts
 ): Generator<PlayerAftermathStep, void, undefined> {
+  // Phase 0: detonate armed breaching charges
+  const charges: BreachingCharge[] = [];
+  for (const entity of world.entities.values()) {
+    if (entity instanceof BreachingCharge && entity.alive) charges.push(entity);
+  }
+  for (const charge of charges) {
+    const { terrainBreached, casualties } = detonateBreachingCharge(world, charge.x, charge.y);
+    yield { type: 'breach-detonate', charge, terrainBreached, casualties };
+    world.removeEntity(charge.id);
+  }
+
   // Phase 1: turret autofire
   for (const entity of world.entities.values()) {
     if (!(entity instanceof Turret)) continue;
@@ -351,7 +381,24 @@ export function formatPlayerAftermathStepLogLines(step: PlayerAftermathStep) {
   if (step.type === 'hazard-damage') {
     return formatHazardDamageLine(step);
   }
+  if (step.type === 'breach-detonate') {
+    return formatBreachDetonateLines(step);
+  }
   return [];
+}
+
+function formatBreachDetonateLines(step: BreachDetonateAftermathStep): string[] {
+  const lines = ['BREACHING CHARGE detonated.'];
+  if (step.terrainBreached > 0) {
+    lines.push(
+      `Blast breached ${step.terrainBreached} structure${step.terrainBreached === 1 ? '' : 's'}.`
+    );
+  }
+  for (const { entity, damage, killed } of step.casualties) {
+    const label = entityLabel(entity);
+    lines.push(killed ? `Blast killed ${label}.` : `Blast hit ${label} for ${damage} damage.`);
+  }
+  return lines;
 }
 
 function validateAdvanceCtx(ctx: PlayerTurnContext) {

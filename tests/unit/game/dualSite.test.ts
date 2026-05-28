@@ -173,7 +173,7 @@ describe('dual-site objective satisfaction', () => {
 });
 
 describe('dual-site runs', () => {
-  it('spawns sync pads and gates extraction until all pads are synced in any order', () => {
+  it('spawns sync pads and allows abort or completion extraction', () => {
     const results: unknown[] = [];
     const run = new Run({
       crewMember: makeCrew('razor'),
@@ -195,14 +195,29 @@ describe('dual-site runs', () => {
     }
     assert.equal(isObjectiveSatisfied(run.contract!, run.world), false);
 
+    // Reaching exit before objective is an abort extraction.
     run.bus!.emit('entity:moved', {
       entity: run.player,
       from: { x: run.player!.x, y: run.player!.y },
       to: { x: run.exitTile.x, y: run.exitTile.y },
     });
-    assert.equal(run.state, RUN_STATE.COMBAT, 'extract is blocked before sync is complete');
-    assert.equal(results.length, 0);
+    assert.equal(run.state, RUN_STATE.RESULT, 'abort extraction ends the run');
+    const abortResult = results[0] as { outcome: string; telemetry: { objectiveComplete: boolean } };
+    assert.equal(abortResult.outcome, OUTCOME.EXIT);
+    assert.equal(abortResult.telemetry.objectiveComplete, false, 'abort marks objective incomplete');
+  });
 
+  it('extraction after syncing all pads marks objective complete', () => {
+    const results: unknown[] = [];
+    const run = new Run({
+      crewMember: makeCrew('razor'),
+      seed: 42,
+      onResult: result => results.push(result),
+    });
+    run.enterBriefing(makeDualSiteContract());
+    run.enterCombat();
+
+    const pads = syncPadsIn(run);
     const [first, second] = pads.toReversed();
     assert.ok(first && second);
     relocateAdjacentTo(run, first);
@@ -216,10 +231,12 @@ describe('dual-site runs', () => {
     run.bus!.emit('entity:moved', {
       entity: run.player,
       from: { x: run.player!.x, y: run.player!.y },
-      to: { x: run.exitTile.x, y: run.exitTile.y },
+      to: { x: run.exitTile!.x, y: run.exitTile!.y },
     });
     assert.equal(run.state, RUN_STATE.RESULT);
-    assert.equal((results[0] as { outcome: string }).outcome, OUTCOME.EXIT);
+    const result = results[0] as { outcome: string; telemetry: { objectiveComplete: boolean } };
+    assert.equal(result.outcome, OUTCOME.EXIT);
+    assert.equal(result.telemetry.objectiveComplete, true);
   });
 
   it('places count-many sync pads for dual-site contracts', () => {

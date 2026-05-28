@@ -35,6 +35,8 @@ export const ANIMATION_DURATIONS = Object.freeze({
   // borderline, especially with the shooter's own glyph sitting underneath.
   // 120ms (~7 frames) is still snappy and reads clearly as a burst.
   MUZZLE_FLASH: 120,
+  /** Hazard-glyph breaching-charge blast overlay (presentation only). */
+  BREACH_BLAST_OVERLAY: 100,
 });
 
 export const SHAKE_CLASS = 'kp-shake';

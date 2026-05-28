@@ -9,6 +9,7 @@ import {
   STIM_HEAL,
   SMOKE_RADIUS,
   INCENDIARY_THROW_DIST,
+  BREACHING_CHARGE_RANGE,
   TARGETING_BONUS,
   DODGE_BONUS,
   DEFAULT_HP,
@@ -202,12 +203,30 @@ test('useConsumable(INCENDIARY) returns thrown hazard descriptor', () => {
   assert.equal(crew.inventory.consumables.length, 0);
 });
 
-test('useConsumable enforces aim shape for incendiary only', () => {
+test('useConsumable(BREACHING_CHARGE) returns adjacent breach descriptor', () => {
+  const crew = new Merc({ id: 'merc', x: 3, y: 3, maxAp: 4 });
+  crew.addConsumable(ITEM_ID.BREACHING_CHARGE);
+  const result = crew.useConsumable(ITEM_ID.BREACHING_CHARGE, { dx: -1, dy: 0 });
+  assert.equal(result.type, 'breach');
+  assert.equal(result.tx, 3 - BREACHING_CHARGE_RANGE);
+  assert.equal(result.ty, 3);
+  assert.equal(crew.inventory.consumables.length, 0);
+});
+
+test('useConsumable enforces aim shape for aimed items only', () => {
   const crew = new Merc({ id: 'merc', x: 3, y: 3, maxAp: 4 });
   crew.addConsumable(ITEM_ID.INCENDIARY);
   assert.throws(() => crew.useConsumable(ITEM_ID.INCENDIARY), /requires aim/i);
   assert.throws(() => crew.useConsumable(ITEM_ID.INCENDIARY, { dx: 0, dy: 0 }), /invalid aim/i);
   assert.throws(() => crew.useConsumable(ITEM_ID.INCENDIARY, { dx: 2, dy: 0 }), /invalid aim/i);
+
+  const breachCrew = new Merc({ id: 'breach-merc', x: 3, y: 3, maxAp: 4 });
+  breachCrew.addConsumable(ITEM_ID.BREACHING_CHARGE);
+  assert.throws(() => breachCrew.useConsumable(ITEM_ID.BREACHING_CHARGE), /requires aim/i);
+  assert.throws(
+    () => breachCrew.useConsumable(ITEM_ID.BREACHING_CHARGE, { dx: 0, dy: 0 }),
+    /invalid aim/i
+  );
 
   const smokeCrew = new Merc({ id: 'smoke-merc', x: 3, y: 3, maxAp: 4 });
   smokeCrew.addConsumable(ITEM_ID.SMOKE_CHARGE);

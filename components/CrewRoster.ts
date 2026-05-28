@@ -32,6 +32,7 @@ import type { Item } from '/src/game/items.js';
 const ITEM_LABELS = {
   stim: 'Stim',
   'smoke-charge': 'Smoke Charge',
+  'breaching-charge': 'Breaching Charge',
 };
 
 /** Human-readable labels for gear bonuses. */

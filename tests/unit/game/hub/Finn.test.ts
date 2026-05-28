@@ -36,6 +36,7 @@ test('Finn.catalog at TRUSTED rep returns the full shop catalog', () => {
   assert.ok(ids.includes(ITEM_ID.STIM));
   assert.ok(ids.includes(ITEM_ID.SMOKE_CHARGE));
   assert.ok(ids.includes(ITEM_ID.INCENDIARY));
+  assert.ok(ids.includes(ITEM_ID.BREACHING_CHARGE));
   assert.ok(ids.includes(ITEM_ID.ARMOUR_PLATING));
   assert.ok(ids.includes(ITEM_ID.TARGETING_CHIP));
   assert.ok(ids.includes(ITEM_ID.REFLEX_WEAVE));
@@ -49,14 +50,15 @@ test('Finn.catalog at BURNED rep only shows Stim', () => {
   assert.ok(ids.includes(ITEM_ID.STIM));
 });
 
-test('Finn.catalog at UNKNOWN rep shows Stim + Smoke + Incendiary', () => {
+test('Finn.catalog at UNKNOWN rep shows Stim + Smoke + Incendiary + Breach', () => {
   const f = new Finn();
   const items = f.catalog(25); // UNKNOWN tier
   const ids = items.map(i => i.id);
-  assert.equal(items.length, 3);
+  assert.equal(items.length, 4);
   assert.ok(ids.includes(ITEM_ID.STIM));
   assert.ok(ids.includes(ITEM_ID.SMOKE_CHARGE));
   assert.ok(ids.includes(ITEM_ID.INCENDIARY));
+  assert.ok(ids.includes(ITEM_ID.BREACHING_CHARGE));
   assert.ok(!ids.includes(ITEM_ID.ARMOUR_PLATING));
 });
 
@@ -64,7 +66,7 @@ test('Finn.catalog at KNOWN rep adds gear items', () => {
   const f = new Finn();
   const items = f.catalog(55); // KNOWN tier
   const ids = items.map(i => i.id);
-  assert.equal(items.length, 6);
+  assert.equal(items.length, 7);
   assert.ok(ids.includes(ITEM_ID.ARMOUR_PLATING));
   assert.ok(ids.includes(ITEM_ID.TARGETING_CHIP));
   assert.ok(ids.includes(ITEM_ID.REFLEX_WEAVE));
@@ -76,8 +78,8 @@ test('Finn.catalog at KNOWN rep adds gear items', () => {
 
 test('getShopCatalog returns all items at TRUSTED rep', () => {
   const items = getShopCatalog(85);
-  // M5.2: 6 items (3 consumables + 3 gear) visible at TRUSTED tier.
-  assert.equal(items.length, 6);
+  // M7.1: 7 items (4 consumables + 3 gear) visible at TRUSTED tier.
+  assert.equal(items.length, 7);
 });
 
 test('getItemById returns the item for a valid id', () => {
@@ -109,6 +111,7 @@ test('every catalog item has a positive integer cost', () => {
 test('catalog item costs are priced in Creds', () => {
   assert.equal(getItemById(ITEM_ID.STIM).cost, 20);
   assert.equal(getItemById(ITEM_ID.SMOKE_CHARGE).cost, 30);
+  assert.equal(getItemById(ITEM_ID.BREACHING_CHARGE).cost, SHOP_COST.BREACHING_CHARGE);
   assert.equal(getItemById(ITEM_ID.ARMOUR_PLATING).cost, 60);
   assert.equal(getItemById(ITEM_ID.TARGETING_CHIP).cost, 80);
   assert.equal(getItemById(ITEM_ID.REFLEX_WEAVE).cost, 80);

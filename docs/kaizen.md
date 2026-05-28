@@ -17,6 +17,7 @@ When an item lands, gets reclassified, or develops new context, edit it in place
 - **Corpse positions aren't memorised.** Live and dead entities follow the same "we don't track where things were" rule — duck out of LOS and the corpse vanishes from memory until you can see the tile again. Logically a corpse doesn't move, so memorising them would be more honest. **(→ M3: load-bearing for the salvage loop — players must be able to navigate back to a corpse they saw fall. `VisionField.memorisedCorpses` map + dim render pass.)** **Phase 2.5 M4.1** ✅ — salvaged drone corpses are now removed from the world entirely, so the "phantom tile after salvage" half of this problem is closed. The pre-salvage navigation-honesty case (remembering a corpse you saw fall but haven't reached yet) is still open and remains the M3 / memorised-corpses scope.
 - ~~**NEUTRAL faction is shootable by anyone.**~~ **(→ Closed in M5.)** `civilian:harmed` event emitted on neutral hit; Rep penalty applied; drones and turrets now exclude NEUTRAL from targeting. Consequence is legible in the feed and the Hub status bar.
 - **We have 3 separate AIM states.** FIRE_AIM, SPECIAL_AIM, and ITEM_AIM. It would be nice to unify these.
+- ~~**Unwinnable runs.**~~ Moved to ✓ Closed.
 
 ## ▶ Phase 3 candidates
 
@@ -54,6 +55,8 @@ When an item lands, gets reclassified, or develops new context, edit it in place
   - **`LineOfSight` inline `` `${x},${y}` `` keys.** Could import `coordKey` from `mapConnectivity.js`; isolated, low drift risk at current scale.
 
 ## ✓ Closed
+
+- ~~**Unwinnable runs.**~~ Closed in Phase 2.5 — two-part fix: (1) **Abort extraction:** player can exit via the EXIT tile with an incomplete objective; forfeits all rewards (creds, salvage, rep gain) and takes `REP.ABORT_PENALTY` (−5). (2) **Breach charge auto-grant:** `Campaign.deployCrewMember` grants 1× breaching charge when accepting a breach contract if the operative doesn't already carry one, so the objective is always completable regardless of Finn's shop access.
 
 - ~~**`advanceFromPlayerTurn` advances the turn queue on a terminal run.**~~ Closed at Phase 2 closeout — TIER-1 item #1 from the [2026-05-17 adversarial review](./2026-05-17-adversarial-review-findings.md#1). Stepping onto the exit tile transitions the run to RESULT synchronously; the pipeline then still called `queue.endTurn(world)`, refreshing corp AP and bumping the turn counter on a dead run. The `isTerminal()` guard now runs *before* `queue.endTurn` / `onCorpTurnReady`. Regression test in `combatTurnPipeline.test.ts`.
 

@@ -1,14 +1,17 @@
-import { AP_COST, NOISE_RADIUS, PICKUP_GLYPH } from './constants.js';
+import { moveStepApCost, NOISE_RADIUS, PICKUP_GLYPH, TILE } from './constants.js';
+import type { TileId } from './constants.js';
 import { EVENT } from './events.js';
 import { Interactable } from './entities/Interactable.js';
 import { Pickup } from './entities/Pickup.js';
 import { Door } from './entities/Door.js';
 import { ConsumablePickup, CONSUMABLE_PICKUP_GLYPH } from './entities/ConsumablePickup.js';
+import { BreachingCharge } from './entities/BreachingCharge.js';
 import { KeyCard } from './entities/KeyCard.js';
 import { totalSalvage } from './salvage.js';
 import type { Grid } from './Grid.js';
 import type { Entity, LootableEntity } from './Entity.js';
 import type { EventBus } from './events.js';
+import type { TileDelta } from '../types.js';
 
 /**
  * Owns the grid and the live entity set. Validates and applies actions and,
@@ -66,6 +69,8 @@ export class World {
   entities: Map<string, Entity>;
   events: EventBus | null;
   securedPickups: Set<string>;
+  mutationDeltas: TileDelta[];
+  #breachingChargeSeq: number;
 
   /** Tunable alarm cadence. `alarmActive` remains as the legacy alert-phase view. */
   alarm: AlarmState;
@@ -76,6 +81,8 @@ export class World {
     this.entities = new Map();
     this.events = options.events ?? null;
     this.securedPickups = new Set();
+    this.mutationDeltas = [];
+    this.#breachingChargeSeq = 0;
     this.alarm = quietAlarm();
   }
 
@@ -183,6 +190,86 @@ export class World {
     this.entities.delete(id);
   }
 
+  breachWall(x: number, y: number): void {
+    if (!Number.isInteger(x) || !Number.isInteger(y)) {
+      throw new TypeError(`World.breachWall requires integer x,y; got (${x}, ${y})`);
+    }
+    if (!this.grid.inBounds(x, y)) {
+      throw new RangeError(`World.breachWall: (${x}, ${y}) is out of bounds`);
+    }
+    const from = this.grid.tileAt(x, y);
+    if (from !== TILE.WALL) {
+      throw new Error(`World.breachWall: (${x}, ${y}) is not a wall`);
+    }
+    this.grid.setTile(x, y, TILE.RUBBLE);
+    this.mutationDeltas.push({ kind: 'tile', x, y, from, to: TILE.RUBBLE });
+  }
+
+  breachDoor(doorId: string): Door {
+    if (typeof doorId !== 'string' || doorId.length === 0) {
+      throw new TypeError('World.breachDoor requires a non-empty doorId');
+    }
+    let found: Door | null = null;
+    for (const entity of this.entities.values()) {
+      if (!(entity instanceof Door) || entity.doorId !== doorId) continue;
+      if (found) {
+        throw new Error(`World.breachDoor: duplicate doorId "${doorId}"`);
+      }
+      found = entity;
+    }
+    if (!found) {
+      throw new Error(`World.breachDoor: no door with doorId "${doorId}"`);
+    }
+    if (!found.locked) {
+      throw new Error(`World.breachDoor: door "${doorId}" is already open`);
+    }
+    this.mutationDeltas.push({
+      kind: 'entity-removed',
+      id: found.id,
+      x: found.x,
+      y: found.y,
+      archetype: 'door',
+    });
+    const { x, y } = found;
+    this.removeEntity(found.id);
+    const from = this.grid.tileAt(x, y);
+    this.grid.setTile(x, y, TILE.RUBBLE);
+    this.mutationDeltas.push({ kind: 'tile', x, y, from, to: TILE.RUBBLE });
+    return found;
+  }
+
+  canPlaceBreachingCharge(x: number, y: number): { ok: true } | { ok: false; reason: string } {
+    if (!Number.isInteger(x) || !Number.isInteger(y)) {
+      throw new TypeError(`canPlaceBreachingCharge requires integer x,y; got (${x}, ${y})`);
+    }
+    if (!this.grid.inBounds(x, y)) {
+      return { ok: false, reason: 'out-of-bounds' };
+    }
+    if (!this.grid.isPassable(x, y)) {
+      return { ok: false, reason: 'blocked' };
+    }
+    if (this.liveEntityAt(x, y)) {
+      return { ok: false, reason: 'occupied' };
+    }
+    for (const entity of this.entities.values()) {
+      if (entity instanceof BreachingCharge && entity.alive && entity.x === x && entity.y === y) {
+        return { ok: false, reason: 'charge-present' };
+      }
+    }
+    return { ok: true };
+  }
+
+  placeBreachingCharge(x: number, y: number): BreachingCharge {
+    const check = this.canPlaceBreachingCharge(x, y);
+    if (!check.ok) {
+      throw new Error(`Cannot place breaching charge at (${x}, ${y}): ${check.reason}`);
+    }
+    const id = `breaching-charge-${this.#breachingChargeSeq++}`;
+    const charge = new BreachingCharge({ id, x, y });
+    this.addEntity(charge);
+    return charge;
+  }
+
   recordSecuredPickup(id: string): void {
     if (typeof id !== 'string' || id.length === 0) {
       throw new TypeError('World.recordSecuredPickup requires a non-empty id');
@@ -281,6 +368,13 @@ export class World {
     return null;
   }
 
+  doorAt(x: number, y: number): Door | null {
+    for (const e of this.entities.values()) {
+      if (e instanceof Door && e.alive && e.x === x && e.y === y) return e;
+    }
+    return null;
+  }
+
   /**
    * Dead entity on `(x, y)` with non-empty typed `loot.salvage`, if any. Scans
    * every occupant so co-located live + corpse (legal after moving onto a
@@ -371,9 +465,6 @@ export class World {
     if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
       return { ok: false, reason: 'too-far' };
     }
-    if (!entity.canAfford(AP_COST.MOVE)) {
-      return { ok: false, reason: 'insufficient-ap' };
-    }
     const nx = entity.x + dx;
     const ny = entity.y + dy;
     if (!this.grid.inBounds(nx, ny)) {
@@ -381,6 +472,10 @@ export class World {
     }
     if (!this.grid.isPassable(nx, ny)) {
       return { ok: false, reason: 'blocked' };
+    }
+    const stepCost = moveStepApCost(this.grid.tileAt(nx, ny) as TileId);
+    if (!entity.canAfford(stepCost)) {
+      return { ok: false, reason: 'insufficient-ap' };
     }
     if (this.entityAt(nx, ny)) {
       return { ok: false, reason: 'occupied' };
@@ -472,8 +567,11 @@ export class World {
     if (!check.ok) {
       throw new Error(`Illegal move for ${entity.id}: ${check.reason}`);
     }
+    const nx = entity.x + dx;
+    const ny = entity.y + dy;
+    const stepCost = moveStepApCost(this.grid.tileAt(nx, ny) as TileId);
     const from = { x: entity.x, y: entity.y };
-    entity.spendAp(AP_COST.MOVE);
+    entity.spendAp(stepCost);
     entity.x += dx;
     entity.y += dy;
     // Emit AFTER the commit so listeners (vision recompute, AI hooks) see the

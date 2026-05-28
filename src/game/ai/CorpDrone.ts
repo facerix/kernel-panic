@@ -30,7 +30,8 @@
  */
 
 import { Hostile } from '../Hostile.js';
-import { FACTION, AP_COST, SIGHT_RANGE } from '../constants.js';
+import { FACTION, AP_COST, SIGHT_RANGE, moveStepApCost } from '../constants.js';
+import type { TileId } from '../constants.js';
 import { findPath } from '../Pathfinding.js';
 import { withinRange } from '../LineOfSight.js';
 import { canFireRanged, resolveRanged } from '../Combat.js';
@@ -305,6 +306,8 @@ export class CorpDrone extends Hostile {
     const path = findPath(world, { x: this.x, y: this.y }, { x: gx, y: gy });
     if (!path || path.length === 0) return null;
     const next = path[0];
+    const stepCost = moveStepApCost(world.grid.tileAt(next.x, next.y) as TileId);
+    if (this.ap < stepCost) return null;
     const dx = next.x - this.x;
     const dy = next.y - this.y;
     const check = world.canMoveEntity(this, dx, dy);

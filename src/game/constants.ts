@@ -13,6 +13,7 @@
  *   grants a defender hit-modifier (applied in M4 combat).
  * - EXIT: passable, transparent; same walk rules as FLOOR but painted so the
  *   objective tile is visible. `Run` still tracks `exitTile` for transitions.
+ * - RUBBLE: passable debris left by breaching charges; costs more AP to enter.
  */
 export const TILE = Object.freeze({
   FLOOR: 0,
@@ -21,6 +22,7 @@ export const TILE = Object.freeze({
   EXIT: 3,
   SMOKE: 4,
   HAZARD: 5,
+  RUBBLE: 6,
 });
 
 export const FACTION = Object.freeze({
@@ -50,6 +52,7 @@ export type FactionId = (typeof FACTION)[keyof typeof FACTION];
  */
 export const AP_COST = Object.freeze({
   MOVE: 1,
+  ENTER_RUBBLE: 2,
   RANGED_ATTACK: 2,
   MELEE_ATTACK: 1,
   INTERACT: 1,
@@ -132,6 +135,19 @@ export const SIGHT_RANGE = 8;
  */
 export const HAZARD_DAMAGE = 1;
 
+/** Flat damage from a detonating breaching charge (Chebyshev-1 blast). */
+export const BREACH_BLAST_DAMAGE = 2;
+
+export const BREACHING_CHARGE_GLYPH = 'ø';
+
+/**
+ * AP to spend when stepping onto a tile. Rubble uses ENTER_RUBBLE; all other
+ * passable destinations use MOVE (including leaving rubble).
+ */
+export function moveStepApCost(destTile: TileId): number {
+  return destTile === TILE.RUBBLE ? AP_COST.ENTER_RUBBLE : AP_COST.MOVE;
+}
+
 /**
  * Corp turret parameters. Stationary CORP-faction hostile that fires at
  * PLAYER entities during the corp turn. Range matches the player turret
@@ -172,6 +188,8 @@ export const SMOKE_DURATION_TURNS = 1;
  * radius constant. Damage per tile is `HAZARD_DAMAGE` (M2.3).
  */
 export const INCENDIARY_THROW_DIST = 3;
+/** Breaching charges are placed against an adjacent tile/entity. */
+export const BREACHING_CHARGE_RANGE = 1;
 export const TARGETING_BONUS = 0.1;
 export const DODGE_BONUS = 0.1;
 
@@ -201,6 +219,7 @@ export const SHOP_COST = Object.freeze({
   STIM: 20,
   SMOKE_CHARGE: 30,
   INCENDIARY: 40,
+  BREACHING_CHARGE: 45,
   ARMOUR_PLATING: 60,
   TARGETING_CHIP: 80,
   REFLEX_WEAVE: 80,
@@ -256,6 +275,8 @@ export const REP = Object.freeze({
   CLEAN_COMPLETION_BONUS: 10,
   CIVILIAN_KILL_PENALTY: -20,
   ALARM_PENALTY: -5,
+  /** Rep cost for aborting a run (exiting without completing the objective). */
+  ABORT_PENALTY: -10,
 });
 
 /**

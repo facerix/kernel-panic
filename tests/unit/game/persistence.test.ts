@@ -464,3 +464,70 @@ test('restore normalizes over-capped hitBonus in run entity gear', () => {
     `hitBonus ${player.gear!.hitBonus} should be ≤ maxHitBonus ${player.maxHitBonus}`
   );
 });
+
+// ---------------------------------------------------------------------------
+// Resilient restore: tile-collision nudge
+// ---------------------------------------------------------------------------
+
+test('restore nudges a colliding entity to an adjacent tile instead of throwing', () => {
+  const run = freshCombatRun(0xbeef);
+  const drone = [...run.world.entities.values()].find(e => e.faction === FACTION.CORP);
+  assert.ok(drone, 'expected at least one corp entity');
+
+  const rec = snapshot(run);
+  // Corrupt the snapshot: move the drone onto the player's tile.
+  const playerRec = rec.entities.find(e => e.id === run.player.id);
+  const droneRec = rec.entities.find(e => e.id === drone.id);
+  assert.ok(playerRec && droneRec);
+  droneRec.x = playerRec.x;
+  droneRec.y = playerRec.y;
+
+  // Should NOT throw — nudge should relocate the drone.
+  const { world: restoredWorld } = restore(rec);
+  const restoredDrone = restoredWorld.entities.get(drone.id);
+  assert.ok(restoredDrone, 'drone should still be in the world after nudge');
+  const restoredPlayer = [...restoredWorld.entities.values()].find(
+    e => e.faction === FACTION.PLAYER
+  );
+  assert.ok(restoredPlayer);
+  // The two entities must not share a tile.
+  assert.ok(
+    restoredDrone.x !== restoredPlayer.x || restoredDrone.y !== restoredPlayer.y,
+    `drone (${restoredDrone.x},${restoredDrone.y}) should not overlap player (${restoredPlayer.x},${restoredPlayer.y})`
+  );
+});
+
+test('restore drops an entity when tile is occupied and no free neighbour exists', () => {
+  const run = freshCombatRun(0xcafe);
+  const drone = [...run.world.entities.values()].find(e => e.faction === FACTION.CORP);
+  assert.ok(drone, 'expected at least one corp entity');
+
+  const rec = snapshot(run);
+  const playerRec = rec.entities.find(e => e.id === run.player.id);
+  const droneRec = rec.entities.find(e => e.id === drone.id);
+  assert.ok(playerRec && droneRec);
+
+  // Put drone on player's tile.
+  droneRec.x = playerRec.x;
+  droneRec.y = playerRec.y;
+
+  // Wall off every adjacent tile so there's nowhere to nudge.
+  const WALL = 1; // TILE.WALL
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      if (dx === 0 && dy === 0) continue;
+      const nx = playerRec.x + dx;
+      const ny = playerRec.y + dy;
+      if (nx >= 0 && nx < rec.grid.w && ny >= 0 && ny < rec.grid.h) {
+        rec.grid.tiles[ny * rec.grid.w + nx] = WALL;
+      }
+    }
+  }
+
+  // Should NOT throw — the drone gets dropped silently.
+  const { world: restoredWorld } = restore(rec);
+  assert.ok(
+    !restoredWorld.entities.has(drone.id),
+    'drone should be dropped when no free neighbour exists'
+  );
+});

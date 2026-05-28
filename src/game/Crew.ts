@@ -8,6 +8,7 @@ import {
   STIM_HEAL,
   SMOKE_RADIUS,
   INCENDIARY_THROW_DIST,
+  BREACHING_CHARGE_RANGE,
   TARGETING_BONUS,
   type FactionId,
 } from './constants.js';
@@ -246,7 +247,7 @@ export class Crew extends Entity {
     }
     // Validate aim/no-aim symmetry before mutating state — a mismatched call
     // is a wiring bug in the shell, not a recoverable runtime condition.
-    const isAimed = itemId === ITEM_ID.INCENDIARY;
+    const isAimed = itemId === ITEM_ID.INCENDIARY || itemId === ITEM_ID.BREACHING_CHARGE;
     if (isAimed && !aim) {
       throw new Error(`useConsumable: "${itemId}" requires aim direction`);
     }
@@ -293,6 +294,12 @@ export class Crew extends Entity {
         const cx = this.x + dx * INCENDIARY_THROW_DIST;
         const cy = this.y + dy * INCENDIARY_THROW_DIST;
         return { type: 'incendiary', cx, cy };
+      }
+      case ITEM_ID.BREACHING_CHARGE: {
+        const { dx, dy } = aim!;
+        const tx = this.x + dx * BREACHING_CHARGE_RANGE;
+        const ty = this.y + dy * BREACHING_CHARGE_RANGE;
+        return { type: 'breach', tx, ty };
       }
       default:
         throw new Error(`useConsumable: unknown consumable "${itemId}"`);

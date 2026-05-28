@@ -109,7 +109,7 @@ test('onJobEnd with EXIT applies contract Cred and Rep rewards without spending 
   assert.equal(campaign.rep, 27); // 20 start + 7 repDelta
 });
 
-test('onJobEnd with incomplete EXIT extracts salvage but skips contract rewards', () => {
+test('onJobEnd with incomplete EXIT (abort) forfeits salvage and applies rep penalty', () => {
   const campaign = new Campaign({ seed: 42 });
   const member = campaign.crew[1];
   const contract = fakeContract({
@@ -123,9 +123,9 @@ test('onJobEnd with incomplete EXIT extracts salvage but skips contract rewards'
     completed: false,
   });
   assert.equal(campaign.state, CAMPAIGN_STATE.HUB);
-  assert.equal(campaign.salvage.scrap, 4);
-  assert.equal(campaign.credits, 0);
-  assert.equal(campaign.rep, 20);
+  assert.equal(campaign.salvage.scrap, 0, 'salvage forfeited on abort');
+  assert.equal(campaign.credits, 0, 'no cred reward on abort');
+  assert.equal(campaign.rep, 10, 'rep = 20 start + ABORT_PENALTY (-10)');
   assert.equal(campaign.pendingRecruitReward, false);
   assert.equal(campaign.availableRecruits.length, 0);
   assert.equal(member.flatlined, false);
@@ -757,6 +757,46 @@ test('recruitInitial throws for unknown candidate IDs', () => {
   const validId = campaign.initialCandidates[0].id;
 
   assert.throws(() => campaign.recruitInitial([validId, 'nonexistent']), /unknown candidate/i);
+});
+
+test('deployCrewMember auto-grants breaching charge on breach contract', () => {
+  const campaign = new Campaign({ seed: 42 });
+  const member = campaign.crew[1];
+  const contract = fakeContract({
+    objective: {
+      kind: OBJECTIVES.DENY,
+      title: 'Demolish target',
+      briefing: 'Plant a charge and destroy the target.',
+      params: { method: 'breach', requiresBreach: true },
+    },
+  });
+  campaign.deployCrewMember(member.id, contract);
+  const hasCharge = member.inventory?.consumables.some(
+    (c: { id: string }) => c.id === 'breaching-charge'
+  );
+  assert.ok(hasCharge, 'operative should receive a breaching charge for breach contracts');
+});
+
+test('deployCrewMember does NOT double-grant breaching charge if already carried', () => {
+  const campaign = new Campaign({ seed: 42 });
+  const member = campaign.crew[1];
+  member.addConsumable('breaching-charge');
+  const before = member.inventory?.consumables.filter(
+    (c: { id: string }) => c.id === 'breaching-charge'
+  ).length;
+  const contract = fakeContract({
+    objective: {
+      kind: OBJECTIVES.DENY,
+      title: 'Demolish target',
+      briefing: 'Plant a charge and destroy the target.',
+      params: { method: 'breach', requiresBreach: true },
+    },
+  });
+  campaign.deployCrewMember(member.id, contract);
+  const after = member.inventory?.consumables.filter(
+    (c: { id: string }) => c.id === 'breaching-charge'
+  ).length;
+  assert.equal(after, before, 'should not add a second breaching charge');
 });
 
 test('recruitInitial does not require Rep gate', () => {

@@ -24,6 +24,17 @@ export interface EntityInit {
    * doesn't physically obstruct the grid.
    */
   passable?: boolean;
+  /**
+   * If true, this entity is permanently fixed to its placement tile — it
+   * cannot move or be moved during gameplay. Used by the placement integrity
+   * check to identify entities that can permanently seal a corridor if placed
+   * on a chokepoint. Default `false`.
+   *
+   * Typical anchored entities: terminals, deny targets, sync pads, escort NPCs.
+   * Typical non-anchored: player, drones, civilians (they can walk off a tile).
+   * Doors are anchored but handled separately (they unlock to become passable).
+   */
+  anchored?: boolean;
 }
 
 /**
@@ -51,6 +62,7 @@ export class Entity {
   alive: boolean;
   stealthed: boolean;
   passable: boolean;
+  anchored: boolean;
 
   constructor({
     id,
@@ -61,6 +73,7 @@ export class Entity {
     maxAp = DEFAULT_AP,
     maxHp = DEFAULT_HP,
     passable = false,
+    anchored = false,
   }: EntityInit) {
     if (id === undefined || id === null || id === '') {
       throw new TypeError('Entity requires a non-empty id');
@@ -96,6 +109,7 @@ export class Entity {
      */
     this.stealthed = false;
     this.passable = passable;
+    this.anchored = anchored;
   }
 
   canAfford(cost: number): boolean {
@@ -105,6 +119,11 @@ export class Entity {
   /** Environmental hazards skip entities that override this to `true`. */
   isHazardImmune(): boolean {
     return false;
+  }
+
+  /** Breaching-charge blasts skip entities that override this to `false`. */
+  isBlastDamageable(): boolean {
+    return true;
   }
 
   /**
@@ -140,18 +159,20 @@ export class Entity {
    * here would mask combat bugs (e.g. negative damage healing the target).
    * Reaching 0 HP flips `alive` to false; further damage on a corpse throws.
    */
-  damage(amount: number): void {
+  damage(amount: number): number {
     if (!Number.isInteger(amount) || amount < 0) {
       throw new RangeError(`damage amount must be a non-negative integer, got ${amount}`);
     }
     if (!this.alive) {
       throw new Error(`Cannot damage ${this.id}: already dead`);
     }
+    const before = this.hp;
     this.hp -= amount;
     if (this.hp <= 0) {
       this.hp = 0;
       this.alive = false;
     }
+    return before - this.hp;
   }
 }
 

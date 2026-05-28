@@ -262,7 +262,7 @@ describe('escort runs', () => {
     assert.equal((results[0] as { outcome: string }).outcome, OUTCOME.EXIT);
   });
 
-  it('blocks extraction when the player reaches exit without the escort', () => {
+  it('abort-extracts when the player reaches exit without the escort', () => {
     const results: unknown[] = [];
     const run = new Run({
       crewMember: makeCrew('razor'),
@@ -278,8 +278,10 @@ describe('escort runs', () => {
       to: { x: run.exitTile!.x, y: run.exitTile!.y },
     });
 
-    assert.equal(run.state, RUN_STATE.COMBAT);
-    assert.equal(results.length, 0);
+    assert.equal(run.state, RUN_STATE.RESULT, 'abort extraction ends the run');
+    const abortResult = results[0] as { outcome: string; telemetry: { objectiveComplete: boolean } };
+    assert.equal(abortResult.outcome, OUTCOME.EXIT);
+    assert.equal(abortResult.telemetry.objectiveComplete, false, 'leaving escort behind is an abort');
   });
 
   it('extracts when the escort catches up while the player is already on the exit', () => {

@@ -34,7 +34,7 @@ Living plan for the post–Phase 2 slice of Kernel Panic: **contract objectives*
 | M6.1 — Prefab door entity + terminal unlock | ✅ Done |
 | M6.2 — Decoupled terminal placement + KeyCard unlock path | ✅ Done |
 | M6.3 — Dynamic corridor door placement (higher-tier) | ✅ Done |
-| M7.1 — Breaching charges & demolition objectives | 🔲 Planned |
+| M7.1 — Breaching charges & demolition objectives | ✅ Done |
 | M7.2 — Location memory & site roster | 🔲 Planned |
 
 **Phase 2.5** is complete when:
@@ -1079,7 +1079,7 @@ Phase 2.5 milestones that follow (M4–M7) retain their original numbering for c
 
 ---
 
-#### M7.1 — Breaching charges & demolition objectives 🔲
+#### M7.1 — Breaching charges & demolition objectives ✅
 
 **Depends on:** M6 (doors are entities and can be breached). M7.2 consumes the mutation delta schema M7.1 establishes, but M7.1 is self-contained.
 
@@ -1181,11 +1181,18 @@ Phase 2.5 milestones that follow (M4–M7) retain their original numbering for c
 9. Pathfinding: breach opens a route (A* finds path after `breachWall`)
 10. Finn catalog includes breaching charge at UNKNOWN tier
 
-**Open questions for M7.1:**
+**Resolved questions for M7.1:**
 
-1. **Breach aim validation split:** Should the shell validate the aimed tile type (WALL or Door) *before* committing `useConsumable` (like incendiary's LOS pre-check), or should `Crew.useConsumable` do it? Proposal: shell validates tile type; `useConsumable` validates range/in-bounds only — consistent with the incendiary split and keeps `Crew` world-agnostic. Item is not consumed if the shell rejects the target.
+1. **Breach aim validation split:** Shell validates target type before committing `useConsumable`; `Crew.useConsumable` stays world-agnostic and reports the adjacent target descriptor.
 
-2. **Demolition recipe count:** Ship one recipe ("Basement floodgate override") or two in M7.1? One is sufficient to prove the mechanic; a second can be added trivially in the same PR.
+2. **Demolition recipe count:** One recipe (`demolition-breach`) ships in M7.1, proving the mechanic without broadening the label pool more than needed.
+
+**Implementation notes:**
+
+- Added `ITEM_ID.BREACHING_CHARGE` as an UNKNOWN-tier Finn consumable using the existing aimed item flow. Plants a `ø` entity on any adjacent clear tile; detonates in **player aftermath** (Chebyshev-1 blast, `BREACH_BLAST_DAMAGE` to hostiles, friendly fire).
+- `World.mutationDeltas` records breaches; `RunSnapshot.mutationDeltas` round-trips. `World.breachWall` / `World.breachDoor` leave `TILE.RUBBLE` (`%`, wall palette); `AP_COST.ENTER_RUBBLE` for movement onto rubble.
+- `DenyTarget.requiresBreach` still no-ops combat damage; blast or `destroyByBreach()` completes demolition objectives when in radius.
+- Tests: `tests/unit/game/breach.test.ts` covers placement, delayed detonation, rubble, blast damage, doors, deny radius, snapshots, Finn catalog.
 
 ---
 

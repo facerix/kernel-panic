@@ -37,12 +37,8 @@ import { World } from './World.js';
 import { TurnQueue } from './TurnQueue.js';
 import { EventBus, EVENT } from './events.js';
 import { FACTION, TILE, SALVAGE_DROP_MIN, SALVAGE_DROP_MAX } from './constants.js';
-import {
-  anchorPreservesExplorationReachability,
-  coordKey,
-  explorationReachableKeys,
-  hasAdjacentPassableTile,
-} from './mapConnectivity.js';
+import { coordKey, explorationReachableKeys } from './mapConnectivity.js';
+import { isValidBlockingPlacement, checkPlacementIntegrity } from './placement.js';
 import { makeSalvage, type TypedSalvage } from './salvage.js';
 import { Entity, type LootableEntity } from './Entity.js';
 import { Hostile } from './Hostile.js';
@@ -65,6 +61,7 @@ import { RelayNode } from './entities/RelayNode.js';
 import { ConsumablePickup } from './entities/ConsumablePickup.js';
 import { EscortNpc } from './entities/EscortNpc.js';
 import { KeyCard } from './entities/KeyCard.js';
+import { BreachingCharge } from './entities/BreachingCharge.js';
 import { ITEM_ID, getItemById } from './items.js';
 import { resetCorpTurnStatusCache } from './corpTurnStatusCopy.js';
 import { NeutralCivilian } from './entities/NeutralCivilian.js';
@@ -80,7 +77,7 @@ import { buildMap } from './procgen/mapBuild.js';
 import { findPath } from './Pathfinding.js';
 import type { Contract } from './hub/Curator.js';
 import type { FactionId } from './constants.js';
-import type { GridPoint, KeyItem } from '../types.js';
+import type { GridPoint, KeyItem, TileDelta } from '../types.js';
 import type { Inventory, Gear } from './Crew.js';
 import type { AlarmState } from './World.js';
 
@@ -120,6 +117,7 @@ export type EntityArchetypeId =
   | 'consumable-pickup'
   | 'escort-npc'
   | 'keycard'
+  | 'breaching-charge'
   | 'entity';
 
 export type RunTelemetry = {
@@ -206,6 +204,7 @@ export type RunEntitySnapshot = {
   };
   denyTarget?: {
     label: string;
+    requiresBreach?: boolean;
   };
   syncPad?: {
     label: string;
@@ -261,6 +260,8 @@ export type RunSnapshot = {
   objectiveProgress?: ObjectiveProgressSnapshot;
   /** M6.2: run-scoped key items (keycards without a siteId). Defaults to []. */
   keyItems?: KeyItemSnapshot[];
+  /** M7.1: terrain/entity mutations recorded during the run. Defaults to []. */
+  mutationDeltas?: TileDelta[];
 };
 
 /** M6.2: Serializable run-scoped key item. */
@@ -441,6 +442,14 @@ export class Run {
     }
     this.#placeDynamicDoorEntities(map.dynamicDoors, map.doors.length);
     this.#placeConsumablePickups();
+    // Post-placement safety net: verify no static interactable sealed a branch.
+    if (!checkPlacementIntegrity(this.world, { x: this.player.x, y: this.player.y })) {
+      console.warn(
+        'Run.enterCombat: placement integrity check failed — a static entity ' +
+          'may have sealed a passable branch. Seed:',
+        this.contract.seed
+      );
+    }
     this.objectiveTimer = freshObjectiveTimer();
     this.mapSeen.clear();
     this.state = RUN_STATE.COMBAT;
@@ -512,6 +521,7 @@ export class Run {
       mapMemory: { seen: this.mapSeenKeys() },
       objectiveProgress: { securedPickups: world.securedPickupIds() },
       keyItems: this.keyItems.map(k => ({ id: k.id, label: k.label, doorId: k.doorId })),
+      mutationDeltas: world.mutationDeltas.map(delta => ({ ...delta })),
     };
   }
 
@@ -748,8 +758,11 @@ export class Run {
     }
     const objectiveComplete = this.isObjectiveSatisfied();
     const objectiveExpired = this.#isTimedObjectiveExpired();
-    if (!objectiveComplete && !objectiveExpired) return;
-    this.telemetry.cause = objectiveComplete ? 'exit-reached' : 'exit-reached-objective-incomplete';
+    this.telemetry.cause = objectiveComplete
+      ? 'exit-reached'
+      : objectiveExpired
+        ? 'exit-reached-objective-incomplete'
+        : 'abort';
     this.enterResult({
       outcome: OUTCOME.EXIT,
       telemetry: {
@@ -882,6 +895,7 @@ export class Run {
     }
     if (this.contract.objective.kind === OBJECTIVES.DENY) {
       const count = objectiveCount(this.contract);
+      const requiresBreach = this.contract.objective.params?.requiresBreach === true;
       for (let i = 0; i < count; i++) {
         const anchor = linkedDoorId
           ? findBehindDoorAnchor(this.world, this.player, this.exitTile, linkedDoorId, this.rng)
@@ -892,6 +906,7 @@ export class Run {
             x: anchor.x,
             y: anchor.y,
             label: objectiveTargetLabel(this.contract, i, count),
+            requiresBreach,
           })
         );
       }
@@ -994,12 +1009,18 @@ export class Run {
     dynamicDoors: Array<{ door: GridPoint; terminal: GridPoint }>,
     doorIndexOffset: number
   ): void {
-    if (!this.world) return;
+    if (!this.world || !this.player || !this.exitTile) return;
+    const spawn = { x: this.player.x, y: this.player.y };
     let placed = 0;
     for (let i = 0; i < dynamicDoors.length; i++) {
       const a = dynamicDoors[i]!;
       if (this.world.liveEntityAt(a.door.x, a.door.y)) continue;
       if (this.world.liveEntityAt(a.terminal.x, a.terminal.y)) continue;
+      // Re-validate the terminal anchor in the actual populated world.
+      // The anchor was originally chosen in buildMap's sparser world; entities
+      // added since then (drones, civilians, objectives) may have closed off
+      // the diagonal bypass routes that made this tile safe.
+      if (!isValidBlockingPlacement(this.world, spawn, this.exitTile, a.terminal)) continue;
       const doorIndex = doorIndexOffset + placed;
       const door = new Door({
         id: `door-entity-${doorIndex}`,
@@ -1017,11 +1038,7 @@ export class Run {
       });
       this.world.addEntity(door);
       this.world.addEntity(terminal);
-      if (
-        this.player &&
-        this.exitTile &&
-        findPath(this.world, this.player, this.exitTile, { allowOccupiedGoal: false }) === null
-      ) {
+      if (findPath(this.world, this.player, this.exitTile, { allowOccupiedGoal: false }) === null) {
         this.world.removeEntity(terminal.id);
         this.world.removeEntity(door.id);
         continue;
@@ -1404,6 +1421,7 @@ function snapshotEntity(entity: Entity): RunEntitySnapshot {
   if (entity instanceof DenyTarget) {
     base.denyTarget = {
       label: entity.label,
+      requiresBreach: entity.requiresBreach,
     };
   }
   if (entity instanceof SyncPad) {
@@ -1467,6 +1485,7 @@ function archetypeOf(entity: Entity): EntityArchetypeId {
   if (entity instanceof ConsumablePickup) return 'consumable-pickup';
   if (entity instanceof EscortNpc) return 'escort-npc';
   if (entity instanceof KeyCard) return 'keycard';
+  if (entity instanceof BreachingCharge) return 'breaching-charge';
   if (entity instanceof Entity) return 'entity';
   throw new Error(`archetypeOf: cannot classify entity ${(entity as Entity | undefined)?.id}`);
 }
@@ -1670,15 +1689,11 @@ function findInteractableAnchor(
   exitTile: GridPoint,
   rng: Rng
 ): GridPoint {
+  const spawn = { x: player.x, y: player.y };
   const candidates: GridPoint[] = [];
   for (let y = 1; y < world.grid.height - 1; y++) {
     for (let x = 1; x < world.grid.width - 1; x++) {
-      if (!world.grid.isPassable(x, y)) continue;
-      if (x === player.x && y === player.y) continue;
-      if (x === exitTile.x && y === exitTile.y) continue;
-      if (world.liveEntityAt(x, y)) continue;
-      if (!hasAdjacentPassableTile(world, x, y)) continue;
-      if (!anchorPreservesExplorationReachabilityForAnchor(world, player, { x, y })) continue;
+      if (!isValidBlockingPlacement(world, spawn, exitTile, { x, y })) continue;
       candidates.push({ x, y });
     }
   }
@@ -1728,25 +1743,16 @@ function findDecoupledTerminalAnchor(
   doorId: string
 ): GridPoint {
   assertDoorExists(world, doorId);
+  const spawn = { x: player.x, y: player.y };
   const candidates: GridPoint[] = [];
   for (let y = 1; y < world.grid.height - 1; y++) {
     for (let x = 1; x < world.grid.width - 1; x++) {
-      if (!world.grid.isPassable(x, y)) continue;
-      if (x === player.x && y === player.y) continue;
-      if (x === exitTile.x && y === exitTile.y) continue;
-      if (world.liveEntityAt(x, y)) continue;
-      if (!hasAdjacentPassableTile(world, x, y)) continue;
+      // Door stays locked during this check — isValidBlockingPlacement sees
+      // the spawn-side chokepoint graph with the door still impassable.
+      if (!isValidBlockingPlacement(world, spawn, exitTile, { x, y })) continue;
       // Must be reachable NOW (door still locked).
-      const reachableNow =
-        findPath(world, { x: player.x, y: player.y }, { x, y }, { allowOccupiedGoal: false }) !==
-        null;
+      const reachableNow = findPath(world, spawn, { x, y }, { allowOccupiedGoal: false }) !== null;
       if (!reachableNow) continue;
-      // Must preserve spawn-side exploration reachability while door is locked.
-      if (
-        !anchorPreservesExplorationReachabilityForDoorAnchor(world, player, { x, y }, doorId, false)
-      ) {
-        continue;
-      }
       candidates.push({ x, y });
     }
   }
@@ -1784,45 +1790,33 @@ function findInteractableAnchorByReachability(
   doorId?: string
 ): GridPoint {
   const door = doorId ? assertDoorExists(world, doorId) : null;
+  const spawn = { x: player.x, y: player.y };
   const candidates: GridPoint[] = [];
   const nearDoorCandidates: GridPoint[] = [];
   for (let y = 1; y < world.grid.height - 1; y++) {
     for (let x = 1; x < world.grid.width - 1; x++) {
-      if (!world.grid.isPassable(x, y)) continue;
-      if (x === player.x && y === player.y) continue;
-      if (x === exitTile.x && y === exitTile.y) continue;
-      if (world.liveEntityAt(x, y)) continue;
-      if (!hasAdjacentPassableTile(world, x, y)) continue;
-
-      const reachableNow =
-        findPath(world, { x: player.x, y: player.y }, { x, y }, { allowOccupiedGoal: false }) !==
-        null;
+      const anchor = { x, y };
+      const reachableNow = findPath(world, spawn, anchor, { allowOccupiedGoal: false }) !== null;
       if (mode === 'accessible') {
         if (!doorId) throw new Error('Run: accessible door anchor search missing doorId');
-        if (
-          !anchorPreservesExplorationReachabilityForDoorAnchor(
-            world,
-            player,
-            { x, y },
-            doorId,
-            false
-          )
-        ) {
-          continue;
-        }
+        // Door stays locked — validate against spawn-side graph.
+        if (!isValidBlockingPlacement(world, spawn, exitTile, anchor)) continue;
         if (!reachableNow) continue;
-        candidates.push({ x, y });
-        if (door && chebyshev({ x, y }, door) <= 2) nearDoorCandidates.push({ x, y });
+        candidates.push(anchor);
+        if (door && chebyshev(anchor, door) <= 2) nearDoorCandidates.push(anchor);
         continue;
       }
       if (reachableNow) continue;
       if (!doorId) throw new Error('Run: behind-door anchor search missing doorId');
-      if (
-        !anchorPreservesExplorationReachabilityForDoorAnchor(world, player, { x, y }, doorId, true)
-      ) {
-        continue;
+      // Temporarily unlock door to validate behind-door chokepoint.
+      const wasLocked = door!.locked;
+      try {
+        door!.unlock();
+        if (!isValidBlockingPlacement(world, spawn, exitTile, anchor)) continue;
+      } finally {
+        if (wasLocked) door!.lock();
       }
-      if (isReachableWithDoorUnlocked(world, player, { x, y }, doorId)) candidates.push({ x, y });
+      if (isReachableWithDoorUnlocked(world, player, anchor, doorId)) candidates.push(anchor);
     }
   }
   if (mode === 'accessible') {
@@ -1847,57 +1841,30 @@ function findBehindDoorFallbackAnchor(
   rng: Rng,
   doorId: string
 ): GridPoint {
-  assertDoorExists(world, doorId);
-  const spawnSide = explorationReachableKeys(world, { x: player.x, y: player.y });
+  const door = assertDoorExists(world, doorId);
+  const spawn = { x: player.x, y: player.y };
+  const spawnSide = explorationReachableKeys(world, spawn);
   const candidates: GridPoint[] = [];
   for (let y = 1; y < world.grid.height - 1; y++) {
     for (let x = 1; x < world.grid.width - 1; x++) {
-      if (!world.grid.isPassable(x, y)) continue;
-      if (x === player.x && y === player.y) continue;
-      if (x === exitTile.x && y === exitTile.y) continue;
-      if (world.liveEntityAt(x, y)) continue;
-      if (!hasAdjacentPassableTile(world, x, y)) continue;
+      const anchor = { x, y };
       if (spawnSide.has(coordKey(x, y))) continue;
-      if (!isReachableWithDoorUnlocked(world, player, { x, y }, doorId)) continue;
-      if (
-        !anchorPreservesExplorationReachabilityForDoorAnchor(world, player, { x, y }, doorId, true)
-      ) {
-        continue;
+      if (!isReachableWithDoorUnlocked(world, player, anchor, doorId)) continue;
+      // Temporarily unlock door to validate behind-door chokepoint.
+      const wasLocked = door.locked;
+      try {
+        door.unlock();
+        if (!isValidBlockingPlacement(world, spawn, exitTile, anchor)) continue;
+      } finally {
+        if (wasLocked) door.lock();
       }
-      candidates.push({ x, y });
+      candidates.push(anchor);
     }
   }
   if (candidates.length === 0) {
     throw new Error(`Run: door-linked contract has no legal anchor behind ${doorId}`);
   }
   return rng.pick(candidates);
-}
-
-function anchorPreservesExplorationReachabilityForAnchor(
-  world: World,
-  player: Entity,
-  anchor: GridPoint
-): boolean {
-  return anchorPreservesExplorationReachability(world, { x: player.x, y: player.y }, anchor);
-}
-
-function anchorPreservesExplorationReachabilityForDoorAnchor(
-  world: World,
-  player: Entity,
-  anchor: GridPoint,
-  doorId: string,
-  doorUnlocked: boolean
-): boolean {
-  const door = assertDoorExists(world, doorId);
-  const wasLocked = door.locked;
-  try {
-    if (doorUnlocked) door.unlock();
-    else door.lock();
-    return anchorPreservesExplorationReachabilityForAnchor(world, player, anchor);
-  } finally {
-    if (wasLocked) door.lock();
-    else door.unlock();
-  }
 }
 
 function assertDoorExists(world: World, doorId: string): Door {

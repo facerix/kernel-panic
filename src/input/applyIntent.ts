@@ -46,6 +46,7 @@ import { hasLineOfSight, withinRange } from '../game/LineOfSight.js';
 import { entityLabel } from '../game/Entity.js';
 import { Interactable } from '../game/entities/Interactable.js';
 import { Door } from '../game/entities/Door.js';
+import { DenyTarget } from '../game/entities/DenyTarget.js';
 import { EVENT } from '../game/events.js';
 import { TILE } from '../game/constants.js';
 import type { KeyItem } from '../types.js';
@@ -97,8 +98,6 @@ export type ApplyIntentContext = {
     label: string;
     siteId: string | null;
   }) => void;
-  canExit?: () => boolean;
-  exitBlockedMessage?: () => string;
   /**
    * M6.2: Merged key-item inventory (campaign + run-scoped). Passed to
    * Door.interact so a matching keycard can unlock a locked door via
@@ -237,11 +236,6 @@ function doMove(intent: Intent, ctx: ApplyIntentContext) {
   }
   world.moveEntity(player, intent.dx!, intent.dy!);
   if (world.grid.tileAt(nx, ny) === TILE.EXIT) {
-    if (ctx.canExit && !ctx.canExit()) {
-      log(`> ${ctx.exitBlockedMessage?.() ?? 'Complete your objective before extraction.'}`);
-      gateOnApExhausted(ctx);
-      return;
-    }
     log(`> ${entityLabel(player)} moved to (${nx}, ${ny}) — EXIT REACHED.`);
     ctx.onPlayerAction(PLAYER_ACTIONS.REACHED_EXIT);
     return;
@@ -444,6 +438,16 @@ function doMelee(intent: Intent, ctx: ApplyIntentContext) {
     return;
   }
   const result = resolveMelee(world, player, target, ctx.rng);
+  if (
+    !result.dodged &&
+    result.damage === 0 &&
+    target instanceof DenyTarget &&
+    target.requiresBreach
+  ) {
+    log(`> ${entityLabel(target)} is reinforced — use a breaching charge.`);
+    gateOnApExhausted(ctx);
+    return;
+  }
   if (result.dodged) {
     log(
       `> ${entityLabel(player)} slashes at ${entityLabel(target)} — DODGED ` +
@@ -525,6 +529,11 @@ function doFire(intent: Intent, ctx: ApplyIntentContext) {
     return;
   }
   const result = resolveRanged(world, player, target, rng);
+  if (result.hit && result.damage === 0 && target instanceof DenyTarget && target.requiresBreach) {
+    log(`> ${entityLabel(target)} is reinforced — use a breaching charge.`);
+    gateOnApExhausted(ctx);
+    return;
+  }
   log(
     `> ${entityLabel(player)} fires at ${entityLabel(target)} — ` +
       `${result.hit ? 'HIT' : 'miss'} (roll ${result.roll.toFixed(2)} vs ${result.threshold.toFixed(2)}` +

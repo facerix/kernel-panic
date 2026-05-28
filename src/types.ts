@@ -14,6 +14,14 @@
 export type GridPoint = { x: number; y: number };
 
 /**
+ * M7.1 terrain-relevant mutations captured during a run. M7.2 location memory
+ * consumes these deltas when it persists site changes across revisits.
+ */
+export type TileDelta =
+  | { kind: 'tile'; x: number; y: number; from: number; to: number }
+  | { kind: 'entity-removed'; id: string; x: number; y: number; archetype: string };
+
+/**
  * Outcome of a committed ranged shot (`resolveRanged`). Shared with turn logs
  * and any UI that replays combat ticks.
  */

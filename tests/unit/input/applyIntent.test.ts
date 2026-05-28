@@ -139,19 +139,16 @@ test('move into a locked door gives door feedback without routing generic intera
   assert.ok(log.some(l => l.includes('locked')));
 });
 
-test('move onto exit logs objective block when canExit says no', () => {
+test('move onto exit always emits REACHED_EXIT (abort extraction allowed)', () => {
   const { ctx, log, player, calls, world } = buildCtx({ placeDrone: false });
   world.grid.setTile(2, 3, TILE.EXIT);
-  ctx.canExit = () => false;
-  ctx.exitBlockedMessage = () => 'Complete objective first: Slice server rack.';
 
   applyIntent({ type: 'move', dx: 0, dy: 1 }, ctx);
 
   assert.equal(player.x, 2);
   assert.equal(player.y, 3);
-  assert.equal(calls.reachedExit, 0);
-  assert.equal(calls.advanceTurn, 0);
-  assert.ok(log.some(l => l.includes('Complete objective first')));
+  assert.equal(calls.reachedExit, 1, 'REACHED_EXIT emitted — run handles abort vs. completion');
+  assert.ok(log.some(l => l.includes('EXIT REACHED')));
 });
 
 test('move onto a lootable corpse auto-salvages (M4.1)', () => {

@@ -250,3 +250,16 @@ test('buildFrame with vision renders entities only where currently visible', () 
   const frame = buildFrame(w, { x: 0, y: 0, width: 6, height: 4 }, { vision });
   assert.equal(cellAt(frame, drone.x, drone.y).char, 'd');
 });
+
+test('buildFrame blastOverlayKeys paint hazard glyph on terrain in blast cells', () => {
+  const g = new Grid(6, 4);
+  g.setTile(3, 1, TILE.RUBBLE);
+  const w = new World(g);
+  const player = new Entity({ id: 'p', x: 1, y: 1, faction: FACTION.PLAYER, glyph: '@' });
+  w.addEntity(player);
+  const overlay = new Set(['3,1', '4,1']);
+  const frame = buildFrame(w, { x: 0, y: 0, width: 6, height: 4 }, { blastOverlayKeys: overlay });
+  assert.equal(cellAt(frame, 3, 1).char, '▓', 'rubble hidden under blast overlay');
+  assert.equal(cellAt(frame, 4, 1).char, '▓');
+  assert.equal(cellAt(frame, 0, 0).char, '.', 'non-overlay floor unchanged');
+});

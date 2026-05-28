@@ -77,6 +77,8 @@ type ContractToken = {
   contact?: string;
   hazardFlavor?: string;
   turnLimit?: number;
+  method?: string;
+  requiresBreach?: boolean;
   titleNoun?: string;
 };
 
@@ -185,6 +187,11 @@ export const CONTRACT_LEXICON = Object.freeze({
     token('floodgate-pump', 'floodgate pump', ['deny', 'infrastructure'], {
       target: 'floodgate',
     }),
+    token('floodgate-bulkhead', 'floodgate bulkhead', ['breach', 'infrastructure'], {
+      target: 'floodgate',
+      method: 'breach',
+      requiresBreach: true,
+    }),
     token('skybridge-relay', 'skybridge relay', ['sweep', 'security'], {
       target: 'skybridge-relay',
     }),
@@ -224,6 +231,7 @@ export const CONTRACT_LEXICON = Object.freeze({
     token('override', 'override', ['deny', 'terminal']),
     token('brick', 'brick', ['deny']),
     token('torch', 'torch', ['deny']),
+    token('demolish', 'demolition', ['breach']),
     token('mirror', 'mirror', ['dual-site']),
     token('tap', 'tap', ['dual-site']),
     token('bridge', 'bridge', ['dual-site']),
@@ -304,6 +312,21 @@ export const CONTRACT_RECIPES: readonly ContractRecipe[] = Object.freeze([
     briefing: ({ principal, site, asset, action }) =>
       `Find ${possessive(principal.label)} ${asset.label} at ${sitePhrase({ site })}, execute the ${action.label}, then extract.`,
     params: ({ asset }) => targetParams(asset),
+  },
+  {
+    id: 'demolition-breach',
+    objectiveKind: OBJECTIVES.DENY,
+    tags: Object.freeze(['meatspace', 'sabotage', 'breach']),
+    principalGroups: Object.freeze(['corp', 'civic', 'rival']),
+    siteGroups: Object.freeze(['infrastructure', 'street']),
+    siteStateGroups: Object.freeze(['normal', 'damaged', 'infrastructure']),
+    assetGroups: Object.freeze(['breach']),
+    actionGroups: Object.freeze(['breach']),
+    label: tokens => `${sitePhrase(tokens)} ${tokens.asset.label} ${tokens.action.label}`,
+    title: ({ asset }) => `Breach ${noun(asset)}`,
+    briefing: ({ principal, site, asset }) =>
+      `Plant a breaching charge on ${possessive(principal.label)} ${asset.label} at ${sitePhrase({ site })}, then extract.`,
+    params: ({ asset }) => ({ ...targetParams(asset), method: 'breach', requiresBreach: true }),
   },
   {
     id: 'sweep-nodes',
@@ -767,6 +790,8 @@ function targetParams(token: ContractToken): ObjectiveParams {
     ...(token.target ? { target: token.target } : {}),
     ...(token.hazardFlavor ? { hazardFlavor: token.hazardFlavor } : {}),
     ...(token.turnLimit ? { turnLimit: token.turnLimit } : {}),
+    ...(token.method ? { method: token.method } : {}),
+    ...(token.requiresBreach === true ? { requiresBreach: true } : {}),
   };
 }
 

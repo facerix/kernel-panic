@@ -7,7 +7,7 @@ import { World } from '../../../src/game/World.js';
 import { ConsumablePickup } from '../../../src/game/entities/ConsumablePickup.js';
 import { Pickup } from '../../../src/game/entities/Pickup.js';
 import { Door } from '../../../src/game/entities/Door.js';
-import { TILE, FACTION, AP_COST } from '../../../src/game/constants.js';
+import { TILE, FACTION, AP_COST, moveStepApCost } from '../../../src/game/constants.js';
 import { makeSalvage } from '../../../src/game/salvage.js';
 
 const makePlayer = (x, y, overrides = {}) =>
@@ -195,6 +195,31 @@ test('World.moveEntity debits AP and updates position', () => {
   assert.equal(p.x, 3);
   assert.equal(p.y, 2);
   assert.equal(p.ap, 4 - AP_COST.MOVE);
+});
+
+test('World.moveEntity spends ENTER_RUBBLE when stepping onto rubble', () => {
+  const g = new Grid(5, 5);
+  g.setTile(3, 2, TILE.RUBBLE);
+  const w = new World(g);
+  const p = makePlayer(2, 2, { maxAp: 4 });
+  w.addEntity(p);
+  w.moveEntity(p, 1, 0);
+  assert.equal(p.ap, 4 - AP_COST.ENTER_RUBBLE);
+});
+
+test('World.moveEntity spends MOVE when leaving rubble', () => {
+  const g = new Grid(5, 5);
+  g.setTile(2, 2, TILE.RUBBLE);
+  const w = new World(g);
+  const p = makePlayer(2, 2, { maxAp: 4 });
+  w.addEntity(p);
+  w.moveEntity(p, 1, 0);
+  assert.equal(p.ap, 4 - AP_COST.MOVE);
+});
+
+test('moveStepApCost maps rubble to ENTER_RUBBLE', () => {
+  assert.equal(moveStepApCost(TILE.RUBBLE), AP_COST.ENTER_RUBBLE);
+  assert.equal(moveStepApCost(TILE.FLOOR), AP_COST.MOVE);
 });
 
 test('World.moveEntity throws on illegal move and leaves state untouched', () => {

@@ -33,7 +33,13 @@ import { Grid } from './Grid.js';
 import { World } from './World.js';
 import { TurnQueue } from './TurnQueue.js';
 import { EventBus } from './events.js';
-import { DOOR_LOCKED_GLYPH, DOOR_OPEN_GLYPH, FACTION, SALVAGE_TO_CRED_RATE } from './constants.js';
+import {
+  DOOR_LOCKED_GLYPH,
+  DOOR_OPEN_GLYPH,
+  FACTION,
+  SALVAGE_TO_CRED_RATE,
+  TILE,
+} from './constants.js';
 import { migrateSalvage, type TypedSalvage } from './salvage.js';
 import { Entity } from './Entity.js';
 import { Crew } from './Crew.js';
@@ -55,6 +61,8 @@ import { RelayNode } from './entities/RelayNode.js';
 import { ConsumablePickup } from './entities/ConsumablePickup.js';
 import { EscortNpc } from './entities/EscortNpc.js';
 import { KeyCard } from './entities/KeyCard.js';
+import { BreachingCharge } from './entities/BreachingCharge.js';
+import type { BreachingChargeInit } from './entities/BreachingCharge.js';
 import { Run, RUN_STATE } from './Run.js';
 import { Campaign, CAMPAIGN_STATE } from './Campaign.js';
 import { normalizeContractContext, normalizeObjective } from './hub/Curator.js';
@@ -91,7 +99,7 @@ import type {
   ObjectiveProgressSnapshot,
 } from './Run.js';
 import type { CampaignMeta, CampaignState } from './Campaign.js';
-import type { KeyItem } from '../types.js';
+import type { KeyItem, TileDelta } from '../types.js';
 
 const ARCHETYPE_KEY = Symbol.for('kernel-panic.archetype');
 
@@ -112,7 +120,8 @@ type RestoreEntityProps = Partial<
     RelayNodeInit &
     ConsumablePickupInit &
     EscortNpcInit &
-    KeyCardInit
+    KeyCardInit &
+    BreachingChargeInit
 > & {
   id: string;
   x: number;
@@ -145,6 +154,8 @@ const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) =
       new ConsumablePickup(props as ConsumablePickupInit),
     'escort-npc': (props: RestoreEntityProps) => new EscortNpc(props as EscortNpcInit),
     keycard: (props: RestoreEntityProps) => new KeyCard(props as KeyCardInit),
+    'breaching-charge': (props: RestoreEntityProps) =>
+      new BreachingCharge(props as BreachingChargeInit),
     // Generic fallback so a future `Entity` subclass (NPCs, items) doesn't break
     // the round-trip when the full archetype landed but the loader hasn't.
     entity: (props: RestoreEntityProps) =>
@@ -288,6 +299,60 @@ export function snapshotCampaign(campaign: Campaign): CampaignSnapshot {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Resilient restore helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Cardinal + diagonal neighbours in priority order (cardinal first — less
+ * disorienting for a nudge than diagonal).
+ */
+const NUDGE_OFFSETS: ReadonlyArray<{ dx: number; dy: number }> = [
+  { dx: 1, dy: 0 },
+  { dx: -1, dy: 0 },
+  { dx: 0, dy: 1 },
+  { dx: 0, dy: -1 },
+  { dx: 1, dy: 1 },
+  { dx: -1, dy: 1 },
+  { dx: 1, dy: -1 },
+  { dx: -1, dy: -1 },
+];
+
+/**
+ * If `entity` is alive and its saved tile is already occupied in `world`,
+ * move it to the nearest passable, unoccupied neighbour. Logs a warning so
+ * the collision is visible but doesn't crash the restore.
+ *
+ * Returns `true` if the entity is placeable (no conflict, or successfully
+ * nudged). Returns `false` if the tile is occupied and no free neighbour
+ * exists — the caller decides what to do (skip, throw, etc.).
+ *
+ * Dead entities or passable (walk-through) entities always return `true` —
+ * they don't trigger `addEntity`'s occupancy guard.
+ */
+function nudgeIfOccupied(entity: Entity, world: World, grid: Grid): boolean {
+  if (!entity.alive || entity.passable) return true;
+  if (!world.liveEntityAt(entity.x, entity.y)) return true;
+
+  const origX = entity.x;
+  const origY = entity.y;
+
+  for (const { dx, dy } of NUDGE_OFFSETS) {
+    const nx = origX + dx;
+    const ny = origY + dy;
+    if (grid.inBounds(nx, ny) && grid.isPassable(nx, ny) && !world.liveEntityAt(nx, ny)) {
+      entity.x = nx;
+      entity.y = ny;
+      console.warn(
+        `[restore] tile (${origX}, ${origY}) already occupied — nudged ${entity.id} to (${nx}, ${ny})`
+      );
+      return true;
+    }
+  }
+
+  return false;
+}
+
 /**
  * Rebuild a `Run` from a snapshot record. Returns `{ run, world, queue, rng,
  * player }` — the pieces the shell typically wires into the renderer.
@@ -342,6 +407,7 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
   run.world.restoreSecuredPickups(
     normalizeObjectiveProgress(record.objectiveProgress).securedPickups
   );
+  run.world.mutationDeltas = normalizeMutationDeltas(record.mutationDeltas, grid);
   if (record.alarm) {
     run.world.restoreAlarm(record.alarm);
   } else {
@@ -363,6 +429,12 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
   run.queue.index = factionIndex;
 
   for (const entity of restoredEntities) {
+    if (!nudgeIfOccupied(entity, run.world, grid)) {
+      console.warn(
+        `[restore] dropping entity ${entity.id} at (${entity.x}, ${entity.y}) — tile occupied, no free neighbour`
+      );
+      continue;
+    }
     run.world.addEntity(entity);
     if (entity instanceof CorpDrone) {
       entity.bindToBus(run.bus);
@@ -552,6 +624,7 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
   }
   if (rec.archetype === 'deny-target') {
     entityProps.label = rec.denyTarget?.label ?? 'Deny target';
+    entityProps.requiresBreach = rec.denyTarget?.requiresBreach ?? false;
   }
   if (rec.archetype === 'sync-pad' && rec.syncPad) {
     entityProps.label = rec.syncPad.label;
@@ -792,6 +865,20 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
     }
     if (typeof rec.keycard.label !== 'string' || rec.keycard.label.length === 0) {
       throw new TypeError(`restore: keycard ${rec.id} label must be a non-empty string`);
+    }
+  }
+  if (rec.archetype === 'deny-target' && rec.denyTarget) {
+    if (!(entity instanceof DenyTarget)) {
+      throw new Error(`restore: deny target entity ${rec.id} did not restore as DenyTarget`);
+    }
+    if (typeof rec.denyTarget.label !== 'string' || rec.denyTarget.label.length === 0) {
+      throw new TypeError(`restore: deny target ${rec.id} label must be a non-empty string`);
+    }
+    if (
+      rec.denyTarget.requiresBreach !== undefined &&
+      typeof rec.denyTarget.requiresBreach !== 'boolean'
+    ) {
+      throw new TypeError(`restore: deny target ${rec.id} requiresBreach must be boolean`);
     }
   }
 
@@ -1111,6 +1198,64 @@ function normalizeRunKeyItems(raw: unknown): KeyItem[] {
       throw new TypeError(`restore: run keyItems[${i}].doorId must be a non-empty string`);
     }
     return { id: item.id, label: item.label, doorId: item.doorId };
+  });
+}
+
+function normalizeMutationDeltas(raw: unknown, grid: Grid): TileDelta[] {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) {
+    throw new TypeError('restore: mutationDeltas must be an array when supplied');
+  }
+  const knownTiles = new Set<number>(Object.values(TILE));
+  return raw.map((delta, i) => {
+    if (!delta || typeof delta !== 'object' || Array.isArray(delta)) {
+      throw new TypeError(`restore: mutationDeltas[${i}] must be an object`);
+    }
+    const rec = delta as Partial<TileDelta>;
+    if (rec.kind === 'tile') {
+      if (!Number.isInteger(rec.x) || !Number.isInteger(rec.y)) {
+        throw new TypeError(`restore: mutationDeltas[${i}] tile delta requires integer x,y`);
+      }
+      const x = rec.x as number;
+      const y = rec.y as number;
+      if (!grid.inBounds(x, y)) {
+        throw new RangeError(`restore: mutationDeltas[${i}] tile delta is out of bounds`);
+      }
+      if (!knownTiles.has(rec.from as number) || !knownTiles.has(rec.to as number)) {
+        throw new RangeError(`restore: mutationDeltas[${i}] tile delta has unknown tile id`);
+      }
+      return {
+        kind: 'tile',
+        x,
+        y,
+        from: rec.from as number,
+        to: rec.to as number,
+      };
+    }
+    if (rec.kind === 'entity-removed') {
+      if (typeof rec.id !== 'string' || rec.id.length === 0) {
+        throw new TypeError(`restore: mutationDeltas[${i}] entity removal requires id`);
+      }
+      if (!Number.isInteger(rec.x) || !Number.isInteger(rec.y)) {
+        throw new TypeError(`restore: mutationDeltas[${i}] entity removal requires integer x,y`);
+      }
+      const x = rec.x as number;
+      const y = rec.y as number;
+      if (!grid.inBounds(x, y)) {
+        throw new RangeError(`restore: mutationDeltas[${i}] entity removal is out of bounds`);
+      }
+      if (typeof rec.archetype !== 'string' || rec.archetype.length === 0) {
+        throw new TypeError(`restore: mutationDeltas[${i}] entity removal requires archetype`);
+      }
+      return {
+        kind: 'entity-removed',
+        id: rec.id,
+        x,
+        y,
+        archetype: rec.archetype,
+      };
+    }
+    throw new Error(`restore: mutationDeltas[${i}] has unknown kind "${String(rec.kind)}"`);
   });
 }
 

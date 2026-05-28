@@ -161,7 +161,7 @@ describe('handoff objective satisfaction', () => {
 });
 
 describe('handoff runs', () => {
-  it('spawns a contact and gates extraction until the handoff is complete', () => {
+  it('spawns a contact and allows abort or completion extraction', () => {
     const results: unknown[] = [];
     const run = new Run({
       crewMember: makeCrew('razor'),
@@ -182,14 +182,30 @@ describe('handoff runs', () => {
     );
     assert.equal(isObjectiveSatisfied(run.contract!, run.world), false);
 
+    // Reaching exit before handoff is an abort extraction.
     run.bus!.emit('entity:moved', {
       entity: run.player,
       from: { x: run.player!.x, y: run.player!.y },
       to: { x: run.exitTile.x, y: run.exitTile.y },
     });
-    assert.equal(run.state, RUN_STATE.COMBAT, 'extract is blocked before handoff is complete');
-    assert.equal(results.length, 0);
+    assert.equal(run.state, RUN_STATE.RESULT, 'abort extraction ends the run');
+    const abortResult = results[0] as { outcome: string; telemetry: { objectiveComplete: boolean } };
+    assert.equal(abortResult.outcome, OUTCOME.EXIT);
+    assert.equal(abortResult.telemetry.objectiveComplete, false, 'abort marks objective incomplete');
+  });
 
+  it('extraction after handoff marks objective complete', () => {
+    const results: unknown[] = [];
+    const run = new Run({
+      crewMember: makeCrew('razor'),
+      seed: 42,
+      onResult: result => results.push(result),
+    });
+    run.enterBriefing(makeHandoffContract());
+    run.enterCombat();
+
+    const [contact] = contactsIn(run);
+    assert.ok(contact);
     relocateAdjacentTo(run, contact);
     const result = contact.interact(run.world!, run.player!);
     assert.equal(result.ok, true);
@@ -198,10 +214,12 @@ describe('handoff runs', () => {
     run.bus!.emit('entity:moved', {
       entity: run.player,
       from: { x: run.player!.x, y: run.player!.y },
-      to: { x: run.exitTile.x, y: run.exitTile.y },
+      to: { x: run.exitTile!.x, y: run.exitTile!.y },
     });
     assert.equal(run.state, RUN_STATE.RESULT);
-    assert.equal((results[0] as { outcome: string }).outcome, OUTCOME.EXIT);
+    const completionResult = results[0] as { outcome: string; telemetry: { objectiveComplete: boolean } };
+    assert.equal(completionResult.outcome, OUTCOME.EXIT);
+    assert.equal(completionResult.telemetry.objectiveComplete, true);
   });
 
   it('falls back to target-derived contact labels when params.contact is absent', () => {

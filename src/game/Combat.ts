@@ -150,8 +150,9 @@ export function resolveRanged(
   let damage = 0;
   let killed = false;
   if (hit) {
-    damage = options.damage ?? RANGED_DAMAGE;
-    target.damage(damage);
+    const intendedDamage = options.damage ?? RANGED_DAMAGE;
+    const appliedDamage = target.damage(intendedDamage);
+    damage = appliedDamage === 0 ? 0 : intendedDamage;
     killed = !target.alive;
     // Emit only on a connected hit. Misses still tick the noise model below
     // (a shot is loud regardless) — that's a separate `noise` event.
@@ -261,8 +262,9 @@ export function resolveMelee(
   let damage = 0;
   let killed = false;
   if (hit) {
-    damage = options.damage ?? MELEE_DAMAGE;
-    target.damage(damage);
+    const intendedDamage = options.damage ?? MELEE_DAMAGE;
+    const appliedDamage = target.damage(intendedDamage);
+    damage = appliedDamage === 0 ? 0 : intendedDamage;
     killed = !target.alive;
   }
   world.events?.emit(EVENT.ENTITY_DAMAGED, {

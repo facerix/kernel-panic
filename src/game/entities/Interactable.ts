@@ -32,6 +32,7 @@ export class Interactable extends Entity {
       glyph,
       maxAp: 0,
       maxHp,
+      anchored: true,
     });
     if (typeof label !== 'string' || label.length === 0) {
       throw new TypeError('Interactable requires a non-empty label');
@@ -39,6 +40,10 @@ export class Interactable extends Entity {
     this.label = label;
     this.secured = !!secured;
     this.armed = !!armed;
+  }
+
+  override isBlastDamageable(): boolean {
+    return false;
   }
 
   canInteract(actor: Entity): { ok: true } | { ok: false; reason: string } {

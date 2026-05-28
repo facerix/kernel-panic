@@ -21,6 +21,7 @@ const TILE_GLYPH = {
   [TILE.EXIT]: { char: '¤', fg: '#eed5fa' },
   [TILE.SMOKE]: { char: '░', fg: '#8b9da8' },
   [TILE.HAZARD]: { char: '▓', fg: '#d45a3a' },
+  [TILE.RUBBLE]: { char: '%', fg: '#5fbcd4' },
 };
 
 const FACTION_FG = {
