@@ -430,8 +430,7 @@ async function boot() {
   }
 
   confirmationModalEl.addEventListener('confirm', evt => {
-    // const detail = (evt as CustomEvent<{ context?: { kind?: string } }>).detail;
-    const detail = (evt as CustomEvent<{ context?: { kind?: string } }>).detail;
+    const detail = (evt as CustomEvent<{ context?: string }>).detail;
     switch (detail?.context) {
       case 'resume-campaign':
         // not currently implemented
