@@ -34,9 +34,9 @@ Living plan for the post–Phase 2 slice of Kernel Panic: **contract objectives*
 | M6.1 — Prefab door entity + terminal unlock | ✅ Done |
 | M6.2 — Decoupled terminal placement + KeyCard unlock path | ✅ Done |
 | M6.3 — Dynamic corridor door placement (higher-tier) | ✅ Done |
+| M7 — Breaching + location memory | ✅ Complete |
 | M7.1 — Breaching charges & demolition objectives | ✅ Done |
 | M7.2 — Location memory & site roster | ✅ Done |
-| M7 — Breaching + location memory | ✅ Complete |
 
 **Phase 2.5** is complete when:
 

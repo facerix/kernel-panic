@@ -1656,7 +1656,8 @@ function currentLocationLabel(): string | undefined {
   if (!campaign) return undefined;
   if (campaign.state === CAMPAIGN_STATE.COMBAT && campaign.activeRun?.contract) {
     const { principal, site } = campaign.activeRun.contract.context;
-    const labelName = `${principal.label} - ${site.label}`;
+    const siteName = site?.label ?? 'Location Unknown';
+    const labelName = `${principal.label} - ${siteName}`;
     return `// ${labelName} //`;
   }
   if (campaign.state === CAMPAIGN_STATE.HUB) {
