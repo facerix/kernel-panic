@@ -262,6 +262,46 @@ describe('escort runs', () => {
     assert.equal((results[0] as { outcome: string }).outcome, OUTCOME.EXIT);
   });
 
+  it('defers abort while an activated escort is still catching up to the exit', () => {
+    let abortRequested = false;
+    const results: unknown[] = [];
+    const run = new Run({
+      crewMember: makeCrew('razor'),
+      seed: 216,
+      onResult: result => results.push(result),
+    });
+    run.onAbortRequested = () => {
+      abortRequested = true;
+    };
+    run.enterBriefing(makeEscortContract({ seed: 216 }));
+    run.enterCombat();
+    const escort = escortIn(run);
+    escort.activated = true;
+    escort.armed = false;
+
+    const exit = run.exitTile!;
+    const fromX = exit.x - 2;
+    run.world!.relocateEntity(run.player!, fromX, exit.y);
+    escort.x = fromX - 1;
+    escort.y = exit.y;
+
+    run.world!.relocateEntity(run.player!, exit.x, exit.y);
+    run.bus!.emit('entity:moved', {
+      entity: run.player,
+      from: { x: fromX, y: exit.y },
+      to: { x: exit.x, y: exit.y },
+    });
+
+    assert.equal(abortRequested, false, 'linked escort still en route must not abort');
+    assert.equal(run.state, RUN_STATE.COMBAT, 'run stays live until escort arrives');
+
+    [...runPlayerAftermathSteps(run.world!, new Rng(1))];
+
+    assert.equal(run.isObjectiveSatisfied(), true);
+    assert.equal(run.state, RUN_STATE.RESULT);
+    assert.equal((results[0] as { outcome: string }).outcome, OUTCOME.EXIT);
+  });
+
   it('abort-extracts when the player reaches exit without the escort', () => {
     const results: unknown[] = [];
     const run = new Run({

@@ -820,6 +820,10 @@ export class Run {
     const objectiveComplete = this.isObjectiveSatisfied();
     const objectiveExpired = this.#isTimedObjectiveExpired();
     if (!objectiveComplete && !objectiveExpired) {
+      // Escort missions: the player often reaches the exit before the linked
+      // NPC finishes catch-up in player aftermath. Wait for follow steps to
+      // bring them into extraction range before treating this as an abort.
+      if (this.#isEscortExtractionPending()) return;
       // Abort: objective incomplete — ask the shell for confirmation before
       // finalising. If no callback is registered, extract immediately (tests,
       // harness).
@@ -857,6 +861,19 @@ export class Run {
         objectiveExpired: false,
       },
     });
+  }
+
+  /** Activated escort still catching up while the player waits on the exit tile. */
+  #isEscortExtractionPending(): boolean {
+    if (!this.contract || !this.world || !this.player || !this.exitTile) return false;
+    if (this.contract.objective.kind !== OBJECTIVES.ESCORT_EXTRACT) return false;
+    if (this.player.x !== this.exitTile.x || this.player.y !== this.exitTile.y) return false;
+    for (const entity of this.world.entities.values()) {
+      if (!(entity instanceof EscortNpc)) continue;
+      if (!entity.alive || !entity.activated) return false;
+      return !isEscortExtractSatisfied(this.world);
+    }
+    return false;
   }
 
   #tearDownWorld(): void {
