@@ -291,6 +291,9 @@ export type RunOptions = {
   /** M7.2: terrain mutations from a prior visit to this location, replayed onto
    *  the freshly-built map in `enterCombat`. Empty/omitted for a first visit. */
   priorMutationDeltas?: unknown;
+  /** M7.2: campaign key items already held for this location site, used to
+   *  skip respawning pickup keycards on revisit (player re-opens via interact). */
+  priorKeyItems?: unknown;
 };
 
 type EntityDamagedPayload = {
@@ -327,6 +330,8 @@ export class Run {
   keyItems: KeyItem[];
   /** M7.2: prior-visit terrain mutations replayed in `enterCombat`. */
   priorMutationDeltas: TileDelta[];
+  /** M7.2: site-scoped key items from a prior visit (see `priorKeyItems`). */
+  priorKeyItems: KeyItem[];
   onPersist: ((record: RunSnapshot) => void) | null;
   onResult: ((result: RunResult) => void) | null;
   onAbortRequested: (() => void) | null;
@@ -340,6 +345,7 @@ export class Run {
     onResult,
     onAbortRequested,
     priorMutationDeltas,
+    priorKeyItems,
   }: RunOptions = {}) {
     if (typeof seed !== 'number' || !Number.isFinite(seed)) {
       throw new TypeError(`Run requires a finite numeric seed, got ${seed}`);
@@ -361,6 +367,9 @@ export class Run {
     }
     if (priorMutationDeltas !== undefined && !Array.isArray(priorMutationDeltas)) {
       throw new TypeError('Run: priorMutationDeltas must be an array when supplied');
+    }
+    if (priorKeyItems !== undefined && !Array.isArray(priorKeyItems)) {
+      throw new TypeError('Run: priorKeyItems must be an array when supplied');
     }
 
     this.id = id ?? makeRunId(seed);
@@ -385,6 +394,7 @@ export class Run {
     this.priorMutationDeltas = ((priorMutationDeltas as TileDelta[] | undefined) ?? []).map(d => ({
       ...d,
     }));
+    this.priorKeyItems = ((priorKeyItems as KeyItem[] | undefined) ?? []).map(k => ({ ...k }));
     this.onPersist = (onPersist as ((record: RunSnapshot) => void) | undefined) ?? null;
     this.onResult = (onResult as ((result: RunResult) => void) | undefined) ?? null;
     this.onAbortRequested = (onAbortRequested as (() => void) | undefined) ?? null;
@@ -871,51 +881,58 @@ export class Run {
     if (linkedDoorId) {
       assertDoorExists(this.world, linkedDoorId);
       if (this.contract.objective.kind !== OBJECTIVES.TERMINAL_SLICE) {
-        // M6.2: 50/50 roll — terminal unlock vs keycard unlock.
-        const unlockMethod = resolveUnlockMethod(this.contract, this.rng);
-        if (unlockMethod === 'terminal') {
-          // M6.2: decoupled placement — terminal can land anywhere reachable
-          // from spawn (not biased toward door proximity).
-          const terminalAnchor = findDecoupledTerminalAnchor(
-            this.world,
-            this.player,
-            this.exitTile,
-            this.rng,
-            linkedDoorId
-          );
-          this.world.addEntity(
-            new Terminal({
-              id: 'terminal-unlock-0',
-              x: terminalAnchor.x,
-              y: terminalAnchor.y,
-              label: 'Access terminal',
-              raisesAlarm: true,
-              unlocksId: linkedDoorId,
-            })
-          );
-        } else {
-          // M6.2: keycard placed on the spawn side as an alternative unlock.
-          const keycardAnchor = findDecoupledTerminalAnchor(
-            this.world,
-            this.player,
-            this.exitTile,
-            this.rng,
-            linkedDoorId
-          );
-          // M7.2: on a remembered-site revisit, stamp the keycard with the
-          // site id so collecting it promotes the card to campaign-scoped
-          // (M6.2 routing), letting a future revisit pre-unlock this door.
-          const keycardSiteId = this.contract.context.locationSiteId;
-          this.world.addEntity(
-            new KeyCard({
-              id: `keycard-${linkedDoorId}`,
-              x: keycardAnchor.x,
-              y: keycardAnchor.y,
-              doorId: linkedDoorId,
-              label: 'Access keycard',
-              ...(keycardSiteId ? { siteId: keycardSiteId } : {}),
-            })
-          );
+        const revisitSiteId = this.contract.context.locationSiteId;
+        const priorKey =
+          revisitSiteId &&
+          this.priorKeyItems.find(k => k.doorId === linkedDoorId && k.siteId === revisitSiteId);
+        // M7.2: held site keycard → skip spawn; door stays locked until interact.
+        if (!priorKey) {
+          // M6.2: 50/50 roll — terminal unlock vs keycard unlock.
+          const unlockMethod = resolveUnlockMethod(this.contract, this.rng);
+          if (unlockMethod === 'terminal') {
+            // M6.2: decoupled placement — terminal can land anywhere reachable
+            // from spawn (not biased toward door proximity).
+            const terminalAnchor = findDecoupledTerminalAnchor(
+              this.world,
+              this.player,
+              this.exitTile,
+              this.rng,
+              linkedDoorId
+            );
+            this.world.addEntity(
+              new Terminal({
+                id: 'terminal-unlock-0',
+                x: terminalAnchor.x,
+                y: terminalAnchor.y,
+                label: 'Access terminal',
+                raisesAlarm: true,
+                unlocksId: linkedDoorId,
+              })
+            );
+          } else {
+            // M6.2: keycard placed on the spawn side as an alternative unlock.
+            const keycardAnchor = findDecoupledTerminalAnchor(
+              this.world,
+              this.player,
+              this.exitTile,
+              this.rng,
+              linkedDoorId
+            );
+            // M7.2: on a remembered-site revisit, stamp the keycard with the
+            // site id so collecting it promotes the card to campaign-scoped
+            // (M6.2 routing) for future revisit re-opens via interact.
+            const keycardSiteId = this.contract.context.locationSiteId;
+            this.world.addEntity(
+              new KeyCard({
+                id: `keycard-${linkedDoorId}`,
+                x: keycardAnchor.x,
+                y: keycardAnchor.y,
+                doorId: linkedDoorId,
+                label: 'Access keycard',
+                ...(keycardSiteId ? { siteId: keycardSiteId } : {}),
+              })
+            );
+          }
         }
       }
     }

@@ -525,6 +525,9 @@ export function restoreCampaign(record: unknown, options: RestoreCampaignOptions
       campaign.activeRun.priorMutationDeltas = campaign.priorDeltasForContract(
         campaign.activeRun.contract
       );
+      campaign.activeRun.priorKeyItems = campaign.priorKeyItemsForContract(
+        campaign.activeRun.contract
+      );
     }
     campaign.deployedMemberId = member.id;
     campaign.state = CAMPAIGN_STATE.COMBAT;

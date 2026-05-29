@@ -19,6 +19,7 @@ import {
 } from '../../../src/game/hub/Curator.js';
 import { OUTCOME } from '../../../src/game/Run.js';
 import { KeyCard } from '../../../src/game/entities/KeyCard.js';
+import { Door } from '../../../src/game/entities/Door.js';
 import { Rng } from '../../../src/rng.js';
 import type { Contract } from '../../../src/game/hub/Curator.js';
 import type { LocationSite, TileDelta } from '../../../src/types.js';
@@ -557,6 +558,37 @@ test('KeyCard on a revisit contract is stamped with the site id (case 7)', () =>
     | undefined;
   assert.ok(keycard, 'keycard placed for a keycard-unlock contract');
   assert.equal(keycard!.siteId, '4242', 'keycard carries the location site id');
+});
+
+test('revisit with prior site keycard skips spawn and keeps door locked (case 9)', () => {
+  const campaign = new Campaign({ seed: 1 });
+  campaign.addSiteToRoster(validSite({ id: '4242', seed: '4242' }));
+  campaign.addKeyItem({
+    id: 'keycard-door-0',
+    label: 'Access keycard',
+    doorId: 'door-0',
+    siteId: '4242',
+  });
+  const contract = reachExitContract(4242, {
+    objective: {
+      kind: OBJECTIVES.RETRIEVE,
+      title: 'Grab cache',
+      briefing: 'Retrieve the cache behind the locked door.',
+      params: { target: 'cache', requiresUnlock: true, unlockMethod: 'keycard' },
+    },
+    context: testContext('4242'),
+  });
+  const run = campaign.deployCrewMember(campaign.crew[0]!.id, contract);
+  run.enterCombat();
+
+  const keycard = [...run.world!.entities.values()].find(e => e instanceof KeyCard);
+  assert.equal(keycard, undefined, 'no keycard when campaign already holds this site card');
+
+  const door = [...run.world!.entities.values()].find(
+    e => e instanceof Door && e.doorId === 'door-0'
+  );
+  assert.ok(door instanceof Door, 'door still present');
+  assert.equal(door.locked, true, 'door stays locked until player interacts with held keycard');
 });
 
 test('resumed BRIEFING run re-derives prior deltas from the roster (case 8, restore path)', () => {

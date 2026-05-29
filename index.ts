@@ -1217,6 +1217,9 @@ function handleIntent(intent: Intent): void {
     onKeycardCollected: kc => {
       if (kc.siteId) {
         // Campaign-scoped: persists across runs (M7.2).
+        if (campaign?.keyItems.some(k => k.id === kc.id)) {
+          return;
+        }
         campaign?.addKeyItem({ id: kc.id, label: kc.label, doorId: kc.doorId, siteId: kc.siteId });
       } else {
         // Run-scoped: lives only in this run, discarded on run end.

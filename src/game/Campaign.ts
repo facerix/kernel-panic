@@ -332,6 +332,7 @@ export class Campaign {
       seed: contract.seed,
       // M7.2: replay prior-visit terrain on revisits ([] for first visits).
       priorMutationDeltas: this.priorDeltasForContract(contract),
+      priorKeyItems: this.priorKeyItemsForContract(contract),
       onPersist: () => this.#persist(),
       onResult: (result: RunResult) => {
         this.onResult?.(result);
@@ -844,6 +845,16 @@ export class Campaign {
   priorDeltasForContract(contract: Contract): TileDelta[] {
     const site = this.findRosterSite(this.locationSiteIdForContract(contract));
     return site ? site.mutationDeltas.map(d => ({ ...d })) : [];
+  }
+
+  /**
+   * Campaign key items already held for a contract's target location. Used to
+   * skip respawning pickup keycards on revisit (player re-opens via interact).
+   */
+  priorKeyItemsForContract(contract: Contract): KeyItem[] {
+    const siteId = contract.context.locationSiteId;
+    if (!siteId) return [];
+    return this.keyItems.filter(k => k.siteId === siteId).map(k => ({ ...k }));
   }
 
   /** Add or refresh the roster entry for a deployed contract's location. */

@@ -521,6 +521,60 @@ test('collectTileLoot picks up keycard and invokes onKeycardCollected', () => {
   assert.ok(log.some(l => l.includes('Access keycard')));
 });
 
+test('collectTileLoot: duplicate campaign keycard pickup does not throw', () => {
+  const world = corridorWorld();
+  const crew = makeCrew();
+  crew.x = 2;
+  crew.y = 1;
+  crew.ap = 4;
+  world.addEntity(crew);
+  const kc = new KeyCard({
+    id: 'keycard-door-0',
+    x: 3,
+    y: 1,
+    doorId: 'door-0',
+    label: 'Access keycard',
+    siteId: 'site-42',
+  });
+  world.addEntity(kc);
+  const queue = new TurnQueue([FACTION.PLAYER, FACTION.CORP]);
+  const campaign = makeCampaign();
+  campaign.addKeyItem({
+    id: 'keycard-door-0',
+    label: 'Access keycard',
+    doorId: 'door-0',
+    siteId: 'site-42',
+  });
+
+  applyIntent(
+    { type: 'move', dx: 1, dy: 0 },
+    {
+      world,
+      player: crew,
+      queue,
+      rng: new Rng(42),
+      log: () => {},
+      advanceTurn: () => {},
+      resetInputModes: () => {},
+      onPlayerAction: () => {},
+      onKeycardCollected: collected => {
+        if (collected.siteId && campaign.keyItems.some(k => k.id === collected.id)) {
+          return;
+        }
+        campaign.addKeyItem({
+          id: collected.id,
+          label: collected.label,
+          doorId: collected.doorId,
+          siteId: collected.siteId!,
+        });
+      },
+    }
+  );
+
+  assert.equal(campaign.keyItems.length, 1, 'inventory unchanged when keycard already held');
+  assert.equal(world.keycardAt(3, 1), null, 'pickup still removed from world');
+});
+
 // ─── KeyCard entity snapshot round-trip ──────────────────────────────────────
 
 test('KeyCard snapshot round-trips through Run snapshot/restore', () => {
