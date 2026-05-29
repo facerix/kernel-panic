@@ -8,6 +8,7 @@ import { Merc } from '../../../src/game/archetypes/Merc.js';
 import { Razor } from '../../../src/game/archetypes/Razor.js';
 import { RelayNode } from '../../../src/game/entities/RelayNode.js';
 import { CorpTurret } from '../../../src/game/entities/CorpTurret.js';
+import { ConsumablePickup } from '../../../src/game/entities/ConsumablePickup.js';
 import {
   TILE,
   FACTION,
@@ -590,4 +591,29 @@ test('resolveRanged falls back to BASE_HIT_CHANCE for non-crew entities', () => 
   const { world, attacker, target } = makeFight();
   const result = resolveRanged(world, attacker, target, new StubRng([0]));
   assert.equal(result.threshold, BASE_HIT_CHANCE);
+});
+
+test('resolveRanged hit on ConsumablePickup does not damage or kill it', () => {
+  const g = new Grid(8, 8);
+  const w = new World(g);
+  const attacker = new Entity({
+    id: 'a',
+    x: 1,
+    y: 1,
+    faction: FACTION.PLAYER,
+    glyph: '@',
+  });
+  const pickup = new ConsumablePickup({
+    id: 'consumable-pickup-0',
+    x: 4,
+    y: 1,
+    consumableId: 'stim',
+    label: 'Stim',
+  });
+  w.addEntity(attacker);
+  w.addEntity(pickup);
+  const result = resolveRanged(w, attacker, pickup, new StubRng([0]));
+  assert.equal(result.hit, true);
+  assert.equal(pickup.hp, 1);
+  assert.equal(pickup.alive, true);
 });

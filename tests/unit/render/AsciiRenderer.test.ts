@@ -26,6 +26,7 @@ function makeCanvas() {
     fillText(char, px, py) {
       drawCalls.push({ op: 'text', char, px, py, fillStyle: ctx.fillStyle, font: ctx.font });
     },
+    measureText: text => ({ width: String(text).length * 7 }),
     save: () => {},
     restore: () => {},
   };
@@ -104,6 +105,30 @@ test('draw() drops flashes whose expiry has passed', () => {
   assert.equal(r.activeFlashes.length, 0, 'expired flash should be filtered out');
   const flashOps = canvas._drawCalls.filter(c => c.op === 'text' && c.char === '*');
   assert.equal(flashOps.length, 0, 'no flash overlay should paint after expiry');
+});
+
+test('draw() paints the location chip (uppercased) on top when a label is given', () => {
+  const canvas = makeCanvas();
+  const r = new AsciiRenderer(canvas, { now: () => 0 });
+  const { world, player } = makeWorld();
+
+  r.draw(world, player, { locationLabel: 'Vuong Holdings server farm' });
+  const textOps = canvas._drawCalls.filter(c => c.op === 'text');
+  const chip = textOps.at(-1);
+  assert.equal(chip.char, 'VUONG HOLDINGS SERVER FARM', 'chip painted last, uppercased');
+  assert.equal(chip.px, 6, 'chip sits in the top-left padding');
+});
+
+test('draw() omits the location chip when no label is supplied', () => {
+  const canvas = makeCanvas();
+  const r = new AsciiRenderer(canvas, { now: () => 0 });
+  const { world, player } = makeWorld();
+
+  r.draw(world, player);
+  const chip = canvas._drawCalls
+    .filter(c => c.op === 'text')
+    .find(c => c.char === c.char?.toUpperCase?.() && c.char.length > 1);
+  assert.equal(chip, undefined, 'no multi-char label text op without a locationLabel');
 });
 
 test('flashes outside the camera are silently skipped (but stay registered)', () => {

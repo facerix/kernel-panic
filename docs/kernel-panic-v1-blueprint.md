@@ -51,7 +51,7 @@ A tactical, purely turn-based roguelike inspired by *Neuromancer* and classic 80
 ### Phase 1: Meatspace MVP
 * Basic combat and movement for Merc/Razor.
 * A* drone pathfinding and Line-of-Sight.
-* The "Safe Space" Hub and the Curator (Quest-giver).
+* The "Safe House" Hub and the Curator (Quest-giver).
 * Death Screen: Terminal Crash Dump.
 
 ### Phase 2: Deepening Meatspace

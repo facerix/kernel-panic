@@ -35,7 +35,8 @@ Living plan for the post–Phase 2 slice of Kernel Panic: **contract objectives*
 | M6.2 — Decoupled terminal placement + KeyCard unlock path | ✅ Done |
 | M6.3 — Dynamic corridor door placement (higher-tier) | ✅ Done |
 | M7.1 — Breaching charges & demolition objectives | ✅ Done |
-| M7.2 — Location memory & site roster | 🔲 Planned |
+| M7.2 — Location memory & site roster | ✅ Done |
+| M7 — Breaching + location memory | ✅ Complete |
 
 **Phase 2.5** is complete when:
 
@@ -1196,7 +1197,7 @@ Phase 2.5 milestones that follow (M4–M7) retain their original numbering for c
 
 ---
 
-#### M7.2 — Location memory & site roster 🔲
+#### M7.2 — Location memory & site roster ✅
 
 **Depends on:** M7.1 (`TileDelta` schema established).
 
@@ -1311,15 +1312,29 @@ When placing a `KeyCard` in `Run.#placeObjectiveInteractables` for a door-locked
 11. Pre-M7.2 save restore: `siteRoster` defaults to `[]`
 12. Campaign delete clears roster
 
-**Open questions for M7.2:**
+**Resolved questions for M7.2** (all confirmed before coding):
 
-1. **`siteId` naming collision:** The existing `ContractContext` already has a `site` lexicon token (e.g. `'pier-9'`, `'warehouse'`). The new location-memory field is a different concept. Proposal: add `locationSiteId?: string` to `ContractContext` (not `siteId`) to avoid confusion. Confirm before coding.
+1. **`siteId` naming collision:** ✅ Added `locationSiteId?: string` to `ContractContext` (distinct from the existing `site` lexicon token), validated in `normalizeContractContext`.
 
-2. **Site entry timing:** Plan says "contract acceptance or `enterCombat`." Proposal: `enterCombat`, because the full `LocationSite` shape (seed, label, tier) isn't available until the map is built. Confirm.
+2. **Site entry timing:** ✅ Sites are remembered at the **deploy seam** (`Campaign.deployCrewMember`), the concrete realization of "enter the job" — the full `LocationSite` shape (seed, label) is already known from the contract there, and deploy is the commit point (no cancel-at-briefing path). This also keeps `Run` decoupled from `Campaign` (see implementation notes).
 
-3. **Site ID generation:** `String(seed)` is stable and testable for the current pool size (max 6 sites). A hash is only needed if seed values could collide — unlikely. Confirm or specify a different scheme.
+3. **Site ID generation:** ✅ `generateSiteId(seed)` returns `String(seed)`. A fresh contract that happens to reuse a remembered seed therefore picks up that site's prior geometry — a useful side effect.
 
-4. **Revisit biasing when roster is stale:** If all roster sites are CRITICAL-tier and the player is BURNED (STANDARD only), should the Curator skip the revisit roll or still allow revisiting a CRITICAL-seed map at STANDARD difficulty? Proposal: revisit biasing is independent of difficulty — the site geometry is reused, but difficulty and objective are freshly rolled. This seems intentional (the map memory is the payoff, not a difficulty gate).
+4. **Revisit biasing when roster is stale:** ✅ Revisit biasing is **independent of difficulty** — geometry is reused, difficulty and objective are freshly rolled. The map memory is the payoff, not a difficulty gate.
+
+**Implementation notes (as shipped):**
+
+- **Types:** `LocationSite` in `src/types.ts`; `ContractContext.locationSiteId?` in `Curator.ts`. `cloneContract` / snapshot round-trip the field for free via `normalizeContractContext`.
+- **`src/game/locations.ts`** (new, pure): `applyMutationDeltas(grid, deltas)` mutates **only** the grid (never `World.mutationDeltas`, so a run's *new* breaches stay separate from history); `mergeSiteDeltas(existing, incoming)` dedups by `"x,y"` coord keeping the latest; `normalizeLocationSite(raw)` structural-validates (bounds are enforced later by `applyMutationDeltas` against the rebuilt grid); `generateSiteId(seed)` = `String(seed)`.
+- **Breaches restore as `RUBBLE`, not `FLOOR`.** This section's prose/test sketch predated M7.1, which shipped `TILE.RUBBLE` as the breach result. The deltas carry `to: RUBBLE`, so revisits restore rubble (passable, costs `AP_COST.ENTER_RUBBLE`). Tests assert the real `to` value.
+- **`Run` stays decoupled from `Campaign`.** Rather than `Run.enterCombat` calling `campaign.addSiteToRoster` (Run has no campaign reference), `Run` gains a `priorMutationDeltas` constructor option; `enterCombat` replays it right after world creation, before entity/door placement. A door whose cell became `RUBBLE` on a prior visit is **skipped** during re-placement (the companion tile delta drives this), so breached doors stay breached. `Run.mutationDeltas` getter exposes `world.mutationDeltas` for the merge.
+- **`Campaign` owns the roster:** `siteRoster: LocationSite[]` (cap `SITE_ROSTER_CAP = 6`), `addSiteToRoster` (refresh-if-present; evict oldest `roster`-tier; never evict `score`-tier; warn+skip the degenerate all-score case), `findRosterSite`, `mergeSiteDeltas(siteId, deltas)`, plus helpers `locationSiteIdForContract`, `priorDeltasForContract`, and private `#rememberLocation` / `#mergeRunDeltasIntoRoster`. `deployCrewMember` seeds the run's prior deltas and remembers the location; `onJobEnd` merges this run's deltas into the roster on **any EXIT** (clean or aborted) — the `#mergeRunDeltasIntoRoster` path heals a missing entry (mid-upgrade saves) rather than crashing.
+- **Resume safety:** a run reloaded mid-`BRIEFING` re-enters via `enterCombat` without re-running `deployCrewMember`, so `restoreCampaign` re-derives `priorMutationDeltas` from the (already-restored) roster for `BRIEFING`-state runs. `COMBAT`/`RESULT` runs restore their full grid snapshot and need no re-seeding.
+- **Curator biasing & location identity:** `SITE_REVISIT_CHANCE = 0.4`, rolled **per slot only when the roster is non-empty** (empty-roster generation draws no extra rng, preserving pre-M7.2 determinism). A location's *identity* is its **principal (+ site)** — those tokens are stored on the `LocationSite` on first visit and **pinned** on revisit: `generateRevisitContract` filters to recipes the pinned principal/site can satisfy, rolls a fresh objective/asset/action, and re-renders a **principal-led label** (`// <principal> — <site> <asset> <action>`, no transient site-state prefix). So the owner and place stay constant across visits while the job varies, and the rendered label always agrees with `context.principal`/`context.site` (fixing the earlier label↔principal divergence). A board-uniqueness guard prevents a site/label appearing twice per board; combined with the "needs a compatible recipe + unique label + stored identity" preconditions, the *effective* tagged rate is ~0.35 (below the 0.40 roll). Legacy roster entries without identity tokens are simply never offered as revisits (they backfill identity the next time they're deployed). `<contract-select>` shows the principal-led name plus the `// known site` tag.
+- **KeyCard `siteId`:** on a revisit contract, the placed `KeyCard` is stamped with `context.locationSiteId`, promoting it to campaign-scoped (M6.2 routing) so a future revisit can pre-unlock the door.
+- **Location UI:** a persistent **location chip** is painted top-left of the map canvas (`AsciiRenderer` `locationLabel` draw option) — the site flavor label in combat, `// Safe House //` in the Hub — training the player to read the corner as "where am I". `<contract-select>` flags revisit contracts (those carrying `context.locationSiteId`) with a `// known site` tag so the player can anticipate prior breach holes / mapped geometry.
+- **Shell wiring is minimal:** `generateContracts(campaign.rng, campaign)` already passes the campaign (now carrying `siteRoster`); the delta merge lives in `Campaign.onJobEnd`; the shell only computes the chip label (`currentLocationLabel`).
+- **Tests:** `tests/unit/game/locations.test.ts` (38 cases) covers the pure module, roster add/evict/score-preservation, snapshot round-trip + pre-M7.2 default + corrupt-entry crash, Curator revisit rate (~40%) + determinism + seed reuse, run re-entry (RUBBLE under fresh entities) + the resume-restore path, the deploy/job-end seams, and KeyCard `siteId` stamping.
 
 ---
 

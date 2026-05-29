@@ -29,10 +29,18 @@ import {
 import { buildHub } from './hub/SafeSpace.js';
 import { getItemById, ITEM_SCOPE, metaKeyFor } from './items.js';
 import { OUTCOME, Run } from './Run.js';
+import {
+  generateSiteId,
+  mergeSiteDeltas as mergeDeltas,
+  normalizeLocationSite,
+} from './locations.js';
 import type { Contract } from './hub/Curator.js';
 import type { Crew } from './Crew.js';
-import type { GridPoint, KeyItem } from '../types.js';
+import type { GridPoint, KeyItem, LocationSite, TileDelta } from '../types.js';
 import type { RunResult, Outcome } from './Run.js';
+
+/** M7.2: max remembered combat locations. One slot is reserved for Phase 3's score target. */
+export const SITE_ROSTER_CAP = 6;
 
 export const CAMPAIGN_STATE = Object.freeze({
   HUB: 'HUB',
@@ -59,6 +67,7 @@ export type CampaignOptions = {
   hubReveals?: unknown;
   completedJobs?: unknown;
   keyItems?: unknown;
+  siteRoster?: unknown;
   onPersist?: unknown;
   onResult?: unknown;
 };
@@ -129,6 +138,8 @@ export class Campaign {
   completedJobs: number;
   /** M6.2: persistent key-item inventory — keycards survive across runs. */
   keyItems: KeyItem[];
+  /** M7.2: remembered combat locations (max `SITE_ROSTER_CAP`). */
+  siteRoster: LocationSite[];
   /** Set by the latest `enterHub` when a reveal message fired; shell reads and clears. */
   lastHubReveal: HubRevealMessage | null;
   exitTile: GridPoint | null;
@@ -144,6 +155,7 @@ export class Campaign {
     hubReveals,
     completedJobs = 0,
     keyItems,
+    siteRoster,
     onPersist,
     onResult,
   }: CampaignOptions = {}) {
@@ -195,6 +207,7 @@ export class Campaign {
     this.hubReveals = normalizeHubReveals(hubReveals, 'Campaign hubReveals');
     this.completedJobs = (completedJobs as number) ?? 0;
     this.keyItems = normalizeKeyItems(keyItems);
+    this.siteRoster = normalizeSiteRoster(siteRoster);
     this.state = CAMPAIGN_STATE.HUB;
     this.activeRun = null;
     this.deployedMemberId = null;
@@ -317,12 +330,16 @@ export class Campaign {
     this.activeRun = new Run({
       crewMember: member,
       seed: contract.seed,
+      // M7.2: replay prior-visit terrain on revisits ([] for first visits).
+      priorMutationDeltas: this.priorDeltasForContract(contract),
       onPersist: () => this.#persist(),
       onResult: (result: RunResult) => {
         this.onResult?.(result);
       },
     });
     this.activeRun.enterBriefing(contract);
+    // M7.2: remember this location (or refresh its visit marker) on deploy.
+    this.#rememberLocation(contract);
     // Breach contracts auto-grant a breaching charge so the objective is always
     // completable, even before Finn's shop is unlocked.
     if (
@@ -369,6 +386,9 @@ export class Campaign {
     if (outcome === OUTCOME.DEATH) {
       this.flatlineMember(this.deployedMemberId);
     } else {
+      // M7.2: persist this run's terrain mutations into the site roster before
+      // returning to the Hub — breach holes survive even on an aborted exit.
+      this.#mergeRunDeltasIntoRoster(this.activeRun);
       this.completedJobs += 1;
       if (completed) {
         addSalvage(this.salvage, extracted);
@@ -741,6 +761,127 @@ export class Campaign {
     return this.keyItems.find(k => k.doorId === doorId) ?? null;
   }
 
+  // ─── Location memory / site roster (M7.2) ─────────────────────────────────
+
+  /** Look up a remembered site by its `LocationSite.id`. */
+  findRosterSite(siteId: string): LocationSite | null {
+    return this.siteRoster.find(s => s.id === siteId) ?? null;
+  }
+
+  /**
+   * Add a remembered site to the roster, or refresh `lastVisitedJob` if it is
+   * already present. At capacity, evict the oldest `roster`-tier site (lowest
+   * `lastVisitedJob`); `score`-tier sites are never evicted. If the roster is
+   * full of score-tier sites (degenerate — only one score slot exists in M7),
+   * the add is skipped with a warning rather than evicting the Phase 3 target.
+   */
+  addSiteToRoster(site: LocationSite): void {
+    const normalized = normalizeLocationSite(site);
+    const existing = this.findRosterSite(normalized.id);
+    if (existing) {
+      existing.lastVisitedJob = normalized.lastVisitedJob;
+      // Backfill identity tokens for pre-pinning roster entries so a legacy
+      // site becomes revisit-pinnable once it's deployed to again.
+      if (!existing.principal && normalized.principal) {
+        existing.principal = normalized.principal;
+        if (normalized.site) existing.site = normalized.site;
+      }
+      this.#persist();
+      return;
+    }
+    if (this.siteRoster.length >= SITE_ROSTER_CAP) {
+      let evictIdx = -1;
+      let oldest = Infinity;
+      for (let i = 0; i < this.siteRoster.length; i++) {
+        const candidate = this.siteRoster[i]!;
+        if (candidate.tier === 'score') continue;
+        if (candidate.lastVisitedJob < oldest) {
+          oldest = candidate.lastVisitedJob;
+          evictIdx = i;
+        }
+      }
+      if (evictIdx === -1) {
+        console.warn(
+          'Campaign.addSiteToRoster: roster full of score-tier sites; skipping add of',
+          normalized.id
+        );
+        return;
+      }
+      this.siteRoster.splice(evictIdx, 1);
+    }
+    this.siteRoster.push(normalized);
+    this.#persist();
+  }
+
+  /**
+   * Merge a finished run's terrain mutations into the named roster site,
+   * deduplicating by coordinate (latest wins). Throws if the site is unknown —
+   * a missing roster entry on a revisit is a bug, not a recoverable state.
+   */
+  mergeSiteDeltas(siteId: string, deltas: TileDelta[]): void {
+    const site = this.findRosterSite(siteId);
+    if (!site) {
+      throw new Error(`Campaign.mergeSiteDeltas: unknown site "${siteId}"`);
+    }
+    site.mutationDeltas = mergeDeltas(site.mutationDeltas, deltas);
+    this.#persist();
+  }
+
+  /**
+   * Resolve the stable roster id for a contract's target location. Revisit
+   * contracts carry an explicit `locationSiteId`; fresh contracts derive one
+   * from the map seed (`generateSiteId`), which also lets a fresh contract that
+   * happens to reuse a remembered seed pick up that site's prior geometry.
+   */
+  locationSiteIdForContract(contract: Contract): string {
+    return contract.context.locationSiteId ?? generateSiteId(contract.seed);
+  }
+
+  /**
+   * Prior-visit terrain deltas for a contract's target location. Empty for a
+   * first visit. Used to seed `Run.priorMutationDeltas` on deploy and restore.
+   */
+  priorDeltasForContract(contract: Contract): TileDelta[] {
+    const site = this.findRosterSite(this.locationSiteIdForContract(contract));
+    return site ? site.mutationDeltas.map(d => ({ ...d })) : [];
+  }
+
+  /** Add or refresh the roster entry for a deployed contract's location. */
+  #rememberLocation(contract: Contract): void {
+    const siteId = this.locationSiteIdForContract(contract);
+    const existing = this.findRosterSite(siteId);
+    this.addSiteToRoster({
+      id: siteId,
+      seed: String(contract.seed),
+      label: contract.label,
+      tier: existing?.tier ?? 'roster',
+      scoreTarget: existing?.scoreTarget ?? false,
+      mutationDeltas: existing ? existing.mutationDeltas : [],
+      lastVisitedJob: this.completedJobs,
+      // M7.2: a location's identity is its principal (+ site). Stored on first
+      // visit so revisits can pin them and regenerate a coherent label.
+      principal: contract.context.principal,
+      ...(contract.context.site ? { site: contract.context.site } : {}),
+    });
+  }
+
+  /**
+   * Merge an extracted run's terrain mutations into its roster site. Tolerant
+   * of a missing entry (e.g. a save deployed before M7.2 then extracted after
+   * the upgrade) by creating the entry first — this is a migration gap, not
+   * corruption, so we heal rather than crash.
+   */
+  #mergeRunDeltasIntoRoster(run: Run): void {
+    if (!run.contract) return;
+    const deltas = run.mutationDeltas;
+    if (deltas.length === 0) return;
+    const siteId = this.locationSiteIdForContract(run.contract);
+    if (!this.findRosterSite(siteId)) {
+      this.#rememberLocation(run.contract);
+    }
+    this.mergeSiteDeltas(siteId, deltas);
+  }
+
   getCrewMember(memberId: string): Crew | null {
     return this.crew.find(member => member.id === memberId) ?? null;
   }
@@ -799,6 +940,19 @@ function normalizeKeyItems(raw: unknown): KeyItem[] {
     }
     return result;
   });
+}
+
+/**
+ * M7.2: Normalize the site roster from a snapshot (or undefined for pre-M7.2
+ * saves). Validates every entry and its deltas. Crashes on malformed data per
+ * project policy (crash over silent bad map).
+ */
+function normalizeSiteRoster(raw: unknown): LocationSite[] {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) {
+    throw new TypeError('Campaign: siteRoster must be an array when supplied');
+  }
+  return raw.map(entry => normalizeLocationSite(entry));
 }
 
 function makeCampaignId(seed: number): string {

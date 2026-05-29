@@ -22,6 +22,7 @@ import { CONTRACT_DIFFICULTY, FACTION, REP, repTierForRep } from '../constants.j
 import type { Rng } from '../../rng.js';
 import type { EntityInit } from '../Entity.js';
 import type { ContractDifficulty } from '../constants.js';
+import type { LocationSite, LocationToken } from '../../types.js';
 
 export const OBJECTIVES = Object.freeze({
   REACH_EXIT: 'reach-exit',
@@ -62,6 +63,12 @@ export type ContractContext = {
   action: ContractContextToken;
   tags: string[];
   arcStage?: ContractArcStage;
+  /**
+   * M7.2: references a `LocationSite.id` in the campaign roster when the
+   * Curator targets a remembered site for a revisit. Distinct from the `site`
+   * lexicon token (flavor) — this is the map-memory key. Absent for fresh maps.
+   */
+  locationSiteId?: string;
 };
 
 type ContractRecipeContext = {
@@ -486,9 +493,22 @@ export type Contract = {
 };
 
 type ContractCampaign =
-  | { rep?: number; meta?: Record<string, unknown>; arcStage?: ContractArcStage | null }
+  | {
+      rep?: number;
+      meta?: Record<string, unknown>;
+      arcStage?: ContractArcStage | null;
+      /** M7.2: remembered combat locations the Curator may steer revisits toward. */
+      siteRoster?: LocationSite[];
+    }
   | null
   | undefined;
+
+/**
+ * M7.2: probability that a generated contract targets an existing roster site
+ * (deterministic from the seeded board rng) instead of a fresh seed. The map
+ * memory is the payoff — difficulty and objective are still freshly rolled.
+ */
+export const SITE_REVISIT_CHANCE = 0.4;
 
 type CuratorInit = Omit<EntityInit, 'faction' | 'glyph' | 'maxAp' | 'maxHp' | 'id' | 'x' | 'y'> & {
   id?: string;
@@ -526,13 +546,42 @@ export class Curator extends Entity {
     const pool = tier.pool;
     const contracts: Contract[] = [];
     const labelsUsed = new Set<string>();
+    const revisitedSiteIds = new Set<string>();
     const context = contractRecipeContext(campaign);
+    const roster = campaign?.siteRoster ?? [];
 
     for (let i = 0; i < CONTRACTS_PER_VISIT; i++) {
       const difficulty = rng.pick([...pool]);
       const spec = DIFFICULTY_SPEC[difficulty];
-      const recipeContract = generateRecipeContract(rng, labelsUsed, context);
-      const seed = rng.intRange(0, 0x7fffffff);
+
+      // M7.2: revisit biasing — reuse a remembered location. The site's
+      // principal (+ site) are *pinned* so the place keeps a consistent owner
+      // across visits, while the objective/asset/action (the job) are rolled
+      // fresh and the label is regenerated coherently from the pinned tokens.
+      // Only roll when the roster is non-empty so empty-roster generation is
+      // unchanged (no extra rng draws) and pre-M7.2 determinism holds.
+      let revisitSite: LocationSite | undefined;
+      let built: RenderedContract | undefined;
+      let seed: number;
+      if (roster.length > 0 && rng.chance(SITE_REVISIT_CHANCE)) {
+        const candidate = rng.pick(roster);
+        // Pinnable only if it carries identity tokens and isn't already on this
+        // board. Otherwise fall through to a fresh contract.
+        if (candidate.principal && !revisitedSiteIds.has(candidate.id)) {
+          built = generateRevisitContract(rng, labelsUsed, context, candidate) ?? undefined;
+          if (built) {
+            revisitSite = candidate;
+            revisitedSiteIds.add(candidate.id);
+          }
+        }
+      }
+      if (!built) {
+        built = generateRecipeContract(rng, labelsUsed, context);
+        seed = rng.intRange(0, 0x7fffffff);
+      } else {
+        seed = siteSeedToContractSeed(revisitSite!);
+      }
+
       const credits = rng.intRange(
         spec.credits.min + tier.rewardFloorBump,
         spec.credits.max + tier.rewardFloorBump + 1
@@ -541,11 +590,11 @@ export class Curator extends Entity {
       if (difficulty === CONTRACT_DIFFICULTY.CRITICAL) reward.recruit = true;
       contracts.push({
         seed,
-        objective: applyDoorRoutingToObjective(recipeContract.objective, difficulty),
+        objective: applyDoorRoutingToObjective(built.objective, difficulty),
         difficulty,
         threatCount: spec.threatCount,
-        label: recipeContract.label,
-        context: recipeContract.context,
+        label: built.label,
+        context: revisitSite ? { ...built.context, locationSiteId: revisitSite.id } : built.context,
         reward,
       });
     }
@@ -666,6 +715,12 @@ export function normalizeContractContext(value: unknown): ContractContext {
   if (!Array.isArray(candidate.tags) || !candidate.tags.every(isNonEmptyString)) {
     throw new TypeError('contract context tags must be an array of non-empty strings');
   }
+  if (
+    candidate.locationSiteId !== undefined &&
+    (typeof candidate.locationSiteId !== 'string' || candidate.locationSiteId.length === 0)
+  ) {
+    throw new TypeError('contract context locationSiteId must be a non-empty string when set');
+  }
   const tags = [...new Set(candidate.tags)];
   return {
     recipeId,
@@ -678,6 +733,7 @@ export function normalizeContractContext(value: unknown): ContractContext {
     action: normalizeContextToken(candidate.action, 'action'),
     tags,
     ...(candidate.arcStage ? { arcStage: candidate.arcStage } : {}),
+    ...(candidate.locationSiteId ? { locationSiteId: candidate.locationSiteId } : {}),
   };
 }
 
@@ -816,6 +872,20 @@ function possessive(value: string): string {
   return value.endsWith('s') ? `${value}'` : `${value}'s`;
 }
 
+/**
+ * M7.2: a `LocationSite.seed` is the stringified contract seed that first built
+ * the map. Convert it back to the numeric seed `buildMap` expects so the
+ * geometry is byte-identical on revisit. A non-numeric seed is corrupt data —
+ * crash rather than build a mismatched map.
+ */
+function siteSeedToContractSeed(site: LocationSite): number {
+  const seed = Number(site.seed);
+  if (!Number.isInteger(seed) || seed < 0) {
+    throw new Error(`Curator: roster site "${site.id}" has a non-numeric seed "${site.seed}"`);
+  }
+  return seed;
+}
+
 function contractRecipeContext(campaign: ContractCampaign): ContractRecipeContext {
   const arcStage = campaign?.arcStage ?? undefined;
   if (arcStage !== undefined && !isArcStage(arcStage)) {
@@ -855,11 +925,13 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
 }
 
+type RenderedContract = Pick<Contract, 'objective' | 'label' | 'context'>;
+
 function generateRecipeContract(
   rng: Rng,
   labelsUsed: Set<string>,
   context: ContractRecipeContext
-): Pick<Contract, 'objective' | 'label' | 'context'> {
+): RenderedContract {
   for (let i = 0; i < MAX_UNIQUE_CONTRACT_ATTEMPTS; i++) {
     const recipe = rng.pick(CONTRACT_RECIPES);
     const tokens = {
@@ -895,6 +967,86 @@ function generateRecipeContract(
   throw new Error(
     `Curator: exhausted recipe label pool after ${MAX_UNIQUE_CONTRACT_ATTEMPTS} attempts`
   );
+}
+
+/**
+ * M7.2: generate a fresh job for a *remembered* location. The site's principal
+ * (and site token, when present) are pinned — only recipes compatible with that
+ * identity are eligible — so the owner/place stay constant while the objective,
+ * asset, and action are rolled fresh and the label is re-rendered coherently.
+ *
+ * Returns `null` when the pinned identity admits no compatible recipe, or no
+ * unique label can be produced — the caller then falls back to a fresh contract.
+ */
+function generateRevisitContract(
+  rng: Rng,
+  labelsUsed: Set<string>,
+  context: ContractRecipeContext,
+  site: LocationSite
+): RenderedContract | null {
+  if (!site.principal) return null;
+  const principal = lexiconTokenFrom(site.principal);
+  const siteToken = site.site ? lexiconTokenFrom(site.site) : undefined;
+  // Recipes the pinned identity can satisfy: principal groups must intersect,
+  // and any site-using recipe needs a remembered site compatible with it.
+  const candidates = CONTRACT_RECIPES.filter(recipe => {
+    if (!groupsIntersect(principal.groups, recipe.principalGroups)) return false;
+    if (recipe.siteGroups) {
+      return !!siteToken && groupsIntersect(siteToken.groups, recipe.siteGroups);
+    }
+    return true;
+  });
+  if (candidates.length === 0) return null;
+  for (let i = 0; i < MAX_UNIQUE_CONTRACT_ATTEMPTS; i++) {
+    const recipe = rng.pick(candidates);
+    // No site-state roll on revisits: a remembered place reads stably (no
+    // transient "Gassed/Flooded" prefix muddying its identity).
+    const asset = pickCompatibleToken(rng, CONTRACT_LEXICON.assets, recipe.assetGroups, recipe.id);
+    const action = pickCompatibleToken(
+      rng,
+      CONTRACT_LEXICON.actions,
+      recipe.actionGroups,
+      recipe.id
+    );
+    const tokens = {
+      principal,
+      ...(recipe.siteGroups ? { site: siteToken! } : {}),
+      asset,
+      action,
+    };
+    // Override the recipe's label with a consistent principal-led identity line
+    // so revisits are recognizable as the same place regardless of the job.
+    const label = renderRevisitLabel(principal, siteToken, asset, action);
+    if (labelsUsed.has(label)) continue;
+    const contract = buildContractFromRecipe(recipe, tokens, context);
+    labelsUsed.add(label);
+    return { ...contract, label };
+  }
+  return null;
+}
+
+/**
+ * Revisit label: `// <principal> — <site> <asset> <action>` (site dropped when
+ * absent). Principal-led so a remembered location keeps a recognizable name
+ * across visits while the asset/action communicate the fresh job.
+ */
+function renderRevisitLabel(
+  principal: ContractToken,
+  site: ContractToken | undefined,
+  asset: ContractToken,
+  action: ContractToken
+): string {
+  const place = site ? `${principal.label} — ${site.label}` : principal.label;
+  return `// ${place} ${asset.label} ${action.label}`;
+}
+
+/** Rebuild a `ContractToken` from a stored location identity token. */
+function lexiconTokenFrom(token: LocationToken): ContractToken {
+  return { id: token.id, label: token.label, groups: [...token.groups] };
+}
+
+function groupsIntersect(groups: readonly string[], allowed: readonly string[]): boolean {
+  return groups.some(group => allowed.includes(group));
 }
 
 function buildContractFromRecipe(

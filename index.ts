@@ -1647,6 +1647,24 @@ function renderShell(): void {
   paint();
 }
 
+/**
+ * M7.2: the persistent location chip text for the canvas top-left. Combat shows
+ * the contract's site flavor label (bracketed by `//`); the Hub shows
+ * "// Safe House //" so the corner always answers "where am I".
+ */
+function currentLocationLabel(): string | undefined {
+  if (!campaign) return undefined;
+  if (campaign.state === CAMPAIGN_STATE.COMBAT && campaign.activeRun?.contract) {
+    const { principal, site } = campaign.activeRun.contract.context;
+    const labelName = `${principal.label} - ${site.label}`;
+    return `// ${labelName} //`;
+  }
+  if (campaign.state === CAMPAIGN_STATE.HUB) {
+    return '// Safe House //';
+  }
+  return undefined;
+}
+
 function paint(stateHint: InputState = activeInputState()): void {
   const run = currentScene();
   if (canvas.hidden) {
@@ -1661,7 +1679,11 @@ function paint(stateHint: InputState = activeInputState()): void {
     run.state === RUN_STATE.COMBAT && activeBreachBlastOverlayKeys.size > 0
       ? activeBreachBlastOverlayKeys
       : undefined;
-  renderer.draw(run.world, run.player, { vision: activeVision, blastOverlayKeys });
+  renderer.draw(run.world, run.player, {
+    vision: activeVision,
+    blastOverlayKeys,
+    locationLabel: currentLocationLabel(),
+  });
   crt.alertTint = run.state === RUN_STATE.COMBAT && run.world.alarmActive;
   crt.apply();
   setStatus(statusLine(stateHint));

@@ -82,6 +82,7 @@ const CacheConfig = {
       '/src/game/hub/SafeSpace.js',
       '/src/game/hub/Terminal.js',
       '/src/game/items.js',
+      '/src/game/locations.js',
       '/src/game/LineOfSight.js',
       '/src/game/mapConnectivity.js',
       '/src/game/Pathfinding.js',

@@ -61,6 +61,7 @@ import { RelayNode } from './entities/RelayNode.js';
 import { ConsumablePickup } from './entities/ConsumablePickup.js';
 import { EscortNpc } from './entities/EscortNpc.js';
 import { KeyCard } from './entities/KeyCard.js';
+import { applyMutationDeltas } from './locations.js';
 import { BreachingCharge } from './entities/BreachingCharge.js';
 import { ITEM_ID, getItemById } from './items.js';
 import { resetCorpTurnStatusCache } from './corpTurnStatusCopy.js';
@@ -287,6 +288,9 @@ export type RunOptions = {
    *  to finalise the abort extraction, or do nothing to let the player
    *  stay on the exit tile and keep playing. */
   onAbortRequested?: unknown;
+  /** M7.2: terrain mutations from a prior visit to this location, replayed onto
+   *  the freshly-built map in `enterCombat`. Empty/omitted for a first visit. */
+  priorMutationDeltas?: unknown;
 };
 
 type EntityDamagedPayload = {
@@ -321,12 +325,22 @@ export class Run {
   mapSeen: Set<string>;
   /** M6.2: run-scoped key items (keycards without a siteId). Lost on run end. */
   keyItems: KeyItem[];
+  /** M7.2: prior-visit terrain mutations replayed in `enterCombat`. */
+  priorMutationDeltas: TileDelta[];
   onPersist: ((record: RunSnapshot) => void) | null;
   onResult: ((result: RunResult) => void) | null;
   onAbortRequested: (() => void) | null;
   _busUnsubs: (() => void)[];
 
-  constructor({ id, crewMember, seed, onPersist, onResult, onAbortRequested }: RunOptions = {}) {
+  constructor({
+    id,
+    crewMember,
+    seed,
+    onPersist,
+    onResult,
+    onAbortRequested,
+    priorMutationDeltas,
+  }: RunOptions = {}) {
     if (typeof seed !== 'number' || !Number.isFinite(seed)) {
       throw new TypeError(`Run requires a finite numeric seed, got ${seed}`);
     }
@@ -345,6 +359,9 @@ export class Run {
     if (onAbortRequested !== undefined && typeof onAbortRequested !== 'function') {
       throw new TypeError('Run: onAbortRequested must be a function');
     }
+    if (priorMutationDeltas !== undefined && !Array.isArray(priorMutationDeltas)) {
+      throw new TypeError('Run: priorMutationDeltas must be an array when supplied');
+    }
 
     this.id = id ?? makeRunId(seed);
     this.crewMember = crewMember;
@@ -362,6 +379,12 @@ export class Run {
     this.objectiveTimer = freshObjectiveTimer();
     this.mapSeen = new Set();
     this.keyItems = [];
+    // Deltas are validated structurally on application (`applyMutationDeltas`)
+    // and on campaign restore (`normalizeLocationSite`); store a shallow copy
+    // so external mutation can't reach into the run.
+    this.priorMutationDeltas = ((priorMutationDeltas as TileDelta[] | undefined) ?? []).map(d => ({
+      ...d,
+    }));
     this.onPersist = (onPersist as ((record: RunSnapshot) => void) | undefined) ?? null;
     this.onResult = (onResult as ((result: RunResult) => void) | undefined) ?? null;
     this.onAbortRequested = (onAbortRequested as (() => void) | undefined) ?? null;
@@ -408,10 +431,20 @@ export class Run {
       includePrefabDoors: contractRequiresDoor(this.contract),
     });
     this.world = new World(map.grid, { events: this.bus });
+    // M7.2: replay prior-visit terrain mutations (breach holes, removed doors)
+    // onto the fresh geometry before any entity placement. This mutates only
+    // the grid — `world.mutationDeltas` stays empty so it accumulates *this*
+    // run's new breaches, which merge into the roster on extract.
+    if (this.priorMutationDeltas.length > 0) {
+      applyMutationDeltas(this.world.grid, this.priorMutationDeltas);
+    }
     this.player = this.#makePlayer(map.spawns.player);
     this.world.addEntity(this.player);
     for (let i = 0; i < map.doors.length; i++) {
       const a = map.doors[i]!;
+      // A door breached on a prior visit left its cell as RUBBLE (via the
+      // companion tile delta). Skip re-placing the door so the breach persists.
+      if (this.world.grid.tileAt(a.x, a.y) === TILE.RUBBLE) continue;
       this.world.addEntity(
         new Door({ id: `door-entity-${i}`, doorId: `door-${i}`, x: a.x, y: a.y })
       );
@@ -533,6 +566,14 @@ export class Run {
       keyItems: this.keyItems.map(k => ({ id: k.id, label: k.label, doorId: k.doorId })),
       mutationDeltas: world.mutationDeltas.map(delta => ({ ...delta })),
     };
+  }
+
+  /**
+   * M7.2: terrain mutations accumulated during *this* run (breaches, removed
+   * doors). Merged into the location roster on extract. Empty before combat.
+   */
+  get mutationDeltas(): TileDelta[] {
+    return this.world?.mutationDeltas ?? [];
   }
 
   isObjectiveSatisfied(): boolean {
@@ -861,6 +902,10 @@ export class Run {
             this.rng,
             linkedDoorId
           );
+          // M7.2: on a remembered-site revisit, stamp the keycard with the
+          // site id so collecting it promotes the card to campaign-scoped
+          // (M6.2 routing), letting a future revisit pre-unlock this door.
+          const keycardSiteId = this.contract.context.locationSiteId;
           this.world.addEntity(
             new KeyCard({
               id: `keycard-${linkedDoorId}`,
@@ -868,6 +913,7 @@ export class Run {
               y: keycardAnchor.y,
               doorId: linkedDoorId,
               label: 'Access keycard',
+              ...(keycardSiteId ? { siteId: keycardSiteId } : {}),
             })
           );
         }

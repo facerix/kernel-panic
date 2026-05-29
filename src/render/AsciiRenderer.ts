@@ -25,6 +25,12 @@ type AsciiRendererOptions = {
 
 type DrawOptions = BuildFrameOptions & {
   camera?: Camera;
+  /**
+   * M7.2: persistent location chip painted top-left of the canvas — the
+   * site flavor label in combat, "Safe House" in the Hub. Trains the player
+   * to read the corner as "where am I". Omitted = no chip this frame.
+   */
+  locationLabel?: string;
 };
 type FlashCellOptions = {
   duration?: number;
@@ -108,12 +114,14 @@ export class AsciiRenderer {
    */
   draw(world: World, followTarget: Entity, options: DrawOptions = {}) {
     this.#syncViewport();
-    const { camera: cameraOverride, ...frameOpts } = options;
+    const { camera: cameraOverride, locationLabel, ...frameOpts } = options;
     const camera = cameraOverride ?? cameraFor(followTarget, this.viewport!);
     const frame = buildFrame(world, camera, frameOpts);
     this.#drawFrame(frame);
     this.lastCamera = camera;
     this.#paintActiveFlashes();
+    // Painted last so the persistent chip is never occluded by glyphs/flashes.
+    this.#drawLocationLabel(locationLabel);
   }
 
   /**
@@ -180,6 +188,36 @@ export class AsciiRenderer {
       ctx!.fillText(flash.char, px, py);
     }
     ctx!.restore();
+  }
+
+  /**
+   * Paint the persistent location chip in the top-left corner. A dark backing
+   * keeps it legible over map glyphs; a thin accent underline ties it to the
+   * terminal aesthetic. No-op when no label is supplied.
+   */
+  #drawLocationLabel(label?: string) {
+    const ctx = this.ctx;
+    if (!ctx || !label) return;
+    const text = label.toUpperCase();
+    const fontPx = 12;
+    const padX = 6;
+    const padY = 5;
+    ctx.save();
+    ctx.font = `${fontPx}px ${this.fontFamily}`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    const boxW = Math.ceil(ctx.measureText(text).width) + padX * 2;
+    const boxH = fontPx + padY * 2;
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = 'rgba(6, 9, 10, 0.72)';
+    ctx.fillRect(0, 0, boxW, boxH);
+    ctx.fillStyle = 'rgba(0, 217, 165, 0.5)';
+    ctx.fillRect(0, boxH, boxW, 1);
+    ctx.shadowBlur = this.glow;
+    ctx.shadowColor = '#6ae8c8';
+    ctx.fillStyle = '#9ff3da';
+    ctx.fillText(text, padX, padY);
+    ctx.restore();
   }
 
   #drawFrame(frame: Frame) {

@@ -108,6 +108,50 @@ export type KeyItem = {
   siteId?: string;
 };
 
+/**
+ * Structural mirror of Curator's `ContractContextToken` (this file stays
+ * import-free). A tagged lexicon token: stable id, display label, group tags.
+ */
+export type LocationToken = { id: string; label: string; groups: string[] };
+
+/**
+ * M7.2: A remembered combat location in the campaign's site roster. When the
+ * Curator sends the player back to a roster site, the map is rebuilt from
+ * `seed` and the accumulated `mutationDeltas` (breach holes, removed doors)
+ * are replayed onto the fresh geometry before fresh enemies/objectives spawn.
+ *
+ * A location's *identity* is its **principal** (and **site**): revisits pin
+ * those tokens so the owner/place stay constant across visits while the job
+ * (objective/asset/action) is rolled fresh. `label` is the name from the most
+ * recent generation.
+ *
+ * `tier` / `scoreTarget` reserve one slot for Phase 3's "Score target" site;
+ * M7 never sets `scoreTarget` true.
+ */
+export type LocationSite = {
+  /** Stable, seed-derived id — the roster key. `String(seed)` in M7. */
+  id: string;
+  /** Deterministic map seed (stringified contract seed). */
+  seed: string;
+  /** Flavor label carried over from the contract that first visited. */
+  label: string;
+  /** Roster tier — `'score'` is reserved for Phase 3 and never evicted. */
+  tier: 'score' | 'roster';
+  /** Phase 3 hook — always false in M7. */
+  scoreTarget: boolean;
+  /** Accumulated terrain mutations replayed on revisit. */
+  mutationDeltas: TileDelta[];
+  /** `campaign.completedJobs` at the most recent visit (eviction ordering). */
+  lastVisitedJob: number;
+  /**
+   * Owning principal token — the location's identity. Pinned on revisit so the
+   * place keeps a consistent operator. Optional for pre-pinning saves.
+   */
+  principal?: LocationToken;
+  /** Site token (e.g. "Sublevel 3"), when the originating recipe used one. */
+  site?: LocationToken;
+};
+
 export type Telemetry = {
   outcome: 'death' | 'exit' | 'campaign-over';
   campaignTerminal?: boolean;

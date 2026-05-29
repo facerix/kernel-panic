@@ -22,6 +22,7 @@ import {
 import { placeHazardCluster } from '../../../src/game/Run.js';
 import { hasLineOfSight } from '../../../src/game/LineOfSight.js';
 import { Pickup } from '../../../src/game/entities/Pickup.js';
+import { ConsumablePickup } from '../../../src/game/entities/ConsumablePickup.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -145,6 +146,24 @@ test('objective Pickup on HAZARD tile is not damaged by hazard tick', () => {
   const { world, grid } = makeHazardWorld();
   grid.setTile(3, 3, TILE.HAZARD);
   const pickup = new Pickup({ id: 'pickup-0', x: 3, y: 3, label: 'Clinic Records' });
+  world.addEntity(pickup);
+
+  const steps = [...runPlayerAftermathSteps(world, new Rng(1))];
+  assert.equal(steps.filter(s => s.type === 'hazard-damage').length, 0);
+  assert.equal(pickup.hp, 1);
+  assert.equal(pickup.alive, true);
+});
+
+test('ConsumablePickup on HAZARD tile is not damaged by hazard tick', () => {
+  const { world, grid } = makeHazardWorld();
+  grid.setTile(3, 3, TILE.HAZARD);
+  const pickup = new ConsumablePickup({
+    id: 'consumable-pickup-0',
+    x: 3,
+    y: 3,
+    consumableId: 'stim',
+    label: 'Stim',
+  });
   world.addEntity(pickup);
 
   const steps = [...runPlayerAftermathSteps(world, new Rng(1))];

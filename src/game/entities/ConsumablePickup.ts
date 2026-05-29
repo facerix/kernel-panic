@@ -9,8 +9,10 @@
  *   - `passable: true` — actors walk over it; `World.entityAt` and
  *     `blockerKeys` skip it. The pickup itself does not obstruct pathing
  *     or LOS, matching its fiction (a small canister on the floor).
- *   - NEUTRAL faction — drones do not target it. Stays inert until the
- *     player crosses its tile.
+ *   - NEUTRAL faction — hostiles do not acquire it (`Hostile.isHostileTo`).
+ *   - Not damageable — hazards, blasts, and combat hits are no-ops (same
+ *     contract as objective `Pickup` for environmental damage).
+ *     Stays inert until the player crosses its tile.
  *   - Holds a `consumableId` (an `ITEM_ID` value) — what the inventory
  *     gains on pickup. Resolved by `applyIntent.doMove` calling
  *     `Crew.addConsumable(consumableId)`.
@@ -61,5 +63,24 @@ export class ConsumablePickup extends Entity {
     });
     this.consumableId = consumableId;
     this.label = label;
+  }
+
+  override isHazardImmune(): boolean {
+    return true;
+  }
+
+  override isBlastDamageable(): boolean {
+    return false;
+  }
+
+  /** Floor loot — never flatlines from environmental or combat damage. */
+  override damage(amount: number): number {
+    if (!Number.isInteger(amount) || amount < 0) {
+      throw new RangeError(`damage amount must be a non-negative integer, got ${amount}`);
+    }
+    if (!this.alive) {
+      throw new Error(`Cannot damage ${this.id}: already dead`);
+    }
+    return 0;
   }
 }

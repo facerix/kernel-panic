@@ -127,6 +127,16 @@ const CSS = `
   background: var(--board-danger);
 }
 
+.known {
+  color: var(--board-dim);
+  border: 1px solid rgba(106, 232, 200, 0.45);
+  border-radius: 3px;
+  padding: 0.1rem 0.4rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
 .meta {
   color: var(--board-dim);
   font-size: 0.84rem;
@@ -256,6 +266,11 @@ class ContractSelect extends HTMLElement {
                 textContent: difficultyLabel(contract),
               }),
               h('span', { className: 'target', textContent: contract.label }),
+              // M7.2: flag contracts that revisit a remembered location so the
+              // player can anticipate prior breach holes / mapped geometry.
+              ...(contract.context.locationSiteId
+                ? [h('span', { className: 'known', textContent: '// known site' })]
+                : []),
             ]),
             h('div', { className: 'meta', textContent: rewardCopy(contract) }),
             h('div', { className: 'objective', textContent: objectiveCopy(contract) }),

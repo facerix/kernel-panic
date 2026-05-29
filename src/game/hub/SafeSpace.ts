@@ -1,5 +1,5 @@
 /**
- * The Hub map — small authored "safe space" the player returns to between
+ * The Hub map — small authored "safe house" the player returns to between
  * runs. Not procedural: the Hub is the same shape every visit so the player
  * forms a spatial relationship with the Curator, the loadout Terminal, and
  * the exit door.

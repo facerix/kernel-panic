@@ -99,7 +99,8 @@ import type {
   ObjectiveProgressSnapshot,
 } from './Run.js';
 import type { CampaignMeta, CampaignState } from './Campaign.js';
-import type { KeyItem, TileDelta } from '../types.js';
+import { normalizeLocationSite } from './locations.js';
+import type { KeyItem, LocationSite, TileDelta } from '../types.js';
 
 const ARCHETYPE_KEY = Symbol.for('kernel-panic.archetype');
 
@@ -242,6 +243,8 @@ export type CampaignSnapshot = {
   completedJobs?: number;
   /** M6.2: persistent key-item inventory (keycards). Defaults to []. */
   keyItems?: KeyItemSnapshot[];
+  /** M7.2: remembered combat locations (site roster). Defaults to []. */
+  siteRoster?: LocationSite[];
 };
 
 /** M6.2: Serializable key item. */
@@ -296,6 +299,24 @@ export function snapshotCampaign(campaign: Campaign): CampaignSnapshot {
     hubReveals: { ...campaign.hubReveals },
     completedJobs: campaign.completedJobs,
     keyItems: campaign.keyItems.map(k => ({ ...k })),
+    siteRoster: campaign.siteRoster.map(snapshotLocationSite),
+  };
+}
+
+/** M7.2: deep-clone a roster site (including its delta list) for serialization. */
+function snapshotLocationSite(site: LocationSite): LocationSite {
+  return {
+    id: site.id,
+    seed: site.seed,
+    label: site.label,
+    tier: site.tier,
+    scoreTarget: site.scoreTarget,
+    mutationDeltas: site.mutationDeltas.map(delta => ({ ...delta })),
+    lastVisitedJob: site.lastVisitedJob,
+    ...(site.principal
+      ? { principal: { ...site.principal, groups: [...site.principal.groups] } }
+      : {}),
+    ...(site.site ? { site: { ...site.site, groups: [...site.site.groups] } } : {}),
   };
 }
 
@@ -470,6 +491,7 @@ export function restoreCampaign(record: unknown, options: RestoreCampaignOptions
     hubReveals: normalizeHubReveals(record.hubReveals, 'restoreCampaign hubReveals'),
     completedJobs: record.completedJobs ?? 0,
     keyItems: record.keyItems,
+    siteRoster: record.siteRoster,
     onPersist: options.onPersist,
     onResult: options.onResult,
   });
@@ -495,6 +517,15 @@ export function restoreCampaign(record: unknown, options: RestoreCampaignOptions
       onPersist: () => options.onPersist?.(campaign),
       onResult: options.onResult,
     });
+    // M7.2: a run resumed at BRIEFING has not yet built its map — re-derive the
+    // prior-visit deltas from the (already-restored) roster so the upcoming
+    // enterCombat replays them. COMBAT/RESULT runs restore their full snapshot
+    // (grid mutations already baked in), so they need no re-seeding here.
+    if (campaign.activeRun.state === RUN_STATE.BRIEFING && campaign.activeRun.contract) {
+      campaign.activeRun.priorMutationDeltas = campaign.priorDeltasForContract(
+        campaign.activeRun.contract
+      );
+    }
     campaign.deployedMemberId = member.id;
     campaign.state = CAMPAIGN_STATE.COMBAT;
     campaign.world = null;
@@ -1353,6 +1384,14 @@ function validateCampaignRecord(record: unknown): asserts record is CampaignSnap
     if (!Number.isInteger(candidate.completedJobs) || candidate.completedJobs < 0) {
       throw new RangeError('restoreCampaign: completedJobs must be a non-negative integer');
     }
+  }
+  if (candidate.siteRoster !== undefined) {
+    if (!Array.isArray(candidate.siteRoster)) {
+      throw new TypeError('restoreCampaign: siteRoster must be an array when present');
+    }
+    // Validate each entry up front so a corrupt roster crashes on load rather
+    // than producing a bad map on a later revisit.
+    candidate.siteRoster.forEach(entry => normalizeLocationSite(entry));
   }
 }
 
