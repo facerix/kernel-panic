@@ -19,6 +19,12 @@
  *   us suppress the emulated mouse events that would otherwise double-fire
  *   the same button.
  *
+ * D-pad hold-repeat:
+ *   Direction buttons fire once on `pointerdown`, then repeat every
+ *   `DPAD_REPEAT_INTERVAL_MS` until `pointerup` / `pointercancel`. Action
+ *   buttons stay single-tap. `setPointerCapture` keeps release events even
+ *   if the thumb slides off the cell.
+ *
  * Delivery: `pointerdown` is registered on the **host** with `{ capture: true }`
  * (not on `shadowRoot`) so mobile WebKit delivers the event reliably. With a
  * host listener, `event.target` can be retargeted, so we resolve `[data-button]`
@@ -27,16 +33,22 @@
 
 import { h } from '/src/domUtils.js';
 import { AIM_KIND, MODE, aimKindLabel } from '/src/input/keymap.js';
-import { dispatchTouchAction } from '/src/input/touchpad.js';
+import { dispatchTouchAction, TOUCHPAD_DIRECTIONS } from '/src/input/touchpad.js';
 import type { AimKind, Mode } from '/src/input/keymap.js';
 
 const FORCE_SHOW_PARAM = 'touch';
 const FORCE_SHOW_VALUE = 'force';
 
+/** Milliseconds between repeated d-pad moves while a direction is held. */
+const DPAD_REPEAT_INTERVAL_MS = 200;
+
 type IsBlockedPredicate = () => boolean;
 
 /** Same object for `addEventListener` / `removeEventListener` parity. */
 const POINTER_DOWN_OPTS = { capture: true };
+const POINTER_RELEASE_OPTS = { capture: true };
+
+const DPAD_DIRECTION_IDS = new Set<string>(TOUCHPAD_DIRECTIONS);
 
 const DIRECTION_LABELS = Object.freeze({
   N: '↑',
@@ -243,6 +255,9 @@ class TouchPad extends HTMLElement {
   #buttonsById = new Map();
   #banner: HTMLElement | null = null;
   #boundOnPointerDown: ((evt: PointerEvent) => void) | null = null;
+  #boundOnPointerRelease: ((evt: PointerEvent) => void) | null = null;
+  #dpadRepeatTimer: ReturnType<typeof setInterval> | null = null;
+  #dpadRepeatPointerId: number | null = null;
   #ready = false;
   /**
    * Optional input lockout. The M0 combat-feedback animations set this to
@@ -274,15 +289,24 @@ class TouchPad extends HTMLElement {
     );
 
     this.#boundOnPointerDown = this.#onPointerDown.bind(this);
+    this.#boundOnPointerRelease = this.#onPointerRelease.bind(this);
     this.addEventListener('pointerdown', this.#boundOnPointerDown, POINTER_DOWN_OPTS);
+    this.addEventListener('pointerup', this.#boundOnPointerRelease, POINTER_RELEASE_OPTS);
+    this.addEventListener('pointercancel', this.#boundOnPointerRelease, POINTER_RELEASE_OPTS);
     this.#ready = true;
     this.#renderMode();
   }
 
   disconnectedCallback() {
+    this.#stopDpadRepeat();
     if (this.#boundOnPointerDown) {
       this.removeEventListener('pointerdown', this.#boundOnPointerDown, POINTER_DOWN_OPTS);
       this.#boundOnPointerDown = null;
+    }
+    if (this.#boundOnPointerRelease) {
+      this.removeEventListener('pointerup', this.#boundOnPointerRelease, POINTER_RELEASE_OPTS);
+      this.removeEventListener('pointercancel', this.#boundOnPointerRelease, POINTER_RELEASE_OPTS);
+      this.#boundOnPointerRelease = null;
     }
   }
 
@@ -429,6 +453,44 @@ class TouchPad extends HTMLElement {
     // intent gets dispatched. Matches the KeyboardController contract.
     if (this.#isBlocked()) return;
 
+    this.#dispatchButtonPress(buttonId);
+
+    if (DPAD_DIRECTION_IDS.has(buttonId)) {
+      this.#startDpadRepeat(buttonId, evt.pointerId, btn);
+    } else {
+      this.#stopDpadRepeat();
+    }
+  }
+
+  #onPointerRelease(evt: PointerEvent) {
+    if (this.#dpadRepeatPointerId === null) return;
+    if (evt.pointerId !== this.#dpadRepeatPointerId) return;
+    this.#stopDpadRepeat();
+  }
+
+  #startDpadRepeat(buttonId: string, pointerId: number, captureTarget: HTMLElement) {
+    this.#stopDpadRepeat();
+    this.#dpadRepeatPointerId = pointerId;
+    try {
+      captureTarget.setPointerCapture(pointerId);
+    } catch {
+      // Ignore — repeat still stops on pointerup at the host.
+    }
+    this.#dpadRepeatTimer = setInterval(() => {
+      if (this.#isBlocked()) return;
+      this.#dispatchButtonPress(buttonId);
+    }, DPAD_REPEAT_INTERVAL_MS);
+  }
+
+  #stopDpadRepeat() {
+    if (this.#dpadRepeatTimer !== null) {
+      clearInterval(this.#dpadRepeatTimer);
+      this.#dpadRepeatTimer = null;
+    }
+    this.#dpadRepeatPointerId = null;
+  }
+
+  #dispatchButtonPress(buttonId: string) {
     const previousMode = this.#mode;
     const previousAimKind = this.#aimKind;
     const { intent, nextMode, aimKind } = dispatchTouchAction(buttonId, this.#mode, this.#aimKind);
