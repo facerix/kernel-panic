@@ -1349,3 +1349,9 @@ When placing a `KeyCard` in `Run.#placeObjectiveInteractables` for a door-locked
 ## Recorded problems (deferred)
 
 Open items that span Phase 2.5 and later work stay in [`docs/kaizen.md`](./kaizen.md). When M4 lands, update the **typed salvage** and **corpse memory** entries to point at shipped behavior or Phase 3 remainder.
+
+### Post–2.5 QoL (planned, not scheduled)
+
+| Item | Spec | Notes |
+|------|------|-------|
+| **Look / inspect** | [`look-feature-plan.md`](./look-feature-plan.md) | Tier 2: cursor + log identify, touch pad, `%` key-help fix; player-turn only |
