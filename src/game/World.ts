@@ -368,6 +368,26 @@ export class World {
     return null;
   }
 
+  /**
+   * Every entity at `(x, y)`, ordered bottom-to-top using the same precedence
+   * as the renderer: dead bodies, then passable live props, then impassable
+   * live occupants. The last entry is the glyph/description that wins.
+   */
+  entitiesAt(x: number, y: number): Entity[] {
+    const occupants = [...this.entities.values()].filter(e => e.x === x && e.y === y);
+    const ordered: Entity[] = [];
+    for (const e of occupants) {
+      if (!e.alive) ordered.push(e);
+    }
+    for (const e of occupants) {
+      if (e.alive && e.passable) ordered.push(e);
+    }
+    for (const e of occupants) {
+      if (e.alive && !e.passable) ordered.push(e);
+    }
+    return ordered;
+  }
+
   doorAt(x: number, y: number): Door | null {
     for (const e of this.entities.values()) {
       if (e instanceof Door && e.alive && e.x === x && e.y === y) return e;

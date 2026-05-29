@@ -41,6 +41,7 @@ export const MODE = Object.freeze({
    * programmatically by the shell when an inventory item needs a direction.
    */
   AIM: 'AIM',
+  LOOK: 'LOOK',
 });
 
 export type Mode = (typeof MODE)[keyof typeof MODE];
@@ -86,6 +87,8 @@ const stayAim = (aimKind: AimKind): DispatchResult => ({
   aimKind,
 });
 
+const stayLook = (): DispatchResult => ({ intent: null, nextMode: MODE.LOOK, aimKind: null });
+
 function dispatchIdle(key: string): DispatchResult {
   const dir = directionFor(key);
   if (dir) {
@@ -111,6 +114,8 @@ function dispatchIdle(key: string): DispatchResult {
       // presents `<item-inventory>` and handles `use-item` events. In the Hub
       // this is a no-op (Finn's shop uses Space-interact).
       return { intent: { type: 'inventory' }, nextMode: MODE.IDLE, aimKind: null };
+    case 'l':
+      return stayLook();
     case 'Escape':
       return { intent: { type: 'cancel' }, nextMode: MODE.IDLE, aimKind: null };
     case 'f':
@@ -149,6 +154,21 @@ function dispatchAim(key: string, aimKind: AimKind): DispatchResult {
   return stayAim(aimKind);
 }
 
+function dispatchLook(key: string): DispatchResult {
+  if (key === 'Escape') {
+    return { intent: { type: 'cancel' }, nextMode: MODE.IDLE, aimKind: null };
+  }
+  const dir = directionFor(key);
+  if (dir) {
+    return {
+      intent: { type: 'look-move', dx: dir[0], dy: dir[1] },
+      nextMode: MODE.LOOK,
+      aimKind: null,
+    };
+  }
+  return stayLook();
+}
+
 /** Player-facing status / banner label for an active aim kind. */
 export function aimKindLabel(aimKind: AimKind): string {
   switch (aimKind) {
@@ -172,6 +192,8 @@ export function dispatch(key: string, mode: Mode, aimKind: AimKind | null = null
         throw new Error('keymap: MODE.AIM requires an aimKind');
       }
       return dispatchAim(key, aimKind);
+    case MODE.LOOK:
+      return dispatchLook(key);
     default:
       throw new Error(`keymap: unknown mode "${mode as string}"`);
   }

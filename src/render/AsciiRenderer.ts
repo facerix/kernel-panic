@@ -236,6 +236,11 @@ export class AsciiRenderer {
         if (!cell || !cell.char || cell.char === ' ') continue;
         const px = x * cellSize + cellSize / 2;
         const py = y * cellSize + cellSize / 2;
+        if (cell.bg) {
+          ctx!.shadowBlur = 0;
+          ctx!.fillStyle = cell.bg;
+          ctx!.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+        }
         // Two-pass glow: a soft shadow pass for bloom, then crisp glyph.
         ctx!.shadowBlur = glow;
         ctx!.shadowColor = cell.fg;

@@ -63,6 +63,7 @@ const ACTION_BUTTONS = Object.freeze([
   // verb actually resolves, so the player still sees their kit's flavour.
   { id: 'special', label: 'SPECIAL', shortcut: 'x' },
   { id: 'interact', label: 'INTERACT', shortcut: '␣' },
+  { id: 'look', label: 'LOOK', shortcut: 'l' },
   { id: 'inventory', label: 'ITEMS', shortcut: 'i' },
   { id: 'end-turn', label: 'WAIT', shortcut: '.' },
   { id: 'cancel', label: 'CANCEL', shortcut: 'esc' },
@@ -441,18 +442,27 @@ class TouchPad extends HTMLElement {
     if (intent) this.#emit('intent', intent);
   }
 
+  #modePresentation(): { banner: string; activeAction: string | null } {
+    if (this.#mode === MODE.AIM && this.#aimKind) {
+      return {
+        banner:
+          AIM_KIND_LABEL[this.#aimKind] ?? `${aimKindLabel(this.#aimKind)} — pick a direction`,
+        activeAction: AIM_KIND_ACTION[this.#aimKind as keyof typeof AIM_KIND_ACTION] ?? null,
+      };
+    }
+    if (this.#mode === MODE.LOOK) {
+      return {
+        banner: 'LOOK — move cursor (Esc to cancel)',
+        activeAction: 'look',
+      };
+    }
+    return { banner: '', activeAction: null };
+  }
+
   #renderMode() {
     if (!this.#ready) return;
-    if (this.#banner) {
-      this.#banner.textContent =
-        this.#mode === MODE.AIM && this.#aimKind
-          ? (AIM_KIND_LABEL[this.#aimKind] ?? `${aimKindLabel(this.#aimKind)} — pick a direction`)
-          : '';
-    }
-    const activeAction =
-      this.#mode === MODE.AIM && this.#aimKind
-        ? (AIM_KIND_ACTION[this.#aimKind as keyof typeof AIM_KIND_ACTION] ?? null)
-        : null;
+    const { banner, activeAction } = this.#modePresentation();
+    if (this.#banner) this.#banner.textContent = banner;
     for (const [id, btn] of this.#buttonsById) {
       if (!btn) continue;
       const isActive = id === activeAction;

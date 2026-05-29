@@ -183,6 +183,27 @@ test('IDLE + i emits inventory intent (M4)', () => {
   assert.equal(r.nextMode, MODE.IDLE);
 });
 
+test('IDLE + l enters LOOK with no intent yet', () => {
+  const r = dispatch('l', MODE.IDLE);
+  assert.equal(r.intent, null);
+  assert.equal(r.nextMode, MODE.LOOK);
+  assert.equal(r.aimKind, null);
+});
+
+test('LOOK + direction emits look-move and stays in LOOK', () => {
+  const r = dispatch('ArrowRight', MODE.LOOK);
+  assert.deepEqual(r.intent, { type: 'look-move', dx: 1, dy: 0 });
+  assert.equal(r.nextMode, MODE.LOOK);
+  assert.equal(r.aimKind, null);
+});
+
+test('LOOK + Escape cancels back to IDLE', () => {
+  const r = dispatch('Escape', MODE.LOOK);
+  assert.deepEqual(r.intent, { type: 'cancel' });
+  assert.equal(r.nextMode, MODE.IDLE);
+  assert.equal(r.aimKind, null);
+});
+
 test('IDLE + I (uppercase) is a no-op (case-sensitive)', () => {
   const r = dispatch('I', MODE.IDLE);
   assert.equal(r.intent, null);

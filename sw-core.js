@@ -56,6 +56,7 @@ const CacheConfig = {
       '/src/game/corpTurnDriver.js',
       '/src/game/corpTurnStatusCopy.js',
       '/src/game/Crew.js',
+      '/src/game/describe.js',
       '/src/game/entities/BreachingCharge.js',
       '/src/game/entities/ConsumablePickup.js',
       '/src/game/entities/Contact.js',

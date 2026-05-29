@@ -358,7 +358,7 @@ class KeyHelp extends HTMLElement {
               h('dt', { textContent: '▓' }),
               h('dd', { textContent: 'hazard' }),
               h('dt', { textContent: '%' }),
-              h('dd', { textContent: 'rubble' }),
+              h('dd', { textContent: 'rubble / scrap' }),
             ]
           : []
       ),

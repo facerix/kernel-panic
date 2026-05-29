@@ -49,6 +49,7 @@ import {
 } from '/src/game/corpTurnStatusCopy.js';
 import { EVENT } from '/src/game/events.js';
 import { VisionField } from '/src/game/Vision.js';
+import { describeTileAt } from '/src/game/describe.js';
 import { AsciiRenderer } from '/src/render/AsciiRenderer.js';
 import { CrtFilter } from '/src/render/CrtFilter.js';
 import {
@@ -283,6 +284,7 @@ function showBreachBlastOverlay(cx: number, cy: number): void {
  */
 let actionLineHistory: string[] = [];
 let pendingActionLineCount = 0;
+let lookCursor: { x: number; y: number } | null = null;
 
 /**
  * Plain-text body after `CORP —` from the last status paint while the queue
@@ -382,6 +384,7 @@ async function boot() {
     onModeChange: () => {
       // Keep the keyboard / touchpad in lock-step so the cross-input cancel
       // rule the M7 harness established still holds in the shell.
+      handleInputModeChange();
       paint();
     },
     isBlocked: () => animLock.isLocked() || isAnyBlockingModalOpen(),
@@ -453,6 +456,7 @@ async function boot() {
     paint();
   });
   touchPadEl.addEventListener('mode-change', () => {
+    handleInputModeChange();
     paint();
   });
   touchPadEl.setBlocked(() => animLock.isLocked() || isAnyBlockingModalOpen());
@@ -1101,11 +1105,76 @@ function performQuitCampaign(): void {
   canvas.focus();
 }
 
+function handleInputModeChange(): void {
+  const state = activeInputState();
+  if (state.mode !== MODE.LOOK) return;
+  if (isCorpControlsLocked()) {
+    resetInputModes();
+    flash('CORP TURN — controls locked until security finishes.');
+    return;
+  }
+  enterLookMode();
+}
+
+function enterLookMode(): void {
+  const run = currentScene();
+  if (!run?.world || !run.player) return;
+  if (lookCursor) return;
+  lookCursor = { x: run.player.x, y: run.player.y };
+  keyboard.mode = MODE.LOOK;
+  keyboard.aimKind = null;
+  if (touchPadEl.mode !== MODE.LOOK) touchPadEl.setMode(MODE.LOOK);
+  flash('LOOK — move cursor (Esc to cancel).');
+}
+
+function exitLookMode(): void {
+  lookCursor = null;
+  resetInputModes();
+}
+
+function isCorpControlsLocked(): boolean {
+  const run = currentScene();
+  return run?.state === RUN_STATE.COMBAT && run.queue?.currentFaction !== FACTION.PLAYER;
+}
+
+function handleLookMove(dx = 0, dy = 0): void {
+  if (isCorpControlsLocked()) {
+    flash('CORP TURN — controls locked until security finishes.');
+    return;
+  }
+  const run = currentScene();
+  if (!run?.world || !run.player) return;
+  if (!lookCursor) {
+    lookCursor = { x: run.player.x, y: run.player.y };
+  }
+  const tx = Math.max(0, Math.min(run.world.grid.width - 1, lookCursor.x + dx));
+  const ty = Math.max(0, Math.min(run.world.grid.height - 1, lookCursor.y + dy));
+  if (run.state === RUN_STATE.COMBAT && !vision.hasSeen(tx, ty)) {
+    flash("You haven't seen that tile.");
+    return;
+  }
+  lookCursor = { x: tx, y: ty };
+  const line = describeTileAt(run.world, tx, ty, {
+    vision: run.state === RUN_STATE.COMBAT ? vision : undefined,
+  });
+  if (line) flash(line);
+}
+
 function handleIntent(intent: Intent): void {
   if (intent?.type === 'quit-campaign') {
     resetInputModes();
     if (!campaign) return;
     presentQuitCampaignConfirm();
+    return;
+  }
+
+  if (intent?.type === 'look-move') {
+    handleLookMove(intent.dx, intent.dy);
+    return;
+  }
+
+  if (intent?.type === 'cancel' && lookCursor) {
+    exitLookMode();
     return;
   }
 
@@ -1683,6 +1752,7 @@ function paint(stateHint: InputState = activeInputState()): void {
   renderer.draw(run.world, run.player, {
     vision: activeVision,
     blastOverlayKeys,
+    lookCursor,
     locationLabel: currentLocationLabel(),
   });
   crt.alertTint = run.state === RUN_STATE.COMBAT && run.world.alarmActive;
@@ -1697,6 +1767,7 @@ function statusLine(state: InputState): string {
     corpToneActivityBody = null;
   }
   const aim = state.mode === MODE.AIM && state.aimKind ? `AIM ${aimKindLabel(state.aimKind)}` : '';
+  const look = state.mode === MODE.LOOK ? 'LOOK' : '';
   const player = run.player;
   if (!player) return stateLabel();
   if (!run.queue) return stateLabel();
@@ -1749,9 +1820,17 @@ function statusLine(state: InputState): string {
           `TURN ${run.queue.turnNumber}`,
           escapeHtml(run.queue.currentFaction.toUpperCase()),
           aim,
+          look,
         ])
       : '';
-  const statsInner = joinStatusParts([stateLabel(), identity, `${aphp}${stealthTag}`, turnInfo]);
+  const modeTag = look && run.state !== RUN_STATE.COMBAT ? look : '';
+  const statsInner = joinStatusParts([
+    stateLabel(),
+    identity,
+    `${aphp}${stealthTag}`,
+    turnInfo,
+    modeTag,
+  ]);
   const stats = `<span class="game-shell__stats">${statsInner}</span>`;
   const contextRow = `<span class="game-shell__context">${context}</span>`;
   // Two activity rows below the stable status rows. A single fresh action can
@@ -1939,9 +2018,10 @@ function setInputAim(aimKind: AimKind): void {
 }
 
 function resetInputModes(): void {
-  touchPadEl.setMode(MODE.IDLE);
+  lookCursor = null;
   keyboard.mode = MODE.IDLE;
   keyboard.aimKind = null;
+  touchPadEl.setMode(MODE.IDLE);
   // Clear any half-armed thrown-consumable aim (M4.3). Esc-cancel from
   // aim mode, or a cross-controller cancel, must not leave a stashed item
   // hanging — a later inventory click would otherwise mismatch.

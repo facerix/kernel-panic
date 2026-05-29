@@ -120,6 +120,27 @@ test('World.lootableCorpseAt finds a corpse even when a live actor shares the ti
   assert.equal(w.entityAt(2, 2), player);
 });
 
+test('World.entitiesAt returns renderer stacking order', () => {
+  const w = new World(new Grid(5, 5));
+  const corpse = new Entity({ id: 'corpse', x: 2, y: 2, faction: FACTION.CORP, glyph: 'd' });
+  const pickup = new ConsumablePickup({
+    id: 'consumable-pickup-0',
+    x: 2,
+    y: 2,
+    consumableId: 'stim',
+    label: 'Stim',
+  });
+  const player = makePlayer(2, 2);
+  corpse.alive = false;
+  w.entities.set(corpse.id, corpse);
+  w.entities.set(player.id, player);
+  w.entities.set(pickup.id, pickup);
+  assert.deepEqual(
+    w.entitiesAt(2, 2).map(e => e.id),
+    ['corpse', 'consumable-pickup-0', 'p']
+  );
+});
+
 test('World.canMoveEntity rejects step further than 1 tile (Chebyshev)', () => {
   const w = new World(new Grid(5, 5));
   const p = makePlayer(2, 2);

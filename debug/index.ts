@@ -34,6 +34,7 @@ import { KeyboardController } from '/src/input/KeyboardController.js';
 import { AIM_KIND, MODE, aimKindLabel } from '/src/input/keymap.js';
 import { applyIntent as applyPlayerIntent, PLAYER_ACTIONS } from '/src/input/applyIntent.js';
 import { VisionField } from '/src/game/Vision.js';
+import { describeTileAt } from '/src/game/describe.js';
 import { Rng } from '/src/rng.js';
 import type { Crew } from '/src/game/Crew';
 import type { Intent } from '/src/input/applyIntent.js';
@@ -67,6 +68,7 @@ let archetype = (() => {
   return 'razor';
 })();
 const logLines: string[] = [];
+let lookCursor: { x: number; y: number } | null = null;
 
 function buildScenario() {
   const grid = new Grid(GRID_W, GRID_H);
@@ -148,10 +150,11 @@ function log(line: string) {
 }
 
 function rerender(state: { mode: Mode; aimKind: AimKind | null } = activeInputState()) {
-  renderer.draw(world, player, { vision });
+  renderer.draw(world, player, { vision, lookCursor });
   crt.apply();
   const aim =
     state.mode === MODE.AIM && state.aimKind ? `  |  AIM: ${aimKindLabel(state.aimKind)}` : '';
+  const look = state.mode === MODE.LOOK ? '  |  LOOK' : '';
   const droneStatus = drone.alive
     ? `DRONE @(${drone.x},${drone.y}) HP ${drone.hp}/${drone.maxHp} [${drone.state.toUpperCase()}]`
     : 'DRONE DOWN';
@@ -168,7 +171,7 @@ function rerender(state: { mode: Mode; aimKind: AimKind | null } = activeInputSt
   document.getElementById('status')!.textContent =
     `TURN ${queue.turnNumber}  |  ACTING: ${queue.currentFaction.toUpperCase()}  |  ` +
     `${archetype.toUpperCase()} AP ${player.ap}/${player.maxAp} HP ${player.hp}/${player.maxHp}${stealthTag}${turretTag}  |  ` +
-    `${droneStatus}${aim}`;
+    `${droneStatus}${aim}${look}`;
   document.getElementById('log')!.textContent = logLines.slice(-12).join('\n');
 }
 
@@ -280,6 +283,10 @@ function formatCorpAction(actor: Entity, action: TurnActionStep) {
 }
 
 function logModeChange(state: { mode: Mode; aimKind: AimKind | null }) {
+  if (state.mode === MODE.LOOK) {
+    enterLookMode();
+    return;
+  }
   if (state.mode !== MODE.AIM || !state.aimKind) return;
   if (state.aimKind === AIM_KIND.FIRE) log('> FIRE — pick a direction (Esc to cancel).');
   if (state.aimKind === AIM_KIND.SPECIAL) {
@@ -307,11 +314,50 @@ function activeInputState(): { mode: Mode; aimKind: AimKind | null } {
 }
 
 function resetInputModes() {
-  if (touchPad) touchPad.setMode(MODE.IDLE);
+  lookCursor = null;
   if (input) {
     input.mode = MODE.IDLE;
     input.aimKind = null;
   }
+  if (touchPad) touchPad.setMode(MODE.IDLE);
+}
+
+function enterLookMode() {
+  if (queue.currentFaction !== FACTION.PLAYER) {
+    resetInputModes();
+    log('> CORP TURN — controls locked until security finishes.');
+    return;
+  }
+  if (lookCursor) return;
+  lookCursor = { x: player.x, y: player.y };
+  if (input) {
+    input.mode = MODE.LOOK;
+    input.aimKind = null;
+  }
+  if (touchPad && touchPad.mode !== MODE.LOOK) touchPad.setMode(MODE.LOOK);
+  log('> LOOK — move cursor (Esc to cancel).');
+}
+
+function exitLookMode() {
+  lookCursor = null;
+  resetInputModes();
+}
+
+function handleLookMove(dx = 0, dy = 0) {
+  if (queue.currentFaction !== FACTION.PLAYER) {
+    log('> CORP TURN — controls locked until security finishes.');
+    return;
+  }
+  if (!lookCursor) lookCursor = { x: player.x, y: player.y };
+  const tx = Math.max(0, Math.min(world.grid.width - 1, lookCursor.x + dx));
+  const ty = Math.max(0, Math.min(world.grid.height - 1, lookCursor.y + dy));
+  if (!vision.hasSeen(tx, ty)) {
+    log("> You haven't seen that tile.");
+    return;
+  }
+  lookCursor = { x: tx, y: ty };
+  const line = describeTileAt(world, tx, ty, { vision });
+  if (line) log(`> ${line}`);
 }
 
 function bindUI() {
@@ -321,6 +367,16 @@ function bindUI() {
 
   input = new KeyboardController({
     onIntent: intent => {
+      if (intent?.type === 'look-move') {
+        handleLookMove(intent.dx, intent.dy);
+        rerender();
+        return;
+      }
+      if (intent?.type === 'cancel' && lookCursor) {
+        exitLookMode();
+        rerender();
+        return;
+      }
       if (intent?.type === 'quit-campaign') {
         log('> QUIT CAMPAIGN is only wired in the M8 shell (no-op in harness).');
         resetInputModes();
@@ -341,6 +397,16 @@ function bindUI() {
   if (touchPad) {
     touchPad.addEventListener('intent', evt => {
       const intent = (evt as CustomEvent<Intent>).detail;
+      if (intent?.type === 'look-move') {
+        handleLookMove(intent.dx, intent.dy);
+        rerender();
+        return;
+      }
+      if (intent?.type === 'cancel' && lookCursor) {
+        exitLookMode();
+        rerender();
+        return;
+      }
       if (intent?.type === 'quit-campaign') {
         log('> QUIT CAMPAIGN is only wired in the M8 shell (no-op in harness).');
         resetInputModes();

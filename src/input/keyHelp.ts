@@ -69,6 +69,12 @@ export const HELP_ROWS = Object.freeze([
     scope: 'both',
     group: 'action',
   },
+  {
+    keys: Object.freeze(['l']),
+    label: 'Look — inspect map (move cursor, Esc to exit)',
+    scope: 'both',
+    group: 'action',
+  },
   // --- system -----------------------------------------------------------
   {
     keys: Object.freeze(['.']),

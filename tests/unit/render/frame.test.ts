@@ -263,3 +263,16 @@ test('buildFrame blastOverlayKeys paint hazard glyph on terrain in blast cells',
   assert.equal(cellAt(frame, 4, 1).char, '▓');
   assert.equal(cellAt(frame, 0, 0).char, '.', 'non-overlay floor unchanged');
 });
+
+test('buildFrame marks lookCursor cell with cursor highlight colors', () => {
+  const { world } = fixture();
+  const frame = buildFrame(
+    world,
+    { x: 0, y: 0, width: 6, height: 4 },
+    { lookCursor: { x: 2, y: 1 } }
+  );
+  const cell = cellAt(frame, 2, 1);
+  assert.equal(cell.char, '#', 'cursor preserves underlying glyph');
+  assert.equal(cell.bg, '#00d9a5');
+  assert.equal(cell.fg, '#06110f');
+});

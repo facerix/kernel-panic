@@ -82,6 +82,7 @@ export type BuildFrameOptions = {
    * glyph (`▓`) on terrain in these cells (~`BREACH_BLAST_OVERLAY` ms).
    */
   blastOverlayKeys?: ReadonlySet<string>;
+  lookCursor?: { x: number; y: number } | null;
 };
 
 /** Presentation-only — does not mutate the grid. */
@@ -93,7 +94,7 @@ const BLAST_OVERLAY_GLYPH = glyphForTile(TILE.HAZARD);
  */
 export function buildFrame(world: World, camera: Camera, options: BuildFrameOptions = {}): Frame {
   const { x: cx, y: cy, width, height } = camera;
-  const { vision, blastOverlayKeys } = options;
+  const { vision, blastOverlayKeys, lookCursor } = options;
   const cells: Glyph[] = Array.from({ length: width * height });
 
   // Index entities once so we don't pay an O(n) scan per cell. Three-pass:
@@ -147,6 +148,18 @@ export function buildFrame(world: World, camera: Camera, options: BuildFrameOpti
       }
 
       cells[idx] = glyphForCell(world, entityIndex, wx, wy, blastOverlayKeys);
+    }
+  }
+
+  if (lookCursor) {
+    const dx = lookCursor.x - cx;
+    const dy = lookCursor.y - cy;
+    if (dx >= 0 && dy >= 0 && dx < width && dy < height) {
+      const idx = dy * width + dx;
+      const cell = cells[idx];
+      if (cell && cell.char !== OOB_GLYPH.char) {
+        cells[idx] = { ...cell, fg: '#06110f', bg: '#00d9a5' };
+      }
     }
   }
 

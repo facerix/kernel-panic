@@ -14,13 +14,14 @@ test('TOUCHPAD_DIRECTIONS lists all 8 compass directions', () => {
   assert.deepEqual([...TOUCHPAD_DIRECTIONS].sort(), ['E', 'N', 'NE', 'NW', 'S', 'SE', 'SW', 'W']);
 });
 
-test('TOUCHPAD_ACTIONS includes the six gameplay actions (perks unified as `special`)', () => {
+test('TOUCHPAD_ACTIONS includes gameplay actions (perks unified as `special`)', () => {
   assert.deepEqual([...TOUCHPAD_ACTIONS].sort(), [
     'cancel',
     'end-turn',
     'fire',
     'interact',
     'inventory',
+    'look',
     'special',
   ]);
 });
@@ -43,6 +44,7 @@ test('syntheticKeyFor resolves actions to keymap keys', () => {
   assert.equal(syntheticKeyFor('cancel'), 'Escape');
   assert.equal(syntheticKeyFor('interact'), ' ');
   assert.equal(syntheticKeyFor('inventory'), 'i');
+  assert.equal(syntheticKeyFor('look'), 'l');
 });
 
 test('TOUCHPAD_SHELL_ACTIONS lists shell-only buttons', () => {
@@ -124,6 +126,18 @@ test('IDLE + special button enters AIM (special)', () => {
   assert.equal(r.intent, null);
   assert.equal(r.nextMode, MODE.AIM);
   assert.equal(r.aimKind, AIM_KIND.SPECIAL);
+});
+
+test('IDLE + look button enters LOOK mode', () => {
+  const r = dispatchTouchAction('look', MODE.IDLE);
+  assert.equal(r.intent, null);
+  assert.equal(r.nextMode, MODE.LOOK);
+});
+
+test('LOOK + direction emits a look-move intent', () => {
+  const r = dispatchTouchAction('N', MODE.LOOK);
+  assert.deepEqual(r.intent, { type: 'look-move', dx: 0, dy: -1 });
+  assert.equal(r.nextMode, MODE.LOOK);
 });
 
 test('AIM (special) + direction emits a special intent', () => {
