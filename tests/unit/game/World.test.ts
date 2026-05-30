@@ -60,9 +60,7 @@ test('World.addEntity rejects placement when every floor tile is occupied', () =
   const w = new World(new Grid(3, 3));
   for (let y = 0; y < 3; y++) {
     for (let x = 0; x < 3; x++) {
-      w.addEntity(
-        new Entity({ id: `block-${x}-${y}`, x, y, faction: FACTION.CORP, glyph: 'x' })
-      );
+      w.addEntity(new Entity({ id: `block-${x}-${y}`, x, y, faction: FACTION.CORP, glyph: 'x' }));
     }
   }
   const drone = new Entity({ id: 'd', x: 1, y: 1, faction: FACTION.CORP, glyph: 'd' });

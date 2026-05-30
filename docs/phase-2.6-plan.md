@@ -6,7 +6,7 @@ Living plan for a small, focused slice between Phase 2.5 and the enemy-roles wor
 
 Two threads converged:
 
-1. We have **entity-agnostic infrastructure already built locally** — placement-anchor consolidation, a `World.addEntity` that recovers from collisions, and an `Entity.heal()` primitive — that's mergeable on its own and shrinks the surface area of the enemy-roles work that follows.
+1. We have **entity-agnostic infrastructure already built locally** — placement-anchor consolidation and a `World.addEntity` that recovers from collisions — that's mergeable on its own and shrinks the surface area of the enemy-roles work that follows.
 2. Reviewing that work surfaced a tension in our standing principle, *"silent fallbacks are a mistake; crashing is preferred over data corruption."* On a tablet PWA with no console, a raw `throw` that white-screens the tab is **itself a silent failure** — the player loses their session and we get no signal. The principle is right; "crash" was the wrong implementation of it.
 
 This phase resolves that tension into a concrete doctrine + the **error boundary** that makes "fail loud" survivable on a tablet, and ships the consolidation alongside it.
@@ -16,7 +16,7 @@ This phase resolves that tension into a concrete doctrine + the **error boundary
 The goal was never "throw an exception" — it was *don't let bad state propagate silently*. An unguarded crash on a tablet violates that spirit. So: **fail loud, but recover.** Three tiers:
 
 ### Tier 1 — Invariant violation / would-corrupt-the-save → fail loud, caught at a boundary
-A negative `heal` amount, a snapshot that won't round-trip, a save-write that fails validation. These mean we shipped a logic bug, and *continuing* risks persisting garbage that compounds across sessions. Still throw — but to a **top-level error boundary** that:
+A snapshot that won't round-trip, a save-write that fails validation, an entity restored into an impossible state. These mean we shipped a logic bug, and *continuing* risks persisting garbage that compounds across sessions. Still throw — but to a **top-level error boundary** that:
 - preserves the last known-good save,
 - emits a dev-channel signal (console + telemetry),
 - degrades the player to "something glitched — returning to the Hub, your progress is safe" rather than a dead tab.
@@ -39,14 +39,13 @@ This doctrine is codified in `AGENTS.md` → "Error handling — fail loud, but 
 
 | Milestone | Status |
 |---|---|
-| M1 — Placement & persistence consolidation | 🟡 Built locally (unmerged) |
-| M1.1 — Consolidated anchor nudging (`nearestEmptyFloorTile`/`nudgeIfOccupied`) | 🟡 Built locally (unmerged) |
-| M1.2 — `World.addEntity` nudges instead of throwing | 🟡 Built locally (unmerged) |
-| M1.3 — `Entity.heal()` primitive | 🟡 Built locally (unmerged) |
-| M2 — Top-level error boundary | 🔲 Not started |
-| M2.1 — Audit for any existing app-level boundary | 🔲 Not started |
-| M2.2 — Boundary: preserve save + signal + graceful degrade | 🔲 Not started |
-| M2.3 — Reconcile existing throws against the three-tier policy | 🔲 Not started |
+| M1 — Placement & persistence consolidation | ✅ |
+| M1.1 — Consolidated anchor nudging (`nearestEmptyFloorTile`/`nudgeIfOccupied`) | ✅ |
+| M1.2 — `World.addEntity` nudges instead of throwing | ✅ |
+| M2 — Top-level error boundary | ✅ |
+| M2.1 — Audit for any existing app-level boundary | ✅ |
+| M2.2 — Boundary: preserve save + signal + graceful degrade | ✅ |
+| M2.3 — Reconcile existing throws against the three-tier policy | ✅ |
 
 **Phase 2.6** is complete when:
 
@@ -59,7 +58,7 @@ This doctrine is codified in `AGENTS.md` → "Error handling — fail loud, but 
 
 ### M1 — Placement & persistence consolidation (built locally, unmerged)
 
-**Goal:** Land the entity-agnostic infrastructure already written, independent of any new enemy. Tests already exist (`placement.test.ts`, `World.test.ts`, `Entity.test.ts`).
+**Goal:** Land the entity-agnostic infrastructure already written, independent of any new enemy. Tests already exist (`placement.test.ts`, `World.test.ts`).
 
 #### M1.1 — Consolidated anchor nudging
 
@@ -71,11 +70,6 @@ This doctrine is codified in `AGENTS.md` → "Error handling — fail loud, but 
 
 - On an occupied-tile collision, `addEntity` calls `nudgeIfOccupied` and only throws (`Tile already occupied`) when no empty floor is reachable. Passable props (keycards, consumables) still share tiles; impassable entities don't.
 - The remaining throw is a **tier-1** case (no valid placement exists) and must route through the boundary once M2 lands.
-
-#### M1.3 — `Entity.heal()` primitive
-
-- Mirror of `Entity.damage`: clamps to `maxHp`, **crashes** on negative/non-integer input (a negative heal is disguised damage — a **tier-1** invariant violation), and **refuses to revive a corpse** (resurrection is a deliberate action, never a repair-tick side effect). Returns HP actually restored.
-- The primitive the medic and any future shield/heal work (Phase 2.7) builds on; clean enough to merge ahead of that work.
 
 ### M2 — Top-level error boundary
 
@@ -99,6 +93,23 @@ This doctrine is codified in `AGENTS.md` → "Error handling — fail loud, but 
 - Sweep current `throw` sites and classify each tier-1 (route to boundary) vs. tier-2 (should be a deterministic fallback + warn). Fix miscategorized ones.
 - **TDD:** representative tier-2 sites recover + warn rather than throw; representative tier-1 sites still throw and are caught by the boundary.
 
+**Audit result (2026-05):** no miscategorizations required a code change. Summary:
+
+| Bucket | Examples | Tier |
+|---|---|---|
+| **Tier-2 fallback (canonical)** | `placement.nudgeIfOccupied` — relocates + `console.warn` | 2 |
+| **Tier-2 callers** | `World.addEntity` nudges first; only throws when nudge returns `false` | 1 at boundary |
+| **Restore / snapshot validation** | `persistence.ts` validate/restore throws on corrupt or impossible saves | 1 |
+| **Constructor / API misuse** | `TypeError`/`RangeError` on bad args to modules, entities, drivers | 1 (dev-time; boundary still catches if reached in prod) |
+| **State-machine invariants** | `Run.enterCombat`, `Campaign.enterHub`, illegal transitions | 1 |
+| **Procgen / content parse** | prefab parse, Curator recipe/lexicon resolution | 1 |
+| **Combat resolve guards** | `Combat.resolveRanged/Melee` after `can*` checks in `applyIntent` | 1 (defensive; UI pre-checks first) |
+| **Logic-bug sentinels** | `CorpDrone` iteration cap | 1 |
+
+**In-app boundary verify (dev):** load `http://localhost:8099/?triggerFault=corp`, enter combat, end your turn — fault screen should appear, Return to Hub should land in Hub with the last turn-end save intact. `?triggerFault=rejection` exercises the `unhandledrejection` path once at boot.
+
+**Resilience hardening (2026-05):** restore no longer drops entities on placement failure (tier-1 throw); fault path invalidates combat pumps + resets animLock; fault return skips persist when hub restore failed; key-help blocks touch input.
+
 ## Out of scope
 
 - Enemy roles, tiers, and the new hostile rebuilds (Phase 2.7).
@@ -107,5 +118,14 @@ This doctrine is codified in `AGENTS.md` → "Error handling — fail loud, but 
 ## Open questions / kaizen notes
 
 - **Telemetry sink:** the boundary emits a signal, but to where? A no-op hook now, wired to a real sink later — record the seam so it's not forgotten.
-- **Degrade granularity:** does every tier-1 dump the whole run, or can some (e.g. a single bad entity restore) recover the rest of the run? Start coarse (whole run → Hub), refine if it proves too blunt.
-- **Save-write atomicity:** M2.2 assumes we can guarantee the last known-good save is untouched on crash — confirm `DataStore` writes are atomic enough that a mid-write crash can't leave a partial record.
+- **Degrade granularity:** does every tier-1 dump the whole run, or can some (e.g. a single bad entity restore) recover the rest of the run? **Decided for 2.6: coarse — whole run → Hub.** The run is the blast radius; the campaign (crew, salvage, history, site state) survives. Refine to granular only if coarse proves too blunt in play.
+- **Save-write atomicity:** **Resolved.** `DataStore.#saveData()` is a single synchronous `localStorage.setItem('kp:data', …)`. localStorage gives per-`setItem` atomicity, so a mid-write crash can't leave a partial record — the write lands whole or not at all. The real corruption risk is therefore *not* a torn write but snapshotting already-corrupt in-memory state over the good save; the boundary's prime directive is **don't call the autosave seam on a tier-1 fault** (the last turn-end snapshot on disk is already the known-good copy).
+- **Single-key vs. split storage (kaizen):** considered splitting `kp:data` into `activeRun` / `crew` / `siteRoster` / `campaign` keys. **Keeping the single key for 2.6.** Split storage's only real win is granular per-run recovery, which (a) we explicitly opted out of above, and (b) `snapshotCampaign` already nests `activeRun` as its own sub-object, so even coarse recovery can null just that field within one atomic write. Splitting would *cost* the atomicity guarantee (4 keys = 4 non-atomic `setItem`s, so a crash mid-save can tear cross-references like `activeRun.crewMemberId` → crew) and require a write-coordinator + a migration for every existing player's blob. Revisit only if we later need granular per-run recovery or independent crew/roster persistence — and only behind a transactional multi-key DataStore.
+
+## Notes from the M2 build (audit + design decisions)
+
+- **Doctrine already codified.** The three-tier policy is already written in `AGENTS.md` → "Error handling — fail loud, but recover." M2 is therefore *just the boundary*, not "doctrine + boundary."
+- **M2.1 audit result:** confirmed **no** global handlers exist anywhere (`window.onerror`, `unhandledrejection`, `addEventListener('error')`) and no app-level boundary component. The real entry/bootstrap is root `index.ts` (no `entries/` dir); `DataStore` is `src/DataStore.ts`.
+- **Fault screen is non-diegetic, separate from `CrashDump`.** `components/CrashDump.ts` is the *in-fiction* death/exit/campaign-over modal (faux "KERNEL PANIC" stack trace). Routing a real bug through it would disguise the bug as an in-universe death — itself a silent failure. The boundary gets its own deliberately out-of-fiction `<fault-screen>`: "Something glitched — returning to the Hub, your progress is safe," single `[ RETURN TO HUB ]`.
+- **Architecture (honors no-logic-in-components):** browser-free `src/errorBoundary.ts` (installs handlers on an injected `EventTarget`, normalizes the thrown value, fires `onSignal` = console.error + no-op telemetry seam, invokes a coarse `degrade()` callback, re-entrancy guarded, returns an uninstall fn) + thin `components/FaultScreen.ts` + `index.ts` wiring. Node 22 lacks `ErrorEvent`/`PromiseRejectionEvent`, so the module duck-types the payload (`.error ?? .reason ?? event`) and stays testable under `node --test` with a plain `EventTarget`.
+- **Corp-slice cold resume:** autosave fires at the player→corp `turn:ended` before the animated aftermath/corp driver runs. On reload with `currentFaction: corp`, the shell calls `resumePendingCombatSliceIfNeeded()` (`advanceFromPlayerTurn` with `resumeFromCorpSlice: true`) so the save doesn't load into a stuck "CORP TURN — controls locked" state with no driver running.

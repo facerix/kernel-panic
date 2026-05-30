@@ -144,7 +144,9 @@ describe('nearestEmptyFloorTile', () => {
       [2, 1],
       [2, 3],
     ]) {
-      world.addEntity(new Entity({ id: `block-${x}-${y}`, x, y, faction: FACTION.CORP, glyph: 'x' }));
+      world.addEntity(
+        new Entity({ id: `block-${x}-${y}`, x, y, faction: FACTION.CORP, glyph: 'x' })
+      );
     }
     assert.deepEqual(nearestEmptyFloorTile(world, 2, 2), { x: 1, y: 1 });
   });

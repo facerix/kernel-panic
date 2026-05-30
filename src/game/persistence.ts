@@ -396,17 +396,7 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
   run.queue.index = factionIndex;
 
   for (const entity of restoredEntities) {
-    try {
-      run.world.addEntity(entity);
-    } catch (err) {
-      if (err instanceof Error && /already occupied/i.test(err.message)) {
-        console.warn(
-          `[restore] dropping entity ${entity.id} at (${entity.x}, ${entity.y}) — tile occupied, no free neighbour`
-        );
-        continue;
-      }
-      throw err;
-    }
+    run.world.addEntity(entity);
     if (entity instanceof CorpDrone) {
       entity.bindToBus(run.bus);
     }

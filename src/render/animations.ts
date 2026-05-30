@@ -107,6 +107,10 @@ export function createAnimationLock(timers = defaultTimers) {
     isLocked() {
       return timers.now() < until;
     },
+    /** Clear any outstanding lock deadline (e.g. fault recovery). */
+    reset() {
+      until = 0;
+    },
     /** Test seam — peek at the internal deadline. */
     _deadline() {
       return until;

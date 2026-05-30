@@ -11,7 +11,12 @@ import {
   snapshot,
   snapshotCampaign,
 } from '../../../src/game/persistence.js';
-import { CONTRACT_DIFFICULTY, FACTION, SALVAGE_TO_CRED_RATE } from '../../../src/game/constants.js';
+import {
+  CONTRACT_DIFFICULTY,
+  FACTION,
+  SALVAGE_TO_CRED_RATE,
+  TILE,
+} from '../../../src/game/constants.js';
 import { makeSalvage, totalSalvage } from '../../../src/game/salvage.js';
 import { buildCrewMember } from '../../../src/game/archetypes/index.js';
 import { Rng } from '../../../src/rng.js';
@@ -497,7 +502,7 @@ test('restore nudges a colliding entity to an adjacent tile instead of throwing'
   );
 });
 
-test('restore drops an entity when tile is occupied and no free neighbour exists', () => {
+test('restore throws when tile is occupied and no free neighbour exists', () => {
   const run = freshCombatRun(0xcafe);
   const drone = [...run.world.entities.values()].find(e => e.faction === FACTION.CORP);
   assert.ok(drone, 'expected at least one corp entity');
@@ -512,22 +517,17 @@ test('restore drops an entity when tile is occupied and no free neighbour exists
   droneRec.y = playerRec.y;
 
   // Wall off every adjacent tile so there's nowhere to nudge.
-  const WALL = 1; // TILE.WALL
   for (let dy = -1; dy <= 1; dy++) {
     for (let dx = -1; dx <= 1; dx++) {
       if (dx === 0 && dy === 0) continue;
       const nx = playerRec.x + dx;
       const ny = playerRec.y + dy;
       if (nx >= 0 && nx < rec.grid.w && ny >= 0 && ny < rec.grid.h) {
-        rec.grid.tiles[ny * rec.grid.w + nx] = WALL;
+        rec.grid.tiles[ny * rec.grid.w + nx] = TILE.WALL;
       }
     }
   }
 
-  // Should NOT throw — the drone gets dropped silently.
-  const { world: restoredWorld } = restore(rec);
-  assert.ok(
-    !restoredWorld.entities.has(drone.id),
-    'drone should be dropped when no free neighbour exists'
-  );
+  // Should throw — tier-1; no silent drop into a save with a missing entity.
+  assert.throws(() => restore(rec), /occupied/i);
 });
