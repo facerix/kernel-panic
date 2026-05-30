@@ -554,6 +554,26 @@ test('civilian:harmed emitted when player damages a NEUTRAL entity', () => {
   assert.equal(run.telemetry.civilianHarms as number, 1);
 });
 
+test('enterCombat survives crowded critical deny map (debug.json regression)', () => {
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 2086354852 });
+  run.enterBriefing(
+    fakeContract({
+      seed: 2086354852,
+      difficulty: 'critical',
+      threatCount: 4,
+      objective: {
+        kind: OBJECTIVES.DENY,
+        title: 'Disable community power',
+        briefing: 'Find Vuong Holdings community power at skybridge, execute the torch, then extract.',
+        params: { target: 'power-siphon', requiresUnlock: true },
+      },
+      label: '// Blacked-out skybridge community power torch',
+    })
+  );
+  assert.doesNotThrow(() => run.enterCombat());
+  assert.equal(run.state, RUN_STATE.COMBAT);
+});
+
 test('civilian:harmed does NOT fire when a CORP entity is killed', () => {
   const run = new Run({ crewMember: makeCrew('merc'), seed: 42 });
   run.enterBriefing(fakeContract());

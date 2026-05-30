@@ -12,6 +12,7 @@ import type { Grid } from './Grid.js';
 import type { Entity, LootableEntity } from './Entity.js';
 import type { EventBus } from './events.js';
 import type { TileDelta } from '../types.js';
+import { nudgeIfOccupied } from './placement.js';
 
 /**
  * Owns the grid and the live entity set. Validates and applies actions and,
@@ -178,7 +179,9 @@ export class World {
       );
     }
     if (entity.alive && this.liveEntityAt(entity.x, entity.y)) {
-      throw new Error(`Tile (${entity.x}, ${entity.y}) is already occupied`);
+      if (!nudgeIfOccupied(entity, this)) {
+        throw new Error(`Tile (${entity.x}, ${entity.y}) is already occupied`);
+      }
     }
     this.entities.set(entity.id, entity);
   }

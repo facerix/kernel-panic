@@ -1,9 +1,12 @@
 /**
- * Consolidated entity-placement validation.
+ * Consolidated entity-placement validation and anchor resolution.
  *
  * Every non-passable entity placed on the grid must pass through
  * `isValidBlockingPlacement` — the single authoritative check for whether
  * a tile can safely receive an impassable prop without sealing corridors.
+ *
+ * `nearestEmptyFloorTile` / `nudgeIfOccupied` resolve procgen anchors that
+ * collide with entities already on the map (cardinal BFS through occupied tiles).
  *
  * `checkPlacementIntegrity` is the post-placement safety net: it verifies
  * that no static blocking entity has sealed a passable branch of the map.
@@ -13,6 +16,7 @@
 
 import type { GridPoint } from '../types.js';
 import type { World } from './World.js';
+import type { Entity } from './Entity.js';
 import { Door } from './entities/Door.js';
 import {
   anchorPreservesExplorationReachability,
@@ -25,6 +29,69 @@ export type BlockingPlacementOptions = {
   /** Coordinate keys to treat as unavailable. */
   reserved?: ReadonlySet<string>;
 };
+
+const CARDINAL_OFFSETS: ReadonlyArray<readonly [number, number]> = [
+  [-1, 0],
+  [1, 0],
+  [0, -1],
+  [0, 1],
+];
+
+/**
+ * Nearest passable, empty floor tile reachable from `(x, y)` via cardinal BFS.
+ * Walks through occupied tiles during the search. Returns the anchor when it is
+ * already empty; `null` when no empty floor is reachable.
+ */
+export function nearestEmptyFloorTile(world: World, x: number, y: number): GridPoint | null {
+  if (!world.liveEntityAt(x, y)) return { x, y };
+  const queue: GridPoint[] = [{ x, y }];
+  const seen = new Set([coordKey(x, y)]);
+  for (let i = 0; i < queue.length; i++) {
+    const point = queue[i]!;
+    for (const [dx, dy] of CARDINAL_OFFSETS) {
+      const nx = point.x + dx;
+      const ny = point.y + dy;
+      const key = coordKey(nx, ny);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (!world.grid.inBounds(nx, ny)) continue;
+      if (!world.grid.isPassable(nx, ny)) continue;
+      if (world.liveEntityAt(nx, ny)) {
+        queue.push({ x: nx, y: ny });
+        continue;
+      }
+      return { x: nx, y: ny };
+    }
+  }
+  return null;
+}
+
+/**
+ * If `entity` is alive and its tile is already occupied, move it to the nearest
+ * empty floor tile from {@link nearestEmptyFloorTile}. Passable props (keycards,
+ * consumables) count as occupied — impassable entities do not share their tile.
+ *
+ * Returns `true` when the entity is placeable (no conflict, or successfully
+ * nudged). Returns `false` when no empty floor tile is reachable.
+ */
+export function nudgeIfOccupied(entity: Entity, world: World): boolean {
+  if (!entity.alive || entity.passable) return true;
+  if (!world.liveEntityAt(entity.x, entity.y)) return true;
+
+  const origX = entity.x;
+  const origY = entity.y;
+  const dest = nearestEmptyFloorTile(world, origX, origY);
+  if (!dest) return false;
+
+  entity.x = dest.x;
+  entity.y = dest.y;
+  if (dest.x !== origX || dest.y !== origY) {
+    console.warn(
+      `[placement] tile (${origX}, ${origY}) already occupied — nudged ${entity.id} to (${dest.x}, ${dest.y})`
+    );
+  }
+  return true;
+}
 
 /**
  * True when `anchor` can safely receive an impassable entity without
