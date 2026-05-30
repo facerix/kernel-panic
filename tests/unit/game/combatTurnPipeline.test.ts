@@ -204,6 +204,31 @@ test('advanceFromPlayerTurn does not advance the queue when the run is already t
   assert.deepEqual(calls, []);
 });
 
+test('advanceFromPlayerTurn resumeFromCorpSlice skips the opening queue.endTurn', () => {
+  const { world } = makeOpenWorld();
+  world.addEntity(new Turret({ id: 't1', x: 2, y: 2 }));
+  const calls: string[] = [];
+  const queue = {
+    endTurn: () => calls.push('queue.endTurn'),
+  };
+
+  advanceFromPlayerTurn({
+    queue,
+    world,
+    rng: new Rng(1),
+    resumeFromCorpSlice: true,
+    onCorpTurnReady: () => calls.push('corp.ready'),
+    onPlayerAftermathStep: () => calls.push('player.aftermath.step'),
+    driveCorpTurn: ({ onFinish }) => {
+      calls.push('corp.drive');
+      onFinish();
+    },
+    onPlayerTurnReady: () => calls.push('player.ready'),
+  });
+
+  assert.deepEqual(calls, ['player.aftermath.step', 'corp.drive', 'queue.endTurn', 'player.ready']);
+});
+
 test('advanceFromPlayerTurn lets async corp driver own when the player turn resumes', () => {
   const { world } = makeOpenWorld();
   const calls = [];

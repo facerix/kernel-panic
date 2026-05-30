@@ -7,7 +7,14 @@ import { Terminal } from '../../../src/game/entities/Terminal.js';
 import { Door } from '../../../src/game/entities/Door.js';
 import { Merc } from '../../../src/game/archetypes/Merc.js';
 import { TILE } from '../../../src/game/constants.js';
-import { isValidBlockingPlacement, checkPlacementIntegrity } from '../../../src/game/placement.js';
+import {
+  isValidBlockingPlacement,
+  checkPlacementIntegrity,
+  nearestEmptyFloorTile,
+} from '../../../src/game/placement.js';
+import { Entity } from '../../../src/game/Entity.js';
+import { ConsumablePickup } from '../../../src/game/entities/ConsumablePickup.js';
+import { FACTION } from '../../../src/game/constants.js';
 
 /**
  * Build a simple two-room map connected by a 1-wide corridor:
@@ -119,6 +126,56 @@ describe('isValidBlockingPlacement', () => {
     const { world, spawn, exitTile } = wideCorridorWorld();
     // Blocking one corridor tile leaves the other open (diagonal bypass via 8-way).
     assert.equal(isValidBlockingPlacement(world, spawn, exitTile, { x: 4, y: 2 }), true);
+  });
+});
+
+describe('nearestEmptyFloorTile', () => {
+  it('returns the anchor when it is empty', () => {
+    const { world } = twoRoomWorld();
+    assert.deepEqual(nearestEmptyFloorTile(world, 2, 2), { x: 2, y: 2 });
+  });
+
+  it('walks through occupied tiles to find empty floor beyond a ring', () => {
+    const { world } = twoRoomWorld();
+    world.addEntity(new Merc({ id: 'crew', x: 2, y: 2 }));
+    for (const [x, y] of [
+      [1, 2],
+      [3, 2],
+      [2, 1],
+      [2, 3],
+    ]) {
+      world.addEntity(
+        new Entity({ id: `block-${x}-${y}`, x, y, faction: FACTION.CORP, glyph: 'x' })
+      );
+    }
+    assert.deepEqual(nearestEmptyFloorTile(world, 2, 2), { x: 1, y: 1 });
+  });
+
+  it('treats passable props as occupied and finds the next empty tile', () => {
+    const { world } = twoRoomWorld();
+    world.addEntity(
+      new ConsumablePickup({
+        id: 'consumable-pickup-0',
+        x: 2,
+        y: 2,
+        consumableId: 'stim',
+        label: 'Stim',
+      })
+    );
+    assert.deepEqual(nearestEmptyFloorTile(world, 2, 2), { x: 1, y: 2 });
+  });
+
+  it('returns null when every floor tile is occupied', () => {
+    const grid = new Grid(3, 3);
+    const world = new World(grid);
+    for (let y = 0; y < 3; y++) {
+      for (let x = 0; x < 3; x++) {
+        world.addEntity(
+          new Entity({ id: `block-${x}-${y}`, x, y, faction: FACTION.CORP, glyph: 'x' })
+        );
+      }
+    }
+    assert.equal(nearestEmptyFloorTile(world, 1, 1), null);
   });
 });
 

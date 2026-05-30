@@ -40,7 +40,9 @@ export function isInBlast(cx: number, cy: number, x: number, y: number): boolean
 export function detonateBreachingCharge(
   world: World,
   cx: number,
-  cy: number
+  cy: number,
+  /** Player who planted the charge — blast damage counts as player-sourced. */
+  attacker: Entity | null = null
 ): BreachDetonationResult {
   if (!Number.isInteger(cx) || !Number.isInteger(cy)) {
     throw new TypeError(`detonateBreachingCharge requires integer cx,cy; got (${cx}, ${cy})`);
@@ -93,7 +95,7 @@ export function detonateBreachingCharge(
     casualties.push({ entity, damage: applied, killed });
 
     world.events?.emit(EVENT.ENTITY_DAMAGED, {
-      attacker: null,
+      attacker,
       target: entity,
       damage: applied,
       killed,

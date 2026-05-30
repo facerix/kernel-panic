@@ -169,6 +169,15 @@ test('createAnimationLock: a longer push from later still extends the lock', () 
   assert.equal(lock.isLocked(), false);
 });
 
+test('createAnimationLock: reset clears an outstanding lock immediately', () => {
+  const timers = makeTimers();
+  const lock = createAnimationLock(timers);
+  lock.push(500);
+  assert.equal(lock.isLocked(), true);
+  lock.reset();
+  assert.equal(lock.isLocked(), false);
+});
+
 test('createAnimationLock: rejects non-finite durations', () => {
   const lock = createAnimationLock();
   assert.throws(() => lock.push(NaN), /non-negative/);

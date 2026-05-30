@@ -469,11 +469,10 @@ export class Run {
     }
     for (let i = 0; i < map.drones.length; i++) {
       const a = map.drones[i]!;
-      const spawn = resolveEntitySpawnTile(this.world, a.x, a.y);
       const drone = new CorpDrone({
         id: `drone-${i}`,
-        x: spawn.x,
-        y: spawn.y,
+        x: a.x,
+        y: a.y,
         maxAp: 3,
         patrolWaypoints: a.waypoints,
       });
@@ -2090,36 +2089,6 @@ export function placeHazardCluster(world: World, center: GridPoint, rng: Rng): n
     placed++;
   }
   return placed;
-}
-
-/** When a procgen anchor is already occupied, walk outward for the nearest empty floor. */
-function resolveEntitySpawnTile(world: World, x: number, y: number): GridPoint {
-  if (!world.liveEntityAt(x, y)) return { x, y };
-  const queue: GridPoint[] = [{ x, y }];
-  const seen = new Set([coordKey(x, y)]);
-  for (let i = 0; i < queue.length; i++) {
-    const point = queue[i]!;
-    for (const [dx, dy] of [
-      [-1, 0],
-      [1, 0],
-      [0, -1],
-      [0, 1],
-    ]) {
-      const nx = point.x + dx;
-      const ny = point.y + dy;
-      const key = coordKey(nx, ny);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      if (!world.grid.inBounds(nx, ny)) continue;
-      if (!world.grid.isPassable(nx, ny)) continue;
-      if (world.liveEntityAt(nx, ny)) {
-        queue.push({ x: nx, y: ny });
-        continue;
-      }
-      return { x: nx, y: ny };
-    }
-  }
-  throw new Error(`Run: no empty floor tile near occupied anchor (${x}, ${y})`);
 }
 
 function manhattan(a: GridPoint, b: GridPoint): number {

@@ -186,11 +186,12 @@ The key opportunity: because the two new hostiles **aren't merged yet**, we get 
 
 - Cyberspace-side enemies and the Decker (Phase 3).
 - Boss/named-encounter scripting beyond the T3 "mini-boss feel."
-- Faction-specific reskins as distinct AI — faction is a theming layer over the role classes above, not new behavior.
+- Faction-specific reskins as distinct AI — faction is a theming layer over the role classes above, not new behavior (implementation: [phase-2.8-plan.md](phase-2.8-plan.md)).
 - Full status-effect system implementation (see M5 / Phase 3).
 
 ## Open questions / kaizen notes
 
+- **Corp civilian harm from player-placed breaching charges:** M5 Rep only tracks `FACTION.NEUTRAL` via `civilian:harmed`; killing a `CorpCivilian` (`c` glyph) in a breach blast does not cost Rep or block the clean-extraction bonus, even though the charge is player-planted and the log reads `Blast killed [Corp]Civilian.` Player-planted breach attribution now passes the deployed crew member as `attacker` on `entity:damaged` (so neutral bystanders count). Revisit whether corp-aligned non-combatants should also count toward civilian-casualty Rep / the "no civilian casualties" clean bonus, and whether the flash copy should distinguish corp staff vs neutral bystanders.
 - **Knockback into hazards:** should an Enforcer's shove be able to push the player into a hazard tile? Powerful, possibly unfair — decide during M2.2 and record the rule.
 - **Armor vs. dodge interaction:** `damageReduction` and `baseDodgeChance` now coexist; confirm ordering (dodge first, then armor on a connected hit) and document it in `Combat.ts`.
 - **Sniper telegraph readability:** the aim tell must be unmissable on the ASCII/CRT canvas — coordinate with the renderer so a charging sniper is visually distinct.

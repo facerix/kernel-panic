@@ -320,60 +320,6 @@ function snapshotLocationSite(site: LocationSite): LocationSite {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Resilient restore helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Cardinal + diagonal neighbours in priority order (cardinal first — less
- * disorienting for a nudge than diagonal).
- */
-const NUDGE_OFFSETS: ReadonlyArray<{ dx: number; dy: number }> = [
-  { dx: 1, dy: 0 },
-  { dx: -1, dy: 0 },
-  { dx: 0, dy: 1 },
-  { dx: 0, dy: -1 },
-  { dx: 1, dy: 1 },
-  { dx: -1, dy: 1 },
-  { dx: 1, dy: -1 },
-  { dx: -1, dy: -1 },
-];
-
-/**
- * If `entity` is alive and its saved tile is already occupied in `world`,
- * move it to the nearest passable, unoccupied neighbour. Logs a warning so
- * the collision is visible but doesn't crash the restore.
- *
- * Returns `true` if the entity is placeable (no conflict, or successfully
- * nudged). Returns `false` if the tile is occupied and no free neighbour
- * exists — the caller decides what to do (skip, throw, etc.).
- *
- * Dead entities or passable (walk-through) entities always return `true` —
- * they don't trigger `addEntity`'s occupancy guard.
- */
-function nudgeIfOccupied(entity: Entity, world: World, grid: Grid): boolean {
-  if (!entity.alive || entity.passable) return true;
-  if (!world.liveEntityAt(entity.x, entity.y)) return true;
-
-  const origX = entity.x;
-  const origY = entity.y;
-
-  for (const { dx, dy } of NUDGE_OFFSETS) {
-    const nx = origX + dx;
-    const ny = origY + dy;
-    if (grid.inBounds(nx, ny) && grid.isPassable(nx, ny) && !world.liveEntityAt(nx, ny)) {
-      entity.x = nx;
-      entity.y = ny;
-      console.warn(
-        `[restore] tile (${origX}, ${origY}) already occupied — nudged ${entity.id} to (${nx}, ${ny})`
-      );
-      return true;
-    }
-  }
-
-  return false;
-}
-
 /**
  * Rebuild a `Run` from a snapshot record. Returns `{ run, world, queue, rng,
  * player }` — the pieces the shell typically wires into the renderer.
@@ -450,12 +396,6 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
   run.queue.index = factionIndex;
 
   for (const entity of restoredEntities) {
-    if (!nudgeIfOccupied(entity, run.world, grid)) {
-      console.warn(
-        `[restore] dropping entity ${entity.id} at (${entity.x}, ${entity.y}) — tile occupied, no free neighbour`
-      );
-      continue;
-    }
     run.world.addEntity(entity);
     if (entity instanceof CorpDrone) {
       entity.bindToBus(run.bus);

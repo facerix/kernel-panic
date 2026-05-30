@@ -120,6 +120,8 @@ export type PlayerAftermath = {
 export type PlayerAftermathOpts = {
   /** Current campaign rep for NeutralCivilian AI. Defaults to REP.START (50). */
   rep?: number;
+  /** Deployed crew member — attributes player-planted breaching charge blasts. */
+  player?: Entity | null;
 };
 
 type DrivePlayerAftermathOpts = {
@@ -133,12 +135,18 @@ export type PlayerTurnContext = {
   queue: { endTurn: (world: World) => void };
   world: World;
   rng: Rng;
-  drivePlayerAftermath: (opts: DrivePlayerAftermathOpts) => void;
+  drivePlayerAftermath?: (opts: DrivePlayerAftermathOpts) => void;
   driveCorpTurn: (opts: DriveCorpTurnOpts) => void;
-  isTerminal: () => boolean;
-  onCorpTurnReady: () => void;
-  onPlayerAftermathStep: (step: PlayerAftermathStep) => void;
-  onPlayerTurnReady: () => void;
+  isTerminal?: () => boolean;
+  onCorpTurnReady?: () => void;
+  onPlayerAftermathStep?: (step: PlayerAftermathStep) => void;
+  onPlayerTurnReady?: () => void;
+  /**
+   * Cold-resume seam: when true, the queue is already on the corp slice
+   * (autosave fires at the player→corp `turn:ended` before aftermath/corp
+   * animation runs). Skips the opening `endTurn` / `onCorpTurnReady`.
+   */
+  resumeFromCorpSlice?: boolean;
 };
 
 const defaultSchedule = (fn: () => void, ms: number) => setTimeout(fn, ms);
@@ -160,6 +168,7 @@ export function advanceFromPlayerTurn(ctx: PlayerTurnContext) {
     onCorpTurnReady = () => {},
     onPlayerAftermathStep = () => {},
     onPlayerTurnReady = () => {},
+    resumeFromCorpSlice = false,
   } = ctx;
 
   // If the player's action already ended the run (e.g. stepping onto the exit
@@ -168,8 +177,10 @@ export function advanceFromPlayerTurn(ctx: PlayerTurnContext) {
   // mutation that should never happen.
   if (isTerminal()) return;
 
-  queue.endTurn(world);
-  onCorpTurnReady();
+  if (!resumeFromCorpSlice) {
+    queue.endTurn(world);
+    onCorpTurnReady();
+  }
 
   drivePlayerAftermath({
     onStep: onPlayerAftermathStep,
@@ -196,6 +207,7 @@ type DrivePlayerAftermathCtx = {
   lockMarginMs?: number;
   schedule?: (fn: () => void, ms: number) => void;
   rep?: number;
+  player?: Entity | null;
 };
 
 /** Subset of {@link DrivePlayerAftermathCtx} passed into the paced aftermath pump. */
@@ -225,8 +237,9 @@ export function drivePlayerAftermath(ctx: DrivePlayerAftermathCtx) {
     lockMarginMs = 0,
     schedule = defaultSchedule,
     rep,
+    player,
   } = ctx;
-  const steps = runPlayerAftermathSteps(world, rng, { rep });
+  const steps = runPlayerAftermathSteps(world, rng, { rep, player });
   pumpPlayerAftermath(steps, { onStep, onFinish, animLock, stepDelayMs, lockMarginMs, schedule });
 }
 
@@ -236,7 +249,10 @@ export function drivePlayerAftermath(ctx: DrivePlayerAftermathCtx) {
  */
 export function drivePlayerAftermathSync(ctx: DrivePlayerAftermathCtx) {
   validatePlayerAftermathDriverCtx(ctx, { allowTiming: false });
-  for (const step of runPlayerAftermathSteps(ctx.world, ctx.rng, { rep: ctx.rep })) {
+  for (const step of runPlayerAftermathSteps(ctx.world, ctx.rng, {
+    rep: ctx.rep,
+    player: ctx.player,
+  })) {
     ctx.onStep(step);
   }
   ctx.onFinish();
@@ -279,8 +295,14 @@ export function* runPlayerAftermathSteps(
   for (const entity of world.entities.values()) {
     if (entity instanceof BreachingCharge && entity.alive) charges.push(entity);
   }
+  const player = opts?.player ?? null;
   for (const charge of charges) {
-    const { terrainBreached, casualties } = detonateBreachingCharge(world, charge.x, charge.y);
+    const { terrainBreached, casualties } = detonateBreachingCharge(
+      world,
+      charge.x,
+      charge.y,
+      player
+    );
     yield { type: 'breach-detonate', charge, terrainBreached, casualties };
     world.removeEntity(charge.id);
   }

@@ -10,6 +10,8 @@ import { Terminal } from '../../../src/game/entities/Terminal.js';
 import { EVENT } from '../../../src/game/events.js';
 import { Turret } from '../../../src/game/Turret.js';
 import { CorpTurret } from '../../../src/game/entities/CorpTurret.js';
+import { CorpCivilian } from '../../../src/game/entities/CorpCivilian.js';
+import { NeutralCivilian } from '../../../src/game/entities/NeutralCivilian.js';
 import { ConsumablePickup } from '../../../src/game/entities/ConsumablePickup.js';
 import { restore, snapshot } from '../../../src/game/persistence.js';
 import { buildCrewMember } from '../../../src/game/archetypes/index.js';
@@ -554,6 +556,27 @@ test('civilian:harmed emitted when player damages a NEUTRAL entity', () => {
   assert.equal(run.telemetry.civilianHarms as number, 1);
 });
 
+test('enterCombat survives crowded critical deny map (debug.json regression)', () => {
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 2086354852 });
+  run.enterBriefing(
+    fakeContract({
+      seed: 2086354852,
+      difficulty: 'critical',
+      threatCount: 4,
+      objective: {
+        kind: OBJECTIVES.DENY,
+        title: 'Disable community power',
+        briefing:
+          'Find Vuong Holdings community power at skybridge, execute the torch, then extract.',
+        params: { target: 'power-siphon', requiresUnlock: true },
+      },
+      label: '// Blacked-out skybridge community power torch',
+    })
+  );
+  assert.doesNotThrow(() => run.enterCombat());
+  assert.equal(run.state, RUN_STATE.COMBAT);
+});
+
 test('civilian:harmed does NOT fire when a CORP entity is killed', () => {
   const run = new Run({ crewMember: makeCrew('merc'), seed: 42 });
   run.enterBriefing(fakeContract());
@@ -574,6 +597,101 @@ test('civilian:harmed does NOT fire when a CORP entity is killed', () => {
   });
 
   assert.equal(harmed.length, 0, 'corp kills must not emit civilian:harmed');
+});
+
+test('civilian:harmed emitted when player-planted breaching charge hits NEUTRAL', () => {
+  const run = new Run({ crewMember: makeCrew('merc'), seed: 42 });
+  run.enterBriefing(fakeContract());
+  run.enterCombat();
+
+  const world = run.world!;
+  const player = run.player!;
+  let nx = -1;
+  let ny = -1;
+  for (const [dx, dy] of [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+    [1, 1],
+    [-1, -1],
+    [1, -1],
+    [-1, 1],
+  ]) {
+    const cx = player.x + dx;
+    const cy = player.y + dy;
+    if (world.grid.isPassable(cx, cy) && !world.entityAt(cx, cy)) {
+      nx = cx;
+      ny = cy;
+      break;
+    }
+  }
+  assert.ok(nx >= 0, 'need a passable neighbor to place neutral');
+  const neutral = new NeutralCivilian({ id: 'test-neutral', x: nx, y: ny });
+  world.addEntity(neutral);
+
+  const harmed: unknown[] = [];
+  run.bus!.on(EVENT.CIVILIAN_HARMED, (payload: unknown) => harmed.push(payload));
+
+  run.bus!.emit(EVENT.ENTITY_DAMAGED, {
+    attacker: player,
+    target: neutral,
+    damage: 1,
+    killed: true,
+    source: 'breach-blast',
+  });
+
+  assert.equal(harmed.length, 1, 'breach-blast with player attacker should emit civilian:harmed');
+  assert.equal(run.telemetry.civilianHarms as number, 1);
+});
+
+test('civilian:harmed does NOT fire when player-planted breaching charge kills CorpCivilian', () => {
+  const run = new Run({ crewMember: makeCrew('merc'), seed: 42 });
+  run.enterBriefing(fakeContract());
+  run.enterCombat();
+
+  const world = run.world!;
+  const player = run.player!;
+  let nx = -1;
+  let ny = -1;
+  for (const [dx, dy] of [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+    [1, 1],
+    [-1, -1],
+    [1, -1],
+    [-1, 1],
+  ]) {
+    const cx = player.x + dx;
+    const cy = player.y + dy;
+    if (world.grid.isPassable(cx, cy) && !world.entityAt(cx, cy)) {
+      nx = cx;
+      ny = cy;
+      break;
+    }
+  }
+  assert.ok(nx >= 0, 'need a passable neighbor to place corp civilian');
+  const corpCiv = new CorpCivilian({ id: 'desk-clerk', x: nx, y: ny });
+  world.addEntity(corpCiv);
+
+  const harmed: unknown[] = [];
+  run.bus!.on(EVENT.CIVILIAN_HARMED, (payload: unknown) => harmed.push(payload));
+
+  run.bus!.emit(EVENT.ENTITY_DAMAGED, {
+    attacker: player,
+    target: corpCiv,
+    damage: 1,
+    killed: true,
+    source: 'breach-blast',
+  });
+
+  assert.equal(
+    harmed.length,
+    0,
+    'CorpCivilian is CORP faction — revisit in Phase 2.7 for breach attribution'
+  );
 });
 
 test('Run constructor rejects bad inputs', () => {

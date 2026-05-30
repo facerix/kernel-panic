@@ -79,6 +79,8 @@ import type { Item } from '/src/game/items.js';
 import type { Intent } from '/src/input/applyIntent.js';
 import type { AimKind, Mode } from '/src/input/keymap.js';
 import type { KeyItem, Telemetry, TurnActionStep } from '/src/types.js';
+import { installErrorBoundary, type FaultSignal } from '/src/errorBoundary.js';
+import { isDevelopmentMode } from '/src/domUtils.js';
 
 import '/components/ConfirmationModal.js';
 import '/components/UpdateNotification.js';
@@ -86,6 +88,7 @@ import '/components/TouchPad.js';
 import '/components/ContractSelect.js';
 import '/components/RunBriefing.js';
 import '/components/CrashDump.js';
+import '/components/FaultScreen.js';
 import '/components/SystemStart.js';
 import '/components/CuratorBriefing.js';
 import type { CuratorBriefingContent } from '/components/CuratorBriefing.js';
@@ -120,6 +123,9 @@ type ContractSelectElement = ModalElement & {
 };
 type CrashDumpElement = ModalElement & {
   setTelemetry(telemetry: Record<string, unknown>): void;
+};
+type FaultScreenElement = ModalElement & {
+  show(detail: { code?: string }): void;
 };
 type SystemStartElement = ModalElement & {
   setSession(session: { seed: number }): void;
@@ -200,6 +206,27 @@ type DoorUnlockPayload = {
   label?: string;
 };
 
+/** Dev-only: `?triggerFault=corp` throws once on the next corp turn (see phase-2.6-plan). */
+let devFaultTrigger: string | null = null;
+let devFaultConsumed = false;
+
+function initDevFaultTrigger(): void {
+  if (!isDevelopmentMode()) return;
+  const param = new URLSearchParams(location.search).get('triggerFault');
+  if (!param) return;
+  devFaultTrigger = param;
+  if (param === 'rejection') {
+    devFaultConsumed = true;
+    Promise.reject(new Error('[dev] triggerFault=rejection'));
+  }
+}
+
+function maybeDevFault(site: string): void {
+  if (!devFaultTrigger || devFaultConsumed || devFaultTrigger !== site) return;
+  devFaultConsumed = true;
+  throw new Error(`[dev] triggerFault=${site}`);
+}
+
 let campaign: Campaign | null = null;
 let vision = new VisionField();
 let visionMoveUnsub: (() => void) | null = null;
@@ -214,6 +241,7 @@ let stageEl: HTMLElement;
 let briefingEl: RunBriefingElement;
 let contractSelectEl: ContractSelectElement;
 let crashEl: CrashDumpElement;
+let faultEl: FaultScreenElement;
 let systemStartEl: SystemStartElement;
 let curatorBriefingEl: CuratorBriefingElement;
 /** Status line to flash after the player dismisses a Hub reveal briefing. */
@@ -244,6 +272,25 @@ const animLock = createAnimationLock();
 let animationUnsubs: (() => void)[] = [];
 
 let pendingJobResult: PendingJobResult | null = null;
+/** Latched during tier-1 fault recovery — blocks autosave and stale turn pumps. */
+let degrading = false;
+/** Set when degradeToHub successfully re-read hub state from disk. */
+let faultHubRestored = false;
+/** Bumped to invalidate in-flight corp/aftermath setTimeout pumps after a fault. */
+let combatPumpGeneration = 0;
+
+function invalidateCombatPumps(): void {
+  combatPumpGeneration += 1;
+  animLock.reset();
+}
+
+function scheduleCombatPump(fn: () => void, ms: number): void {
+  const generation = combatPumpGeneration;
+  setTimeout(() => {
+    if (generation !== combatPumpGeneration || degrading) return;
+    fn();
+  }, ms);
+}
 /**
  * Active smoke overlays from Smoke Charge consumables. Each entry records
  * the tile position and original tile type so `clearSmoke` can restore the
@@ -312,6 +359,7 @@ const allComponentsReady = Promise.all([
   customElements.whenDefined('clinic-modal'),
   customElements.whenDefined('item-inventory'),
   customElements.whenDefined('contract-select'),
+  customElements.whenDefined('fault-screen'),
   customElements.whenDefined('touch-pad'),
   customElements.whenDefined('crew-list'),
   customElements.whenDefined('crew-roster'),
@@ -359,6 +407,7 @@ async function boot() {
   contractSelectEl = mustGetElement<ContractSelectElement>('contract-select');
   briefingEl = mustGetElement<RunBriefingElement>('briefing');
   crashEl = mustGetElement<CrashDumpElement>('crash');
+  faultEl = mustGetElement<FaultScreenElement>('fault-screen');
   systemStartEl = mustGetElement<SystemStartElement>('system-start');
   curatorBriefingEl = mustGetElement<CuratorBriefingElement>('curator-briefing');
   initialRecruitEl = mustGetElement<InitialRecruitElement>('initial-recruit');
@@ -402,6 +451,7 @@ async function boot() {
   briefingEl.addEventListener('deploy', onBriefingDeploy);
   briefingEl.addEventListener('dismiss', onBriefingDismiss);
   crashEl.addEventListener('new-run', onNewRunRequested);
+  faultEl.addEventListener('return-to-hub', () => onFaultReturnToHub());
   systemStartEl.addEventListener('hub-enter', onSystemStartHubEnter);
   curatorBriefingEl.addEventListener('dismiss', onCuratorBriefingDismiss);
   initialRecruitEl.addEventListener('recruited', onInitialRecruited);
@@ -473,6 +523,8 @@ async function boot() {
   });
 
   await dataStore.init();
+  initDevFaultTrigger();
+  installErrorBoundary({ target: window, degrade: degradeToHub });
   if (dataStore.currentRun) {
     dataStore.deleteRun(dataStore.currentRun.id);
   }
@@ -528,6 +580,84 @@ function onInitialRecruited(evt: Event) {
   enterHubAndRender();
   const names = campaign.crew.map(m => m.callsign).join(' and ');
   flash(`CURATOR: ${names} on the board. Find me when you want work.`);
+}
+
+function hideBlockingShellModals(): void {
+  keyHelpEl?.hide();
+  briefingEl?.hide();
+  crashEl?.hide();
+  contractSelectEl?.hide();
+  systemStartEl?.hide();
+  curatorBriefingEl?.hide();
+  initialRecruitEl?.hide();
+  crewRosterEl?.hide();
+  finnShopEl?.hide();
+  clinicModalEl?.hide();
+  itemInventoryEl?.hide();
+}
+
+function abortShellForFault(): void {
+  hideBlockingShellModals();
+  invalidateCombatPumps();
+  pendingJobResult = null;
+  hubRevealFollowUpFlash = null;
+  corpToneActivityBody = null;
+  clearBreachBlastOverlay(false);
+  resetInputModes();
+  activeSmokeOverlays = [];
+  civilianHarmsThisJob = 0;
+}
+
+function hubSnapshotFromLastGoodSave(saved: CampaignSnapshot): CampaignSnapshot {
+  return {
+    ...saved,
+    state: CAMPAIGN_STATE.HUB,
+    activeRun: null,
+    deployedMemberId: null,
+  };
+}
+
+function degradeToHub(signal: FaultSignal): void {
+  degrading = true;
+  faultHubRestored = false;
+  try {
+    abortShellForFault();
+
+    const saved = dataStore.currentCampaign as CampaignSnapshot | null;
+    if (!saved) {
+      faultEl.show({ code: signal.source });
+      return;
+    }
+
+    resumeCampaign(hubSnapshotFromLastGoodSave(saved));
+    faultHubRestored = true;
+    faultEl.show({ code: signal.source });
+  } catch (err) {
+    try {
+      console.error('[shell] degradeToHub failed:', err);
+    } catch {
+      // ignore
+    }
+    faultEl.show({ code: signal.source });
+  }
+}
+
+function onFaultReturnToHub(): void {
+  faultEl.hide();
+  degrading = false;
+  if (faultHubRestored) {
+    handlePersist();
+    if (campaign?.state === CAMPAIGN_STATE.ENDED) {
+      renderShell();
+      canvas.focus();
+      return;
+    }
+    enterHubAndRender();
+  } else {
+    dataStore.deleteCampaign();
+    startFreshCampaign();
+  }
+  canvas.focus();
 }
 
 /**
@@ -971,7 +1101,7 @@ function resolveAimedUseItem(aim: { dx: number; dy: number }, run: Run): void {
 }
 
 function handlePersist() {
-  if (!campaign) return;
+  if (!campaign || degrading) return;
   dataStore.setCampaign(snapshotCampaign(campaign));
 }
 
@@ -1021,6 +1151,7 @@ function pushPendingJobResultOverlay(telemetry: Partial<RunTelemetry> & { outcom
 }
 
 function handleResult({ outcome, telemetry }: RunResult) {
+  if (degrading) return;
   pushPendingJobResultOverlay({
     ...telemetry,
     outcome: telemetry?.outcome ?? outcome,
@@ -1051,6 +1182,7 @@ function resumeCampaign(record: CampaignSnapshot | unknown) {
       briefingEl.setContract(campaign.activeRun.contract);
       briefingEl.setCrew(campaign.crew);
     }
+    resumePendingCombatSliceIfNeeded();
     if (campaign.state === CAMPAIGN_STATE.ENDED) {
       pendingJobResult = null;
       crashEl.setTelemetry(telemetryForEndedCampaign(campaign));
@@ -1264,25 +1396,26 @@ function handleIntent(intent: Intent): void {
 const CORP_ACTION_DELAY_MS = 130;
 const PLAYER_AFTERMATH_ACTION_DELAY_MS = 130;
 
-function advanceTurn(): void {
-  const run = currentScene();
-  if (!run) return;
+function driveCombatTurnPipeline(run: Run, options: { resumeFromCorpSlice?: boolean } = {}): void {
+  if (degrading) return;
   if (!run.world || !run.queue) {
     throw new Error(`[shell] cannot advance turn without world/queue in state "${run.state}"`);
   }
   const world = run.world;
   const queue = run.queue;
   advanceFromPlayerTurn({
+    resumeFromCorpSlice: options.resumeFromCorpSlice,
     queue,
     world,
     rng: run.rng,
-    isTerminal: () => run?.state === RUN_STATE.RESULT,
+    isTerminal: () => run.state === RUN_STATE.RESULT,
     drivePlayerAftermath: ({ onStep, onFinish }) => {
       drivePlayerAftermath({
         world,
         rng: run.rng,
         onStep,
         onFinish: () => {
+          if (degrading) return;
           clearBreachBlastOverlay(false);
           onFinish();
         },
@@ -1290,14 +1423,18 @@ function advanceTurn(): void {
         stepDelayMs: PLAYER_AFTERMATH_ACTION_DELAY_MS,
         lockMarginMs: ANIMATION_DURATIONS.MUZZLE_FLASH,
         rep: campaign?.rep,
+        player: run.player,
+        schedule: scheduleCombatPump,
       });
     },
     onCorpTurnReady: () => {
+      if (degrading) return;
       clearBreachBlastOverlay(false);
       recomputeVision();
       paint();
     },
     onPlayerAftermathStep: step => {
+      if (degrading) return;
       const scene = currentScene();
       if (step.type === 'breach-detonate') {
         showBreachBlastOverlay(step.charge.x, step.charge.y);
@@ -1317,9 +1454,13 @@ function advanceTurn(): void {
       paint();
     },
     driveCorpTurn: ({ onFinish }) => {
-      runCorpTurn(onFinish);
+      runCorpTurn(() => {
+        if (degrading) return;
+        onFinish();
+      });
     },
     onPlayerTurnReady: () => {
+      if (degrading) return;
       // Clear any smoke from last turn before the player acts.
       if (activeSmokeOverlays.length > 0) {
         clearSmoke(world.grid, activeSmokeOverlays);
@@ -1332,6 +1473,25 @@ function advanceTurn(): void {
   });
 }
 
+function advanceTurn(): void {
+  const scene = currentScene();
+  if (!scene || !isRun(scene)) return;
+  driveCombatTurnPipeline(scene);
+}
+
+/**
+ * Autosave fires at the player→corp `turn:ended` before the animated aftermath
+ * and corp slice run. On cold resume (or fault recovery that reloads that
+ * checkpoint), kick the pipeline from the corp slice without flipping the
+ * queue again.
+ */
+function resumePendingCombatSliceIfNeeded(): void {
+  const run = campaign?.activeRun;
+  if (!run || run.state !== RUN_STATE.COMBAT || !run.world || !run.queue) return;
+  if (run.queue.currentFaction !== FACTION.CORP) return;
+  driveCombatTurnPipeline(run, { resumeFromCorpSlice: true });
+}
+
 /**
  * Kick off the animated corp turn. Delegates to `corpTurnDriver.runCorpTurn`,
  * which iterates each corp entity's `takeTurnSteps` generator one yield at
@@ -1341,6 +1501,8 @@ function advanceTurn(): void {
  * its state machine is testable under `node --test`.
  */
 function runCorpTurn(onFinish: () => void): void {
+  if (degrading) return;
+  maybeDevFault('corp');
   const run = currentScene();
   if (!run) return;
   if (!run.world) {
@@ -1358,7 +1520,9 @@ function runCorpTurn(onFinish: () => void): void {
     actionDelayMs: CORP_ACTION_DELAY_MS,
     lockMarginMs: ANIMATION_DURATIONS.MUZZLE_FLASH,
     onFinish,
+    schedule: scheduleCombatPump,
     onStep: (entityId: string, step: TurnActionStep) => {
+      if (degrading) return;
       const scene = currentScene();
       if (!scene?.world || !scene.player) return;
       const resolve = (id: string) => resolveEntityLabel(id, scene.world!.entities);
@@ -2126,6 +2290,8 @@ function isAnyBlockingModalOpen(): boolean {
   if (finnShopEl?.isOpen) return true;
   if (clinicModalEl?.isOpen) return true;
   if (itemInventoryEl?.isOpen) return true;
+  if (keyHelpEl?.isOpen) return true;
+  if (faultEl?.isOpen) return true;
   // <confirmation-modal> uses a native <dialog> internally; treat any open
   // attribute as "blocking".
   if (isConfirmationDialogOpen(confirmationModalEl)) return true;

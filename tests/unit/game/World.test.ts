@@ -26,9 +26,43 @@ test('World.addEntity rejects placement on impassable tile', () => {
   assert.throws(() => w.addEntity(makePlayer(2, 2)), /impassable/i);
 });
 
-test('World.addEntity rejects placement on an occupied tile', () => {
+test('World.addEntity nudges to a free neighbour when tile is occupied', () => {
   const w = new World(new Grid(5, 5));
-  w.addEntity(makePlayer(1, 1));
+  w.addEntity(makePlayer(2, 2));
+  const drone = new Entity({ id: 'd', x: 2, y: 2, faction: FACTION.CORP, glyph: 'd' });
+  w.addEntity(drone);
+  assert.ok(drone.x !== 2 || drone.y !== 2, 'drone should move off the player tile');
+  assert.equal(w.entityAt(drone.x, drone.y), drone);
+});
+
+test('World.addEntity nudges beyond immediate neighbours when the ring is full', () => {
+  const w = new World(new Grid(5, 5));
+  w.addEntity(makePlayer(2, 2));
+  for (const [x, y] of [
+    [1, 2],
+    [3, 2],
+    [2, 1],
+    [2, 3],
+    [1, 1],
+    [3, 1],
+    [1, 3],
+    [3, 3],
+  ]) {
+    w.addEntity(new Entity({ id: `block-${x}-${y}`, x, y, faction: FACTION.CORP, glyph: 'x' }));
+  }
+  const drone = new Entity({ id: 'd', x: 2, y: 2, faction: FACTION.CORP, glyph: 'd' });
+  w.addEntity(drone);
+  assert.ok(Math.abs(drone.x - 2) + Math.abs(drone.y - 2) > 1, 'drone should nudge past the ring');
+  assert.equal(w.entityAt(drone.x, drone.y), drone);
+});
+
+test('World.addEntity rejects placement when every floor tile is occupied', () => {
+  const w = new World(new Grid(3, 3));
+  for (let y = 0; y < 3; y++) {
+    for (let x = 0; x < 3; x++) {
+      w.addEntity(new Entity({ id: `block-${x}-${y}`, x, y, faction: FACTION.CORP, glyph: 'x' }));
+    }
+  }
   const drone = new Entity({ id: 'd', x: 1, y: 1, faction: FACTION.CORP, glyph: 'd' });
   assert.throws(() => w.addEntity(drone), /occupied/i);
 });
@@ -94,7 +128,7 @@ test('World.entityAt ignores consumable pickups even when passable flag is wrong
   assert.equal(w.entityAt(2, 2), null, 'consumables are always walk-through');
 });
 
-test('World.addEntity rejects live placement on passable pickups', () => {
+test('World.addEntity nudges live placement off passable pickups', () => {
   const w = new World(new Grid(5, 5));
   w.addEntity(
     new ConsumablePickup({
@@ -105,7 +139,10 @@ test('World.addEntity rejects live placement on passable pickups', () => {
       label: 'Stim',
     })
   );
-  assert.throws(() => w.addEntity(makePlayer(2, 2)), /occupied/i);
+  const player = makePlayer(2, 2);
+  w.addEntity(player);
+  assert.ok(player.x !== 2 || player.y !== 2, 'player should not share a pickup tile');
+  assert.equal(w.entityAt(player.x, player.y), player);
 });
 
 test('World.lootableCorpseAt finds a corpse even when a live actor shares the tile', () => {
