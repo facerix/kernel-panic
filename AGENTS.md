@@ -59,6 +59,16 @@ el.dataset.id = '456';
 - Service workers remain plain `.js` (classic-worker global scope) — copied as static assets
 - **Import paths use `.js` extensions** even in `.ts` files (TypeScript's `bundler` resolution requires this for runtime ESM compatibility)
 
+### Error handling — fail loud, but recover
+
+This is a tablet-first offline PWA with no visible JS console, so a raw `throw` that white-screens the tab is itself a *silent* failure: the player loses their session and we get no signal. "Crashing is preferred over data corruption" still holds — but "crash" means *fail loud to a boundary*, never *kill the tab*. Three tiers:
+
+1. **Invariant violation / would-corrupt-the-save** → throw, but to the top-level **error boundary**, which preserves the last known-good save, emits a dev-channel signal (console + telemetry), and degrades the player to "something glitched — returning to the Hub, progress safe." Crash the *run*, not the *app*. Examples: negative `heal`, a snapshot that won't round-trip, a failed save-write validation.
+2. **Expected recoverable runtime situation** → deterministic fallback + `console.warn`. Play continues. This is correct behavior, not a compromise. Example: `nudgeIfOccupied` relocating an entity off an occupied anchor.
+3. **Forbidden:** a tier-2 fallback that feeds invalid state into persistence. If a fallback can't produce a valid, persistable state, it is a tier-1 case and must escalate to the boundary — never paper over.
+
+Determinism caveat: tier-2 fallbacks must stay seed-deterministic so saves remain reproducible. See `docs/phase-2.6-plan.md` for the full doctrine and the boundary's spec.
+
 ## Important Files
 
 | File | Purpose |
