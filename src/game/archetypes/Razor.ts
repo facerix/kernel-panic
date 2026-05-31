@@ -1,5 +1,5 @@
 import { Crew } from '../Crew.js';
-import { AP_COST } from '../constants.js';
+import { AP_COST, HEAVY_MELEE_DAMAGE } from '../constants.js';
 import { EVENT } from '../events.js';
 import type { CrewInit } from '../Crew.js';
 import type { World } from '../World.js';
@@ -59,6 +59,10 @@ export class Razor extends Crew {
 
   override get baseDodgeChance(): number {
     return 0.35;
+  }
+
+  override get meleeDamage(): number {
+    return HEAVY_MELEE_DAMAGE;
   }
 
   constructor(props: CrewInit) {

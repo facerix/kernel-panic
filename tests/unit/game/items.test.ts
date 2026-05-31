@@ -104,12 +104,12 @@ test('resolveRanged incorporates gear rangedDamageBonus into damage', () => {
   const world = new World(grid, { events: bus });
   const attacker = new Merc({ id: 'merc', x: 2, y: 2, maxAp: 4 });
   attacker.applyGear(ITEM_ID.BALLISTICS_COIL);
-  const target = new CorpDrone({ id: 'drone', x: 5, y: 2 });
+  const target = new Skirmisher({ id: 'drone', x: 5, y: 2 });
   world.addEntity(attacker);
   world.addEntity(target);
   const rng = new Rng(0); // guaranteed hit
   const result = resolveRanged(world, attacker, target, rng);
-  assert.equal(result.damage, RANGED_DAMAGE + RANGED_DAMAGE_BONUS);
+  assert.equal(result.damage, attacker.rangedAttackDamage());
 });
 
 // ---------------------------------------------------------------------------

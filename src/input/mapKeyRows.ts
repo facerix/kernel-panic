@@ -24,19 +24,20 @@ export const MAP_KEY_COMBAT_TERRAIN: readonly MapKeyRow[] = Object.freeze([
   { glyph: '~', label: 'relay node' },
   { glyph: '%', label: 'rubble / corpse wreck' },
   { glyph: '░', label: 'smoke (blocks LOS)' },
-  { glyph: '▓', label: 'hazard (damage each aftermath)' },
+  { glyph: '▓', label: 'hazard (damage each turn)' },
 ]);
 
 /** Hostile glyphs and one-line combat behavior */
 export const MAP_KEY_COMBAT_HOSTILES: readonly MapKeyRow[] = Object.freeze([
-  { glyph: 'd', label: 'corp drone — ranged; backs off if you close in' },
   { glyph: 'c', label: 'corp civilian — facility alarm if they see you' },
-  { glyph: '$', label: 'corp turret — stationary ranged' },
-  { glyph: '◆', label: 'corp asset (relay, etc.)' },
+  { glyph: 'g', label: 'guard — closes fast and hits hard' },
+  { glyph: 'k', label: 'skirmisher — ranged; backs off if you close in' },
+  { glyph: '$', label: 'turret — stationary ranged' },
+  { glyph: '◆', label: 'corp asset (objective target)' },
 ]);
 
 export const MAP_KEY_COMBAT_ALLIES: readonly MapKeyRow[] = Object.freeze([
-  { glyph: 'T', label: 'your turret — fires twice after you wait' },
+  { glyph: 'T', label: 'your turret — fires twice after your turn' },
   { glyph: '& A', label: 'allies' },
   { glyph: '§', label: 'mirror unit' },
   { glyph: '! *', label: 'dead drops / pickups' },

@@ -8,7 +8,7 @@ import {
   FACTION,
   AP_COST,
   DEFAULT_HP,
-  MELEE_DAMAGE,
+  HEAVY_MELEE_DAMAGE,
   ENEMY_TIER,
 } from '../../../src/game/constants.js';
 import { Guard } from '../../../src/game/ai/Guard.js';
@@ -69,7 +69,7 @@ test('guard melees an adjacent target when AP allows', () => {
   assert.equal(log.length, 1);
   assert.equal(log[0].type, 'melee');
   assert.equal(log[0].result.hit, true);
-  assert.equal(player.hp, player.maxHp - MELEE_DAMAGE);
+  assert.equal(player.hp, player.maxHp - HEAVY_MELEE_DAMAGE);
 });
 
 test('guard closes the distance toward an out-of-reach target (no ranged option)', () => {
@@ -98,7 +98,7 @@ test('guard closes then strikes within a single turn (takeTurnSteps paces both)'
   assert.equal(steps.length, 2);
   assert.equal(steps[0].type, 'move-engage');
   assert.equal(steps[1].type, 'melee');
-  assert.equal(player.hp, player.maxHp - MELEE_DAMAGE);
+  assert.equal(player.hp, player.maxHp - HEAVY_MELEE_DAMAGE);
 });
 
 test('guard does not melee a NEUTRAL bystander', () => {
@@ -178,8 +178,5 @@ test('Guard constructor rejects malformed waypoints', () => {
     () => new Guard({ id: 'guard-0', x: 1, y: 1, patrolWaypoints: [{ x: 0.5, y: 1 }] }),
     TypeError
   );
-  assert.throws(
-    () => new Guard({ id: 'guard-0', x: 1, y: 1, patrolWaypoints: 'nope' }),
-    TypeError
-  );
+  assert.throws(() => new Guard({ id: 'guard-0', x: 1, y: 1, patrolWaypoints: 'nope' }), TypeError);
 });

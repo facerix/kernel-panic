@@ -35,6 +35,11 @@ test('Hostile extends Entity and Skirmisher extends Hostile', () => {
   assert.ok(drone instanceof Entity);
 });
 
+test('Skirmisher uses the k glyph', () => {
+  const drone = new Skirmisher({ id: 'd', x: 2, y: 2 });
+  assert.equal(drone.glyph, 'k');
+});
+
 test('Hostile.acquireTarget selects the nearest visible different-faction entity', () => {
   const world = new World(new Grid(12, 6));
   const hostile = makeHostile({ x: 1, y: 1 });

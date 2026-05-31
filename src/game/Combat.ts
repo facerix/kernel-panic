@@ -57,6 +57,23 @@ export type ResolveMeleeOptions = {
   coverDodgeBonus?: number;
 };
 
+function attackerRangedDamage(attacker: Entity, override?: number): number {
+  if (override !== undefined) return override;
+  const rangedAttackDamage = (attacker as { rangedAttackDamage?: () => number }).rangedAttackDamage;
+  if (typeof rangedAttackDamage === 'function') {
+    return rangedAttackDamage.call(attacker);
+  }
+  return RANGED_DAMAGE;
+}
+
+function attackerMeleeDamage(attacker: Entity, override?: number): number {
+  if (override !== undefined) return override;
+  if ('meleeDamage' in attacker) {
+    return (attacker as { meleeDamage: number }).meleeDamage;
+  }
+  return MELEE_DAMAGE;
+}
+
 /**
  * Pure pre-flight check. Doesn't mutate, doesn't roll.
  */
@@ -150,9 +167,7 @@ export function resolveRanged(
   let damage = 0;
   let killed = false;
   if (hit) {
-    const gearDamageBonus =
-      (attacker as Entity & { gear?: { rangedDamageBonus?: number } }).gear?.rangedDamageBonus ?? 0;
-    const intendedDamage = options.damage ?? RANGED_DAMAGE + gearDamageBonus;
+    const intendedDamage = attackerRangedDamage(attacker, options.damage);
     const mitigatedDamage = applyDamageReduction(intendedDamage, target);
     const appliedDamage = target.damage(mitigatedDamage);
     damage = appliedDamage === 0 ? 0 : mitigatedDamage;
@@ -268,7 +283,7 @@ export function resolveMelee(
   let damage = 0;
   let killed = false;
   if (hit) {
-    const intendedDamage = options.damage ?? MELEE_DAMAGE;
+    const intendedDamage = attackerMeleeDamage(attacker, options.damage);
     const mitigatedDamage = applyDamageReduction(intendedDamage, target);
     const appliedDamage = target.damage(mitigatedDamage);
     damage = appliedDamage === 0 ? 0 : mitigatedDamage;

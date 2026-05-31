@@ -482,7 +482,13 @@ test('takeTurn drains takeTurnSteps into the legacy log shape', () => {
 test('drone subscribes to alarm and force-transitions to ENGAGE with target position', () => {
   const bus = new EventBus();
   const world = new World(new Grid(12, 6), { events: bus });
-  const drone = new Skirmisher({ id: 'd', x: 1, y: 1, maxAp: 3, patrolWaypoints: [{ x: 5, y: 1 }] });
+  const drone = new Skirmisher({
+    id: 'd',
+    x: 1,
+    y: 1,
+    maxAp: 3,
+    patrolWaypoints: [{ x: 5, y: 1 }],
+  });
   world.addEntity(drone);
   drone.bindToBus(bus);
   assert.equal(drone.state, PATROL_STATE.PATROL);

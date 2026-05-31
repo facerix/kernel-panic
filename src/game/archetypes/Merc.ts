@@ -1,5 +1,5 @@
 import { Crew } from '../Crew.js';
-import { TILE, AP_COST, FACTION } from '../constants.js';
+import { TILE, AP_COST, FACTION, MERC_RANGED_DAMAGE } from '../constants.js';
 import type { CrewInit } from '../Crew.js';
 import type { World } from '../World.js';
 
@@ -58,6 +58,10 @@ export class Merc extends Crew {
   override archetype = 'Merc';
   override get baseHitChance(): number {
     return 0.8;
+  }
+
+  override get rangedDamage(): number {
+    return MERC_RANGED_DAMAGE;
   }
 
   constructor(props: CrewInit) {

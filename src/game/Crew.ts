@@ -4,6 +4,8 @@ import {
   BASE_HIT_CHANCE,
   DODGE_BONUS,
   DODGE_CHANCE,
+  MELEE_DAMAGE,
+  RANGED_DAMAGE,
   FACTION,
   STIM_HEAL,
   SMOKE_RADIUS,
@@ -11,7 +13,6 @@ import {
   BREACHING_CHARGE_RANGE,
   TARGETING_BONUS,
   TURRET_DAMAGE,
-  RANGED_DAMAGE,
   RANGED_DAMAGE_BONUS,
   RANGED_MAX_DAMAGE_BONUS,
   type FactionId,
@@ -114,6 +115,24 @@ export class Crew extends Entity {
     return DODGE_CHANCE;
   }
 
+  /**
+   * Archetype base ranged damage (gear excluded). Overridden on Merc; Tech and
+   * Razor use {@link RANGED_DAMAGE}. Outgoing shot damage is
+   * {@link rangedAttackDamage} (base + Ballistics Coil).
+   */
+  get rangedDamage(): number {
+    return RANGED_DAMAGE;
+  }
+
+  /**
+   * Flat melee damage for this crew member's blade/fists. Overridden on Razor;
+   * Merc and Tech use {@link MELEE_DAMAGE}. Read by `Combat.resolveMelee` and
+   * `applyIntent.doMelee`.
+   */
+  get meleeDamage(): number {
+    return MELEE_DAMAGE;
+  }
+
   /** Maximum gear hit bonus this crew member can accumulate (= 1 − baseHitChance). */
   get maxHitBonus(): number {
     return 1 - this.baseHitChance;
@@ -134,9 +153,9 @@ export class Crew extends Entity {
     return Math.min(this.gear?.rangedDamageBonus ?? 0, this.maxRangedDamageBonus);
   }
 
-  /** Flat damage for this crew member's personal ranged attacks (gear included). */
+  /** Outgoing ranged damage for this crew member (archetype base + gear). */
   rangedAttackDamage(): number {
-    return RANGED_DAMAGE + this.effectiveRangedDamageBonus;
+    return this.rangedDamage + this.effectiveRangedDamageBonus;
   }
 
   /**

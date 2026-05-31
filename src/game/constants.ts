@@ -104,14 +104,20 @@ export const BASE_HIT_CHANCE = 0.75;
 export const COVER_HIT_PENALTY = 0.3;
 export const RANGED_DAMAGE = 1;
 
+/** Merc sidearm and player/corp turrets — overrides {@link RANGED_DAMAGE}. */
+export const MERC_RANGED_DAMAGE = 2;
+
 /**
  * Melee combat. M7 adds a defender dodge roll so point-blank attacks keep
- * tension without becoming mushy. Damage is bumped above the old V1 value to
- * compensate for misses: when the blade connects, it should matter.
+ * tension without becoming mushy. Default crew melee is {@link MELEE_DAMAGE};
+ * Razor and Guard override with {@link HEAVY_MELEE_DAMAGE}.
  */
 export const DODGE_CHANCE = 0.2;
 export const COVER_DODGE_BONUS = 0.1;
-export const MELEE_DAMAGE = 3;
+export const MELEE_DAMAGE = 2;
+
+/** Razor blade and Guard strike — overrides {@link MELEE_DAMAGE}. */
+export const HEAVY_MELEE_DAMAGE = 3;
 
 /**
  * Vault (Merc perk). Breach-and-clear slam: hop over cover, body-check a
@@ -168,12 +174,12 @@ export function moveStepApCost(destTile: TileId): number {
 /**
  * Corp turret parameters. Stationary CORP-faction hostile that fires at
  * PLAYER entities during the corp turn. Range matches the player turret
- * (TURRET_RANGE) so the threat is symmetric; damage is flat 1 to match
- * drone/turret convention. HP is lower than a drone — they're infrastructure,
+ * (TURRET_RANGE) so the threat is symmetric; damage matches {@link TURRET_DAMAGE}.
+ * HP is lower than a drone — they're infrastructure,
  * not combatants, and the player needs a fast way to neutralize a firing lane.
  */
 export const CORP_TURRET_RANGE = 4;
-export const CORP_TURRET_DAMAGE = 1;
+export const CORP_TURRET_DAMAGE = 2;
 export const CORP_TURRET_HP = 2;
 
 /**
@@ -202,7 +208,7 @@ export const SMOKE_DURATION_TURNS = 1;
  * LOS from thrower → target must be clear (no lobbing through walls). The
  * hazard cluster shape and size come from `placeHazardCluster` (M2.3 — a
  * 5–9 tile diamond/cross of `TILE.HAZARD`), so we don't need a separate
- * radius constant. Damage per tile is `HAZARD_DAMAGE` (M2.3).
+ * radius constant. Damage per tile is `HAZARD_DAMAGE`.
  */
 export const INCENDIARY_THROW_DIST = 3;
 /** Breaching charges are placed against an adjacent tile/entity. */

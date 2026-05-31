@@ -294,7 +294,11 @@ test('exit is reachable from spawn', () => {
 test('fodder count matches the requested threat budget', () => {
   for (const threat of [1, 2, 3]) {
     const map = buildMap({ rng: new Rng(11 + threat), width: W, height: H, threatCount: threat });
-    assert.equal(map.fodder.length, threat, `expected ${threat} fodder anchors, got ${map.fodder.length}`);
+    assert.equal(
+      map.fodder.length,
+      threat,
+      `expected ${threat} fodder anchors, got ${map.fodder.length}`
+    );
     for (const anchor of map.fodder) {
       assert.equal(
         map.grid.tileAt(anchor.x, anchor.y),

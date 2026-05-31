@@ -55,7 +55,7 @@ export class Skirmisher extends PatrolHostile {
 
   constructor({ tier = ENEMY_TIER.T1, preferredMin, patrolWaypoints, ...props }: SkirmisherProps) {
     const stats = resolveEnemyStats(props, ENEMY_ROLE.FODDER, tier);
-    super({ ...props, ...stats, faction: FACTION.CORP, glyph: 'd', patrolWaypoints });
+    super({ ...props, ...stats, faction: FACTION.CORP, glyph: 'k', patrolWaypoints });
     const band = preferredMin ?? PREFERRED_MIN;
     if (!Number.isInteger(band) || band < 0) {
       throw new RangeError(`Skirmisher preferredMin must be a non-negative integer, got ${band}`);

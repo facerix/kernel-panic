@@ -437,7 +437,9 @@ function doMelee(intent: Intent, ctx: ApplyIntentContext) {
     log(`> MELEE DENIED: ${check.reason}`);
     return;
   }
-  const result = resolveMelee(world, player, target, ctx.rng);
+  const result = resolveMelee(world, player, target, ctx.rng, {
+    damage: 'meleeDamage' in player ? player.meleeDamage : undefined,
+  });
   if (
     !result.dodged &&
     result.damage === 0 &&

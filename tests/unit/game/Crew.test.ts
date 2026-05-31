@@ -25,6 +25,11 @@ import {
   DODGE_CHANCE,
   DODGE_BONUS,
   TARGETING_BONUS,
+  RANGED_DAMAGE,
+  RANGED_DAMAGE_BONUS,
+  MERC_RANGED_DAMAGE,
+  MELEE_DAMAGE,
+  HEAVY_MELEE_DAMAGE,
 } from '../../../src/game/constants.js';
 import { ITEM_ID } from '../../../src/game/items.js';
 import { emptySalvage, makeSalvage, totalSalvage } from '../../../src/game/salvage.js';
@@ -409,6 +414,31 @@ test('Razor.baseHitChance is 0.7', () => {
 test('Tech.baseHitChance is 0.75', () => {
   const t = new Tech({ id: 't', x: 0, y: 0 });
   assert.equal(t.baseHitChance, 0.75);
+});
+
+test('Crew.rangedDamage defaults to RANGED_DAMAGE; Merc overrides', () => {
+  const c = new Crew({ ...baseProps });
+  assert.equal(c.rangedDamage, RANGED_DAMAGE);
+  const m = new Merc({ id: 'm', x: 0, y: 0 });
+  assert.equal(m.rangedDamage, MERC_RANGED_DAMAGE);
+  const t = new Tech({ id: 't', x: 0, y: 0 });
+  assert.equal(t.rangedDamage, RANGED_DAMAGE);
+});
+
+test('Crew.rangedAttackDamage is archetype base plus capped Ballistics Coil', () => {
+  const m = new Merc({ id: 'm', x: 0, y: 0 });
+  assert.equal(m.rangedAttackDamage(), MERC_RANGED_DAMAGE);
+  m.applyGear(ITEM_ID.BALLISTICS_COIL);
+  assert.equal(m.rangedAttackDamage(), MERC_RANGED_DAMAGE + RANGED_DAMAGE_BONUS);
+});
+
+test('Crew.meleeDamage defaults to MELEE_DAMAGE; Razor overrides', () => {
+  const c = new Crew({ ...baseProps });
+  assert.equal(c.meleeDamage, MELEE_DAMAGE);
+  const m = new Merc({ id: 'm', x: 0, y: 0 });
+  assert.equal(m.meleeDamage, MELEE_DAMAGE);
+  const r = new Razor({ id: 'r', x: 0, y: 0 });
+  assert.equal(r.meleeDamage, HEAVY_MELEE_DAMAGE);
 });
 
 test('Crew.baseDodgeChance defaults to DODGE_CHANCE', () => {
