@@ -63,6 +63,10 @@ Phase 3 depends on specific hooks built into Phase 2.5 milestones:
 | **M5** (economy/rep) | Top rep tier defined and reachable | Phase 3 gates Decker recruitment and Score access at this tier |
 | **M7** (persistence) | Location schema includes `scoreTarget` flag; site roster + mutation deltas | Phase 3 designates one roster site as the Score target; player "cases" it across visits |
 
+### Score target identification
+
+Score-target sites always use roster-stored dimensions ([phase-2.7-plan.md](phase-2.7-plan.md) M1.5: `mapWidth`, `mapHeight`, `seed`, mutation deltas); contract `difficulty` scales encounter composition only, not footprint.
+
 ## Milestones — detail
 
 ### P3.M1 — Campaign arc structure 🔲

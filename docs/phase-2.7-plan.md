@@ -10,8 +10,9 @@ Playtesting after Phase 2.5 surfaced four problems. **The first three are sympto
 2. **Melee threats die on arrival.** A melee enemy that spends its whole turn closing on the *enemy* phase opens the *player* phase with a full 4 AP against an adjacent, undefended target — two melee swings drop it. "Scary on approach, free kill on arrival."
 3. **Support roles have nothing to support.** A medic that heals or shields allies only matters when something on the board is durable enough for partial damage to persist a turn. Without durable patients, players just finish kills and the support role is dead weight.
 4. **"Tier" is just a spawn multiplier.** `CONTRACT_DIFFICULTY` today only scales `threatCount` (2 → 3 → 4 hostiles). Higher tier = more of the same enemy, nothing else. No role progression, no per-tier stat scaling, no priority-target puzzle.
+5. **Every run shares one combat footprint.** `Run.enterCombat` hardcodes **24×16** for all contracts. Seed changes room *layout* inside that box, but traverse distance, leaf count, sniper lanes, and camera panning norms stay in the same band — so STANDARD and CRITICAL *feel* like the same arena size even when difficulty and composition differ.
 
-Every hostile currently has **one verb and no defensive identity**, so fights degenerate into "advance and trade HP." The cure is **tactical roles** hung off a redefined tier system where tier selects *who* spawns and *how tough* they are — not merely *how many*.
+Every hostile currently has **one verb and no defensive identity**, so fights degenerate into "advance and trade HP." The cure is **tactical roles** hung off a redefined tier system where tier selects *who* spawns and *how tough* they are — not merely *how many*. **Map scale** is a parallel knob: tier should also imply *how much space* the fight occupies, with seed jitter inside that band so two STANDARD gigs still differ in footprint.
 
 **Direction chosen:** tier = **role composition *and* per-tier stat scaling** (not stats-only, not roles-only).
 
@@ -38,11 +39,11 @@ Each T2 encounter adds **exactly one force-multiplier** on top of fodder. The sp
 
 | Archetype | Class | Verb | Force-multiplier effect | Status |
 |-----------|-------|------|-------------------------|--------|
-| **Sniper** | `Sniper` | **telegraphed** long-range burst | punishes open LOS; two-phase aim → fire | new (M3.1) |
-| **Spotter** | `Spotter` | mobile LOS + **per-turn target share** | re-targets hostiles every turn; never attacks | new (M3.2) |
+| **Sniper** | `Sniper` | **telegraphed** long-range burst | punishes open LOS; aim → fire; range conceal while aiming; `SNIPER_SIGHT_RANGE` 12, `SNIPER_DAMAGE` 3 | new (M3.2) |
+| **Spotter** | `Spotter` | mobile LOS + **per-turn target share** | re-targets hostiles every turn; never attacks; `SPOTTER_SIGHT_RANGE` 10 | new (M3.1) |
 | **Medic** | `Medic` | ally-seeking shield / heal | changes fight math for durable allies | new (M3.3) |
 
-Specialists are **killable** — they may have a defensive twist (sniper range, spotter evasiveness) but are not mini-bosses. A medic is **never spawned alone**; composition rules require at least one durable ally (a T3 elite or a tier-scaled bruiser) in the same encounter.
+Specialists are **killable** — they may have a defensive twist (sniper range conceal while aiming, spotter evasiveness) but are not mini-bosses. A medic is **never spawned alone**; composition rules require at least one durable ally (a T3 elite or a tier-scaled bruiser) in the same encounter.
 
 #### CorpCivilian vs Spotter
 
@@ -53,7 +54,7 @@ Both can appear on the same map, but they are **not the same role**. `CorpCivili
 | **Placement** | Prefab-authored (`office` spawns) | Composition roll (`ELEVATED` contracts) |
 | **Type** | `Entity` — non-combatant | `Hostile` — counts in threat budget |
 | **Movement** | Stationary (desk clerk) | Mobile — seeks vantage tiles with LOS |
-| **Alarm mechanism** | `world.raiseAlarm()` — **facility latch** (quiet → alert → cooldown) | Direct `ALARM` bus ping — **no facility state change** |
+| **Alarm mechanism** | `world.raiseAlarm()` → `ALARM` with `kind: 'facility'` — **facility latch** (quiet → alert → cooldown) | Direct `ALARM` bus ping with `kind: 'spotter'` — **no facility state change** |
 | **Cadence** | Once per alert window; suppressed while `alarmActive` | **Every corp turn** while alive and holding LOS |
 | **Rep** | Triggers `REP.ALARM_PENALTY` on facility raise | No facility alarm; no Rep penalty from spotter pings alone |
 | **Smoke / cover** | **COVER tiles fully block LOS** — sneak past cubicles/desks; walls still block | Standard LOS — cover does not block sight (same as combat); can **reposition** to a new angle |
@@ -115,7 +116,7 @@ Fodder stays at baseline across all tiers — tier difficulty comes from *who el
 |------------|------------------|--------|
 | STANDARD | 2 skirmishers | `[Skirmisher, Skirmisher]` — learn ranged spacing |
 | STANDARD | 1 skirmisher + 2 guards | `[Skirmisher, Guard, Guard]` — ranged + melee pressure |
-| ELEVATED | 3 fodder + sniper | `[Skirmisher, Guard, Guard, Sniper]` — break LOS or eat the burst |
+| ELEVATED | 3 fodder + sniper | `[Skirmisher, Guard, Guard, Sniper]` — break LOS or close to reveal; Tech turret zones approach (cannot break a long-range lock) |
 | ELEVATED | 2 fodder + spotter | `[Skirmisher, Guard, Spotter]` — kill spotter or keep breaking its LOS as it repositions |
 | CRITICAL | 2 fodder + medic + juggernaut | `[Skirmisher, Guard, Medic, Juggernaut]` — priority puzzle: medic + soak |
 | CRITICAL | 3 fodder + bruiser | `[Skirmisher, Skirmisher, Guard, Bruiser]` — knockback tax on melee approach |
@@ -136,13 +137,14 @@ All rolls derive from the contract seed (deterministic, save-compatible).
 | M1.2 — `damageReduction` (armor) stat on `Entity` | ✅ Complete |
 | M1.3 — Encounter composition by tier (roles, not just counts) | 🟡 In progress — resolver landed; **fodder slice wired** (M2 spawns skirmisher/guard mix); specialist/elite anchors+classes still pending |
 | M1.4 — CorpCivilian cover-occluded LOS | ✅ Complete |
+| M1.5 — Variable combat map dimensions (tier + seed) | 🔲 Not started |
 | M2 — Tier 1 fodder roster | ✅ Complete |
 | M2.1 — Skirmisher kiting (preferred engagement band) | ✅ Complete |
 | M2.2 — Guard (melee fodder) | ✅ Complete |
 | M2.3 — Combat damage tuning + skirmisher glyph | ✅ Complete |
 | M3 — Tier 2 specialists | 🔲 Not started |
-| M3.1 — Sniper (telegraphed long-range burst) | 🔲 Not started |
-| M3.2 — Spotter (mobile per-turn target share; not CorpCivilian) | 🔲 Not started |
+| M3.1 — Spotter (mobile per-turn target share; not CorpCivilian) | 🔲 Not started |
+| M3.2 — Sniper (telegraphed long-range burst) | 🔲 Not started |
 | M3.3 — Medic (proactive shield + heal; patient-gated spawn) | 🔲 Not started |
 | M4 — Tier 3 elites | 🔲 Not started |
 | M4.1 — Bruiser (armor + knockback-on-hit) | 🔲 Not started |
@@ -154,9 +156,10 @@ All rolls derive from the contract seed (deterministic, save-compatible).
 
 1. Every milestone above is ✅ except M5 (deliberate Phase 3 on-ramp).
 2. T1/T2/T3 composition rules are live: STANDARD = fodder only, ELEVATED = fodder + 1 specialist, CRITICAL = fodder + specialist + elite (or fodder + elite).
-3. Each archetype in the roster table has a distinct tactical identity verified by tests and playtest — including sharp separation of `CorpCivilian` (ambient facility alarm, cover-occluded LOS) from `Spotter` (mobile T2 specialist, extended LOS).
-4. Full campaign loop from Phase 2.6 remains playable offline on iOS Safari + Chrome desktop.
-5. `v0.2.7` tagged in git.
+3. Combat map width/height vary by contract difficulty and seed (M1.5); revisits and run snapshots reproduce the same footprint.
+4. Each archetype in the roster table has a distinct tactical identity verified by tests and playtest — including sharp separation of `CorpCivilian` (ambient facility alarm, cover-occluded LOS) from `Spotter` (mobile T2 specialist, extended LOS).
+5. Full campaign loop from Phase 2.6 remains playable offline on iOS Safari + Chrome desktop.
+6. `v0.2.7` tagged in git.
 
 ---
 
@@ -198,6 +201,46 @@ All rolls derive from the contract seed (deterministic, save-compatible).
 
 **Implementation note:** `LineOfSight.hasConcealedLineOfSight` now treats COVER as an occluder while preserving normal combat LOS semantics. `CorpCivilian` alarm checks use the concealed helper; ranged combat retains fire through cover with the existing hit/dodge modifiers. Smoke already blocks standard LOS and is now covered by regression tests.
 
+#### M1.5 — Variable combat map dimensions (tier + seed)
+
+**Problem:** `buildMap` already accepts `width`/`height`, but `Run.enterCombat` passes fixed `COMBAT_MAP_WIDTH` / `COMBAT_MAP_HEIGHT` (24×16). Difficulty only changes `threatCount` and civilian caps inside the same footprint — seed reshuffles prefabs, not arena scale. That undercuts tier identity (CRITICAL should feel *bigger* as well as *meaner*) and makes back-to-back STANDARD contracts feel same-y.
+
+**What already works (no renderer rewrite):**
+
+- `buildMap` is pure over `(rng fork 'mapgen', width, height, threatCount, difficulty)` — same seed + dimensions → identical grid.
+- Run snapshots persist `grid.w` / `grid.h`; restore validates entity coords against the saved grid.
+- `AsciiRenderer` + `cameraFor` pan a fixed viewport over arbitrary world size (640×400 canvas, ~32×20 cells visible).
+- `debug/map.ts` already exercises arbitrary dimensions.
+
+**Direction (locked for planning; sizes are playtest knobs):**
+
+| Knob | Rule |
+|------|------|
+| **Tier band** | `STANDARD` → compact footprint; `ELEVATED` → medium; `CRITICAL` → large. Higher tier = more BSP leaves, longer routes, more room for sniper/spotter lanes. |
+| **Seed jitter** | Within the band, pick from a **small discrete allowlist** of `(w, h)` pairs via a dedicated RNG fork (e.g. `resolveMapDimensions` forks `contract.seed` with label `'map-size'`, separate from `'mapgen'` inside `buildMap`). Same contract seed → same dimensions; different seeds at the same tier can differ. |
+| **Persistence** | Store `mapWidth` / `mapHeight` on `Contract` at Curator generation (and on `LocationSite` when a site is pinned). `Run.enterCombat` reads the contract fields — do not re-roll on revisit. Mid-run saves already carry grid size; old contracts without fields default to 24×16 for save compat. |
+| **Bounds** | Respect `EDGE_INSET` + `BSP_TUNABLES.MIN_LEAF` (playable inner rect must be ≥ 6×6). Prefer even widths/heights so leaf splits stay symmetric. Cap outer size for tablet perf (proposal: max **32×20** until playtest says otherwise). |
+| **Anchor budget** | Larger maps must still satisfy `threatCount` fodder anchors today and **specialist/elite anchors** once M1.3 placement lands — if `buildMap` throws on anchor shortage, that size is illegal for that tier/threat combo (fail loud, shrink allowlist). |
+
+**Proposed size bands (starting point — tune in playtest):**
+
+| Difficulty | Allowlist examples (outer w×h) |
+|------------|--------------------------------|
+| `STANDARD` | 22×14, 24×16 (current baseline), 26×16 |
+| `ELEVATED` | 24×16, 26×18, 28×18 |
+| `CRITICAL` | 28×18, 30×20, 32×20 |
+
+**Implementation sketch:**
+
+- `resolveMapDimensions({ seed, difficulty })` in `src/game/procgen/` (or `constants.ts` table + resolver) → `{ width, height }`.
+- Extend `Contract` + Curator board generation to set `mapWidth`/`mapHeight` once per contract.
+- `Run.enterCombat`: pass contract dimensions into `buildMap`; remove module-level `COMBAT_MAP_*` as the sole source of truth.
+- M7.2 `LocationSite`: persist `mapWidth`/`mapHeight` beside `seed` so revisit geometry stays byte-identical when difficulty/objective are re-rolled.
+- **Score-target sites** (Phase 3): always use roster-stored dimensions; contract `difficulty` scales encounter composition only, not footprint.
+- **TDD:** same `(seed, difficulty)` → same dimensions; different seeds at same tier can differ; `buildMap` + `composeEncounter` both deterministic; restore/revisit uses stored dimensions; allowlist rejects playable area below `MIN_LEAF`.
+
+**Schedule:** Land **before M3** specialist placement (anchor budget) and ideally alongside the remainder of **M1.3** (composition + non-fodder anchors). Low risk if allowlists stay conservative — does not block M2 fodder work.
+
 ### M2 — Tier 1 fodder roster
 
 #### M2.1 — Skirmisher kiting (preferred engagement band)
@@ -233,21 +276,64 @@ Playtest pass on T1 fodder pacing:
 
 ### M3 — Tier 2 specialists
 
-#### M3.1 — Sniper
+**Implementation order:** Spotter (M3.1) before Sniper (M3.2). Roster table above keeps Sniper before Spotter narratively; Spotter ships first because it reuses `PatrolHostile`, lands `ALARM` `kind` plumbing, and unlocks the T2 priority-target puzzle with existing fodder — Sniper's cross-turn telegraph is the higher-risk stretch.
 
-- Long range (`SIGHT_RANGE` + bonus), high damage, **two-phase aim → fire**: spends a turn acquiring (NOISE or `aim` step tell) before the shot lands next turn.
-- **TDD:** telegraphs turn 1, fires turn 2; breaking LOS during telegraph cancels shot.
+#### M3.1 — Spotter
 
-#### M3.2 — Spotter
+**Not `CorpCivilian`.** See [CorpCivilian vs Spotter](#corpcivilian-vs-spotter) — civilians stay ambient; spotters are mobile combat specialists.
 
-**Not `CorpCivilian`.** See [CorpCivilian vs CorpSpotter](#corpcivilian-vs-corpspotter) — civilians stay ambient; spotters are mobile combat specialists.
+**Locked design (pre-implementation):**
 
-- Extends `Hostile`. Never attacks. **Mobile** patrol → investigate → spot state machine (reuse `PatrolHostile` pathing).
-- **Spot mode:** each corp turn, if player is in LOS, emit a direct `ALARM` bus ping with `{ source, target, origin }` — **do not** call `world.raiseAlarm()`. Hostiles subscribed to `ALARM` (skirmishers, guards, …) force-ENGAGE on the shared target, same as today, but the ping repeats every turn the spotter holds sight.
-- **No LOS:** path toward last-known position or a vantage tile that restores LOS (prefer tiles with range + sight to player). Smoke blocks LOS like any ranged check — spotter must move to a new angle, unlike a stationary civilian.
-- **Rep / facility alarm:** spotter pings do not trip facility latch or stack `REP.ALARM_PENALTY`. Facility alarm remains the civilian/terminal domain.
+| Axis | Decision |
+|------|----------|
+| Event plumbing | **`ALARM` with `kind` discriminator** — `World.raiseAlarm()` emits `kind: 'facility'`; spotter emits `kind: 'spotter'` directly (no `raiseAlarm()`). Patrol hostiles react to both kinds; spotter does not subscribe to `ALARM` (no self-wake / no civilian latch coupling). |
+| Target share | **Pure refresh** — every corp turn with LOS → ping, even if allies already ENGAGE. Refreshes coords for kiting players; primary force-multiplier value. |
+| Class shape | **`Spotter extends PatrolHostile`** — reuse patrol → investigate → engage pathing; override `bindToBus` to skip the alarm subscription (axis 3). `engageSteps` is spot-only (never attacks). |
+| Vantage AI | **LOS + max Chebyshev distance** — when repositioning, prefer legal neighbour tiles that restore LOS while maximising distance to the target (skirmisher kiting inverted). **`SPOTTER_SIGHT_RANGE = 10`** (baseline `SIGHT_RANGE` is 8; 12 is the playtest ceiling if 10 feels too short). |
+| Cover / LOS | **Standard combat LOS** — cover does not block spotter sight (same as skirmisher acquisition). Cover alone cannot permanently neutralise a T2 specialist. |
+| Stealth | **Hostile rules** — `acquireTarget` / `isSpottableBy`: stealthed targets visible only at Chebyshev ≤ 1. SLIDE remains a viable counter; spotter is not a range-stealth hard-counter like civilians. |
+| Durability | **Skirmisher-like** — `DEFAULT_HP` (3) via `resolveEnemyStats(..., ENEMY_ROLE.SPECIALIST, tier)`; no armor; evasiveness comes from vantage AI, not dodge RNG. |
+
+**Behaviour:**
+
+- **`Spotter extends PatrolHostile`.** Never attacks. ENGAGE branch = spot-only via `engageSteps`.
+- **Spot mode:** each corp turn, if a hostile target is acquired (LOS + range + stealth rules), emit `EVENT.ALARM` with `{ kind: 'spotter', source, target, origin }`. Hostiles subscribed to `ALARM` force-ENGAGE on the shared target (both `facility` and `spotter` kinds); ping repeats every turn sight holds.
+- **No LOS:** path toward last-known position or a vantage tile that restores LOS, scoring candidates by distance-maximising among tiles that hold sight. Smoke blocks LOS like any ranged check — spotter must move to a new angle.
+- **Rep / facility alarm:** `kind: 'spotter'` pings do not trip facility latch or stack `REP.ALARM_PENALTY`. Facility alarm remains the civilian/terminal domain (`kind: 'facility'` only).
+- **`World.raiseAlarm()`:** add `kind: 'facility'` to its existing `ALARM` emit payload (backward-compatible default for tests that omit `kind`).
 - Land full plumbing: types, persistence, snapshot/restore, loot, `corpTurnStatusCopy`, `kindFromId`.
-- **TDD:** spotter with LOS emits ALARM every turn without calling `raiseAlarm`; allies re-engage on fresh target coords; spotter without LOS moves toward vantage; killing spotter stops pings; civilian `raiseAlarm` behavior unchanged (regression guard).
+- **TDD:** spotter with LOS emits `ALARM` `{ kind: 'spotter' }` every turn without calling `raiseAlarm`; allies re-engage on fresh target coords on both kinds; spotter without LOS moves toward max-distance vantage; killing spotter stops pings; spotter ignores incoming `ALARM`; civilian `raiseAlarm` emits `kind: 'facility'` and behaviour unchanged (regression guard); stealthed player beyond Chebyshev 1 not spotted.
+
+#### M3.2 — Sniper
+
+**Contrast with Spotter:** Spotter coordinates fodder (`ALARM` pings); sniper is a **self-contained personal threat** — break LOS or eat the burst. No ally force-multiplier.
+
+**Locked design (pre-implementation):**
+
+| Axis | Decision |
+|------|----------|
+| Class shape | **`Sniper extends PatrolHostile`** — patrol/investigate/engage shell shared with skirmisher. Cross-turn aim via `aimTargetId` + a **`takeTurnSteps` preamble** that resolves pending aim *before* `acquireTarget` (must fire-or-cancel even when live LOS is gone). |
+| Timing | **Corp N aim → player turn → Corp N+1 fire/cancel.** Full counterplay window between phases. While `aimTargetId` is set, sniper is **stationary** (holding aim across the player turn). |
+| Aim AP | **`AP_COST.RANGED_ATTACK` (2)** to commit aim. Preconditions match `canFireRanged` at `SNIPER_SIGHT_RANGE` + `isSpottableBy` (Hostile stealth rules). **Same corp turn:** sniper may **move/kite first, then aim** — e.g. move (1 AP) + aim (2 AP) under default 4 AP; up to two move steps + aim at 4 AP. Once aim commits, **no further actions that corp turn** (`engageSteps` returns `'break'`). |
+| Fire | **Guaranteed hit** on a committed shot (`baseHit: 1.0` via `resolveRanged` override). **`SNIPER_DAMAGE = 3`**. Cancel (clear `aimTargetId`, yield `{ type: 'aim-cancelled', reason }`) if target dead, out of range, no LOS, or not `isSpottableBy` at fire time. Leftover AP after fire → reposition (kite/close). |
+| Range | **`SNIPER_SIGHT_RANGE = 12`** (baseline `SIGHT_RANGE` 8; spotter 10). |
+| Reposition | **Skirmisher kiting mirror** when not holding aim — `preferredMin = 3`, distance-maximising retreat; close when out of range. Never melees. |
+| Telegraph | **`{ type: 'aim', target }` turn-step** + corp log line + **crosshair overlay on target tile** in renderer during the aim window. **No `NOISE` on aim** (fire still emits normal ranged noise via `resolveRanged`). |
+| Damage during aim | **Any damage to sniper while `aimTargetId` set clears pending aim** — rewards focus-firing during the telegraph window (close to Chebyshev ≤ 5 to reveal, or chip damage if the sniper entered turret range). |
+| Range conceal | **Player perception only** (Razor/Flanker mirror at distance). While `aimTargetId` set **and** Chebyshev distance to deployed player ≥ **`SNIPER_CONCEAL_MIN_RANGE` (6)**: sniper omitted from `buildFrame`, **not player-direct-targetable** (crew ranged/melee), corp aim log uses anonymous copy (*"A targeting laser settles on you."*). **Reveal** at Chebyshev ≤ 5 (glyph + targeting restore). **Not active** before aim commits — sniper is visible during patrol for pre-emptive picks. Crosshair overlay on **target tile** remains the primary tell (red-dot action-film beat). Extract `isConcealedFromPlayer(entity, player)` helper — reuse pattern for Flanker (M4.3). |
+| Turret interaction | **`TURRET_RANGE` is 4** — a player turret **cannot** reach a sniper holding a long-range aim lock (conceal at Chebyshev ≥ 6, sniper fires from up to 12). Turrets are **area denial**, not a mid-lock counter: a deployed turret zones a 4-tile bubble so the sniper must avoid that LOS when **positioning to acquire aim** (Tech value = prevention, not rescue). When a sniper **does** enter turret LOS + range, turrets use normal hostile acquisition and **ignore player range conceal** (can engage a player-hidden sniper inside the bubble). Sniper pathing when seeking aim/kite should treat turret threat tiles as high cost or forbidden. |
+| Cover / LOS / stealth | **Standard combat LOS** for acquisition and fire validation. **Hostile stealth rules** — cannot start aim on a stealthed target beyond Chebyshev 1; pending aim cancels if target breaks stealth before fire. No `ALARM` involvement. |
+| Durability | **Skirmisher-like** — `DEFAULT_HP` (3) via `resolveEnemyStats(..., ENEMY_ROLE.SPECIALIST, tier)`; no armor. |
+
+**Behaviour:**
+
+- **`Sniper extends PatrolHostile`.** Override `takeTurnSteps`: if `aimTargetId` set, run fire-or-cancel preamble first; then delegate to super.
+- **Engage loop (no pending aim):** kite if inside `preferredMin`; else if in range + LOS → commit aim (2 AP, set `aimTargetId`, yield `aim`, break turn); else close one step.
+- **Range conceal:** `isConcealedFromPlayer(sniper, player)` when `aimTargetId` set and Chebyshev ≥ `SNIPER_CONCEAL_MIN_RANGE` (6). Wire into renderer, player crew target resolution, and `formatCorpTurnStep` for `aim`. **Turrets bypass conceal** but are range-limited (`TURRET_RANGE` 4) — see turret interaction row.
+- **Fire turn:** validate target; on success `resolveRanged` with `{ range: SNIPER_SIGHT_RANGE, damage: SNIPER_DAMAGE, baseHit: 1.0 }`; on fail `aim-cancelled`.
+- **Persistence:** snapshot block `sniper?` with `{ state, lastKnownTarget, patrolWaypoints, patrolIndex, aimTargetId }`.
+- Land full plumbing: types (`aim` / `aim-cancelled` turn-steps), persistence, snapshot/restore, loot, `corpTurnStatusCopy`, `kindFromId`, renderer crosshair + concealment omit.
+- **TDD:** corp N in range → `aim` step + `aimTargetId` set; corp N+1 intact LOS → guaranteed 3 damage; corp N+1 after player broke LOS → `aim-cancelled`, no damage; SLIDE/stealth breaks pending aim; sniper damage during aim window clears `aimTargetId`; move+kite then aim same corp turn; kiting inside `preferredMin`; snapshot round-trips `aimTargetId`; no aim NOISE; fire emits ranged NOISE as today; **concealed at aim + Chebyshev ≥ 6** (no glyph, not crew-targetable, anonymous aim log); **revealed at Chebyshev ≤ 5**; visible before aim; **turret cannot acquire sniper at typical aim distance** (range 4 vs conceal ≥ 6); **turret engages sniper inside turret range regardless of player conceal**; sniper pathing avoids turret threat zone when seeking aim vantage.
 
 #### M3.3 — Medic
 
@@ -277,7 +363,7 @@ Playtest pass on T1 fodder pacing:
 
 **Two concealment layers (player perception only):**
 
-1. **Cover occlusion (passive):** When any COVER tile lies strictly between player and flanker, the flanker is hidden — reuse M1.4 `hasConcealedLineOfSight` with `(observer=player, target=flanker)`. No cover on the line → visible unless layer 2 is active.
+1. **Cover occlusion (passive):** When any COVER tile lies strictly between player and flanker, the flanker is hidden — reuse M1.4 `hasConcealedLineOfSight` with `(observer=player, target=flanker)`. No cover on the line → visible unless layer 2 is active. Wire via the shared **`isConcealedFromPlayer`** pattern introduced in M3.2 (sniper range conceal).
 2. **Slide vanish (active):** A 2 AP **SLIDE** (same geometry as Razor: 2-tile cardinal/diagonal dash, both intermediate and landing tiles passable, silent — no `NOISE` event). On commit, set a `slideConcealed` flag that keeps the flanker **hidden from the player regardless of cover/adjacency** until cleared.
 
 **Slide lifecycle (mirror Razor, inverted faction):**
@@ -319,8 +405,11 @@ So a flanker that SLIDEs on corp turn N vanishes for the player's entire turn N+
 - **Corp civilian harm from player-placed breaching charges:** M5 Rep only tracks `FACTION.NEUTRAL` via `civilian:harmed`; killing a `CorpCivilian` (`c` glyph) in a breach blast does not cost Rep or block the clean-extraction bonus, even though the charge is player-planted and the log reads `Blast killed [Corp]Civilian.` Player-planted breach attribution now passes the deployed crew member as `attacker` on `entity:damaged` (so neutral bystanders count). Revisit whether corp-aligned non-combatants should also count toward civilian-casualty Rep / the "no civilian casualties" clean bonus, and whether the flash copy should distinguish corp staff vs neutral bystanders.
 - **Knockback into hazards:** should a bruiser's shove push the player into a hazard tile? Decide during M4.1.
 - **Armor vs. dodge interaction:** resolved in M1.2 — dodge/miss resolves first; `damageReduction` applies only on a connected hit, with a 1-damage floor. Documented in `Combat.ts`.
-- **Sniper telegraph readability:** aim tell must be unmissable on the ASCII/CRT canvas — coordinate with renderer.
+- **Sniper telegraph readability:** locked — `aim` turn-step + corp log + **crosshair overlay** on target tile during aim window; range conceal at Chebyshev ≥ 6 while aiming (M3.2).
+- **`SNIPER_CONCEAL_MIN_RANGE` tuning:** locked at 6; playtest ceiling 5–7 if reveal band feels too narrow/wide.
 - **Flanker SLIDE noise tell:** M4.3 optional footstep NOISE without glyph — lean silent for v0.2.7, add tell if playtests feel unfair.
 - **Composition determinism:** all tier/role rolls derive from contract seed (Phase 2.5 standard).
+- **Map size allowlists (M1.5):** starting bands above are proposals — playtest whether STANDARD should ever dip below 24×16, whether CRITICAL needs 32×20, and whether aspect ratio should stay ~3:2 or allow taller “tower” maps for sniper verticality.
+- **Map size vs. objective timer:** longer maps may need objective-timer review (Phase 2.5) so retrieve/sweep gigs don’t feel padded on large footprints — defer tuning until sizes land.
 - **UI copy:** contract briefing uses "N hostiles" (not "N drones"); role-specific aliases land in Phase 2.8.
 - **Spotter + civilian coexistence:** office prefabs may spawn ambient civilians on ELEVATED/CRITICAL maps that also roll a spotter specialist — confirm briefing/log copy distinguishes `[Corp]Civilian` from the spotter alias once Phase 2.8 theming lands.
