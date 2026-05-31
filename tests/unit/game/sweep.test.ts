@@ -143,6 +143,8 @@ describe('Sweep objective (drone-all)', () => {
   it('falls back to drone-all when no target param', () => {
     const contract: Contract = {
       seed: 42,
+      mapWidth: 24,
+      mapHeight: 16,
       objective: {
         kind: OBJECTIVES.SWEEP,
         title: 'Sweep',

@@ -137,6 +137,10 @@ export type LocationSite = {
   id: string;
   /** Deterministic map seed (stringified contract seed). */
   seed: string;
+  /** Persisted combat map width. Missing in legacy saves normalizes to 24. */
+  mapWidth: number;
+  /** Persisted combat map height. Missing in legacy saves normalizes to 16. */
+  mapHeight: number;
   /** Flavor label carried over from the contract that first visited. */
   label: string;
   /** Roster tier — `'score'` is reserved for Phase 3 and never evicted. */

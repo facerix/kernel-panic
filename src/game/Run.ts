@@ -78,6 +78,7 @@ import {
   normalizeObjective,
 } from './hub/Curator.js';
 import { buildMap } from './procgen/mapBuild.js';
+import { normalizeMapDimensions } from './procgen/mapDimensions.js';
 import { findPath } from './Pathfinding.js';
 import type { Contract } from './hub/Curator.js';
 import type { FactionId } from './constants.js';
@@ -97,9 +98,6 @@ export const OUTCOME = Object.freeze({
 });
 
 const KNOWN_OUTCOMES = new Set(Object.values(OUTCOME));
-
-const COMBAT_MAP_WIDTH = 24;
-const COMBAT_MAP_HEIGHT = 16;
 
 export type RunState = (typeof RUN_STATE)[keyof typeof RUN_STATE];
 export type Outcome = (typeof OUTCOME)[keyof typeof OUTCOME];
@@ -448,8 +446,8 @@ export class Run {
     this.bus = new EventBus();
     const map = buildMap({
       rng: this.rng,
-      width: COMBAT_MAP_WIDTH,
-      height: COMBAT_MAP_HEIGHT,
+      width: this.contract.mapWidth,
+      height: this.contract.mapHeight,
       threatCount: this.contract.threatCount,
       difficulty: this.contract.difficulty,
       includePrefabDoors: contractRequiresDoor(this.contract),
@@ -2216,8 +2214,11 @@ function normalizeContractForRun(contract: unknown): Contract {
     throw new TypeError('contract.label must be a non-empty string');
   }
   const context = normalizeContractContext(candidate.context);
+  const dimensions = normalizeMapDimensions(candidate.mapWidth, candidate.mapHeight, 'contract');
   return {
     seed,
+    mapWidth: dimensions.width,
+    mapHeight: dimensions.height,
     objective,
     difficulty,
     threatCount,

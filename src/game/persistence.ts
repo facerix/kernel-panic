@@ -102,6 +102,7 @@ import type {
 } from './Run.js';
 import type { CampaignMeta, CampaignState } from './Campaign.js';
 import { normalizeLocationSite } from './locations.js';
+import { normalizeMapDimensions } from './procgen/mapDimensions.js';
 import type { KeyItem, LocationSite, TileDelta } from '../types.js';
 
 const ARCHETYPE_KEY = Symbol.for('kernel-panic.archetype');
@@ -313,6 +314,8 @@ function snapshotLocationSite(site: LocationSite): LocationSite {
   return {
     id: site.id,
     seed: site.seed,
+    mapWidth: site.mapWidth,
+    mapHeight: site.mapHeight,
     label: site.label,
     tier: site.tier,
     scoreTarget: site.scoreTarget,
@@ -1073,9 +1076,12 @@ function normalizeContract(
   };
   const reward = raw.reward;
   const context = normalizeContractContext(raw.context);
+  const dimensions = normalizeMapDimensions(raw.mapWidth, raw.mapHeight, 'restore: contract');
   if (!reward) {
     return {
       ...raw,
+      mapWidth: dimensions.width,
+      mapHeight: dimensions.height,
       objective: normalizeObjective(raw.objective),
       context,
       reward: { credits: 0, repDelta: 0 },
@@ -1095,6 +1101,8 @@ function normalizeContract(
   }
   return {
     ...raw,
+    mapWidth: dimensions.width,
+    mapHeight: dimensions.height,
     objective: normalizeObjective(raw.objective),
     context,
     reward: {

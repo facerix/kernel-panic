@@ -19,6 +19,7 @@
 
 import { Entity } from '../Entity.js';
 import { CONTRACT_DIFFICULTY, FACTION, REP, repTierForRep } from '../constants.js';
+import { resolveMapDimensions } from '../procgen/mapDimensions.js';
 import type { Rng } from '../../rng.js';
 import type { EntityInit } from '../Entity.js';
 import type { ContractDifficulty } from '../constants.js';
@@ -484,6 +485,8 @@ function applyDoorRoutingToObjective(
 
 export type Contract = {
   seed: number;
+  mapWidth: number;
+  mapHeight: number;
   objective: ContractObjective;
   difficulty: ContractDifficulty;
   threatCount: number;
@@ -581,6 +584,9 @@ export class Curator extends Entity {
       } else {
         seed = siteSeedToContractSeed(revisitSite!);
       }
+      const dimensions = revisitSite
+        ? { width: revisitSite.mapWidth, height: revisitSite.mapHeight }
+        : resolveMapDimensions({ seed, difficulty });
 
       const credits = rng.intRange(
         spec.credits.min + tier.rewardFloorBump,
@@ -590,6 +596,8 @@ export class Curator extends Entity {
       if (difficulty === CONTRACT_DIFFICULTY.CRITICAL) reward.recruit = true;
       contracts.push({
         seed,
+        mapWidth: dimensions.width,
+        mapHeight: dimensions.height,
         objective: applyDoorRoutingToObjective(built.objective, difficulty),
         difficulty,
         threatCount: spec.threatCount,
@@ -803,10 +811,13 @@ export function buildContractRecipeFixture({
   const partial = buildContractFromRecipe(recipe, tokens, { arcStage });
   const reward: Contract['reward'] = { credits: spec.credits.min, repDelta: spec.repDelta };
   if (difficulty === CONTRACT_DIFFICULTY.CRITICAL) reward.recruit = true;
+  const dimensions = resolveMapDimensions({ seed, difficulty });
   return {
     ...partial,
     objective: applyDoorRoutingToObjective(partial.objective, difficulty),
     seed,
+    mapWidth: dimensions.width,
+    mapHeight: dimensions.height,
     difficulty,
     threatCount: spec.threatCount,
     reward,

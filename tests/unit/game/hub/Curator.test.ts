@@ -18,6 +18,7 @@ import {
   contractUsesDoorRouting,
   isObjective,
 } from '../../../../src/game/hub/Curator.js';
+import { MAP_DIMENSION_BANDS } from '../../../../src/game/procgen/mapDimensions.js';
 import { buildHub } from '../../../../src/game/hub/SafeSpace.js';
 
 test('Curator constructs with NEUTRAL faction and zero AP', () => {
@@ -48,6 +49,15 @@ test('generateContracts returns a deterministic board of 3 tiered contracts', ()
       `unknown difficulty ${contract.difficulty}`
     );
     assert.ok(contract.threatCount >= 2);
+    assert.ok(Number.isInteger(contract.mapWidth) && contract.mapWidth > 0);
+    assert.ok(Number.isInteger(contract.mapHeight) && contract.mapHeight > 0);
+    assert.ok(
+      MAP_DIMENSION_BANDS[contract.difficulty].some(
+        dimensions =>
+          dimensions.width === contract.mapWidth && dimensions.height === contract.mapHeight
+      ),
+      `${contract.difficulty} produced ${contract.mapWidth}x${contract.mapHeight}`
+    );
     assert.ok(contract.context, 'generated contracts should carry structured context metadata');
     assert.ok(contract.context.tags.includes(`objective:${contract.objective.kind}`));
     assert.ok(Number.isInteger(contract.reward.credits) && contract.reward.credits >= 0);
@@ -67,6 +77,8 @@ test('contract objective is in the known set and threatCount > 0', () => {
   assert.ok(contract.threatCount > 0);
   assert.ok(typeof contract.label === 'string' && contract.label.length > 0);
   assert.ok(Number.isInteger(contract.seed) && contract.seed >= 0);
+  assert.ok(Number.isInteger(contract.mapWidth) && contract.mapWidth > 0);
+  assert.ok(Number.isInteger(contract.mapHeight) && contract.mapHeight > 0);
   assert.ok(Number.isInteger(contract.reward.credits));
   assert.ok(Number.isInteger(contract.reward.repDelta));
 });

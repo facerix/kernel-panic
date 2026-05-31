@@ -95,6 +95,7 @@ const CacheConfig = {
       '/src/game/placement.js',
       '/src/game/procgen/bsp.js',
       '/src/game/procgen/mapBuild.js',
+      '/src/game/procgen/mapDimensions.js',
       '/src/game/procgen/prefabs/checkpoint.js',
       '/src/game/procgen/prefabs/hallway.js',
       '/src/game/procgen/prefabs/index.js',

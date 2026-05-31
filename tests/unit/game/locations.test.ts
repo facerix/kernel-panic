@@ -21,6 +21,7 @@ import { OUTCOME } from '../../../src/game/Run.js';
 import { KeyCard } from '../../../src/game/entities/KeyCard.js';
 import { Door } from '../../../src/game/entities/Door.js';
 import { Rng } from '../../../src/rng.js';
+import { resolveMapDimensions } from '../../../src/game/procgen/mapDimensions.js';
 import type { Contract } from '../../../src/game/hub/Curator.js';
 import type { LocationSite, TileDelta } from '../../../src/types.js';
 
@@ -28,6 +29,8 @@ function validSite(overrides: Partial<LocationSite> = {}): LocationSite {
   return {
     id: '12345',
     seed: '12345',
+    mapWidth: 24,
+    mapHeight: 16,
     label: '// Matsuda payroll mirror',
     tier: 'roster',
     scoreTarget: false,
@@ -161,6 +164,24 @@ test('normalizeLocationSite: empty id/seed/label throws', () => {
   assert.throws(() => normalizeLocationSite(validSite({ id: '' })), /id must be a non-empty/);
   assert.throws(() => normalizeLocationSite(validSite({ seed: '' })), /seed must be a non-empty/);
   assert.throws(() => normalizeLocationSite(validSite({ label: '' })), /label must be a non-empty/);
+});
+
+test('normalizeLocationSite: legacy site dimensions default to 24x16', () => {
+  const raw = validSite() as Partial<LocationSite>;
+  delete raw.mapWidth;
+  delete raw.mapHeight;
+
+  const normalized = normalizeLocationSite(raw);
+
+  assert.equal(normalized.mapWidth, 24);
+  assert.equal(normalized.mapHeight, 16);
+});
+
+test('normalizeLocationSite: partial dimensions throw instead of guessing', () => {
+  const raw = validSite() as Partial<LocationSite>;
+  delete raw.mapHeight;
+
+  assert.throws(() => normalizeLocationSite(raw), /mapWidth and mapHeight/);
 });
 
 test('normalizeLocationSite: negative lastVisitedJob throws', () => {
@@ -353,6 +374,8 @@ test('Curator: a revisit reuses the site seed and PINS principal + site identity
         const site = byId.get(contract.context.locationSiteId)!;
         // Same geometry seed.
         assert.equal(contract.seed, Number(site.seed));
+        assert.equal(contract.mapWidth, site.mapWidth);
+        assert.equal(contract.mapHeight, site.mapHeight);
         // Identity is pinned: principal + site match the remembered location.
         assert.equal(contract.context.principal.id, site.principal!.id);
         assert.equal(contract.context.site?.id, site.site!.id);
@@ -447,8 +470,11 @@ test('Curator: revisit contracts still pass context validation (locationSiteId a
 // ─── Run re-entry / deploy / job-end (cases 5+6+7, case 8) ────────────────────
 
 function reachExitContract(seed: number, overrides: Partial<Contract> = {}): Contract {
+  const dimensions = resolveMapDimensions({ seed, difficulty: 'standard' });
   return {
     seed,
+    mapWidth: dimensions.width,
+    mapHeight: dimensions.height,
     objective: { kind: OBJECTIVES.REACH_EXIT, title: 'Extract clean', briefing: 'Reach the exit.' },
     difficulty: 'standard',
     threatCount: 1,

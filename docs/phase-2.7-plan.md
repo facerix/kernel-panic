@@ -137,7 +137,7 @@ All rolls derive from the contract seed (deterministic, save-compatible).
 | M1.2 — `damageReduction` (armor) stat on `Entity` | ✅ Complete |
 | M1.3 — Encounter composition by tier (roles, not just counts) | 🟡 In progress — resolver landed; **fodder slice wired** (M2 spawns skirmisher/guard mix); specialist/elite anchors+classes still pending |
 | M1.4 — CorpCivilian cover-occluded LOS | ✅ Complete |
-| M1.5 — Variable combat map dimensions (tier + seed) | 🔲 Not started |
+| M1.5 — Variable combat map dimensions (tier + seed) | ✅ Complete |
 | M2 — Tier 1 fodder roster | ✅ Complete |
 | M2.1 — Skirmisher kiting (preferred engagement band) | ✅ Complete |
 | M2.2 — Guard (melee fodder) | ✅ Complete |
@@ -238,6 +238,8 @@ All rolls derive from the contract seed (deterministic, save-compatible).
 - M7.2 `LocationSite`: persist `mapWidth`/`mapHeight` beside `seed` so revisit geometry stays byte-identical when difficulty/objective are re-rolled.
 - **Score-target sites** (Phase 3): always use roster-stored dimensions; contract `difficulty` scales encounter composition only, not footprint.
 - **TDD:** same `(seed, difficulty)` → same dimensions; different seeds at same tier can differ; `buildMap` + `composeEncounter` both deterministic; restore/revisit uses stored dimensions; allowlist rejects playable area below `MIN_LEAF`.
+
+**Implementation note:** `src/game/procgen/mapDimensions.ts` owns the per-difficulty allowlists and pure `resolveMapDimensions({ seed, difficulty })` resolver using the dedicated `'map-size'` RNG fork. Curator-generated contracts now store `mapWidth`/`mapHeight`; revisits copy dimensions from the pinned `LocationSite`; `Run.enterCombat` builds from the stored contract fields. Legacy contracts and roster sites with both fields missing normalize to 24×16, while partial dimension records throw. The new runtime module is precached and the service-worker cache version is bumped for offline clients.
 
 **Schedule:** Land **before M3** specialist placement (anchor budget) and ideally alongside the remainder of **M1.3** (composition + non-fodder anchors). Low risk if allowlists stay conservative — does not block M2 fodder work.
 

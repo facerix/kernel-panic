@@ -91,6 +91,32 @@ test('legal transition chain: BRIEFING → COMBAT → RESULT', () => {
   assert.equal(run.state, RUN_STATE.RESULT);
 });
 
+test('enterCombat uses persisted contract map dimensions', () => {
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 42 });
+  run.enterBriefing(fakeContract({ mapWidth: 28, mapHeight: 18, threatCount: 2 }));
+
+  run.enterCombat();
+
+  assert.equal(run.world!.grid.width, 28);
+  assert.equal(run.world!.grid.height, 18);
+});
+
+test('legacy contracts without map dimensions default to 24x16', () => {
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 42 });
+  run.enterBriefing(fakeContract({ threatCount: 2 }));
+
+  run.enterCombat();
+
+  assert.equal(run.world!.grid.width, 24);
+  assert.equal(run.world!.grid.height, 16);
+});
+
+test('partial contract map dimensions fail loud', () => {
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 42 });
+
+  assert.throws(() => run.enterBriefing(fakeContract({ mapWidth: 28 })), /mapWidth and mapHeight/);
+});
+
 test('enterCombat passes contract threat and difficulty into map generation', () => {
   const run = new Run({ crewMember: makeCrew('razor'), seed: 42 });
   run.enterBriefing(

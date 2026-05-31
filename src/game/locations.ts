@@ -13,6 +13,7 @@
  */
 
 import { TILE } from './constants.js';
+import { normalizeMapDimensions } from './procgen/mapDimensions.js';
 import type { Grid } from './Grid.js';
 import type { LocationSite, LocationToken, TileDelta } from '../types.js';
 
@@ -104,6 +105,11 @@ export function normalizeLocationSite(raw: unknown): LocationSite {
   const candidate = raw as Partial<LocationSite>;
   const id = requireNonEmptyString(candidate.id, 'id');
   const seed = requireNonEmptyString(candidate.seed, 'seed');
+  const dimensions = normalizeMapDimensions(
+    candidate.mapWidth,
+    candidate.mapHeight,
+    'normalizeLocationSite'
+  );
   const label = requireNonEmptyString(candidate.label, 'label');
   if (candidate.tier === undefined || !LOCATION_TIERS.has(candidate.tier)) {
     throw new RangeError(`normalizeLocationSite: unknown tier "${String(candidate.tier)}"`);
@@ -124,6 +130,8 @@ export function normalizeLocationSite(raw: unknown): LocationSite {
   return {
     id,
     seed,
+    mapWidth: dimensions.width,
+    mapHeight: dimensions.height,
     label,
     tier: candidate.tier,
     scoreTarget: candidate.scoreTarget,
