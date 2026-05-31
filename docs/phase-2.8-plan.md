@@ -8,17 +8,17 @@ Living plan for the post–Phase 2.7 slice: turn the **role taxonomy** from Phas
 
 Phase 2.7 fixes *how* enemies fight — roles, tiers, defensive identity. Phase 2.8 fixes *who they read as* on the job board, in combat log, and on the grid.
 
-Today every hostile is `[Corp]Drone` / `[Corp]Enforcer`, with glyphs hard-coded per class (`d`, `e`, `r`). The Curator lexicon already tags every contract with a **principal** (`Matsuda`, `Kestrel Dynamics`, `Chrome Choir`, …) and a difficulty tier, but that identity stops at briefing text — it never reaches spawned entities. Three problems follow:
+Today every hostile is `[Corp]Drone` / `[Corp]Guard` (from `kindFromId` on `drone-*` / `guard-*` entity ids), with glyphs hard-coded per class (`k` skirmisher, `g` guard, …). The Curator lexicon already tags every contract with a **principal** (`Matsuda`, `Kestrel Dynamics`, `Chrome Choir`, …) and a difficulty tier, but that identity stops at briefing text — it never reaches spawned entities. Three problems follow:
 
-1. **Contracts feel interchangeable in combat.** A Matsuda finance gig and a Kestrel security gig both spawn identical `[Corp]Drone` labels; the principal flavor is cosmetic-only.
+1. **Contracts feel interchangeable in combat.** A Matsuda finance gig and a Kestrel security gig both spawn identical `[Corp]Drone` / `[Corp]Guard` labels; the principal flavor is cosmetic-only.
 2. **The grid under-communicates role.** Glyph encodes class today (good), but once multiple specialists land in 2.7, players need at-a-glance role reading *and* (when we mix allegiances) who belongs to whom.
 3. **Higher tiers lack compositional surprise.** Tier doctrine in 2.7 adds role variety within one security force; 2.8 adds **cross-principal pressure** — site security plus a rival insert — without new AI classes.
 
 **Direction chosen (brainstorm, May 2026):**
 
-- **Behavior classes stay stable; principal names are a theming layer** — same `CorpDrone` AI, different display alias per principal (already stated in 2.7; 2.8 implements it).
+- **Behavior classes stay stable; principal names are a theming layer** — same `Skirmisher` / `Guard` AI, different display alias per principal (Phase 2.7 landed the role classes; 2.8 implements the alias layer).
 - **Labels move from `[Corp]Kind` to `[PrincipalTag]Alias`** — e.g. `[Matsuda]Auditor`, `[Choir]Racketeer`. Retire the generic `[Corp]` prefix for aliased hostiles.
-- **Glyphs encode role; color encodes allegiance** — keep one glyph per role class globally (`d` skirmisher, `e` bruiser, …); differentiate site security vs rivals via faction hue when both appear on-map. *Not* per-principal glyph chars (e.g. Auditor=`a`, Guard=`g`) — flavor belongs in the label, role belongs on the grid.
+- **Glyphs encode role; color encodes allegiance** — keep one glyph per role class globally (`k` skirmisher, `g` guard, `e` bruiser, …); differentiate site security vs rivals via faction hue when both appear on-map. *Not* per-principal glyph chars (e.g. Auditor=`a`, Guard=`g`) — flavor belongs in the label, role belongs on the grid.
 - **T2+ may spawn site-aligned hostiles plus a rival insert** — seed-driven, tier-gated; both act during the enemy turn bucket; medics heal same-faction allies only (cross-faction friction by default).
 
 ## Current status
@@ -42,7 +42,7 @@ Today every hostile is `[Corp]Drone` / `[Corp]Enforcer`, with glyphs hard-coded 
 **Phase 2.8** is complete when:
 
 1. Every milestone above is ✅.
-2. Hostiles spawned for a contract show principal-themed aliases in log, describe, and corp turn copy — not `[Corp]Drone`.
+2. Hostiles spawned for a contract show principal-themed aliases in log, describe, and corp turn copy — not generic `[Corp]Drone` / `[Corp]Guard`.
 3. Grid glyphs distinguish role at a glance; when rivals appear, allegiance is readable by color without extra chars.
 4. T2+ contracts can deterministically roll a rival insert alongside site-aligned hostiles; saves round-trip alias + faction metadata.
 5. Full campaign loop from Phase 2.7 remains playable offline on iOS Safari + Chrome desktop.
@@ -58,7 +58,8 @@ Map each **behavior role** (from 2.7 taxonomy) to a **display alias** per Curato
 
 | Role (2.7) | Example: Matsuda (finance) | Example: Kestrel (security) | Example: Chrome Choir (rival) |
 |------------|---------------------------|------------------------------|--------------------------------|
-| Skirmisher | Auditor, Compliance Drone | Contract Guard, Sentry Bot | Racketeer, Thug |
+| Skirmisher | Auditor, Compliance Drone | Sentry Bot, Patrol Unit | Racketeer, Thug |
+| Guard | Floor Security, Process Server | Contract Guard, Enforcer | Thug, Bouncer |
 | Bruiser | Collections Agent | Armored Enforcer | Bouncer, Toro |
 | Medic | Forensic Tech | Trauma Tech | Street Doc |
 | Sniper | Marksman | Sniper | Francotirador |
@@ -126,7 +127,7 @@ Example (T3): `[Matsuda]` Compliance drones + `[Matsuda]` Senior Auditor + `[Cho
 | `corpTurnStatusCopy` | Stop hardcoding `FACTION.CORP` filter; use hostile-faction set |
 | `Hostile` subclasses | No new behavior required if reskin-only; medic already heals `this.faction` |
 
-Class names (`CorpDrone`, …) can stay as implementation names; display layer decouples player-facing identity.
+Class names (`Skirmisher`, `Guard`, `Sniper`, …) are stable implementation names; display layer decouples player-facing identity. **Save-compat note:** persistence archetype ids (`'drone'`, `'guard'`) and entity id prefixes (`drone-*`, `guard-*`) stay until a deliberate migration — Phase 2.8 theming rides on `displayName` / `principalTag`, not save-key churn.
 
 ---
 
@@ -161,7 +162,7 @@ Class names (`CorpDrone`, …) can stay as implementation names; display layer d
 
 #### M2.1 — Role-keyed glyph constants (all 2.7 classes)
 
-- Centralize glyph per `EnemyRole` (extend existing `ENFORCER_GLYPH`, `REPAIR_BOT_GLYPH`, drone `d`, plus sniper/spotter/juggernaut/flanker).
+- Centralize glyph per `EnemyRole` (extend existing skirmisher `k`, guard `g`, plus sniper/spotter/medic/bruiser/juggernaut/flanker).
 - Spawn sets `entity.glyph` from role, not from principal.
 - **TDD:** each role class spawns with expected char; glyph persisted across save/load.
 
@@ -191,7 +192,7 @@ Class names (`CorpDrone`, …) can stay as implementation names; display layer d
 
 - Document and test: alarm/noise bus behavior when source and listener differ in faction but both are hostile to player.
 - **Default (lean):** rivals and site security share alarm targeting (spotter buffs everyone hostile to player); medics heal same faction only; no friendly fire between hostile factions unless explicitly added later.
-- **TDD:** spotter alarm causes corp drone engage; corp medic does not heal rival; rival medic does not heal corp.
+- **TDD:** spotter alarm causes patrol hostiles (skirmishers, guards) to engage; corp medic does not heal rival; rival medic does not heal corp.
 
 ---
 
@@ -202,7 +203,7 @@ Class names (`CorpDrone`, …) can stay as implementation names; display layer d
 - Boss/named-encounter scripting with bespoke dialogue.
 - Full principal-specific **composition bias** (e.g. Orchid Vector always rolls medic) — alias table only unless open questions resolve toward bias.
 - Telemetry / analytics for which aliases players see.
-- Renaming implementation classes (`CorpDrone` → `Skirmisher`) — optional refactor, not required for theming.
+- ~~Renaming implementation classes (`CorpDrone` → `Skirmisher`, `CorpGuard` → `Guard`)~~ — **done in Phase 2.7 closeout**; persistence keys intentionally unchanged.
 
 ## Open questions / kaizen notes
 
@@ -212,7 +213,7 @@ Revisit after 2.7 hostile entities land and we have playtest surface for all rol
 
 - **Principal short tags:** curated map vs derived from `principal.label` (truncation rules for tablet log width).
 - **No-prefix mode:** drop `[Tag]` when contract header is sufficient and encounter is single-allegiance?
-- **Fallback policy:** unknown `(principalId, role)` → role generic name (`Drone`) vs dev throw vs `[Corp]` legacy tag.
+- **Fallback policy:** unknown `(principalId, role)` → role generic name (`Skirmisher`, `Guard`, …) vs dev throw vs `[Corp]` legacy tag.
 - **Alias table ownership:** live in `Curator.ts` next to lexicon vs dedicated module imported by spawn code.
 
 ### Glyphs & palette

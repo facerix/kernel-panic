@@ -1,15 +1,15 @@
 # Phase 2.7 Plan — Enemy roles & tier doctrine (pre–Phase 3)
 
-Living plan for the post–Phase 2.6.5, pre–Phase 3 slice of Kernel Panic: turn the enemy roster from a single-verb stat block (skirmisher-only) into a **role taxonomy** with a **tier doctrine** that controls encounter composition and per-tier stat scaling. **Target release: `v0.2.7`.** See [phase-2.6-plan.md](phase-2.6-plan.md) for resilience/placement foundations, [phase-2.6.5-plan.md](phase-2.6.5-plan.md) for the pre–2.7 balance/help slice, [phase-2.5-plan.md](phase-2.5-plan.md) for the completed Meatspace-depth slice, [phase-3-plan.md](phase-3-plan.md) for the campaign arc + Cyberspace this feeds into, [kernel-panic-v1-blueprint.md](kernel-panic-v1-blueprint.md) for the overall vision, and [cyberpunk-2077-enemy-list.md](cyberpunk-2077-enemy-list.md) for the source inspiration that seeded this work.
+Living plan for the post–Phase 2.6, pre–Phase 3 slice of Kernel Panic: turn the enemy roster from a single-verb stat block (skirmisher-only) into a **role taxonomy** with a **tier doctrine** that controls encounter composition and per-tier stat scaling. **Target release: `v0.2.7`.** See [phase-2.6-plan.md](phase-2.6-plan.md) for resilience/placement foundations this builds on,[phase-2.5-plan.md](phase-2.5-plan.md) for the completed Meatspace-depth slice, [phase-3-plan.md](phase-3-plan.md) for the campaign arc + Cyberspace this feeds into, [kernel-panic-v1-blueprint.md](kernel-panic-v1-blueprint.md) for the overall vision, and [cyberpunk-2077-enemy-list.md](cyberpunk-2077-enemy-list.md) for the source inspiration that seeded this work.
 
 ## Why this phase exists
 
 Playtesting after Phase 2.5 surfaced four problems. **The first three are symptoms of the fourth:**
 
-1. **Drones close on the player.** `CorpDrone` only ever steps *toward* its target (to reach firing range); it has no notion of "too close." With no melee and no armor, standing at point-blank is tactically suicidal for it, but it does so anyway.
+1. **Skirmishers closed on the player (pre-M2.1).** `Skirmisher` only ever stepped *toward* its target (to reach firing range); it had no notion of "too close." With no melee and no armor, standing at point-blank was tactically suicidal for it, but it did so anyway. **Fixed in M2.1** (preferred engagement band + kiting).
 2. **Melee threats die on arrival.** A melee enemy that spends its whole turn closing on the *enemy* phase opens the *player* phase with a full 4 AP against an adjacent, undefended target — two melee swings drop it. "Scary on approach, free kill on arrival."
 3. **Support roles have nothing to support.** A medic that heals or shields allies only matters when something on the board is durable enough for partial damage to persist a turn. Without durable patients, players just finish kills and the support role is dead weight.
-4. **"Tier" is just a spawn multiplier.** `CONTRACT_DIFFICULTY` today only scales `threatCount` (2 → 3 → 4 drones). Higher tier = more of the same enemy, nothing else. No role progression, no per-tier stat scaling, no priority-target puzzle.
+4. **"Tier" is just a spawn multiplier.** `CONTRACT_DIFFICULTY` today only scales `threatCount` (2 → 3 → 4 hostiles). Higher tier = more of the same enemy, nothing else. No role progression, no per-tier stat scaling, no priority-target puzzle.
 
 Every hostile currently has **one verb and no defensive identity**, so fights degenerate into "advance and trade HP." The cure is **tactical roles** hung off a redefined tier system where tier selects *who* spawns and *how tough* they are — not merely *how many*.
 
@@ -27,10 +27,10 @@ One verb each. Low HP, no armor, no force-multiplier behavior. Threat comes from
 
 | Archetype | Class | Verb | Defensive identity | Status |
 |-----------|-------|------|--------------------|--------|
-| **Skirmisher** | `CorpDrone` | ranged plink, **maintain distance** | none — must kite or die at melee range | exists; needs kiting (M2.1) |
-| **Guard** | `CorpGuard` | close + melee strike | none — trades HP openly | new (M2.2) |
+| **Skirmisher** | `Skirmisher` | ranged plink, **maintain distance** | none — must kite or die at melee range | exists; needs kiting (M2.1) |
+| **Guard** | `Guard` | close + melee strike | none — trades HP openly | new (M2.2) |
 
-Both archetypes share the patrol → investigate → engage state machine (`CorpDrone` is the reference). Guards are the melee counterpart to skirmishers: they close and swing, nothing more. They exist so T1 encounters can mix ranged and melee pressure without importing T3 defensive mechanics.
+Both archetypes share the patrol → investigate → engage state machine (`Skirmisher` is the reference). Guards are the melee counterpart to skirmishers: they close and swing, nothing more. They exist so T1 encounters can mix ranged and melee pressure without importing T3 defensive mechanics.
 
 ### Tier 2 — Specialists
 
@@ -38,17 +38,17 @@ Each T2 encounter adds **exactly one force-multiplier** on top of fodder. The sp
 
 | Archetype | Class | Verb | Force-multiplier effect | Status |
 |-----------|-------|------|-------------------------|--------|
-| **Sniper** | `CorpSniper` | **telegraphed** long-range burst | punishes open LOS; two-phase aim → fire | new (M3.1) |
-| **Spotter** | `CorpSpotter` | mobile LOS + **per-turn target share** | re-targets hostiles every turn; never attacks | new (M3.2) |
-| **Medic** | `CorpMedic` | ally-seeking shield / heal | changes fight math for durable allies | new (M3.3) |
+| **Sniper** | `Sniper` | **telegraphed** long-range burst | punishes open LOS; two-phase aim → fire | new (M3.1) |
+| **Spotter** | `Spotter` | mobile LOS + **per-turn target share** | re-targets hostiles every turn; never attacks | new (M3.2) |
+| **Medic** | `Medic` | ally-seeking shield / heal | changes fight math for durable allies | new (M3.3) |
 
 Specialists are **killable** — they may have a defensive twist (sniper range, spotter evasiveness) but are not mini-bosses. A medic is **never spawned alone**; composition rules require at least one durable ally (a T3 elite or a tier-scaled bruiser) in the same encounter.
 
-#### CorpCivilian vs CorpSpotter
+#### CorpCivilian vs Spotter
 
-Both can appear on the same map, but they are **not the same role**. `CorpCivilian` already exists as ambient map pressure; `CorpSpotter` is a T2 combat specialist. Do not merge them.
+Both can appear on the same map, but they are **not the same role**. `CorpCivilian` already exists as ambient map pressure; `Spotter` is a T2 combat specialist. Do not merge them.
 
-| | `CorpCivilian` (ambient) | `CorpSpotter` (T2 specialist) |
+| | `CorpCivilian` (ambient) | `Spotter` (T2 specialist) |
 |---|---|---|
 | **Placement** | Prefab-authored (`office` spawns) | Composition roll (`ELEVATED` contracts) |
 | **Type** | `Entity` — non-combatant | `Hostile` — counts in threat budget |
@@ -61,7 +61,7 @@ Both can appear on the same map, but they are **not the same role**. `CorpCivili
 
 Civilians answer "the building noticed you." Spotters answer "this fireteam is coordinating on you right now." A T2 contract on an office map may have both — ambient desk clerks *and* a rolled spotter in the hostile roster.
 
-**CorpCivilian cover-occluded LOS (M1.4):** Today `CorpCivilian` uses the shared `hasLineOfSight` helper, which treats COVER as transparent (cover only penalizes *fire* in `Combat`, not sight). Change the civilian alarm check to a **civilian-specific sight test** where any COVER tile strictly between observer and target breaks the line — same geometry as wall occlusion, scoped to this call site only. Global combat LOS stays unchanged. This gives players a stealth affordance: hug cover to slip past prefab desk clerks without tripping the facility alarm. **The same helper inverts for `CorpFlanker` (M4.3):** cover between player and flanker hides the flanker from rendering and player targeting. Spotters deliberately keep standard LOS so cover alone cannot permanently neutralize a T2 specialist.
+**CorpCivilian cover-occluded LOS (M1.4):** Today `CorpCivilian` uses the shared `hasLineOfSight` helper, which treats COVER as transparent (cover only penalizes *fire* in `Combat`, not sight). Change the civilian alarm check to a **civilian-specific sight test** where any COVER tile strictly between observer and target breaks the line — same geometry as wall occlusion, scoped to this call site only. Global combat LOS stays unchanged. This gives players a stealth affordance: hug cover to slip past prefab desk clerks without tripping the facility alarm. **The same helper inverts for `Flanker` (M4.3):** cover between player and flanker hides the flanker from rendering and player targeting. Spotters deliberately keep standard LOS so cover alone cannot permanently neutralize a T2 specialist.
 
 ### Tier 3 — Elites
 
@@ -69,9 +69,9 @@ Durable and/or multi-verb. Mini-boss feel. **Per-tier stat scaling** (HP, AP, ar
 
 | Archetype | Class | Verbs | Defensive identity | Status |
 |-----------|-------|-------|--------------------|--------|
-| **Bruiser** | `CorpBruiser` | close + melee, **punish disengage** | `damageReduction` + knockback-on-hit | new (M4.1) |
-| **Juggernaut** | `CorpJuggernaut` | suppressing ranged fire, slow advance | high HP + armor, low AP | new (M4.2) |
-| **Flanker** | `CorpFlanker` | stalk from cover → **SLIDE** → melee ambush | cover-occluded from player + post-slide vanish | new (M4.3) |
+| **Bruiser** | `Bruiser` | close + melee, **punish disengage** | `damageReduction` + knockback-on-hit | new (M4.1) |
+| **Juggernaut** | `Juggernaut` | suppressing ranged fire, slow advance | high HP + armor, low AP | new (M4.2) |
+| **Flanker** | `Flanker` | stalk from cover → **SLIDE** → melee ambush | cover-occluded from player + post-slide vanish | new (M4.3) |
 
 Elites are the canonical **durable patients** for medics and the **stat-scaling showcase** for the tier system.
 
@@ -79,7 +79,7 @@ Elites are the canonical **durable patients** for medics and the **stat-scaling 
 
 | Archetype | Class | Verb | Blocker | Status |
 |-----------|-------|------|---------|--------|
-| **Netrunner** | `CorpNetrunner` | ranged disruption (AP drain, turret stun) | requires status-effect system | M5 (deferred) |
+| **Netrunner** | `Netrunner` | ranged disruption (AP drain, turret stun) | requires status-effect system | M5 (deferred) |
 
 ---
 
@@ -107,19 +107,19 @@ Per-tier scaling is keyed to **(role, tier)** so the same class can be fragile o
 | AP bonus | 0 | 0 | 0–1 (elite only) |
 | Armor floor (`damageReduction`) | 0 | 0 (specialist may have role-specific defense) | **≥1 for bruiser/juggernaut** |
 
-Fodder stays at baseline across all tiers — tier difficulty comes from *who else is in the room*, not inflated drone HP.
+Fodder stays at baseline across all tiers — tier difficulty comes from *who else is in the room*, not inflated fodder HP.
 
 ### Encounter examples
 
 | Difficulty | Seed-driven roll | Result |
 |------------|------------------|--------|
-| STANDARD | 2 skirmishers | `[Drone, Drone]` — learn ranged spacing |
-| STANDARD | 1 skirmisher + 2 guards | `[Drone, Guard, Guard]` — ranged + melee pressure |
-| ELEVATED | 3 fodder + sniper | `[Drone, Guard, Guard, Sniper]` — break LOS or eat the burst |
-| ELEVATED | 2 fodder + spotter | `[Drone, Guard, Spotter]` — kill spotter or keep breaking its LOS as it repositions |
-| CRITICAL | 2 fodder + medic + juggernaut | `[Drone, Guard, Medic, Juggernaut]` — priority puzzle: medic + soak |
-| CRITICAL | 3 fodder + bruiser | `[Drone, Drone, Guard, Bruiser]` — knockback tax on melee approach |
-| CRITICAL | 3 fodder + flanker | `[Drone, Drone, Guard, Flanker]` — watch the cubicles; closes from cover you can't see into |
+| STANDARD | 2 skirmishers | `[Skirmisher, Skirmisher]` — learn ranged spacing |
+| STANDARD | 1 skirmisher + 2 guards | `[Skirmisher, Guard, Guard]` — ranged + melee pressure |
+| ELEVATED | 3 fodder + sniper | `[Skirmisher, Guard, Guard, Sniper]` — break LOS or eat the burst |
+| ELEVATED | 2 fodder + spotter | `[Skirmisher, Guard, Spotter]` — kill spotter or keep breaking its LOS as it repositions |
+| CRITICAL | 2 fodder + medic + juggernaut | `[Skirmisher, Guard, Medic, Juggernaut]` — priority puzzle: medic + soak |
+| CRITICAL | 3 fodder + bruiser | `[Skirmisher, Skirmisher, Guard, Bruiser]` — knockback tax on melee approach |
+| CRITICAL | 3 fodder + flanker | `[Skirmisher, Skirmisher, Guard, Flanker]` — watch the cubicles; closes from cover you can't see into |
 
 All rolls derive from the contract seed (deterministic, save-compatible).
 
@@ -137,8 +137,9 @@ All rolls derive from the contract seed (deterministic, save-compatible).
 | M1.3 — Encounter composition by tier (roles, not just counts) | 🟡 In progress — resolver landed; **fodder slice wired** (M2 spawns skirmisher/guard mix); specialist/elite anchors+classes still pending |
 | M1.4 — CorpCivilian cover-occluded LOS | ✅ Complete |
 | M2 — Tier 1 fodder roster | ✅ Complete |
-| M2.1 — Skirmisher kiting (`CorpDrone` preferred engagement band) | ✅ Complete |
-| M2.2 — Guard (`CorpGuard` — melee fodder) | ✅ Complete |
+| M2.1 — Skirmisher kiting (preferred engagement band) | ✅ Complete |
+| M2.2 — Guard (melee fodder) | ✅ Complete |
+| M2.3 — Combat damage tuning + skirmisher glyph | ✅ Complete |
 | M3 — Tier 2 specialists | 🔲 Not started |
 | M3.1 — Sniper (telegraphed long-range burst) | 🔲 Not started |
 | M3.2 — Spotter (mobile per-turn target share; not CorpCivilian) | 🔲 Not started |
@@ -153,7 +154,7 @@ All rolls derive from the contract seed (deterministic, save-compatible).
 
 1. Every milestone above is ✅ except M5 (deliberate Phase 3 on-ramp).
 2. T1/T2/T3 composition rules are live: STANDARD = fodder only, ELEVATED = fodder + 1 specialist, CRITICAL = fodder + specialist + elite (or fodder + elite).
-3. Each archetype in the roster table has a distinct tactical identity verified by tests and playtest — including sharp separation of `CorpCivilian` (ambient facility alarm, cover-occluded LOS) from `CorpSpotter` (mobile T2 specialist, standard LOS).
+3. Each archetype in the roster table has a distinct tactical identity verified by tests and playtest — including sharp separation of `CorpCivilian` (ambient facility alarm, cover-occluded LOS) from `Spotter` (mobile T2 specialist, extended LOS).
 4. Full campaign loop from Phase 2.6 remains playable offline on iOS Safari + Chrome desktop.
 5. `v0.2.7` tagged in git.
 
@@ -185,60 +186,70 @@ All rolls derive from the contract seed (deterministic, save-compatible).
 - Composition constraints: T2 always has exactly one specialist; T3 always has exactly one elite; medic never spawns without a durable patient in the encounter.
 - **TDD:** composition deterministic per seed; constraint violations impossible.
 
-**Implementation note:** `src/game/encounters.ts` now owns the deterministic role-composition resolver and enforces the medic patient gate. Full Run/map wiring is intentionally still pending until M2/M3/M4 role classes exist, so the game does not silently reskin unimplemented specialists/elites as drones.
+**Implementation note:** `src/game/encounters.ts` now owns the deterministic role-composition resolver and enforces the medic patient gate. Full Run/map wiring is intentionally still pending until M3/M4 role classes exist, so the game does not silently reskin unimplemented specialists/elites as skirmishers/guards.
 
 #### M1.4 — CorpCivilian cover-occluded LOS
 
 **Problem:** desk clerks see through cubicles. `CorpCivilian.#findPlayerTarget` calls `hasLineOfSight`, which ignores COVER — so cover tiles in office prefabs don't help the player sneak past ambient civilians.
 
 - Add a civilian-scoped sight helper (e.g. `hasConcealedLineOfSight` in `LineOfSight.ts`, or an opt-in flag on the existing function) where **COVER tiles on the Bresenham line block sight** the same way walls do. Smoke should block LOS globally — confirm that it does and modify otherwise, alongside this change.
-- Wire `CorpCivilian` alarm checks to the new helper only. **Do not** change `Combat`, drone acquisition, or spotter LOS — combat cover semantics (`COVER_HIT_PENALTY`, `COVER_DODGE_BONUS`) stay as-is. **Reuse the same helper in M4.3** for player → flanker concealment (inverted observer/target).
+- Wire `CorpCivilian` alarm checks to the new helper only. **Do not** change `Combat`, patrol-hostile acquisition, or spotter LOS — combat cover semantics (`COVER_HIT_PENALTY`, `COVER_DODGE_BONUS`) stay as-is. **Reuse the same helper in M4.3** for player → flanker concealment (inverted observer/target).
 - **TDD:** civilian does not alarm when COVER lies between clerk and player; civilian still alarms on open LOS; wall block unchanged; combat `canFireRanged` through cover unchanged (regression guard).
 
 **Implementation note:** `LineOfSight.hasConcealedLineOfSight` now treats COVER as an occluder while preserving normal combat LOS semantics. `CorpCivilian` alarm checks use the concealed helper; ranged combat retains fire through cover with the existing hit/dodge modifiers. Smoke already blocks standard LOS and is now covered by regression tests.
 
 ### M2 — Tier 1 fodder roster
 
-#### M2.1 — Skirmisher kiting (`CorpDrone`)
+#### M2.1 — Skirmisher kiting (preferred engagement band)
 
-**Problem:** drone only `#stepToward`s and never retreats; fights at point-blank with no melee.
+**Problem (pre-M2.1):** skirmisher only stepped toward its target and never retreated; fought at point-blank with no melee.
 
 - Add **preferred engagement band** (`preferredMin`..`sightRange`). In ENGAGE: if target is closer than `preferredMin` and a further tile exists with LOS + range, step toward the distance-maximising tile instead of firing.
-- **Caveats:** don't kite into a dead-end (fall back to firing); drone that already fired may lack AP to retreat — intended tradeoff.
-- **TDD:** adjacent drone with retreat room steps away; cornered drone fires; drone at ideal range fires.
+- **Caveats:** don't kite into a dead-end (fall back to firing); a skirmisher that already fired may lack AP to retreat — intended tradeoff.
+- **TDD:** adjacent skirmisher with retreat room steps away; cornered skirmisher fires; skirmisher at ideal range fires.
 
-**Implementation note:** The patrol → investigate → engage machinery was extracted into an abstract `src/game/ai/PatrolHostile.ts` (bus binding, the AP loop + safety/spin guards, `stepToward`); `CorpDrone` and `CorpGuard` are **siblings** that differ only by an abstract `engageSteps` generator (returns `'continue' | 'break'`). Kiting lives in `CorpDrone.engageSteps`: `PREFERRED_MIN = 3` (per-instance override via `preferredMin`), retreat to the distance-maximising legal neighbour that still holds LOS + range. **Extra gate:** the retreat tile must keep the target *spottable* (`isSpottableBy`) — so a drone never kites itself blind off an adjacent **stealthed** target (it stands and fires instead). `DRONE_STATE` is re-exported from `CorpDrone` as an alias of `PATROL_STATE` so existing callers/persistence are unchanged.
+**Implementation note:** The patrol → investigate → engage machinery was extracted into an abstract `src/game/ai/PatrolHostile.ts` (bus binding, the AP loop + safety/spin guards, `stepToward`); `Skirmisher` and `Guard` are **siblings** that differ only by an abstract `engageSteps` generator (returns `'continue' | 'break'`). Kiting lives in `Skirmisher.engageSteps`: `PREFERRED_MIN = 3` (per-instance override via `preferredMin`), retreat to the distance-maximising legal neighbour that still holds LOS + range. **Extra gate:** the retreat tile must keep the target *spottable* (`isSpottableBy`) — so a skirmisher never kites itself blind off an adjacent **stealthed** target (it stands and fires instead). Shared patrol states live in `PATROL_STATE` on `PatrolHostile`; turn-step types are `PatrolHostileTurnStep` / `PatrolHostileMoveStep` in `types.ts`. **Class rename:** implementation class is `Skirmisher` (was `CorpDrone`); persistence still uses archetype `'drone'` and snapshot key `drone?` for save compatibility.
 
-#### M2.2 — Guard (`CorpGuard`)
+#### M2.2 — Guard
 
 **Goal:** melee fodder counterpart to the skirmisher. Simple close-and-strike, no armor, no knockback.
 
-- Reuse patrol → investigate → engage state machine from `CorpDrone`.
+- Reuse patrol → investigate → engage state machine from `Skirmisher`.
 - ENGAGE: step toward target, melee when adjacent and AP allows. No defensive mechanics — trades HP openly.
 - Land full plumbing: types, persistence factory, snapshot/restore, loot, `corpTurnStatusCopy`, `kindFromId`.
-- **TDD:** guard closes and melees; dies in two player-phase swings at T1 stats; patrol/investigate transitions match drone patterns.
+- **TDD:** guard closes and melees; dies in two player-phase swings at T1 stats; patrol/investigate transitions match skirmisher patterns.
 
-**Implementation note:** `CorpGuard` (glyph `g`, `ENEMY_ROLE.FODDER`) extends `PatrolHostile`; melee `engageSteps` strikes when adjacent (`canMelee`/`resolveMelee`) else closes. Plumbing: new `melee` turn-step in `types.ts` (shared by patrol hostiles) + `formatCorpTurnStep`/player-visibility in `corpTurnStatusCopy.ts`; `'guard'` archetype id + parallel `guard?` snapshot block in `Run.ts`; factory + waypoint/state restore (generalised over `drone`/`guard`) and `bindToBus`/death-unbind broadened to `instanceof PatrolHostile` in `persistence.ts`/`Run.ts`; `kindFromId` → `Guard`; loot falls through to the scrap default. **Spawn wiring (fodder slice of M1.3):** `Run.enterCombat` now resolves `composeEncounter` from the contract seed and maps each fodder anchor to a skirmisher or guard; specialists/elites are deliberately *not* spawned (no classes/anchors yet). **Objective:** `drone-all` sweep broadened to count `CorpDrone || CorpGuard`.
+**Implementation note:** `Guard` (glyph `g`, `ENEMY_ROLE.FODDER`) extends `PatrolHostile`; melee `engageSteps` strikes when adjacent (`canMelee`/`resolveMelee`) else closes. Plumbing: `melee` turn-step in `types.ts` (shared by patrol hostiles) + `formatCorpTurnStep`/player-visibility in `corpTurnStatusCopy.ts`; `'guard'` archetype id + parallel `guard?` snapshot block in `Run.ts`; factory + waypoint/state restore (generalised over `drone`/`guard` persistence keys) and `bindToBus`/death-unbind broadened to `instanceof PatrolHostile` in `persistence.ts`/`Run.ts`; `kindFromId` → `Guard` for `guard-*` ids (skirmishers still label as `Drone` from `drone-*` ids until Phase 2.8 theming). **Mapgen:** prefab `anchors.fodder` (was `drones`) feed `map.fodder` spawn slots. **Spawn wiring (fodder slice of M1.3):** `Run.enterCombat` resolves `composeEncounter` from the contract seed and maps each fodder anchor to a skirmisher or guard; specialists/elites are deliberately *not* spawned (no classes/anchors yet). **Objective:** `drone-all` sweep counts `Skirmisher || Guard` (objective id unchanged for save compat). **UI copy:** contract briefing and KeyHelp use role-neutral "hostiles" / grouped glyph key (`c g k`).
+
+#### M2.3 — Combat damage tuning + skirmisher glyph
+
+Playtest pass on T1 fodder pacing:
+
+- **Ranged:** default `RANGED_DAMAGE` stays **1** (Tech, Razor, skirmisher plink). **Merc** overrides via `MERC_RANGED_DAMAGE` (**2**); player and corp turrets use `TURRET_DAMAGE` / `CORP_TURRET_DAMAGE` (**2**).
+- **Melee:** default `MELEE_DAMAGE` is **2** (Merc, Tech). **Razor** and **Guard** override with `HEAVY_MELEE_DAMAGE` (**3**). `Combat.resolveMelee` / `resolveRanged` read crew `meleeDamage` / `rangedDamage` getters when present; Guard passes `HEAVY_MELEE_DAMAGE` explicitly.
+- **Glyph:** `Skirmisher` renders as **`k`** (frees `d` for other roster use).
+
+**TDD:** Guard melee applies `HEAVY_MELEE_DAMAGE`; skirmisher glyph `k`; Merc `rangedDamage` / Razor `meleeDamage` getters; turret constants at 2.
 
 ### M3 — Tier 2 specialists
 
-#### M3.1 — Sniper (`CorpSniper`)
+#### M3.1 — Sniper
 
 - Long range (`SIGHT_RANGE` + bonus), high damage, **two-phase aim → fire**: spends a turn acquiring (NOISE or `aim` step tell) before the shot lands next turn.
 - **TDD:** telegraphs turn 1, fires turn 2; breaking LOS during telegraph cancels shot.
 
-#### M3.2 — Spotter (`CorpSpotter`)
+#### M3.2 — Spotter
 
 **Not `CorpCivilian`.** See [CorpCivilian vs CorpSpotter](#corpcivilian-vs-corpspotter) — civilians stay ambient; spotters are mobile combat specialists.
 
-- Extends `Hostile`. Never attacks. **Mobile** patrol → investigate → spot state machine (reuse drone pathing).
-- **Spot mode:** each corp turn, if player is in LOS, emit a direct `ALARM` bus ping with `{ source, target, origin }` — **do not** call `world.raiseAlarm()`. Hostiles subscribed to `ALARM` (drones, guards, …) force-ENGAGE on the shared target, same as today, but the ping repeats every turn the spotter holds sight.
+- Extends `Hostile`. Never attacks. **Mobile** patrol → investigate → spot state machine (reuse `PatrolHostile` pathing).
+- **Spot mode:** each corp turn, if player is in LOS, emit a direct `ALARM` bus ping with `{ source, target, origin }` — **do not** call `world.raiseAlarm()`. Hostiles subscribed to `ALARM` (skirmishers, guards, …) force-ENGAGE on the shared target, same as today, but the ping repeats every turn the spotter holds sight.
 - **No LOS:** path toward last-known position or a vantage tile that restores LOS (prefer tiles with range + sight to player). Smoke blocks LOS like any ranged check — spotter must move to a new angle, unlike a stationary civilian.
 - **Rep / facility alarm:** spotter pings do not trip facility latch or stack `REP.ALARM_PENALTY`. Facility alarm remains the civilian/terminal domain.
 - Land full plumbing: types, persistence, snapshot/restore, loot, `corpTurnStatusCopy`, `kindFromId`.
 - **TDD:** spotter with LOS emits ALARM every turn without calling `raiseAlarm`; allies re-engage on fresh target coords; spotter without LOS moves toward vantage; killing spotter stops pings; civilian `raiseAlarm` behavior unchanged (regression guard).
 
-#### M3.3 — Medic (`CorpMedic`)
+#### M3.3 — Medic
 
 - **Ally-seeking shield/heal** using `Entity.heal()` (Phase 2.6). Proactive shielding (temp HP *before* damage) so the medic changes math *during* the fight.
 - **Spawn rule (M1.3):** never without a durable patient (bruiser or juggernaut) in the same encounter.
@@ -246,7 +257,7 @@ All rolls derive from the contract seed (deterministic, save-compatible).
 
 ### M4 — Tier 3 elites
 
-#### M4.1 — Bruiser (`CorpBruiser`)
+#### M4.1 — Bruiser
 
 **Problem:** melee that closes on enemy phase dies to a free player burst (symptom #2).
 
@@ -255,12 +266,12 @@ All rolls derive from the contract seed (deterministic, save-compatible).
 - Fast and scary — goal is *reaching you costs something*, not sponge HP.
 - **TDD:** knockback in away direction (blocked if destination occupied/solid); survives two 1-damage hits that would kill a guard.
 
-#### M4.2 — Juggernaut (`CorpJuggernaut`)
+#### M4.2 — Juggernaut
 
 - High HP, meaningful `damageReduction`, **slow** (low AP), suppressing ranged fire. Tempo/attrition check; canonical medic patient.
-- **TDD:** survives sustained focus that kills a drone; movement slower than baseline; armor + ≥1 floor hold.
+- **TDD:** survives sustained focus that kills a skirmisher; movement slower than baseline; armor + ≥1 floor hold.
 
-#### M4.3 — Flanker (`CorpFlanker`)
+#### M4.3 — Flanker
 
 **No facing/backstab.** Top-down ASCII has no orientation today; the elite identity is **cover-concealed stalking** plus a Razor-mirrored **SLIDE** — the inverse of M1.4 civilian sight and the player's own stealth perk.
 
@@ -275,7 +286,7 @@ All rolls derive from the contract seed (deterministic, save-compatible).
 |---|---|---|
 | Costs | 2 AP | 2 AP |
 | Movement | 2-tile silent dash | same |
-| Concealment | `stealthed` — drones need adjacency | `slideConcealed` — player cannot see/target |
+| Concealment | `stealthed` — skirmishers need adjacency | `slideConcealed` — player cannot see/target |
 | Clears on | Player `refreshAp` (start of player's next turn) | Corp `refreshAp` (start of corp's next turn) |
 | Persists through | Corp turn | **Player turn** |
 
@@ -292,7 +303,7 @@ So a flanker that SLIDEs on corp turn N vanishes for the player's entire turn N+
 
 - Ranged **disruptor** applying debuff via LOS (AP-drain, turret stun) instead of HP damage.
 - Requires **status-effect system** (`Entity` status field, application/expiry, UI) — Phase 3 wants this for Cyberspace/Decker anyway.
-- **Recommendation:** design the primitive here so M1–M4 don't preclude it; **defer implementation to Phase 3** unless M1–M4 land with room. Marked deferred-candidate.
+- **Recommendation:** design the primitive here so M1–M4 don't preclude it.
 
 ---
 
@@ -311,5 +322,5 @@ So a flanker that SLIDEs on corp turn N vanishes for the player's entire turn N+
 - **Sniper telegraph readability:** aim tell must be unmissable on the ASCII/CRT canvas — coordinate with renderer.
 - **Flanker SLIDE noise tell:** M4.3 optional footstep NOISE without glyph — lean silent for v0.2.7, add tell if playtests feel unfair.
 - **Composition determinism:** all tier/role rolls derive from contract seed (Phase 2.5 standard).
-- **UI copy:** contract briefing currently says "N drones" — update to reflect role composition once M1.3 lands.
+- **UI copy:** contract briefing uses "N hostiles" (not "N drones"); role-specific aliases land in Phase 2.8.
 - **Spotter + civilian coexistence:** office prefabs may spawn ambient civilians on ELEVATED/CRITICAL maps that also roll a spotter specialist — confirm briefing/log copy distinguishes `[Corp]Civilian` from the spotter alias once Phase 2.8 theming lands.
