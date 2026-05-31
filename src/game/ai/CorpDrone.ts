@@ -30,8 +30,16 @@
  */
 
 import { Hostile } from '../Hostile.js';
-import { FACTION, AP_COST, SIGHT_RANGE, moveStepApCost } from '../constants.js';
-import type { TileId } from '../constants.js';
+import {
+  FACTION,
+  AP_COST,
+  SIGHT_RANGE,
+  moveStepApCost,
+  ENEMY_ROLE,
+  ENEMY_TIER,
+  resolveEnemyStats,
+} from '../constants.js';
+import type { EnemyTier, TileId } from '../constants.js';
 import { findPath } from '../Pathfinding.js';
 import { withinRange } from '../LineOfSight.js';
 import { canFireRanged, resolveRanged } from '../Combat.js';
@@ -68,6 +76,7 @@ type AlarmEventPayload = {
 
 export interface CorpDroneProps extends Omit<HostileInit, 'faction' | 'glyph'> {
   patrolWaypoints?: { x: number; y: number }[];
+  tier?: EnemyTier;
 }
 
 export class CorpDrone extends Hostile {
@@ -77,9 +86,10 @@ export class CorpDrone extends Hostile {
   lastKnownTarget: { x: number; y: number } | null;
   #unsubs: (() => void)[];
 
-  constructor(props: CorpDroneProps) {
-    super({ ...props, faction: FACTION.CORP, glyph: 'd' });
-    const waypoints = props.patrolWaypoints ?? [];
+  constructor({ tier = ENEMY_TIER.T1, patrolWaypoints, ...props }: CorpDroneProps) {
+    const stats = resolveEnemyStats(props, ENEMY_ROLE.FODDER, tier);
+    super({ ...props, ...stats, faction: FACTION.CORP, glyph: 'd' });
+    const waypoints = patrolWaypoints ?? [];
     if (!Array.isArray(waypoints)) {
       throw new TypeError('CorpDrone patrolWaypoints must be an array');
     }

@@ -107,6 +107,13 @@ test('canFireRanged rejects when LOS is blocked by a wall', () => {
   assert.equal(canFireRanged(world, attacker, target).reason, 'no-los');
 });
 
+test('canFireRanged accepts line of fire through cover', () => {
+  const g = new Grid(8, 8);
+  g.setTile(3, 1, TILE.COVER);
+  const { world, attacker, target } = makeFight({ grid: g });
+  assert.equal(canFireRanged(world, attacker, target).ok, true);
+});
+
 test('canFireRanged rejects when another entity stands on the line of fire', () => {
   // Entities should occlude LOS — see M4 review item. A neutral standing
   // between attacker and target breaks the shot, no friendly-fire bypass.
@@ -154,6 +161,19 @@ test('resolveRanged hits and damages when roll < threshold', () => {
   assert.equal(result.inCover, false);
   assert.equal(target.hp, hpBefore - 1);
   assert.equal(attacker.ap, apBefore - AP_COST.RANGED_ATTACK);
+});
+
+test('resolveRanged applies damageReduction with a 1-damage floor', () => {
+  const { world, attacker, target } = makeFight();
+  target.damageReduction = 2;
+  target.maxHp = 6;
+  target.hp = 6;
+
+  const result = resolveRanged(world, attacker, target, new StubRng([0]), { damage: 3 });
+
+  assert.equal(result.hit, true);
+  assert.equal(result.damage, 1);
+  assert.equal(target.hp, 5);
 });
 
 test('resolveRanged misses when roll ≥ threshold and target HP unchanged', () => {
@@ -351,6 +371,26 @@ test('resolveMelee debits MELEE AP and applies MELEE_DAMAGE on a failed dodge', 
   assert.equal(result.damage, MELEE_DAMAGE);
   assert.equal(target.hp, hpBefore - MELEE_DAMAGE);
   assert.equal(attacker.ap, apBefore - 1 /* AP_COST.MELEE_ATTACK */);
+});
+
+test('resolveMelee applies damageReduction after dodge with a 1-damage floor', () => {
+  const { world, attacker, target } = makeMeleeFight();
+  target.damageReduction = 1;
+
+  const result = resolveMelee(world, attacker, target, new StubRng([0.99]));
+
+  assert.equal(result.hit, true);
+  assert.equal(result.damage, MELEE_DAMAGE - 1);
+  assert.equal(target.hp, target.maxHp - (MELEE_DAMAGE - 1));
+});
+
+test('zero-armor melee damage is unchanged', () => {
+  const { world, attacker, target } = makeMeleeFight();
+
+  const result = resolveMelee(world, attacker, target, new StubRng([0.99]));
+
+  assert.equal(result.damage, MELEE_DAMAGE);
+  assert.equal(target.hp, target.maxHp - MELEE_DAMAGE);
 });
 
 test('resolveMelee marks killed=true when damage drops the target', () => {

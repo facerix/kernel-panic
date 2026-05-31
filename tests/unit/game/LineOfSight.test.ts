@@ -8,6 +8,7 @@ import { Entity } from '../../../src/game/Entity.js';
 import {
   tilesBetween,
   hasLineOfSight,
+  hasConcealedLineOfSight,
   hasCoverBetween,
   withinRange,
 } from '../../../src/game/LineOfSight.js';
@@ -58,6 +59,35 @@ test('hasLineOfSight passes through COVER (cover does not block sight)', () => {
   const g = new Grid(8, 8);
   g.setTile(3, 0, TILE.COVER);
   assert.equal(hasLineOfSight(g, 0, 0, 6, 0), true);
+});
+
+test('hasLineOfSight is blocked by SMOKE', () => {
+  const g = new Grid(8, 8);
+  g.setTile(3, 0, TILE.SMOKE);
+  assert.equal(hasLineOfSight(g, 0, 0, 6, 0), false);
+});
+
+test('hasConcealedLineOfSight treats COVER as an occluder', () => {
+  const g = new Grid(8, 8);
+  g.setTile(3, 0, TILE.COVER);
+  assert.equal(hasConcealedLineOfSight(g, 0, 0, 6, 0), false);
+});
+
+test('hasConcealedLineOfSight ignores COVER at endpoints', () => {
+  const g = new Grid(8, 8);
+  g.setTile(0, 0, TILE.COVER);
+  g.setTile(6, 0, TILE.COVER);
+  assert.equal(hasConcealedLineOfSight(g, 0, 0, 6, 0), true);
+});
+
+test('hasConcealedLineOfSight is blocked by walls and smoke', () => {
+  const smoke = new Grid(8, 8);
+  smoke.setTile(3, 0, TILE.SMOKE);
+  assert.equal(hasConcealedLineOfSight(smoke, 0, 0, 6, 0), false);
+
+  const wall = new Grid(8, 8);
+  wall.setTile(3, 0, TILE.WALL);
+  assert.equal(hasConcealedLineOfSight(wall, 0, 0, 6, 0), false);
 });
 
 test('hasLineOfSight is symmetric across diagonals', () => {
@@ -172,4 +202,10 @@ test('hasLineOfSight is blocked by walls regardless of the blocker set', () => {
   g.setTile(3, 1, TILE.WALL);
   const blockers = new Set();
   assert.equal(hasLineOfSight(g, 1, 1, 5, 1, { blockers }), false);
+});
+
+test('hasConcealedLineOfSight is blocked by another entity standing on the line', () => {
+  const g = new Grid(8, 8);
+  const blockers = new Set(['3,1']);
+  assert.equal(hasConcealedLineOfSight(g, 1, 1, 5, 1, { blockers }), false);
 });

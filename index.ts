@@ -1474,6 +1474,7 @@ function driveCombatTurnPipeline(run: Run, options: { resumeFromCorpSlice?: bool
 }
 
 function advanceTurn(): void {
+  if (degrading) return;
   const scene = currentScene();
   if (!scene) return;
   if (!scene.world || !scene.queue) {

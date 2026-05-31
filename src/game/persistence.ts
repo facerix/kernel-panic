@@ -13,8 +13,9 @@
  *     contract:   { seed, objective, difficulty, threatCount, label, context, reward } | null,
  *     exitTile:   { x, y } | null,
  *     grid:       { w, h, tiles: number[] },          // plain array of u8 bytes
- *     entities:   [{ archetype, id, x, y, faction, hp, maxHp, ap, maxAp,
- *                    stealthed, drone?: { state, lastKnownTarget,
+ *     entities:   [{ archetype, id, x, y, faction, hp, maxHp,
+ *                    damageReduction, ap, maxAp, stealthed,
+ *                    drone?: { state, lastKnownTarget,
  *                    patrolWaypoints, patrolIndex } }, …],
  *     telemetry:  { turn, kills, archetype, seed, … },
  *   }
@@ -131,6 +132,7 @@ type RestoreEntityProps = Partial<
   glyph?: string;
   maxAp?: number;
   maxHp?: number;
+  damageReduction?: number;
 };
 
 const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) => Entity> =
@@ -522,6 +524,14 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
   if (!Number.isInteger(rec.maxHp) || rec.maxHp <= 0) {
     throw new RangeError(`restore: entity ${rec.id} has invalid maxHp=${rec.maxHp}`);
   }
+  if (
+    rec.damageReduction !== undefined &&
+    (!Number.isInteger(rec.damageReduction) || rec.damageReduction < 0)
+  ) {
+    throw new RangeError(
+      `restore: entity ${rec.id} has invalid damageReduction=${rec.damageReduction}`
+    );
+  }
   if (rec.faction && !KNOWN_FACTIONS.has(rec.faction)) {
     throw new Error(`restore: entity ${rec.id} has unknown faction "${rec.faction}"`);
   }
@@ -532,6 +542,7 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
     y: rec.y,
     maxAp: rec.maxAp,
     maxHp: rec.maxHp,
+    damageReduction: rec.damageReduction ?? 0,
   };
   if (isCrewArchetype(rec.archetype)) {
     entityProps.callsign = rec.callsign ?? null;

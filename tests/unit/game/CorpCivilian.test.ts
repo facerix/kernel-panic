@@ -70,6 +70,40 @@ test('CorpCivilian does NOT alarm when player is out of LOS (wall between)', () 
   assert.equal(world.alarmActive, false);
 });
 
+test('CorpCivilian does NOT alarm when COVER lies between civilian and player', () => {
+  const { world, grid, bus } = makeWorld();
+  const civ = new CorpCivilian({ id: 'civ-0', x: 2, y: 2 });
+  const player = makePlayer(5, 2);
+  grid.setTile(3, 2, TILE.COVER);
+  world.addEntity(civ);
+  world.addEntity(player);
+
+  const alarms: unknown[] = [];
+  bus.on(EVENT.ALARM, (p: unknown) => alarms.push(p));
+
+  const steps = civ.takeTurn(world, new Rng(1));
+  assert.equal(steps.length, 0, 'cover should conceal the crew member from ambient staff');
+  assert.equal(alarms.length, 0);
+  assert.equal(world.alarmActive, false);
+});
+
+test('CorpCivilian still alarms when COVER is off the sightline', () => {
+  const { world, grid, bus } = makeWorld();
+  const civ = new CorpCivilian({ id: 'civ-0', x: 2, y: 2 });
+  const player = makePlayer(5, 2);
+  grid.setTile(3, 3, TILE.COVER);
+  world.addEntity(civ);
+  world.addEntity(player);
+
+  const alarms: unknown[] = [];
+  bus.on(EVENT.ALARM, (p: unknown) => alarms.push(p));
+
+  const steps = civ.takeTurn(world, new Rng(1));
+  assert.equal(steps.length, 1);
+  assert.equal(alarms.length, 1);
+  assert.equal(world.alarmActive, true);
+});
+
 test('CorpCivilian does NOT alarm when player is out of range', () => {
   const { world, bus } = makeWorld({ width: 30, height: 30 });
   const civ = new CorpCivilian({ id: 'civ-0', x: 1, y: 1, sightRange: 3 });

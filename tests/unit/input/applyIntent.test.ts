@@ -8,6 +8,7 @@ import { EventBus } from '../../../src/game/events.js';
 import {
   TILE,
   FACTION,
+  AP_COST,
   MELEE_DAMAGE,
   SALVAGE_PER_IMPROVISED_TURRET,
 } from '../../../src/game/constants.js';
@@ -506,7 +507,7 @@ test('vault body-check does not debit extra AP beyond the vault cost', () => {
   world.addEntity(drone);
   const apBefore = player.ap; // 4
   applyIntent({ type: 'special', dx: 1, dy: 0 }, ctx);
-  assert.equal(player.ap, apBefore - 3, 'only vault AP spent, slam is free');
+  assert.equal(player.ap, apBefore - AP_COST.VAULT, 'only vault AP spent, slam is free');
 });
 
 test('vault on empty tile is pure repositioning (no damage log)', () => {

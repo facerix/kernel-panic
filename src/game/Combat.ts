@@ -153,8 +153,9 @@ export function resolveRanged(
     const gearDamageBonus =
       (attacker as Entity & { gear?: { rangedDamageBonus?: number } }).gear?.rangedDamageBonus ?? 0;
     const intendedDamage = options.damage ?? RANGED_DAMAGE + gearDamageBonus;
-    const appliedDamage = target.damage(intendedDamage);
-    damage = appliedDamage === 0 ? 0 : intendedDamage;
+    const mitigatedDamage = applyDamageReduction(intendedDamage, target);
+    const appliedDamage = target.damage(mitigatedDamage);
+    damage = appliedDamage === 0 ? 0 : mitigatedDamage;
     killed = !target.alive;
     // Emit only on a connected hit. Misses still tick the noise model below
     // (a shot is loud regardless) — that's a separate `noise` event.
@@ -211,6 +212,9 @@ export function canMelee(world: World, attacker: Entity, target: Entity) {
  * steal AP with no swing) and emits both `entity:damaged` and a `noise` event
  * so the world reacts the same way it does for ranged.
  *
+ * Armor ordering: dodge/miss resolves first; on a connected hit,
+ * `damageReduction` mitigates incoming damage with a minimum of 1 damage.
+ *
  * Diagonal corner cover counts as `inCover`: the line between two diagonal
  * neighbours passes through the corner shared by two cells, so either COVER
  * cell can give the defender something to duck around. Orthogonal melee has
@@ -265,8 +269,9 @@ export function resolveMelee(
   let killed = false;
   if (hit) {
     const intendedDamage = options.damage ?? MELEE_DAMAGE;
-    const appliedDamage = target.damage(intendedDamage);
-    damage = appliedDamage === 0 ? 0 : intendedDamage;
+    const mitigatedDamage = applyDamageReduction(intendedDamage, target);
+    const appliedDamage = target.damage(mitigatedDamage);
+    damage = appliedDamage === 0 ? 0 : mitigatedDamage;
     killed = !target.alive;
   }
   world.events?.emit(EVENT.ENTITY_DAMAGED, {
@@ -287,6 +292,18 @@ export function resolveMelee(
     kind: 'melee',
   });
   return { hit, dodged, roll, dodgeThreshold, inCover, damage, killed };
+}
+
+function applyDamageReduction(intendedDamage: number, target: Entity): number {
+  if (!Number.isInteger(intendedDamage) || intendedDamage < 0) {
+    throw new RangeError(`damage must be a non-negative integer, got ${intendedDamage}`);
+  }
+  if (intendedDamage === 0) return 0;
+  const armor = target.damageReduction;
+  if (!Number.isInteger(armor) || armor < 0) {
+    throw new RangeError(`target ${target.id} has invalid damageReduction=${armor}`);
+  }
+  return Math.max(1, intendedDamage - armor);
 }
 
 function hasMeleeCoverBetween(world: World, attacker: Entity, target: Entity): boolean {

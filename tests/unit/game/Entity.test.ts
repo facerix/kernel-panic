@@ -85,6 +85,19 @@ test('Entity defaults to full HP and respects custom maxHp', () => {
   assert.equal(e.maxHp, 5);
 });
 
+test('Entity.damageReduction defaults to 0 and accepts non-negative integers', () => {
+  const def = new Entity(baseProps());
+  assert.equal(def.damageReduction, 0);
+
+  const armored = new Entity({ ...baseProps(), damageReduction: 2 });
+  assert.equal(armored.damageReduction, 2);
+});
+
+test('Entity rejects invalid damageReduction', () => {
+  assert.throws(() => new Entity({ ...baseProps(), damageReduction: -1 }), RangeError);
+  assert.throws(() => new Entity({ ...baseProps(), damageReduction: 1.5 }), RangeError);
+});
+
 test('Entity rejects non-positive maxHp (data-corruption guard)', () => {
   assert.throws(() => new Entity({ ...baseProps(), maxHp: 0 }), RangeError);
   assert.throws(() => new Entity({ ...baseProps(), maxHp: -1 }), RangeError);

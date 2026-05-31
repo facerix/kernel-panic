@@ -133,11 +133,13 @@ test('restore reconstructs world entities with their HP / AP / stealth state and
   run.player.hp = 1;
   run.player.ap = 2;
   run.player.stealthed = true;
+  run.player.damageReduction = 1;
   const rec = snapshot(run);
   const { player } = restore(rec);
   assert.equal(player.hp, 1);
   assert.equal(player.ap, 2);
   assert.equal(player.stealthed, true);
+  assert.equal(player.damageReduction, 1);
   assert.equal(player.callsign, run.player.callsign);
 });
 

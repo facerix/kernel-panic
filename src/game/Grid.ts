@@ -60,8 +60,8 @@ export class Grid {
   }
 
   /**
-   * Line-of-sight occluders. Only WALL fully blocks. COVER lets sightlines
-   * through but will apply a hit modifier in M4.
+   * Line-of-sight occluders. WALL and SMOKE fully block. COVER lets normal
+   * combat sightlines through, but can opt into concealment via LineOfSight.
    */
   blocksLineOfSight(x: number, y: number): boolean {
     if (!this.inBounds(x, y)) return true;

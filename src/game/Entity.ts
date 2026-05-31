@@ -12,6 +12,7 @@ export interface EntityInit {
   glyph?: string;
   maxAp?: number;
   maxHp?: number;
+  damageReduction?: number;
   /**
    * If true, the entity does not block movement or LOS — actors can walk
    * onto/through its tile, drones plan paths through it, and `World.entityAt`
@@ -59,6 +60,7 @@ export class Entity {
   ap: number;
   maxHp: number;
   hp: number;
+  damageReduction: number;
   alive: boolean;
   stealthed: boolean;
   passable: boolean;
@@ -72,6 +74,7 @@ export class Entity {
     glyph,
     maxAp = DEFAULT_AP,
     maxHp = DEFAULT_HP,
+    damageReduction = 0,
     passable = false,
     anchored = false,
   }: EntityInit) {
@@ -90,6 +93,11 @@ export class Entity {
     if (!Number.isInteger(maxHp) || maxHp <= 0) {
       throw new RangeError(`Entity maxHp must be a positive integer, got ${maxHp}`);
     }
+    if (!Number.isInteger(damageReduction) || damageReduction < 0) {
+      throw new RangeError(
+        `Entity damageReduction must be a non-negative integer, got ${damageReduction}`
+      );
+    }
     this.id = id;
     this.x = x;
     this.y = y;
@@ -99,6 +107,7 @@ export class Entity {
     this.ap = maxAp;
     this.maxHp = maxHp;
     this.hp = maxHp;
+    this.damageReduction = damageReduction;
     this.alive = true;
     /**
      * Stealth flag. The Razor's `slide` perk sets this true; it clears on the

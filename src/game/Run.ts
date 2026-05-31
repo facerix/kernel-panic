@@ -162,6 +162,7 @@ export type RunEntitySnapshot = {
   glyph: string;
   hp: number;
   maxHp: number;
+  damageReduction?: number;
   ap: number;
   maxAp: number;
   alive: boolean;
@@ -1471,6 +1472,7 @@ function snapshotEntity(entity: Entity): RunEntitySnapshot {
     glyph: entity.glyph,
     hp: entity.hp,
     maxHp: entity.maxHp,
+    damageReduction: entity.damageReduction,
     ap: entity.ap,
     maxAp: entity.maxAp,
     alive: entity.alive,

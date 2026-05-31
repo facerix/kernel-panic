@@ -57,7 +57,7 @@ export const AP_COST = Object.freeze({
   MELEE_ATTACK: 1,
   INTERACT: 1,
   // Archetype perks (proposed; tunable):
-  VAULT: 3, // Merc — hop a cover tile while firing
+  VAULT: 2, // Merc — hop a cover tile while firing
   SLIDE: 2, // Razor — 2-tile reposition with stealth bonus
   DEPLOY: 2, // Tech — place a turret on an adjacent tile
 });
@@ -247,6 +247,111 @@ export const CONTRACT_DIFFICULTY = Object.freeze({
 });
 
 export type ContractDifficulty = (typeof CONTRACT_DIFFICULTY)[keyof typeof CONTRACT_DIFFICULTY];
+
+/**
+ * Enemy tier doctrine (Phase 2.7). Contract difficulty maps directly to the
+ * roster tier used by encounter composition and role-specific stat scaling.
+ */
+export const ENEMY_TIER = Object.freeze({
+  T1: 't1',
+  T2: 't2',
+  T3: 't3',
+});
+
+export type EnemyTier = (typeof ENEMY_TIER)[keyof typeof ENEMY_TIER];
+
+export const ENEMY_ROLE = Object.freeze({
+  FODDER: 'fodder',
+  SPECIALIST: 'specialist',
+  ELITE: 'elite',
+});
+
+export type EnemyRole = (typeof ENEMY_ROLE)[keyof typeof ENEMY_ROLE];
+
+export type EnemyStatProfile = Readonly<{
+  hpMultiplier: number;
+  apBonus: number;
+  armorFloor: number;
+}>;
+
+export type EnemyBaseStats = Readonly<{
+  maxHp?: number;
+  maxAp?: number;
+  damageReduction?: number;
+}>;
+
+export type ResolvedEnemyStats = Readonly<{
+  maxHp: number;
+  maxAp: number;
+  damageReduction: number;
+}>;
+
+const ENEMY_TIER_BY_DIFFICULTY: Record<ContractDifficulty, EnemyTier> = Object.freeze({
+  [CONTRACT_DIFFICULTY.STANDARD]: ENEMY_TIER.T1,
+  [CONTRACT_DIFFICULTY.ELEVATED]: ENEMY_TIER.T2,
+  [CONTRACT_DIFFICULTY.CRITICAL]: ENEMY_TIER.T3,
+});
+
+const ENEMY_STAT_PROFILES: Record<EnemyRole, Record<EnemyTier, EnemyStatProfile>> = Object.freeze({
+  [ENEMY_ROLE.FODDER]: Object.freeze({
+    [ENEMY_TIER.T1]: Object.freeze({ hpMultiplier: 1, apBonus: 0, armorFloor: 0 }),
+    [ENEMY_TIER.T2]: Object.freeze({ hpMultiplier: 1, apBonus: 0, armorFloor: 0 }),
+    [ENEMY_TIER.T3]: Object.freeze({ hpMultiplier: 1, apBonus: 0, armorFloor: 0 }),
+  }),
+  [ENEMY_ROLE.SPECIALIST]: Object.freeze({
+    [ENEMY_TIER.T1]: Object.freeze({ hpMultiplier: 1, apBonus: 0, armorFloor: 0 }),
+    [ENEMY_TIER.T2]: Object.freeze({ hpMultiplier: 1, apBonus: 0, armorFloor: 0 }),
+    [ENEMY_TIER.T3]: Object.freeze({ hpMultiplier: 1.25, apBonus: 0, armorFloor: 0 }),
+  }),
+  [ENEMY_ROLE.ELITE]: Object.freeze({
+    [ENEMY_TIER.T1]: Object.freeze({ hpMultiplier: 1, apBonus: 0, armorFloor: 0 }),
+    [ENEMY_TIER.T2]: Object.freeze({ hpMultiplier: 1.25, apBonus: 0, armorFloor: 0 }),
+    [ENEMY_TIER.T3]: Object.freeze({ hpMultiplier: 1.5, apBonus: 1, armorFloor: 1 }),
+  }),
+});
+
+export function enemyTierForDifficulty(difficulty: ContractDifficulty): EnemyTier {
+  const tier = ENEMY_TIER_BY_DIFFICULTY[difficulty];
+  if (!tier) {
+    throw new Error(`Unknown contract difficulty "${difficulty}"`);
+  }
+  return tier;
+}
+
+export function enemyStatProfileFor(role: EnemyRole, tier: EnemyTier): EnemyStatProfile {
+  const profile = ENEMY_STAT_PROFILES[role]?.[tier];
+  if (!profile) {
+    throw new Error(`Unknown enemy stat profile for role="${role}" tier="${tier}"`);
+  }
+  return profile;
+}
+
+export function resolveEnemyStats(
+  base: EnemyBaseStats,
+  role: EnemyRole,
+  tier: EnemyTier
+): ResolvedEnemyStats {
+  const maxHp = base.maxHp ?? DEFAULT_HP;
+  const maxAp = base.maxAp ?? DEFAULT_AP;
+  const damageReduction = base.damageReduction ?? 0;
+  if (!Number.isInteger(maxHp) || maxHp <= 0) {
+    throw new RangeError(`resolveEnemyStats maxHp must be positive integer, got ${maxHp}`);
+  }
+  if (!Number.isInteger(maxAp) || maxAp < 0) {
+    throw new RangeError(`resolveEnemyStats maxAp must be non-negative integer, got ${maxAp}`);
+  }
+  if (!Number.isInteger(damageReduction) || damageReduction < 0) {
+    throw new RangeError(
+      `resolveEnemyStats damageReduction must be non-negative integer, got ${damageReduction}`
+    );
+  }
+  const profile = enemyStatProfileFor(role, tier);
+  return Object.freeze({
+    maxHp: Math.ceil(maxHp * profile.hpMultiplier),
+    maxAp: maxAp + profile.apBonus,
+    damageReduction: Math.max(damageReduction, profile.armorFloor),
+  });
+}
 
 /**
  * Noise radii (Euclidean tiles) for actions that emit `noise` events. The

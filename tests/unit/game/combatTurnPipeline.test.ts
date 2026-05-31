@@ -13,6 +13,7 @@ import { NeutralCivilian } from '../../../src/game/entities/NeutralCivilian.js';
 import { EventBus } from '../../../src/game/events.js';
 import { TILE, FACTION, REP } from '../../../src/game/constants.js';
 import { Rng } from '../../../src/rng.js';
+import { Campaign, CAMPAIGN_STATE } from '../../../src/game/Campaign.js';
 import {
   advanceFromPlayerTurn,
   drivePlayerAftermath,
@@ -242,6 +243,27 @@ test('advanceFromPlayerTurn resumeFromCorpSlice skips the opening queue.endTurn'
     'queue.endTurn',
     'player.ready',
   ]);
+});
+
+test('hub operator AP refreshes after PLAYER→CORP→PLAYER queue flip', () => {
+  const campaign = new Campaign({ seed: 1, rep: 80 });
+  assert.equal(campaign.state, CAMPAIGN_STATE.HUB);
+  assert.ok(campaign.player && campaign.world && campaign.queue);
+
+  campaign.player.ap = 0;
+  assert.equal(campaign.queue.currentFaction, FACTION.PLAYER);
+
+  advanceFromPlayerTurn({
+    queue: campaign.queue,
+    world: campaign.world,
+    rng: campaign.rng,
+    isTerminal: () => false,
+    drivePlayerAftermath: ({ onFinish }) => onFinish(),
+    driveCorpTurn: ({ onFinish }) => onFinish(),
+  });
+
+  assert.equal(campaign.player.ap, campaign.player.maxAp);
+  assert.equal(campaign.queue.currentFaction, FACTION.PLAYER);
 });
 
 test('advanceFromPlayerTurn lets async corp driver own when the player turn resumes', () => {

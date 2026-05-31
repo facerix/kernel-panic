@@ -21,7 +21,7 @@
 import { Entity, type EntityInit } from '../Entity.js';
 import { EscortNpc } from './EscortNpc.js';
 import { FACTION, SIGHT_RANGE } from '../constants.js';
-import { hasLineOfSight, withinRange } from '../LineOfSight.js';
+import { hasConcealedLineOfSight, withinRange } from '../LineOfSight.js';
 import type { TurnActionStep, TurnActionSteps } from '../../types.js';
 import type { World } from '../World.js';
 import type { Rng } from '../../rng.js';
@@ -84,7 +84,9 @@ export class CorpCivilian extends Entity {
       if (entity instanceof EscortNpc) continue;
       if (!withinRange(this.x, this.y, entity.x, entity.y, this.sightRange)) continue;
       const blockers = world.blockerKeys();
-      if (!hasLineOfSight(world.grid, this.x, this.y, entity.x, entity.y, { blockers })) continue;
+      if (!hasConcealedLineOfSight(world.grid, this.x, this.y, entity.x, entity.y, { blockers })) {
+        continue;
+      }
       return entity;
     }
     return null;
