@@ -37,6 +37,25 @@ export const EVENT = Object.freeze({
 
 const KNOWN_TYPES = new Set<string>(Object.values(EVENT));
 
+/**
+ * Discriminator on the `ALARM` event payload (Phase 2.7 M3.1). Both kinds force
+ * subscribed patrol hostiles to ENGAGE on the shared target, but they differ in
+ * provenance and side effects:
+ *
+ *   - **`facility`** — the building noticed you. Emitted by `World.raiseAlarm()`
+ *     (CorpCivilian / terminal). Latches the facility alarm cadence and carries
+ *     the Rep penalty. Default kind for legacy emits that omit one.
+ *   - **`spotter`** — a `Spotter` is calling fire on you *right now*. Emitted
+ *     directly on the bus, every corp turn it holds LOS. No facility latch, no
+ *     Rep penalty — kill the spotter or break its sight to stop the pings.
+ */
+export const ALARM_KIND = Object.freeze({
+  FACILITY: 'facility',
+  SPOTTER: 'spotter',
+});
+
+export type AlarmKind = (typeof ALARM_KIND)[keyof typeof ALARM_KIND];
+
 export type EventType = (typeof EVENT)[keyof typeof EVENT];
 export type EventListener = (payload?: unknown) => void;
 

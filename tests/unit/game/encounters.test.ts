@@ -99,6 +99,49 @@ test('medic never appears without a durable patient', () => {
   }
 });
 
+test('available allowlist restricts the specialist roll to buildable archetypes', () => {
+  // Phase 2.7 M3.1: only the Spotter has a class so far, so the spawn site
+  // passes it as the sole available specialist. Every ELEVATED roll must then
+  // be a spotter — never a not-yet-built sniper/medic that we'd have to reskin.
+  for (let seed = 0; seed < 200; seed++) {
+    const composition = composeEncounter({
+      seed,
+      difficulty: CONTRACT_DIFFICULTY.ELEVATED,
+      fodderCount: 3,
+      available: { specialists: [ENEMY_ARCHETYPE.SPOTTER], elites: [] },
+    });
+    const specialists = composition.entries.filter(e => e.role === ENEMY_ROLE.SPECIALIST);
+    assert.equal(specialists.length, 1, `seed ${seed} still has exactly one specialist`);
+    assert.equal(specialists[0].archetype, ENEMY_ARCHETYPE.SPOTTER, `seed ${seed}`);
+  }
+});
+
+test('empty elite allowlist composes no elite (never a reskin or silent drop)', () => {
+  // CRITICAL with no buildable elite yet: the resolver carries fodder + the one
+  // available specialist, and simply no elite — output matches what can spawn.
+  const composition = composeEncounter({
+    seed: 789,
+    difficulty: CONTRACT_DIFFICULTY.CRITICAL,
+    fodderCount: 4,
+    available: { specialists: [ENEMY_ARCHETYPE.SPOTTER], elites: [] },
+  });
+  assert.equal(composition.entries.filter(e => e.role === ENEMY_ROLE.ELITE).length, 0);
+  const specialists = composition.entries.filter(e => e.role === ENEMY_ROLE.SPECIALIST);
+  assert.equal(specialists.length, 1);
+  assert.equal(specialists[0].archetype, ENEMY_ARCHETYPE.SPOTTER);
+});
+
+test('an empty specialist allowlist composes no specialist', () => {
+  const composition = composeEncounter({
+    seed: 456,
+    difficulty: CONTRACT_DIFFICULTY.ELEVATED,
+    fodderCount: 3,
+    available: { specialists: [], elites: [] },
+  });
+  assert.equal(composition.entries.filter(e => e.role === ENEMY_ROLE.SPECIALIST).length, 0);
+  assert.equal(composition.entries.length, 3, 'fodder only when nothing is buildable');
+});
+
 test('composition rejects corrupt inputs instead of clamping', () => {
   assert.throws(
     () =>

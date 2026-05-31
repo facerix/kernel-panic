@@ -1,6 +1,6 @@
 import { moveStepApCost, NOISE_RADIUS, PICKUP_GLYPH, TILE } from './constants.js';
 import type { TileId } from './constants.js';
-import { EVENT } from './events.js';
+import { EVENT, ALARM_KIND } from './events.js';
 import { Interactable } from './entities/Interactable.js';
 import { Pickup } from './entities/Pickup.js';
 import { Door } from './entities/Door.js';
@@ -104,6 +104,10 @@ export class World {
     const previous = { ...this.alarm };
     this.alarm = alertAlarm(previous.triggers + 1);
     this.events?.emit(EVENT.ALARM, {
+      // Facility-cadence alarm. The `kind` discriminator (M3.1) lets patrol
+      // hostiles distinguish a building-wide raise from a Spotter's direct
+      // target-share ping; only `facility` latches the cadence / Rep penalty.
+      kind: ALARM_KIND.FACILITY,
       ...context,
       previous,
       alarm: this.snapshotAlarm(),

@@ -47,6 +47,7 @@ const CacheConfig = {
       '/src/errorBoundary.js',
       '/src/game/ai/Skirmisher.js',
       '/src/game/ai/Guard.js',
+      '/src/game/ai/Spotter.js',
       '/src/game/ai/PatrolHostile.js',
       '/src/game/breachBlast.js',
       '/src/game/archetypes/index.js',

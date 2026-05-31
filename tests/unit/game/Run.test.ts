@@ -147,6 +147,46 @@ test('STANDARD encounter fills fodder anchors with a deterministic skirmisher/gu
   const ids = [...run.world.entities.values()].map(e => e.id);
   assert.equal(ids.filter(id => id.startsWith('guard-')).length, 2);
   assert.equal(ids.filter(id => id.startsWith('drone-')).length, 1);
+  assert.equal(ids.filter(id => id.startsWith('spotter-')).length, 0, 'STANDARD has no specialist');
+});
+
+test('ELEVATED encounter spawns fodder plus exactly one Spotter specialist', () => {
+  // Phase 2.7 M3.1: ELEVATED (T2) rolls one specialist; only the Spotter is
+  // buildable so far, so the available allowlist guarantees it is the spotter.
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 1 });
+  run.enterBriefing(fakeContract({ seed: 7, difficulty: 'elevated', threatCount: 3 }));
+  run.enterCombat();
+  const spotters = [...run.world.entities.values()].filter(e => e.id.startsWith('spotter-'));
+  assert.equal(spotters.length, 1, 'exactly one spotter on an ELEVATED contract');
+  assert.equal(spotters[0].constructor.name, 'Spotter');
+  const fodder = [...run.world.entities.values()].filter(
+    e => e.id.startsWith('drone-') || e.id.startsWith('guard-')
+  );
+  assert.equal(fodder.length, 3, 'fodder count still tracks threatCount');
+});
+
+test('a spawned Spotter round-trips through a run snapshot', () => {
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 1 });
+  run.enterBriefing(fakeContract({ seed: 7, difficulty: 'elevated', threatCount: 3 }));
+  run.enterCombat();
+  const before = [...run.world.entities.values()].find(e => e.id.startsWith('spotter-'));
+  assert.ok(before, 'spotter present pre-snapshot');
+  before.state = 'investigate';
+  before.lastKnownTarget = { x: before.x, y: before.y };
+
+  const rec = snapshot(run);
+  assert.ok(
+    rec.entities.some(entity => entity.archetype === 'spotter'),
+    'spotter serialised under its own archetype'
+  );
+  const { world } = restore(rec);
+  const after = [...world.entities.values()].find(e => e.id.startsWith('spotter-'));
+  assert.ok(after, 'spotter survives the round-trip');
+  assert.equal(after.constructor.name, 'Spotter');
+  assert.equal(after.x, before.x);
+  assert.equal(after.y, before.y);
+  assert.equal(after.state, 'investigate');
+  assert.deepEqual(after.lastKnownTarget, before.lastKnownTarget);
 });
 
 test('drone-all sweep is not satisfied while a guard remains alive', () => {

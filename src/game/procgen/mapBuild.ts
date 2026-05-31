@@ -81,6 +81,12 @@ export type Map = {
   grid: Grid;
   spawns: { player: GridPoint };
   fodder: EntityAnchor[];
+  /**
+   * T2+ specialist spawn slots (Phase 2.7 M3). Sized by difficulty: STANDARD
+   * gets none, ELEVATED/CRITICAL each get one (the single rolled specialist).
+   * Run maps the composed specialist entry onto these anchors.
+   */
+  specialists: EntityAnchor[];
   corpCivilians: CivilianAnchor[];
   neutralCivilians: CivilianAnchor[];
   /** Prefab/authored door anchors only. Dynamic doors are in `dynamicDoors`. */
@@ -328,6 +334,7 @@ function buildMapOnce(mapRng: Rng, options: BuildMapOptions): Map {
   //      cardinal patrol. Better than refusing to spawn the run, and more
   //      alive than the old stand-still fallback.
   const fodderAnchors: EntityAnchor[] = [];
+  const specialistAnchors: EntityAnchor[] = [];
   const corpCivilians: CivilianAnchor[] = [];
   const neutralCivilians: CivilianAnchor[] = [];
   const isAlreadyTaken = (x: number, y: number): boolean =>
@@ -337,6 +344,7 @@ function buildMapOnce(mapRng: Rng, options: BuildMapOptions): Map {
     dynamicDoors.some(a => a.door.x === x && a.door.y === y) ||
     dynamicDoors.some(a => a.terminal.x === x && a.terminal.y === y) ||
     fodderAnchors.some(a => a.x === x && a.y === y) ||
+    specialistAnchors.some(a => a.x === x && a.y === y) ||
     corpCivilians.some(a => a.x === x && a.y === y) ||
     neutralCivilians.some(a => a.x === x && a.y === y);
 
@@ -377,6 +385,35 @@ function buildMapOnce(mapRng: Rng, options: BuildMapOptions): Map {
     );
   }
 
+  // Specialist anchors (Phase 2.7 M3) — one per rolled specialist on
+  // ELEVATED/CRITICAL. Picked from FLOOR tiles in non-spawn leaves *after*
+  // fodder so they never collide; each gets a synthesised patrol so a spotter
+  // sweeps for vantage rather than standing still. Fail loud if the map can't
+  // budget them (M1.5 anchor budget) — that footprint is illegal for the tier.
+  const specialistCount = specialistAnchorCount(difficulty);
+  for (let i = 1; i < stamped.length && specialistAnchors.length < specialistCount; i++) {
+    const region = stamped[i].leaf.region;
+    for (let yy = region.y; yy < region.y + region.height; yy++) {
+      if (specialistAnchors.length >= specialistCount) break;
+      for (let xx = region.x; xx < region.x + region.width; xx++) {
+        if (specialistAnchors.length >= specialistCount) break;
+        if (grid.tileAt(xx, yy) !== TILE.FLOOR) continue;
+        if (isAlreadyTaken(xx, yy)) continue;
+        specialistAnchors.push({
+          x: xx,
+          y: yy,
+          waypoints: synthesizeFallbackPatrol(grid, { x: xx, y: yy }),
+        });
+      }
+    }
+  }
+  if (specialistAnchors.length < specialistCount) {
+    throw new Error(
+      `buildMap: only ${specialistAnchors.length}/${specialistCount} specialist anchors ` +
+        `available for a ${width}x${height} ${difficulty} map`
+    );
+  }
+
   // Civilians — collect authored spawn points from non-spawn leaves, capped
   // by maxCorpCivilians / maxNeutralCivilians. No fallback generation (unlike
   // fodder) — civilians are optional content. Only place civilians on
@@ -411,6 +448,13 @@ function buildMapOnce(mapRng: Rng, options: BuildMapOptions): Map {
             waypoints: tightenPatrol(grid, anchor.waypoints),
           }))
         : fodderAnchors,
+    specialists:
+      difficulty === CONTRACT_DIFFICULTY.CRITICAL
+        ? specialistAnchors.map(anchor => ({
+            ...anchor,
+            waypoints: tightenPatrol(grid, anchor.waypoints),
+          }))
+        : specialistAnchors,
     corpCivilians,
     neutralCivilians,
     doors: doorAnchors.filter(
@@ -796,6 +840,21 @@ function civilianCapsForDifficulty(difficulty: ContractDifficulty): {
       return { corp: DEFAULT_MAX_CORP_CIVILIANS, neutral: DEFAULT_MAX_NEUTRAL_CIVILIANS };
     default:
       return { corp: DEFAULT_MAX_CORP_CIVILIANS, neutral: DEFAULT_MAX_NEUTRAL_CIVILIANS };
+  }
+}
+
+/**
+ * How many specialist spawn slots a tier needs (Phase 2.7 M3). Mirrors the
+ * encounter composition rules: ELEVATED and CRITICAL each carry exactly one
+ * specialist; STANDARD carries none. (Elite anchors land with M4.)
+ */
+function specialistAnchorCount(difficulty: ContractDifficulty): number {
+  switch (difficulty) {
+    case CONTRACT_DIFFICULTY.ELEVATED:
+    case CONTRACT_DIFFICULTY.CRITICAL:
+      return 1;
+    default:
+      return 0;
   }
 }
 

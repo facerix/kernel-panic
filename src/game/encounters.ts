@@ -34,10 +34,24 @@ export type EncounterComposition = Readonly<{
   entries: readonly EncounterRoleEntry[];
 }>;
 
+/**
+ * Allowlist of specialist/elite archetypes the resolver is permitted to roll.
+ * Phase 2.7 ships role classes incrementally; the spawn site passes only the
+ * archetypes that have a buildable class so the resolver never composes a
+ * hostile we'd have to reskin or silently drop. Omitting a list (or passing
+ * `undefined`) means "the full conceptual roster" — the default used by
+ * composition unit tests that exercise the whole pool.
+ */
+export type AvailableArchetypes = Readonly<{
+  specialists?: readonly EnemyArchetype[];
+  elites?: readonly EnemyArchetype[];
+}>;
+
 export type ComposeEncounterOptions = Readonly<{
   seed: number;
   difficulty: ContractDifficulty;
   fodderCount: number;
+  available?: AvailableArchetypes;
 }>;
 
 const FODDER_ARCHETYPES = Object.freeze([ENEMY_ARCHETYPE.SKIRMISHER, ENEMY_ARCHETYPE.GUARD]);
@@ -60,6 +74,7 @@ export function composeEncounter({
   seed,
   difficulty,
   fodderCount,
+  available,
 }: ComposeEncounterOptions): EncounterComposition {
   if (!Number.isFinite(seed)) {
     throw new TypeError(`composeEncounter seed must be finite, got ${seed}`);
@@ -70,6 +85,12 @@ export function composeEncounter({
     );
   }
 
+  // Resolve the allowlists once. `resolvePool` keeps the canonical archetype
+  // order so the RNG pick index is independent of caller array ordering, and
+  // an omitted list defaults to the full roster.
+  const specialistPool = resolvePool(available?.specialists, SPECIALIST_ARCHETYPES);
+  const elitePool = resolvePool(available?.elites, ELITE_ARCHETYPES);
+
   const tier = enemyTierForDifficulty(difficulty);
   const rng = new Rng(seed).fork('encounter-composition');
   const entries: EncounterRoleEntry[] = rollFodder(rng, tier, fodderCount);
@@ -79,20 +100,25 @@ export function composeEncounter({
   }
 
   if (difficulty === CONTRACT_DIFFICULTY.ELEVATED) {
-    entries.push(makeEntry(rollSpecialist(rng, entries), ENEMY_ROLE.SPECIALIST, tier));
+    const specialist = rollSpecialist(rng, entries, specialistPool);
+    if (specialist) entries.push(makeEntry(specialist, ENEMY_ROLE.SPECIALIST, tier));
     return freezeComposition({ tier, difficulty, fodderCount, entries });
   }
 
   if (difficulty === CONTRACT_DIFFICULTY.CRITICAL) {
-    const elite = rollElite(rng);
-    entries.push(
-      makeEntry(
-        rollSpecialist(rng, [...entries, makeEntry(elite, ENEMY_ROLE.ELITE, tier)]),
-        ENEMY_ROLE.SPECIALIST,
-        tier
-      )
+    // Roll the elite first (draw order preserved from the original resolver so
+    // the full-roster default stays byte-deterministic) so the medic patient
+    // gate can see it. With no buildable elite available, the encounter simply
+    // carries no elite — never a reskin.
+    const elite = rollElite(rng, elitePool);
+    const eliteEntry = elite ? makeEntry(elite, ENEMY_ROLE.ELITE, tier) : null;
+    const specialist = rollSpecialist(
+      rng,
+      eliteEntry ? [...entries, eliteEntry] : entries,
+      specialistPool
     );
-    entries.push(makeEntry(elite, ENEMY_ROLE.ELITE, tier));
+    if (specialist) entries.push(makeEntry(specialist, ENEMY_ROLE.SPECIALIST, tier));
+    if (eliteEntry) entries.push(eliteEntry);
     return freezeComposition({ tier, difficulty, fodderCount, entries });
   }
 
@@ -111,15 +137,40 @@ function rollFodder(rng: Rng, tier: EnemyTier, count: number): EncounterRoleEntr
   return entries;
 }
 
-function rollSpecialist(rng: Rng, existingEntries: readonly EncounterRoleEntry[]): EnemyArchetype {
-  const pool = hasDurableMedicPatient(existingEntries)
-    ? SPECIALIST_ARCHETYPES
-    : SPECIALIST_ARCHETYPES.filter(archetype => archetype !== ENEMY_ARCHETYPE.MEDIC);
-  return rng.pick(pool);
+/**
+ * Filter `requested` down to the canonical pool, preserving canonical order so
+ * the RNG pick index does not depend on the caller's array ordering. An
+ * `undefined` request means "the whole canonical pool".
+ */
+function resolvePool(
+  requested: readonly EnemyArchetype[] | undefined,
+  canonical: readonly EnemyArchetype[]
+): readonly EnemyArchetype[] {
+  if (!requested) return canonical;
+  const allowed = new Set(requested);
+  return canonical.filter(archetype => allowed.has(archetype));
 }
 
-function rollElite(rng: Rng): EnemyArchetype {
-  return rng.pick(ELITE_ARCHETYPES);
+/**
+ * Pick one specialist from `pool`, honouring the medic patient gate (medic is
+ * removed unless a durable patient is already in the encounter). Returns `null`
+ * when the (post-gate) pool is empty — the caller then composes no specialist.
+ */
+function rollSpecialist(
+  rng: Rng,
+  existingEntries: readonly EncounterRoleEntry[],
+  pool: readonly EnemyArchetype[]
+): EnemyArchetype | null {
+  const gated = hasDurableMedicPatient(existingEntries)
+    ? pool
+    : pool.filter(archetype => archetype !== ENEMY_ARCHETYPE.MEDIC);
+  if (gated.length === 0) return null;
+  return rng.pick(gated);
+}
+
+function rollElite(rng: Rng, pool: readonly EnemyArchetype[]): EnemyArchetype | null {
+  if (pool.length === 0) return null;
+  return rng.pick(pool);
 }
 
 function makeEntry(

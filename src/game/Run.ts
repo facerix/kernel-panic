@@ -49,6 +49,7 @@ import { Tech } from './archetypes/Tech.js';
 import { Turret } from './Turret.js';
 import { Skirmisher } from './ai/Skirmisher.js';
 import { Guard } from './ai/Guard.js';
+import { Spotter } from './ai/Spotter.js';
 import { PatrolHostile } from './ai/PatrolHostile.js';
 import { composeEncounter, ENEMY_ARCHETYPE } from './encounters.js';
 import { CorpCivilian } from './entities/CorpCivilian.js';
@@ -107,6 +108,7 @@ export type EntityArchetypeId =
   | 'turret'
   | 'drone'
   | 'guard'
+  | 'spotter'
   | 'corp-civilian'
   | 'neutral-civilian'
   | 'door'
@@ -179,6 +181,14 @@ export type RunEntitySnapshot = {
   // own key so drone saves stay byte-identical. (Future kaizen: consolidate
   // into a shared `patrol` block once more patrol hostiles exist.)
   guard?: {
+    state: string;
+    lastKnownTarget: GridPoint | null;
+    patrolWaypoints: GridPoint[];
+    patrolIndex: number;
+  };
+  // Spotter (T2 specialist) shares the PatrolHostile state machine; serialised
+  // under its own key alongside drone/guard (see kaizen note above).
+  spotter?: {
     state: string;
     lastKnownTarget: GridPoint | null;
     patrolWaypoints: GridPoint[];
@@ -479,16 +489,18 @@ export class Run {
       // anchors cannot consume every spawn-side interactable tile.
       this.#placeObjectiveInteractables();
     }
-    // Phase 2.7 M2: resolve the fodder role mix (skirmishers vs guards) from the
-    // contract seed and difficulty. `composeEncounter` forks its own RNG so the
-    // mix is deterministic and independent of mapgen rolls. The fodder entries
-    // map 1:1 onto the fodder anchors; specialist/elite entries (ELEVATED/CRITICAL)
-    // are intentionally NOT spawned yet — their classes and extra anchors are the
-    // remaining M1.3/M3/M4 work, and we must not reskin them as fodder.
+    // Phase 2.7 M2/M3: resolve the role composition (fodder mix + specialist)
+    // from the contract seed and difficulty. `composeEncounter` forks its own
+    // RNG so the mix is deterministic and independent of mapgen rolls. The
+    // `available` allowlist restricts the specialist/elite roll to archetypes
+    // with a buildable class so the resolver never composes a hostile we'd have
+    // to reskin or silently drop. Only the Spotter (M3.1) ships so far; Sniper,
+    // Medic, and all elites join their lists as M3.2–M4 land.
     const composition = composeEncounter({
       seed: this.contract.seed,
       difficulty: this.contract.difficulty,
       fodderCount: map.fodder.length,
+      available: { specialists: [ENEMY_ARCHETYPE.SPOTTER], elites: [] },
     });
     const fodder = composition.entries.filter(e => e.role === ENEMY_ROLE.FODDER);
     for (let i = 0; i < map.fodder.length; i++) {
@@ -514,6 +526,35 @@ export class Run {
             });
       this.world.addEntity(hostile);
       hostile.bindToBus(this.bus);
+    }
+    // Specialists map 1:1 onto the specialist anchors mapgen budgeted for this
+    // tier. Composition + anchor count agree by construction (both keyed to
+    // difficulty), so a mismatch is a bug — fail loud rather than drop a threat.
+    const specialists = composition.entries.filter(e => e.role === ENEMY_ROLE.SPECIALIST);
+    if (specialists.length > map.specialists.length) {
+      throw new Error(
+        `Run.enterCombat: ${specialists.length} specialist(s) composed but only ` +
+          `${map.specialists.length} anchor(s) for a ${this.contract.difficulty} map`
+      );
+    }
+    for (let i = 0; i < specialists.length; i++) {
+      const entry = specialists[i]!;
+      const a = map.specialists[i]!;
+      if (entry.archetype !== ENEMY_ARCHETYPE.SPOTTER) {
+        // Unreachable while only Spotter is in the allowlist; guards the day a
+        // new specialist joins `available` before its spawn case lands here.
+        throw new Error(`Run.enterCombat: no spawn case for specialist "${entry.archetype}"`);
+      }
+      const spotter = new Spotter({
+        id: `spotter-${i}`,
+        x: a.x,
+        y: a.y,
+        maxAp: 3,
+        patrolWaypoints: a.waypoints,
+        tier: entry.tier,
+      });
+      this.world.addEntity(spotter);
+      spotter.bindToBus(this.bus);
     }
     for (let i = 0; i < map.corpCivilians.length; i++) {
       const a = map.corpCivilians[i]!;
@@ -1514,7 +1555,14 @@ function snapshotEntity(entity: Entity): RunEntitySnapshot {
     alive: entity.alive,
     stealthed: !!entity.stealthed,
   };
-  if (entity instanceof Guard) {
+  if (entity instanceof Spotter) {
+    base.spotter = {
+      state: entity.state,
+      lastKnownTarget: entity.lastKnownTarget ? { ...entity.lastKnownTarget } : null,
+      patrolWaypoints: entity.patrolWaypoints.map(wp => ({ x: wp.x, y: wp.y })),
+      patrolIndex: entity.patrolIndex,
+    };
+  } else if (entity instanceof Guard) {
     base.guard = {
       state: entity.state,
       lastKnownTarget: entity.lastKnownTarget ? { ...entity.lastKnownTarget } : null,
@@ -1631,6 +1679,7 @@ function archetypeOf(entity: Entity): EntityArchetypeId {
   if (entity instanceof Razor) return 'razor';
   if (entity instanceof Tech) return 'tech';
   if (entity instanceof Turret) return 'turret';
+  if (entity instanceof Spotter) return 'spotter';
   if (entity instanceof Guard) return 'guard';
   if (entity instanceof Skirmisher) return 'drone';
   if (entity instanceof CorpCivilian) return 'corp-civilian';

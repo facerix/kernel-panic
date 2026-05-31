@@ -146,6 +146,15 @@ export const SIGHT_RANGE = 8;
 export const PREFERRED_MIN = 3;
 
 /**
+ * Spotter vision range (Phase 2.7 M3.1). The mobile T2 specialist marks the
+ * player for the fireteam at a longer reach than baseline `SIGHT_RANGE` (8) so
+ * it can coordinate fire from a vantage the player hasn't closed on yet. `12`
+ * is the playtest ceiling if `10` proves too short. The Sniper (`12`) reaches
+ * further still; the spotter sits between fodder and sniper.
+ */
+export const SPOTTER_SIGHT_RANGE = 10;
+
+/**
  * Salvage parameters. Phase 2 salvage is generic units (no typed components).
  * Drone corpses drop a random amount in [DROP_MIN, DROP_MAX]; improvised
  * turrets cost IMPROVISED_TURRET_COST units from the crew member's inventory.

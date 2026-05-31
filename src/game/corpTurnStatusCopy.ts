@@ -98,6 +98,12 @@ export function isCorpTurnStepLogVisibleToPlayer(
     return true;
   }
 
+  // A spotter marking the player is felt even when the spotter itself is unseen
+  // — "this fireteam is coordinating on you right now." Surface it like a shot.
+  if (step.type === 'spot' && step.target === playerId) {
+    return true;
+  }
+
   // kaizen: decide if we should surface this just on kills or also on hits
   if ((step.type === 'fire' || step.type === 'melee') && step.result.killed) {
     const victim = world.entities.get(step.target);
@@ -155,6 +161,10 @@ export function formatCorpTurnStep(
       return `${actorLabel} abandons pursuit — resuming patrol.`;
     case 'alarm':
       return `${actorLabel} trips the facility alarm — corp net hot.`;
+    case 'spot': {
+      const targetLabel = resolve(step.target);
+      return `${actorLabel} marks ${targetLabel} — fire converging on your position.`;
+    }
     // Patrol movement and waypoint chatter are noise; skip them.
     case 'move-patrol':
     case 'patrol-arrived':

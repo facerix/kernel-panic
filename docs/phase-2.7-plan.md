@@ -135,15 +135,15 @@ All rolls derive from the contract seed (deterministic, save-compatible).
 | M1 — Tier doctrine foundations | 🟡 In progress |
 | M1.1 — `EnemyTier` model + per-tier stat scaling hook | ✅ Complete |
 | M1.2 — `damageReduction` (armor) stat on `Entity` | ✅ Complete |
-| M1.3 — Encounter composition by tier (roles, not just counts) | 🟡 In progress — resolver landed; **fodder slice wired** (M2 spawns skirmisher/guard mix); specialist/elite anchors+classes still pending |
+| M1.3 — Encounter composition by tier (roles, not just counts) | 🟡 In progress — resolver landed; **fodder slice wired** (M2 spawns skirmisher/guard mix); **specialist slice wired** (M3.1 spawns Spotter on ELEVATED/CRITICAL via the `available` allowlist + mapgen specialist anchors); elite anchors+classes still pending (M4) |
 | M1.4 — CorpCivilian cover-occluded LOS | ✅ Complete |
 | M1.5 — Variable combat map dimensions (tier + seed) | ✅ Complete |
 | M2 — Tier 1 fodder roster | ✅ Complete |
 | M2.1 — Skirmisher kiting (preferred engagement band) | ✅ Complete |
 | M2.2 — Guard (melee fodder) | ✅ Complete |
 | M2.3 — Combat damage tuning + skirmisher glyph | ✅ Complete |
-| M3 — Tier 2 specialists | 🔲 Not started |
-| M3.1 — Spotter (mobile per-turn target share; not CorpCivilian) | 🔲 Not started |
+| M3 — Tier 2 specialists | 🟡 In progress |
+| M3.1 — Spotter (mobile per-turn target share; not CorpCivilian) | ✅ Complete |
 | M3.2 — Sniper (telegraphed long-range burst) | 🔲 Not started |
 | M3.3 — Medic (proactive shield + heal; patient-gated spawn) | 🔲 Not started |
 | M4 — Tier 3 elites | 🔲 Not started |
@@ -306,6 +306,8 @@ Playtest pass on T1 fodder pacing:
 - Land full plumbing: types, persistence, snapshot/restore, loot, `corpTurnStatusCopy`, `kindFromId`.
 - **TDD:** spotter with LOS emits `ALARM` `{ kind: 'spotter' }` every turn without calling `raiseAlarm`; allies re-engage on fresh target coords on both kinds; spotter without LOS moves toward max-distance vantage; killing spotter stops pings; spotter ignores incoming `ALARM`; civilian `raiseAlarm` emits `kind: 'facility'` and behaviour unchanged (regression guard); stealthed player beyond Chebyshev 1 not spotted.
 
+**Implementation note:** `ALARM_KIND` (`events.ts`) discriminates `facility` vs `spotter`; `World.raiseAlarm()` now stamps `kind: 'facility'` (back-compat default). `PatrolHostile` gained two overridable hooks: `listensForAlarm()` (default `true`; `Spotter` returns `false` so it never consumes pings) and `investigateStep()` (default `stepToward`; `Spotter` overrides to seek a distance-maximising LOS vantage, falling back to closing in). `src/game/ai/Spotter.ts` (glyph `s`, `SPOTTER_SIGHT_RANGE = 10`, `ENEMY_ROLE.SPECIALIST` stats) emits the `spotter`-kind ping + a `spot` turn-step (`types.ts`) each engage turn, then evasively repositions. **Spawn wiring (specialist slice of M1.3):** `composeEncounter` gained an `available: { specialists, elites }` allowlist (defaults to the full roster) so it only composes *buildable* archetypes — never a reskin or silent drop; `Run.enterCombat` passes `{ specialists: [SPOTTER], elites: [] }`. `buildMap` budgets one **specialist anchor** for ELEVATED/CRITICAL (fails loud if the footprint can't fit it). Full plumbing: `spotter` archetype/snapshot block + `PatrolHostile` restore (`persistence.ts`/`Run.ts`), `kindFromId → Spotter`, `formatCorpTurnStep`/visibility for `spot` (a mark on the player surfaces even when the spotter tile is unseen), precache + SW cache bump (`0.2.7b`). **Note:** `drone-all` sweep still counts only Skirmisher/Guard — a spotter does not gate the sweep objective (kaizen below).
+
 #### M3.2 — Sniper
 
 **Contrast with Spotter:** Spotter coordinates fodder (`ALARM` pings); sniper is a **self-contained personal threat** — break LOS or eat the burst. No ally force-multiplier.
@@ -415,3 +417,5 @@ So a flanker that SLIDEs on corp turn N vanishes for the player's entire turn N+
 - **Map size vs. objective timer:** longer maps may need objective-timer review (Phase 2.5) so retrieve/sweep gigs don’t feel padded on large footprints — defer tuning until sizes land.
 - **UI copy:** contract briefing uses "N hostiles" (not "N drones"); role-specific aliases land in Phase 2.8.
 - **Spotter + civilian coexistence:** office prefabs may spawn ambient civilians on ELEVATED/CRITICAL maps that also roll a spotter specialist — confirm briefing/log copy distinguishes `[Corp]Civilian` from the spotter alias once Phase 2.8 theming lands.
+- **Specialist and sweep objectives (M3.1):** the `drone-all` sweep counts only Skirmisher/Guard (T1 fodder), so an ELEVATED sweep can complete with the Spotter still alive. Matches the plan's fodder-only definition, but revisit whether a `sweep` on a specialist/elite tier should require clearing the force-multiplier too (or add a distinct objective variant) once Sniper/elites land.
+- **Specialist loot (M3.1):** the Spotter falls through `Run.#rollLoot` to the scrap default like any non-turret Hostile. Revisit whether T2/T3 specialists/elites should drop richer typed salvage (chips/data) when the loot table is reworked.

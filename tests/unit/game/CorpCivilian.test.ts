@@ -6,7 +6,7 @@ import { EscortNpc } from '../../../src/game/entities/EscortNpc.js';
 import { Entity } from '../../../src/game/Entity.js';
 import { Grid } from '../../../src/game/Grid.js';
 import { World } from '../../../src/game/World.js';
-import { EventBus, EVENT } from '../../../src/game/events.js';
+import { EventBus, EVENT, ALARM_KIND } from '../../../src/game/events.js';
 import { FACTION, TILE } from '../../../src/game/constants.js';
 import { Rng } from '../../../src/rng.js';
 
@@ -48,6 +48,10 @@ test('CorpCivilian emits alarm when player is in LOS', () => {
   const payload = alarms[0] as Record<string, unknown>;
   assert.equal(payload.source, civ);
   assert.equal(payload.target, player);
+  // M3.1: facility raises carry the `facility` kind so patrol hostiles can tell
+  // a building-wide alert from a spotter's direct ping. Civilian behaviour is
+  // otherwise unchanged (regression guard).
+  assert.equal(payload.kind, ALARM_KIND.FACILITY);
   assert.equal(world.alarmActive, true, 'alarm should latch on the world');
 });
 

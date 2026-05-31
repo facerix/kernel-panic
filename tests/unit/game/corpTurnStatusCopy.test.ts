@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   corpTurnStatusBody,
   countVisibleCorpEntities,
+  formatCorpTurnStep,
   isCorpTurnStepLogVisibleToPlayer,
   resetCorpTurnStatusCache,
 } from '../../../src/game/corpTurnStatusCopy.js';
@@ -154,6 +155,30 @@ test('isCorpTurnStepLogVisibleToPlayer: hit on turret that survives still requir
   };
   assert.equal(
     isCorpTurnStepLogVisibleToPlayer(world, 'tech0', 'd1', step, () => false),
+    false
+  );
+});
+
+test('formatCorpTurnStep narrates a spotter mark with the target label', () => {
+  const line = formatCorpTurnStep('[Corp]Spotter', { type: 'spot', target: 'p1' }, () => 'you');
+  assert.match(line, /\[Corp\]Spotter marks you/);
+  assert.match(line, /converging/i);
+});
+
+test('isCorpTurnStepLogVisibleToPlayer: a spotter mark on the player is felt even when unseen', () => {
+  const { world } = makeDroneWorld();
+  const step = { type: 'spot' as const, target: 'p1' };
+  assert.equal(
+    isCorpTurnStepLogVisibleToPlayer(world, 'p1', 'd1', step, () => false),
+    true
+  );
+});
+
+test('isCorpTurnStepLogVisibleToPlayer: a spotter mark on another target requires a visible spotter', () => {
+  const { world } = makeDroneWorld();
+  const step = { type: 'spot' as const, target: 'other' };
+  assert.equal(
+    isCorpTurnStepLogVisibleToPlayer(world, 'p1', 'd1', step, () => false),
     false
   );
 });

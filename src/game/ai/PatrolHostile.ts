@@ -109,11 +109,26 @@ export abstract class PatrolHostile extends Hostile {
     const offNoise = events.on(EVENT.NOISE, (payload: unknown) =>
       this.#onNoise(payload as NoiseEventPayload)
     );
-    const offAlarm = events.on(EVENT.ALARM, (payload: unknown) =>
-      this.#onAlarm(payload as AlarmEventPayload)
-    );
-    this.#unsubs.push(offNoise, offAlarm);
+    this.#unsubs.push(offNoise);
+    // A `Spotter` opts out of the ALARM bus (`listensForAlarm() === false`):
+    // it is the *source* of `spotter`-kind pings and must not self-wake or
+    // couple to the facility latch. Skirmishers/guards subscribe (default).
+    if (this.listensForAlarm()) {
+      const offAlarm = events.on(EVENT.ALARM, (payload: unknown) =>
+        this.#onAlarm(payload as AlarmEventPayload)
+      );
+      this.#unsubs.push(offAlarm);
+    }
     return () => this.unbind();
+  }
+
+  /**
+   * Whether this unit reacts to `ALARM` bus events (facility *and* spotter
+   * kinds). Override to `false` for units that emit alarms but must not consume
+   * them (the `Spotter`). Default: subscribe.
+   */
+  protected listensForAlarm(): boolean {
+    return true;
   }
 
   unbind() {
@@ -207,11 +222,10 @@ export abstract class PatrolHostile extends Hostile {
           continue;
         }
         if (this.ap < AP_COST.MOVE) break;
-        const step = this.stepToward(
+        const step = this.investigateStep(
           world,
           this.lastKnownTarget.x,
-          this.lastKnownTarget.y,
-          'investigate'
+          this.lastKnownTarget.y
         );
         if (!step) {
           // Unreachable — give up the lead and patrol.
@@ -269,6 +283,21 @@ export abstract class PatrolHostile extends Hostile {
    * commit an illegal action.
    */
   protected abstract engageSteps(world: World, rng: Rng, target: Entity): EngageSteps;
+
+  /**
+   * Movement chosen while INVESTIGATING a `lastKnownTarget` coordinate (no live
+   * target in sight). Default: A* one step toward the lead. Overridden by the
+   * `Spotter`, which seeks a *distance-maximising vantage* that restores LOS to
+   * the lead rather than closing on it. Returns `null` when no useful move
+   * exists (the loop then abandons the lead and resumes patrol).
+   */
+  protected investigateStep(
+    world: World,
+    gx: number,
+    gy: number
+  ): PatrolHostileMoveStep | null {
+    return this.stepToward(world, gx, gy, 'investigate');
+  }
 
   /**
    * Step one tile along an A* path toward `(gx, gy)`. Returns the move step on

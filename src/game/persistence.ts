@@ -50,6 +50,7 @@ import { Tech } from './archetypes/Tech.js';
 import { Turret } from './Turret.js';
 import { Skirmisher, type SkirmisherProps } from './ai/Skirmisher.js';
 import { Guard, type GuardProps } from './ai/Guard.js';
+import { Spotter, type SpotterProps } from './ai/Spotter.js';
 import { PatrolHostile, PATROL_STATE } from './ai/PatrolHostile.js';
 import { CorpCivilian } from './entities/CorpCivilian.js';
 import { NeutralCivilian } from './entities/NeutralCivilian.js';
@@ -112,6 +113,7 @@ type RestoreEntityProps = Partial<
     TurretInit &
     SkirmisherProps &
     GuardProps &
+    SpotterProps &
     CorpCivilianInit &
     NeutralCivilianInit &
     DoorInit &
@@ -146,6 +148,7 @@ const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) =
     turret: (props: RestoreEntityProps) => new Turret(props as TurretInit),
     drone: (props: RestoreEntityProps) => new Skirmisher(props as SkirmisherProps),
     guard: (props: RestoreEntityProps) => new Guard(props as GuardProps),
+    spotter: (props: RestoreEntityProps) => new Spotter(props as SpotterProps),
     'corp-civilian': (props: RestoreEntityProps) => new CorpCivilian(props as CorpCivilianInit),
     'neutral-civilian': (props: RestoreEntityProps) =>
       new NeutralCivilian(props as NeutralCivilianInit),
@@ -562,6 +565,9 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
   if (rec.archetype === 'guard') {
     entityProps.patrolWaypoints = rec.guard?.patrolWaypoints ?? [];
   }
+  if (rec.archetype === 'spotter') {
+    entityProps.patrolWaypoints = rec.spotter?.patrolWaypoints ?? [];
+  }
   if (rec.archetype === 'turret' && rec.turret) {
     // Turret's range/attackDamage are tunables that survive a round-trip;
     // passing them through the constructor keeps a custom-tuned improvised
@@ -689,10 +695,17 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
     entity.turretReady = !!rec.tech.turretReady;
   }
 
-  // Skirmisher and Guard share the PatrolHostile state machine; each
-  // serialises under its own key (`drone` / `guard`) but restores identically.
+  // Skirmisher, Guard, and Spotter share the PatrolHostile state machine; each
+  // serialises under its own key (`drone` / `guard` / `spotter`) but restores
+  // identically.
   const patrolRec =
-    rec.archetype === 'drone' ? rec.drone : rec.archetype === 'guard' ? rec.guard : null;
+    rec.archetype === 'drone'
+      ? rec.drone
+      : rec.archetype === 'guard'
+        ? rec.guard
+        : rec.archetype === 'spotter'
+          ? rec.spotter
+          : null;
   if (patrolRec) {
     if (!(entity instanceof PatrolHostile)) {
       throw new Error(

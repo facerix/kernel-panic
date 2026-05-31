@@ -73,6 +73,13 @@ export type PatrolHostileTurnStep =
 /** CorpCivilian alarm step — yielded when a corp non-combatant spots the player. */
 export type CorpCivilianTurnStep = { type: 'alarm'; target: string };
 
+/**
+ * Spotter target-share step (Phase 2.7 M3.1) — yielded each corp turn the
+ * spotter holds LOS and pings the fireteam with the target's fresh coords. The
+ * spotter never attacks, so this is its only combat-relevant yield.
+ */
+export type SpotterTurnStep = { type: 'spot'; target: string };
+
 /** NeutralCivilian aftermath steps — yielded during the player aftermath phase. */
 export type NeutralCivilianTurnStep =
   | { type: 'neutral-idle' }
@@ -85,7 +92,11 @@ export type NeutralCivilianTurnStep =
  * AIs should extend this union so `corpTurnDriver` and tests can treat
  * generators uniformly.
  */
-export type TurnActionStep = PatrolHostileTurnStep | CorpCivilianTurnStep | NeutralCivilianTurnStep;
+export type TurnActionStep =
+  | PatrolHostileTurnStep
+  | CorpCivilianTurnStep
+  | SpotterTurnStep
+  | NeutralCivilianTurnStep;
 
 /**
  * Generator contract for entities the corp turn driver paces one yield at a
