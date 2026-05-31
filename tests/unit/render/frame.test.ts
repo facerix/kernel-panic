@@ -16,6 +16,7 @@ import {
 } from '../../../src/render/palette.js';
 import { ConsumablePickup } from '../../../src/game/entities/ConsumablePickup.js';
 import { VisionField } from '../../../src/game/Vision.js';
+import { Sniper } from '../../../src/game/ai/Sniper.js';
 
 const fixture = () => {
   const g = new Grid(6, 4); // FLOOR-filled
@@ -275,4 +276,44 @@ test('buildFrame marks lookCursor cell with cursor highlight colors', () => {
   assert.equal(cell.char, '#', 'cursor preserves underlying glyph');
   assert.equal(cell.bg, '#00d9a5');
   assert.equal(cell.fg, '#06110f');
+});
+
+test('buildFrame omits a range-concealed sniper holding aim', () => {
+  const g = new Grid(20, 4);
+  const w = new World(g);
+  const player = new Entity({ id: 'p', x: 1, y: 1, faction: FACTION.PLAYER, glyph: '@' });
+  const sniper = new Sniper({ id: 'sniper-0', x: 10, y: 1 });
+  sniper.aimTargetId = player.id;
+  w.addEntity(player);
+  w.addEntity(sniper);
+  const frame = buildFrame(w, { x: 0, y: 0, width: 20, height: 4 }, { player });
+  assert.equal(cellAt(frame, 10, 1).char, '.', 'concealed sniper tile shows floor');
+});
+
+test('buildFrame reveals a sniper holding aim when the player closes within 5 tiles', () => {
+  const g = new Grid(10, 4);
+  const w = new World(g);
+  const player = new Entity({ id: 'p', x: 1, y: 1, faction: FACTION.PLAYER, glyph: '@' });
+  const sniper = new Sniper({ id: 'sniper-0', x: 6, y: 1 });
+  sniper.aimTargetId = player.id;
+  w.addEntity(player);
+  w.addEntity(sniper);
+  const frame = buildFrame(w, { x: 0, y: 0, width: 10, height: 4 }, { player });
+  assert.equal(cellAt(frame, 6, 1).char, 'n', 'revealed sniper glyph at cheb 5');
+});
+
+test('buildFrame composes a red crosshair over the sniper aim target glyph', () => {
+  const g = new Grid(20, 4);
+  const w = new World(g);
+  const player = new Entity({ id: 'p', x: 1, y: 1, faction: FACTION.PLAYER, glyph: '@' });
+  const sniper = new Sniper({ id: 'sniper-0', x: 10, y: 1 });
+  sniper.aimTargetId = player.id;
+  w.addEntity(player);
+  w.addEntity(sniper);
+  const frame = buildFrame(w, { x: 0, y: 0, width: 20, height: 4 }, { player });
+  const cell = cellAt(frame, 1, 1);
+  assert.equal(cell.char, '@', 'target glyph remains visible');
+  assert.equal(cell.fg, '#00d9a5');
+  assert.equal(cell.overlay?.char, '+');
+  assert.equal(cell.overlay?.fg, '#ff4444');
 });

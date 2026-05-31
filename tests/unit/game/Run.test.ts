@@ -15,6 +15,7 @@ import { CorpCivilian } from '../../../src/game/entities/CorpCivilian.js';
 import { NeutralCivilian } from '../../../src/game/entities/NeutralCivilian.js';
 import { ConsumablePickup } from '../../../src/game/entities/ConsumablePickup.js';
 import { restore, snapshot } from '../../../src/game/persistence.js';
+import { Sniper } from '../../../src/game/ai/Sniper.js';
 import { buildCrewMember } from '../../../src/game/archetypes/index.js';
 import { findPath } from '../../../src/game/Pathfinding.js';
 import { Rng } from '../../../src/rng.js';
@@ -150,15 +151,17 @@ test('STANDARD encounter fills fodder anchors with a deterministic skirmisher/gu
   assert.equal(ids.filter(id => id.startsWith('spotter-')).length, 0, 'STANDARD has no specialist');
 });
 
-test('ELEVATED encounter spawns fodder plus exactly one Spotter specialist', () => {
-  // Phase 2.7 M3.1: ELEVATED (T2) rolls one specialist; only the Spotter is
-  // buildable so far, so the available allowlist guarantees it is the spotter.
+test('ELEVATED encounter spawns fodder plus exactly one specialist', () => {
+  // Phase 2.7 M3: ELEVATED (T2) rolls one specialist from the buildable pool
+  // ([sniper, spotter] in canonical order). Seed 7 → sniper on this roster.
   const run = new Run({ crewMember: makeCrew('razor'), seed: 1 });
   run.enterBriefing(fakeContract({ seed: 7, difficulty: 'elevated', threatCount: 3 }));
   run.enterCombat();
-  const spotters = [...run.world.entities.values()].filter(e => e.id.startsWith('spotter-'));
-  assert.equal(spotters.length, 1, 'exactly one spotter on an ELEVATED contract');
-  assert.equal(spotters[0].constructor.name, 'Spotter');
+  const specialists = [...run.world.entities.values()].filter(
+    e => e.id.startsWith('spotter-') || e.id.startsWith('sniper-')
+  );
+  assert.equal(specialists.length, 1, 'exactly one T2 specialist');
+  assert.equal(specialists[0].constructor.name, 'Sniper');
   const fodder = [...run.world.entities.values()].filter(
     e => e.id.startsWith('drone-') || e.id.startsWith('guard-')
   );
@@ -167,7 +170,7 @@ test('ELEVATED encounter spawns fodder plus exactly one Spotter specialist', () 
 
 test('a spawned Spotter round-trips through a run snapshot', () => {
   const run = new Run({ crewMember: makeCrew('razor'), seed: 1 });
-  run.enterBriefing(fakeContract({ seed: 7, difficulty: 'elevated', threatCount: 3 }));
+  run.enterBriefing(fakeContract({ seed: 3, difficulty: 'elevated', threatCount: 3 }));
   run.enterCombat();
   const before = [...run.world.entities.values()].find(e => e.id.startsWith('spotter-'));
   assert.ok(before, 'spotter present pre-snapshot');
@@ -187,6 +190,25 @@ test('a spawned Spotter round-trips through a run snapshot', () => {
   assert.equal(after.y, before.y);
   assert.equal(after.state, 'investigate');
   assert.deepEqual(after.lastKnownTarget, before.lastKnownTarget);
+});
+
+test('a spawned Sniper round-trips aimTargetId through a run snapshot', () => {
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 1 });
+  run.enterBriefing(fakeContract({ seed: 7, difficulty: 'elevated', threatCount: 3 }));
+  run.enterCombat();
+  const before = [...run.world.entities.values()].find(e => e.id.startsWith('sniper-'));
+  assert.ok(before instanceof Sniper, 'sniper present pre-snapshot');
+  before.aimTargetId = run.player!.id;
+
+  const rec = snapshot(run);
+  assert.ok(
+    rec.entities.some(entity => entity.archetype === 'sniper' && entity.sniper?.aimTargetId),
+    'sniper serialised with pending aim'
+  );
+  const { world } = restore(rec);
+  const after = [...world.entities.values()].find(e => e.id.startsWith('sniper-'));
+  assert.ok(after instanceof Sniper, 'sniper survives the round-trip');
+  assert.equal(after.aimTargetId, run.player!.id);
 });
 
 test('drone-all sweep is not satisfied while a guard remains alive', () => {

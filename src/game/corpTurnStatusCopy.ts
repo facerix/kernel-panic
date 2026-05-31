@@ -104,6 +104,12 @@ export function isCorpTurnStepLogVisibleToPlayer(
     return true;
   }
 
+  // A sniper's aim telegraph must reach the player even when the sniper tile is
+  // unseen (range conceal) — the whole point is the red dot from the dark.
+  if (step.type === 'aim' && step.target === playerId) {
+    return true;
+  }
+
   // kaizen: decide if we should surface this just on kills or also on hits
   if ((step.type === 'fire' || step.type === 'melee') && step.result.killed) {
     const victim = world.entities.get(step.target);
@@ -165,6 +171,14 @@ export function formatCorpTurnStep(
       const targetLabel = resolve(step.target);
       return `${actorLabel} marks ${targetLabel} — fire converging on your position.`;
     }
+    case 'aim': {
+      // Deliberately anonymous — the sniper may be range-concealed; the tell is
+      // the targeting laser, not a named, located shooter.
+      const targetLabel = resolve(step.target);
+      return `A targeting laser settles on ${targetLabel} — incoming fire.`;
+    }
+    case 'aim-cancelled':
+      return `${actorLabel} loses the shot — ${step.reason}.`;
     // Patrol movement and waypoint chatter are noise; skip them.
     case 'move-patrol':
     case 'patrol-arrived':

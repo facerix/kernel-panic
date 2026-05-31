@@ -64,4 +64,8 @@ export class KeyCard extends Entity {
     this.label = label;
     this.siteId = siteId ?? null;
   }
+
+  override isHazardImmune(): boolean {
+    return true;
+  }
 }

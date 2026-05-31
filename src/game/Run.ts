@@ -50,6 +50,7 @@ import { Turret } from './Turret.js';
 import { Skirmisher } from './ai/Skirmisher.js';
 import { Guard } from './ai/Guard.js';
 import { Spotter } from './ai/Spotter.js';
+import { Sniper } from './ai/Sniper.js';
 import { PatrolHostile } from './ai/PatrolHostile.js';
 import { composeEncounter, ENEMY_ARCHETYPE } from './encounters.js';
 import { CorpCivilian } from './entities/CorpCivilian.js';
@@ -109,6 +110,7 @@ export type EntityArchetypeId =
   | 'drone'
   | 'guard'
   | 'spotter'
+  | 'sniper'
   | 'corp-civilian'
   | 'neutral-civilian'
   | 'door'
@@ -193,6 +195,16 @@ export type RunEntitySnapshot = {
     lastKnownTarget: GridPoint | null;
     patrolWaypoints: GridPoint[];
     patrolIndex: number;
+  };
+  // Sniper (T2 specialist) shares the PatrolHostile machine; `aimTargetId`
+  // captures a held shot mid-telegraph so a save during the aim window restores
+  // the pending fire-or-cancel.
+  sniper?: {
+    state: string;
+    lastKnownTarget: GridPoint | null;
+    patrolWaypoints: GridPoint[];
+    patrolIndex: number;
+    aimTargetId: string | null;
   };
   tech?: { turretReady: boolean };
   callsign?: string | null;
@@ -494,13 +506,13 @@ export class Run {
     // RNG so the mix is deterministic and independent of mapgen rolls. The
     // `available` allowlist restricts the specialist/elite roll to archetypes
     // with a buildable class so the resolver never composes a hostile we'd have
-    // to reskin or silently drop. Only the Spotter (M3.1) ships so far; Sniper,
-    // Medic, and all elites join their lists as M3.2–M4 land.
+    // to reskin or silently drop. Spotter and Sniper (M3.1/M3.2) ship as T2
+    // specialists; Medic and elites join their lists as M3.3–M4 land.
     const composition = composeEncounter({
       seed: this.contract.seed,
       difficulty: this.contract.difficulty,
       fodderCount: map.fodder.length,
-      available: { specialists: [ENEMY_ARCHETYPE.SPOTTER], elites: [] },
+      available: { specialists: [ENEMY_ARCHETYPE.SPOTTER, ENEMY_ARCHETYPE.SNIPER], elites: [] },
     });
     const fodder = composition.entries.filter(e => e.role === ENEMY_ROLE.FODDER);
     for (let i = 0; i < map.fodder.length; i++) {
@@ -540,21 +552,32 @@ export class Run {
     for (let i = 0; i < specialists.length; i++) {
       const entry = specialists[i]!;
       const a = map.specialists[i]!;
-      if (entry.archetype !== ENEMY_ARCHETYPE.SPOTTER) {
-        // Unreachable while only Spotter is in the allowlist; guards the day a
-        // new specialist joins `available` before its spawn case lands here.
+      let specialist: PatrolHostile;
+      if (entry.archetype === ENEMY_ARCHETYPE.SPOTTER) {
+        specialist = new Spotter({
+          id: `spotter-${i}`,
+          x: a.x,
+          y: a.y,
+          maxAp: 3,
+          patrolWaypoints: a.waypoints,
+          tier: entry.tier,
+        });
+      } else if (entry.archetype === ENEMY_ARCHETYPE.SNIPER) {
+        // Sniper keeps the default 4 AP so it can move-then-aim in one corp turn.
+        specialist = new Sniper({
+          id: `sniper-${i}`,
+          x: a.x,
+          y: a.y,
+          patrolWaypoints: a.waypoints,
+          tier: entry.tier,
+        });
+      } else {
+        // Guards the day a new specialist joins `available` before its spawn
+        // case lands here — fail loud rather than drop a composed threat.
         throw new Error(`Run.enterCombat: no spawn case for specialist "${entry.archetype}"`);
       }
-      const spotter = new Spotter({
-        id: `spotter-${i}`,
-        x: a.x,
-        y: a.y,
-        maxAp: 3,
-        patrolWaypoints: a.waypoints,
-        tier: entry.tier,
-      });
-      this.world.addEntity(spotter);
-      spotter.bindToBus(this.bus);
+      this.world.addEntity(specialist);
+      specialist.bindToBus(this.bus);
     }
     for (let i = 0; i < map.corpCivilians.length; i++) {
       const a = map.corpCivilians[i]!;
@@ -1555,7 +1578,15 @@ function snapshotEntity(entity: Entity): RunEntitySnapshot {
     alive: entity.alive,
     stealthed: !!entity.stealthed,
   };
-  if (entity instanceof Spotter) {
+  if (entity instanceof Sniper) {
+    base.sniper = {
+      state: entity.state,
+      lastKnownTarget: entity.lastKnownTarget ? { ...entity.lastKnownTarget } : null,
+      patrolWaypoints: entity.patrolWaypoints.map(wp => ({ x: wp.x, y: wp.y })),
+      patrolIndex: entity.patrolIndex,
+      aimTargetId: entity.aimTargetId,
+    };
+  } else if (entity instanceof Spotter) {
     base.spotter = {
       state: entity.state,
       lastKnownTarget: entity.lastKnownTarget ? { ...entity.lastKnownTarget } : null,
@@ -1679,6 +1710,7 @@ function archetypeOf(entity: Entity): EntityArchetypeId {
   if (entity instanceof Razor) return 'razor';
   if (entity instanceof Tech) return 'tech';
   if (entity instanceof Turret) return 'turret';
+  if (entity instanceof Sniper) return 'sniper';
   if (entity instanceof Spotter) return 'spotter';
   if (entity instanceof Guard) return 'guard';
   if (entity instanceof Skirmisher) return 'drone';

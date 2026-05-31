@@ -1,8 +1,11 @@
 import { TILE, FACTION } from '../game/constants.js';
 import type { TileId, FactionId } from '../game/constants.js';
 
+/** Second glyph painted on top of the base cell (e.g. sniper aim crosshair). */
+export type GlyphOverlay = { char: string; fg: string };
+
 /** A renderable glyph: a single character plus a foreground colour. */
-export type Glyph = { char: string; fg: string; bg?: string };
+export type Glyph = { char: string; fg: string; bg?: string; overlay?: GlyphOverlay };
 
 /**
  * Central palette: every renderable thing maps to a glyph (a single char) plus

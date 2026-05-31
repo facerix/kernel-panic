@@ -222,11 +222,7 @@ export abstract class PatrolHostile extends Hostile {
           continue;
         }
         if (this.ap < AP_COST.MOVE) break;
-        const step = this.investigateStep(
-          world,
-          this.lastKnownTarget.x,
-          this.lastKnownTarget.y
-        );
+        const step = this.investigateStep(world, this.lastKnownTarget.x, this.lastKnownTarget.y);
         if (!step) {
           // Unreachable — give up the lead and patrol.
           this.lastKnownTarget = null;
@@ -291,11 +287,7 @@ export abstract class PatrolHostile extends Hostile {
    * the lead rather than closing on it. Returns `null` when no useful move
    * exists (the loop then abandons the lead and resumes patrol).
    */
-  protected investigateStep(
-    world: World,
-    gx: number,
-    gy: number
-  ): PatrolHostileMoveStep | null {
+  protected investigateStep(world: World, gx: number, gy: number): PatrolHostileMoveStep | null {
     return this.stepToward(world, gx, gy, 'investigate');
   }
 

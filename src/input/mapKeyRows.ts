@@ -32,6 +32,8 @@ export const MAP_KEY_COMBAT_HOSTILES: readonly MapKeyRow[] = Object.freeze([
   { glyph: 'c', label: 'corp civilian — facility alarm if they see you' },
   { glyph: 'g', label: 'guard — closes fast and hits hard' },
   { glyph: 'k', label: 'skirmisher — ranged; backs off if you close in' },
+  { glyph: 'n', label: 'sniper — telegraphed long shot; get cover or get hit' },
+  { glyph: 's', label: 'spotter — marks you for the team; does not shoot' },
   { glyph: '$', label: 'turret — stationary ranged' },
   { glyph: '◆', label: 'corp asset (objective target)' },
 ]);

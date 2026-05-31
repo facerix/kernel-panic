@@ -10,14 +10,7 @@
  */
 
 import { PatrolHostile, type PatrolHostileInit, type EngageSteps } from './PatrolHostile.js';
-import {
-  FACTION,
-  AP_COST,
-  ENEMY_ROLE,
-  ENEMY_TIER,
-  HEAVY_MELEE_DAMAGE,
-  resolveEnemyStats,
-} from '../constants.js';
+import { FACTION, AP_COST, ENEMY_ROLE, ENEMY_TIER, resolveEnemyStats } from '../constants.js';
 import type { EnemyTier } from '../constants.js';
 import { canMelee, resolveMelee } from '../Combat.js';
 import type { Entity } from '../Entity.js';
@@ -37,9 +30,7 @@ export class Guard extends PatrolHostile {
   protected override *engageSteps(world: World, rng: Rng, target: Entity): EngageSteps {
     const meleeCheck = canMelee(world, this, target);
     if (meleeCheck.ok) {
-      const result = resolveMelee(world, this, target, rng, {
-        damage: HEAVY_MELEE_DAMAGE,
-      });
+      const result = resolveMelee(world, this, target, rng);
       yield { type: 'melee', target: target.id, result };
       return 'continue';
     }

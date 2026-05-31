@@ -80,6 +80,17 @@ export type CorpCivilianTurnStep = { type: 'alarm'; target: string };
  */
 export type SpotterTurnStep = { type: 'spot'; target: string };
 
+/**
+ * Sniper telegraph steps (Phase 2.7 M3.2). `aim` is yielded the corp turn the
+ * sniper commits a held shot (target marked, crosshair painted, no NOISE);
+ * `aim-cancelled` when that shot is voided at fire time (target dead, out of
+ * range, LOS broken, or re-stealthed). The shot itself reuses the shared `fire`
+ * step so combat logging/visibility stay uniform.
+ */
+export type SniperTurnStep =
+  | { type: 'aim'; target: string }
+  | { type: 'aim-cancelled'; reason: string };
+
 /** NeutralCivilian aftermath steps — yielded during the player aftermath phase. */
 export type NeutralCivilianTurnStep =
   | { type: 'neutral-idle' }
@@ -96,6 +107,7 @@ export type TurnActionStep =
   | PatrolHostileTurnStep
   | CorpCivilianTurnStep
   | SpotterTurnStep
+  | SniperTurnStep
   | NeutralCivilianTurnStep;
 
 /**

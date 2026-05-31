@@ -46,6 +46,11 @@ export class Interactable extends Entity {
     return false;
   }
 
+  /** Anchored interactables sit on/near hazard clusters — environmental ticks skip them. */
+  override isHazardImmune(): boolean {
+    return true;
+  }
+
   canInteract(actor: Entity): { ok: true } | { ok: false; reason: string } {
     if (!this.alive) return { ok: false, reason: 'inactive' };
     if (!actor.alive) return { ok: false, reason: 'actor-dead' };

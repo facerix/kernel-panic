@@ -100,9 +100,8 @@ test('medic never appears without a durable patient', () => {
 });
 
 test('available allowlist restricts the specialist roll to buildable archetypes', () => {
-  // Phase 2.7 M3.1: only the Spotter has a class so far, so the spawn site
-  // passes it as the sole available specialist. Every ELEVATED roll must then
-  // be a spotter — never a not-yet-built sniper/medic that we'd have to reskin.
+  // Phase 2.7 M3: spawn site passes only buildable specialists so the resolver
+  // never composes a hostile we'd have to reskin or silently drop.
   for (let seed = 0; seed < 200; seed++) {
     const composition = composeEncounter({
       seed,
@@ -113,6 +112,22 @@ test('available allowlist restricts the specialist roll to buildable archetypes'
     const specialists = composition.entries.filter(e => e.role === ENEMY_ROLE.SPECIALIST);
     assert.equal(specialists.length, 1, `seed ${seed} still has exactly one specialist`);
     assert.equal(specialists[0].archetype, ENEMY_ARCHETYPE.SPOTTER, `seed ${seed}`);
+  }
+});
+
+test('spotter+sniper allowlist rolls only buildable T2 specialists', () => {
+  for (let seed = 0; seed < 200; seed++) {
+    const composition = composeEncounter({
+      seed,
+      difficulty: CONTRACT_DIFFICULTY.ELEVATED,
+      fodderCount: 3,
+      available: { specialists: [ENEMY_ARCHETYPE.SPOTTER, ENEMY_ARCHETYPE.SNIPER], elites: [] },
+    });
+    const spec = composition.entries.find(e => e.role === ENEMY_ROLE.SPECIALIST);
+    assert.ok(
+      spec?.archetype === ENEMY_ARCHETYPE.SPOTTER || spec?.archetype === ENEMY_ARCHETYPE.SNIPER,
+      `seed ${seed}`
+    );
   }
 });
 

@@ -31,6 +31,7 @@ import {
   COVER_HIT_PENALTY,
   COVER_DODGE_BONUS,
   DODGE_CHANCE,
+  FACTION,
   RANGED_DAMAGE,
   MELEE_DAMAGE,
   NOISE_RADIUS,
@@ -38,6 +39,7 @@ import {
   TILE,
 } from './constants.js';
 import { hasLineOfSight, hasCoverBetween, withinRange } from './LineOfSight.js';
+import { isConcealedFromPlayer } from './playerPerception.js';
 import { EVENT } from './events.js';
 
 export type CanFireRangedOptions = {
@@ -205,6 +207,9 @@ export function canMelee(world: World, attacker: Entity, target: Entity) {
   if (!target || !target.alive) return { ok: false, reason: 'invalid-target' };
   if (target === attacker) return { ok: false, reason: 'self-target' };
   if (target.faction === attacker.faction) return { ok: false, reason: 'same-faction' };
+  if (attacker.faction === FACTION.PLAYER && isConcealedFromPlayer(target, attacker)) {
+    return { ok: false, reason: 'concealed-target' };
+  }
   if (!attacker.canAfford(AP_COST.MELEE_ATTACK)) {
     return { ok: false, reason: 'insufficient-ap' };
   }

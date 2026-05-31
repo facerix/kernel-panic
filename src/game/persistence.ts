@@ -51,6 +51,7 @@ import { Turret } from './Turret.js';
 import { Skirmisher, type SkirmisherProps } from './ai/Skirmisher.js';
 import { Guard, type GuardProps } from './ai/Guard.js';
 import { Spotter, type SpotterProps } from './ai/Spotter.js';
+import { Sniper, type SniperProps } from './ai/Sniper.js';
 import { PatrolHostile, PATROL_STATE } from './ai/PatrolHostile.js';
 import { CorpCivilian } from './entities/CorpCivilian.js';
 import { NeutralCivilian } from './entities/NeutralCivilian.js';
@@ -114,6 +115,7 @@ type RestoreEntityProps = Partial<
     SkirmisherProps &
     GuardProps &
     SpotterProps &
+    SniperProps &
     CorpCivilianInit &
     NeutralCivilianInit &
     DoorInit &
@@ -149,6 +151,7 @@ const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) =
     drone: (props: RestoreEntityProps) => new Skirmisher(props as SkirmisherProps),
     guard: (props: RestoreEntityProps) => new Guard(props as GuardProps),
     spotter: (props: RestoreEntityProps) => new Spotter(props as SpotterProps),
+    sniper: (props: RestoreEntityProps) => new Sniper(props as SniperProps),
     'corp-civilian': (props: RestoreEntityProps) => new CorpCivilian(props as CorpCivilianInit),
     'neutral-civilian': (props: RestoreEntityProps) =>
       new NeutralCivilian(props as NeutralCivilianInit),
@@ -568,6 +571,9 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
   if (rec.archetype === 'spotter') {
     entityProps.patrolWaypoints = rec.spotter?.patrolWaypoints ?? [];
   }
+  if (rec.archetype === 'sniper') {
+    entityProps.patrolWaypoints = rec.sniper?.patrolWaypoints ?? [];
+  }
   if (rec.archetype === 'turret' && rec.turret) {
     // Turret's range/attackDamage are tunables that survive a round-trip;
     // passing them through the constructor keeps a custom-tuned improvised
@@ -705,7 +711,9 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
         ? rec.guard
         : rec.archetype === 'spotter'
           ? rec.spotter
-          : null;
+          : rec.archetype === 'sniper'
+            ? rec.sniper
+            : null;
   if (patrolRec) {
     if (!(entity instanceof PatrolHostile)) {
       throw new Error(
@@ -738,6 +746,12 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
       }
       entity.patrolIndex = len > 0 ? idx : 0;
     }
+  }
+
+  // Sniper restores its pending held shot so a save during the aim telegraph
+  // resumes fire-or-cancel on the next corp turn.
+  if (rec.archetype === 'sniper' && rec.sniper && entity instanceof Sniper) {
+    entity.aimTargetId = rec.sniper.aimTargetId ?? null;
   }
 
   if (rec.archetype === 'terminal' && rec.terminal) {

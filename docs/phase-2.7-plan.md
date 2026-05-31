@@ -39,7 +39,7 @@ Each T2 encounter adds **exactly one force-multiplier** on top of fodder. The sp
 
 | Archetype | Class | Verb | Force-multiplier effect | Status |
 |-----------|-------|------|-------------------------|--------|
-| **Sniper** | `Sniper` | **telegraphed** long-range burst | punishes open LOS; aim → fire; range conceal while aiming; `SNIPER_SIGHT_RANGE` 12, `SNIPER_DAMAGE` 3 | new (M3.2) |
+| **Sniper** | `Sniper` | **telegraphed** long-range burst | punishes open LOS; aim → fire; range conceal while aiming; `SNIPER_SIGHT_RANGE` 12, `SNIPER_DAMAGE` 3 | new (M3.2) ✅ |
 | **Spotter** | `Spotter` | mobile LOS + **per-turn target share** | re-targets hostiles every turn; never attacks; `SPOTTER_SIGHT_RANGE` 10 | new (M3.1) |
 | **Medic** | `Medic` | ally-seeking shield / heal | changes fight math for durable allies | new (M3.3) |
 
@@ -144,7 +144,7 @@ All rolls derive from the contract seed (deterministic, save-compatible).
 | M2.3 — Combat damage tuning + skirmisher glyph | ✅ Complete |
 | M3 — Tier 2 specialists | 🟡 In progress |
 | M3.1 — Spotter (mobile per-turn target share; not CorpCivilian) | ✅ Complete |
-| M3.2 — Sniper (telegraphed long-range burst) | 🔲 Not started |
+| M3.2 — Sniper (telegraphed long-range burst) | ✅ Complete |
 | M3.3 — Medic (proactive shield + heal; patient-gated spawn) | 🔲 Not started |
 | M4 — Tier 3 elites | 🔲 Not started |
 | M4.1 — Bruiser (armor + knockback-on-hit) | 🔲 Not started |
@@ -271,10 +271,10 @@ All rolls derive from the contract seed (deterministic, save-compatible).
 Playtest pass on T1 fodder pacing:
 
 - **Ranged:** default `RANGED_DAMAGE` stays **1** (Tech, Razor, skirmisher plink). **Merc** overrides via `MERC_RANGED_DAMAGE` (**2**); player and corp turrets use `TURRET_DAMAGE` / `CORP_TURRET_DAMAGE` (**2**).
-- **Melee:** default `MELEE_DAMAGE` is **2** (Merc, Tech). **Razor** and **Guard** override with `HEAVY_MELEE_DAMAGE` (**3**). `Combat.resolveMelee` / `resolveRanged` read crew `meleeDamage` / `rangedDamage` getters when present; Guard passes `HEAVY_MELEE_DAMAGE` explicitly.
+- **Melee:** default `MELEE_DAMAGE` is **2** (Merc, Tech, Guard). **Razor** and elite corp melee override with `HEAVY_MELEE_DAMAGE` (**3**). `Combat.resolveMelee` / `resolveRanged` read crew `meleeDamage` / `rangedDamage` getters when present.
 - **Glyph:** `Skirmisher` renders as **`k`** (frees `d` for other roster use).
 
-**TDD:** Guard melee applies `HEAVY_MELEE_DAMAGE`; skirmisher glyph `k`; Merc `rangedDamage` / Razor `meleeDamage` getters; turret constants at 2.
+**TDD:** Guard melee applies default `MELEE_DAMAGE`; skirmisher glyph `k`; Merc `rangedDamage` / Razor `meleeDamage` getters; turret constants at 2.
 
 ### M3 — Tier 2 specialists
 
@@ -338,6 +338,8 @@ Playtest pass on T1 fodder pacing:
 - **Persistence:** snapshot block `sniper?` with `{ state, lastKnownTarget, patrolWaypoints, patrolIndex, aimTargetId }`.
 - Land full plumbing: types (`aim` / `aim-cancelled` turn-steps), persistence, snapshot/restore, loot, `corpTurnStatusCopy`, `kindFromId`, renderer crosshair + concealment omit.
 - **TDD:** corp N in range → `aim` step + `aimTargetId` set; corp N+1 intact LOS → guaranteed 3 damage; corp N+1 after player broke LOS → `aim-cancelled`, no damage; SLIDE/stealth breaks pending aim; sniper damage during aim window clears `aimTargetId`; move+kite then aim same corp turn; kiting inside `preferredMin`; snapshot round-trips `aimTargetId`; no aim NOISE; fire emits ranged NOISE as today; **concealed at aim + Chebyshev ≥ 6** (no glyph, not crew-targetable, anonymous aim log); **revealed at Chebyshev ≤ 5**; visible before aim; **turret cannot acquire sniper at typical aim distance** (range 4 vs conceal ≥ 6); **turret engages sniper inside turret range regardless of player conceal**; sniper pathing avoids turret threat zone when seeking aim vantage.
+
+**Implementation note:** `src/game/ai/Sniper.ts` (glyph `n`, cross-turn `aimTargetId` preamble, guaranteed fire via `resolveRanged` override, damage-breaks-aim via `ENTITY_DAMAGED`). `playerPerception.isConcealedFromPlayer` gates renderer omit + crew target resolution at Chebyshev ≥ `SNIPER_CONCEAL_MIN_RANGE` (6) while holding aim; `buildFrame` paints a red `+` crosshair on the marked target tile. Spawn allowlist now `[SPOTTER, SNIPER]`; precache + SW `0.2.7c`. Turret pathing / threat-zone avoidance deferred (turrets already cannot reach typical aim distance). KeyHelp legend adds `n`/`s`.
 
 #### M3.3 — Medic
 

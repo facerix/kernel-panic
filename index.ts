@@ -1937,6 +1937,7 @@ function paint(stateHint: InputState = activeInputState()): void {
       : undefined;
   renderer.draw(run.world, run.player, {
     vision: activeVision,
+    player: run.player,
     blastOverlayKeys,
     lookCursor,
     locationLabel: currentLocationLabel(),

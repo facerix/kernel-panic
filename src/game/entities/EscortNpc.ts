@@ -28,6 +28,10 @@ export class EscortNpc extends Interactable {
     this.activated = !!activated;
   }
 
+  override isHazardImmune(): boolean {
+    return false;
+  }
+
   override interact(world: World, actor: Entity): InteractResult {
     if (this.activated) {
       return {

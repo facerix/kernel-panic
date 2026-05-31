@@ -110,13 +110,13 @@ export const MERC_RANGED_DAMAGE = 2;
 /**
  * Melee combat. M7 adds a defender dodge roll so point-blank attacks keep
  * tension without becoming mushy. Default crew melee is {@link MELEE_DAMAGE};
- * Razor and Guard override with {@link HEAVY_MELEE_DAMAGE}.
+ * Razor and elite corp melee override with {@link HEAVY_MELEE_DAMAGE}.
  */
 export const DODGE_CHANCE = 0.2;
 export const COVER_DODGE_BONUS = 0.1;
 export const MELEE_DAMAGE = 2;
 
-/** Razor blade and Guard strike — overrides {@link MELEE_DAMAGE}. */
+/** Razor blade and elite corp strike — overrides {@link MELEE_DAMAGE}. */
 export const HEAVY_MELEE_DAMAGE = 3;
 
 /**
@@ -153,6 +153,24 @@ export const PREFERRED_MIN = 3;
  * further still; the spotter sits between fodder and sniper.
  */
 export const SPOTTER_SIGHT_RANGE = 10;
+
+/**
+ * Sniper parameters (Phase 2.7 M3.2). The T2 long-range specialist out-reaches
+ * fodder (`SIGHT_RANGE` 8) and the spotter (10): it acquires and fires from
+ * `SNIPER_SIGHT_RANGE` so the player must break LOS or close to answer it.
+ *
+ * It is **telegraphed** — aim on corp turn N, fire on N+1 — leaving a full
+ * player turn of counterplay. `SNIPER_DAMAGE` (a guaranteed 3) is the heaviest
+ * single hit on the board, so eating a held shot genuinely hurts.
+ *
+ * `SNIPER_CONCEAL_MIN_RANGE` is the Chebyshev distance at/above which a sniper
+ * *holding aim* is hidden from the player (glyph + direct targeting); inside it
+ * (≤ 5) the sniper is revealed and answerable. Player-perception only; turrets
+ * and corp AI ignore it. Playtest ceiling 5–7.
+ */
+export const SNIPER_SIGHT_RANGE = 12;
+export const SNIPER_DAMAGE = 3;
+export const SNIPER_CONCEAL_MIN_RANGE = 6;
 
 /**
  * Salvage parameters. Phase 2 salvage is generic units (no typed components).

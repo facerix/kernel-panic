@@ -24,10 +24,6 @@ export class Pickup extends Interactable {
     });
   }
 
-  override isHazardImmune(): boolean {
-    return true;
-  }
-
   /**
    * Walk-onto secure — no INTERACT AP; called from `collectTileLoot` after
    * a move, vault, or slide lands on this tile.
