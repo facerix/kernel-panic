@@ -59,6 +59,10 @@ export type CorpDroneMoveStep = {
  */
 export type CorpDroneTurnStep =
   | { type: 'fire'; target: string; result: RangedAttackResult }
+  // `melee` is shared by all PatrolHostiles — CorpGuard's close-and-strike
+  // counterpart to the drone's `fire`. Lives in this union so the corp-turn
+  // driver, status copy, and tests treat every patrol-hostile yield uniformly.
+  | { type: 'melee'; target: string; result: MeleeAttackResult }
   | { type: 'fire-blocked'; reason: string }
   | { type: 'investigate-cleared' }
   | { type: 'investigate-abandoned' }

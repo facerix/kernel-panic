@@ -36,7 +36,7 @@ import { Rng } from '../rng.js';
 import { World } from './World.js';
 import { TurnQueue } from './TurnQueue.js';
 import { EventBus, EVENT } from './events.js';
-import { FACTION, TILE, SALVAGE_DROP_MIN, SALVAGE_DROP_MAX } from './constants.js';
+import { FACTION, TILE, SALVAGE_DROP_MIN, SALVAGE_DROP_MAX, ENEMY_ROLE } from './constants.js';
 import { coordKey, explorationReachableKeys } from './mapConnectivity.js';
 import { isValidBlockingPlacement, checkPlacementIntegrity } from './placement.js';
 import { makeSalvage, type TypedSalvage } from './salvage.js';
@@ -48,6 +48,9 @@ import { Razor } from './archetypes/Razor.js';
 import { Tech } from './archetypes/Tech.js';
 import { Turret } from './Turret.js';
 import { CorpDrone } from './ai/CorpDrone.js';
+import { CorpGuard } from './ai/CorpGuard.js';
+import { PatrolHostile } from './ai/PatrolHostile.js';
+import { composeEncounter, ENEMY_ARCHETYPE } from './encounters.js';
 import { CorpCivilian } from './entities/CorpCivilian.js';
 import { Interactable } from './entities/Interactable.js';
 import { Terminal } from './entities/Terminal.js';
@@ -105,6 +108,7 @@ export type EntityArchetypeId =
   | CrewArchetypeId
   | 'turret'
   | 'drone'
+  | 'guard'
   | 'corp-civilian'
   | 'neutral-civilian'
   | 'door'
@@ -168,6 +172,15 @@ export type RunEntitySnapshot = {
   alive: boolean;
   stealthed: boolean;
   drone?: {
+    state: string;
+    lastKnownTarget: GridPoint | null;
+    patrolWaypoints: GridPoint[];
+    patrolIndex: number;
+  };
+  // CorpGuard shares the PatrolHostile state machine but serialises under its
+  // own key so drone saves stay byte-identical. (Future kaizen: consolidate
+  // into a shared `patrol` block once more patrol hostiles exist.)
+  guard?: {
     state: string;
     lastKnownTarget: GridPoint | null;
     patrolWaypoints: GridPoint[];
@@ -468,17 +481,41 @@ export class Run {
       // anchors cannot consume every spawn-side interactable tile.
       this.#placeObjectiveInteractables();
     }
+    // Phase 2.7 M2: resolve the fodder role mix (skirmishers vs guards) from the
+    // contract seed and difficulty. `composeEncounter` forks its own RNG so the
+    // mix is deterministic and independent of mapgen rolls. The fodder entries
+    // map 1:1 onto the drone anchors; specialist/elite entries (ELEVATED/CRITICAL)
+    // are intentionally NOT spawned yet — their classes and extra anchors are the
+    // remaining M1.3/M3/M4 work, and we must not reskin them as fodder.
+    const composition = composeEncounter({
+      seed: this.contract.seed,
+      difficulty: this.contract.difficulty,
+      fodderCount: map.drones.length,
+    });
+    const fodder = composition.entries.filter(e => e.role === ENEMY_ROLE.FODDER);
     for (let i = 0; i < map.drones.length; i++) {
       const a = map.drones[i]!;
-      const drone = new CorpDrone({
-        id: `drone-${i}`,
-        x: a.x,
-        y: a.y,
-        maxAp: 3,
-        patrolWaypoints: a.waypoints,
-      });
-      this.world.addEntity(drone);
-      drone.bindToBus(this.bus);
+      const entry = fodder[i];
+      const hostile =
+        entry?.archetype === ENEMY_ARCHETYPE.GUARD
+          ? new CorpGuard({
+              id: `guard-${i}`,
+              x: a.x,
+              y: a.y,
+              maxAp: 3,
+              patrolWaypoints: a.waypoints,
+              tier: entry.tier,
+            })
+          : new CorpDrone({
+              id: `drone-${i}`,
+              x: a.x,
+              y: a.y,
+              maxAp: 3,
+              patrolWaypoints: a.waypoints,
+              tier: entry?.tier,
+            });
+      this.world.addEntity(hostile);
+      hostile.bindToBus(this.bus);
     }
     for (let i = 0; i < map.corpCivilians.length; i++) {
       const a = map.corpCivilians[i]!;
@@ -762,9 +799,10 @@ export class Run {
         });
       }
     }
-    // Unbind dead drones from the event bus immediately so their NOISE/ALARM
-    // handlers stop firing for the rest of the run. (#6 adversarial review)
-    if (killed && target instanceof CorpDrone) {
+    // Unbind dead patrol hostiles (drones, guards) from the event bus
+    // immediately so their NOISE/ALARM handlers stop firing for the rest of the
+    // run. (#6 adversarial review)
+    if (killed && target instanceof PatrolHostile) {
       target.unbind();
     }
 
@@ -1478,7 +1516,14 @@ function snapshotEntity(entity: Entity): RunEntitySnapshot {
     alive: entity.alive,
     stealthed: !!entity.stealthed,
   };
-  if (entity instanceof CorpDrone) {
+  if (entity instanceof CorpGuard) {
+    base.guard = {
+      state: entity.state,
+      lastKnownTarget: entity.lastKnownTarget ? { ...entity.lastKnownTarget } : null,
+      patrolWaypoints: entity.patrolWaypoints.map(wp => ({ x: wp.x, y: wp.y })),
+      patrolIndex: entity.patrolIndex,
+    };
+  } else if (entity instanceof CorpDrone) {
     base.drone = {
       state: entity.state,
       lastKnownTarget: entity.lastKnownTarget ? { ...entity.lastKnownTarget } : null,
@@ -1588,6 +1633,7 @@ function archetypeOf(entity: Entity): EntityArchetypeId {
   if (entity instanceof Razor) return 'razor';
   if (entity instanceof Tech) return 'tech';
   if (entity instanceof Turret) return 'turret';
+  if (entity instanceof CorpGuard) return 'guard';
   if (entity instanceof CorpDrone) return 'drone';
   if (entity instanceof CorpCivilian) return 'corp-civilian';
   if (entity instanceof NeutralCivilian) return 'neutral-civilian';
@@ -1731,7 +1777,7 @@ function targetLabel(target: string): string {
 
 /**
  * Sweep quota types:
- *   - `drone-all`:   All CorpDrone entities dead.
+ *   - `drone-all`:   All CorpDrone and CorpGuard (T1 fodder) entities dead.
  *   - `relay-node`:  All RelayNode entities dead (or a params.count subset).
  *   - `turret`:      All CorpTurret entities dead (or a params.count subset).
  *
@@ -1761,7 +1807,9 @@ function isSweepSatisfied(contract: Contract, world?: World | null): boolean {
   switch (quota) {
     case SWEEP_QUOTA.DRONE_ALL: {
       for (const entity of world.entities.values()) {
-        if (entity instanceof CorpDrone && entity.alive) return false;
+        if ((entity instanceof CorpDrone || entity instanceof CorpGuard) && entity.alive) {
+          return false;
+        }
       }
       return true;
     }

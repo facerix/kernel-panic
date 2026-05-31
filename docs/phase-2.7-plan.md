@@ -134,11 +134,11 @@ All rolls derive from the contract seed (deterministic, save-compatible).
 | M1 — Tier doctrine foundations | 🟡 In progress |
 | M1.1 — `EnemyTier` model + per-tier stat scaling hook | ✅ Complete |
 | M1.2 — `damageReduction` (armor) stat on `Entity` | ✅ Complete |
-| M1.3 — Encounter composition by tier (roles, not just counts) | 🟡 In progress — deterministic resolver landed; Run/map role-anchor wiring pending role classes |
+| M1.3 — Encounter composition by tier (roles, not just counts) | 🟡 In progress — resolver landed; **fodder slice wired** (M2 spawns skirmisher/guard mix); specialist/elite anchors+classes still pending |
 | M1.4 — CorpCivilian cover-occluded LOS | ✅ Complete |
-| M2 — Tier 1 fodder roster | 🔲 Not started |
-| M2.1 — Skirmisher kiting (`CorpDrone` preferred engagement band) | 🔲 Not started |
-| M2.2 — Guard (`CorpGuard` — melee fodder) | 🔲 Not started |
+| M2 — Tier 1 fodder roster | ✅ Complete |
+| M2.1 — Skirmisher kiting (`CorpDrone` preferred engagement band) | ✅ Complete |
+| M2.2 — Guard (`CorpGuard` — melee fodder) | ✅ Complete |
 | M3 — Tier 2 specialists | 🔲 Not started |
 | M3.1 — Sniper (telegraphed long-range burst) | 🔲 Not started |
 | M3.2 — Spotter (mobile per-turn target share; not CorpCivilian) | 🔲 Not started |
@@ -207,6 +207,8 @@ All rolls derive from the contract seed (deterministic, save-compatible).
 - **Caveats:** don't kite into a dead-end (fall back to firing); drone that already fired may lack AP to retreat — intended tradeoff.
 - **TDD:** adjacent drone with retreat room steps away; cornered drone fires; drone at ideal range fires.
 
+**Implementation note:** The patrol → investigate → engage machinery was extracted into an abstract `src/game/ai/PatrolHostile.ts` (bus binding, the AP loop + safety/spin guards, `stepToward`); `CorpDrone` and `CorpGuard` are **siblings** that differ only by an abstract `engageSteps` generator (returns `'continue' | 'break'`). Kiting lives in `CorpDrone.engageSteps`: `PREFERRED_MIN = 3` (per-instance override via `preferredMin`), retreat to the distance-maximising legal neighbour that still holds LOS + range. **Extra gate:** the retreat tile must keep the target *spottable* (`isSpottableBy`) — so a drone never kites itself blind off an adjacent **stealthed** target (it stands and fires instead). `DRONE_STATE` is re-exported from `CorpDrone` as an alias of `PATROL_STATE` so existing callers/persistence are unchanged.
+
 #### M2.2 — Guard (`CorpGuard`)
 
 **Goal:** melee fodder counterpart to the skirmisher. Simple close-and-strike, no armor, no knockback.
@@ -215,6 +217,8 @@ All rolls derive from the contract seed (deterministic, save-compatible).
 - ENGAGE: step toward target, melee when adjacent and AP allows. No defensive mechanics — trades HP openly.
 - Land full plumbing: types, persistence factory, snapshot/restore, loot, `corpTurnStatusCopy`, `kindFromId`.
 - **TDD:** guard closes and melees; dies in two player-phase swings at T1 stats; patrol/investigate transitions match drone patterns.
+
+**Implementation note:** `CorpGuard` (glyph `g`, `ENEMY_ROLE.FODDER`) extends `PatrolHostile`; melee `engageSteps` strikes when adjacent (`canMelee`/`resolveMelee`) else closes. Plumbing: new `melee` turn-step in `types.ts` (shared by patrol hostiles) + `formatCorpTurnStep`/player-visibility in `corpTurnStatusCopy.ts`; `'guard'` archetype id + parallel `guard?` snapshot block in `Run.ts`; factory + waypoint/state restore (generalised over `drone`/`guard`) and `bindToBus`/death-unbind broadened to `instanceof PatrolHostile` in `persistence.ts`/`Run.ts`; `kindFromId` → `Guard`; loot falls through to the scrap default. **Spawn wiring (fodder slice of M1.3):** `Run.enterCombat` now resolves `composeEncounter` from the contract seed and maps each fodder anchor to a skirmisher or guard; specialists/elites are deliberately *not* spawned (no classes/anchors yet). **Objective:** `drone-all` sweep broadened to count `CorpDrone || CorpGuard`.
 
 ### M3 — Tier 2 specialists
 

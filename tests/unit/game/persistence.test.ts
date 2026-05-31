@@ -5,6 +5,7 @@ import { Campaign, CAMPAIGN_STATE } from '../../../src/game/Campaign.js';
 import { Run, RUN_STATE } from '../../../src/game/Run.js';
 import { buildContractRecipeFixture, OBJECTIVES } from '../../../src/game/hub/Curator.js';
 import { Terminal } from '../../../src/game/entities/Terminal.js';
+import { CorpGuard } from '../../../src/game/ai/CorpGuard.js';
 import {
   restore,
   restoreCampaign,
@@ -163,13 +164,40 @@ test('restore throws on a drone patrolIndex past the waypoint list', () => {
   // without a guard. A corrupt / stale index must fail loudly at restore,
   // not crash mid-turn.
   const run = freshCombatRun(0xbad1);
-  const drone = [...run.world.entities.values()].find(e => e.faction === FACTION.CORP);
-  assert.ok(drone, 'expected at least one drone for threatCount=1');
+  const fodder = [...run.world.entities.values()].find(e => e.faction === FACTION.CORP);
+  assert.ok(fodder, 'expected at least one fodder hostile for threatCount=1');
   const rec = snapshot(run);
-  const droneRec = rec.entities.find(e => e.id === drone.id);
-  assert.ok(droneRec?.drone, 'expected drone record');
-  droneRec.drone.patrolIndex = droneRec.drone.patrolWaypoints.length + 5;
+  const fodderRec = rec.entities.find(e => e.id === fodder.id);
+  // The composition resolver may roll a skirmisher (`drone`) or a guard
+  // (`guard`); both serialise the shared PatrolHostile state machine under
+  // their own key. The patrolIndex bounds-check is identical for either.
+  const patrolRec = fodderRec?.drone ?? fodderRec?.guard;
+  assert.ok(patrolRec, 'expected a patrol-hostile state-machine record');
+  patrolRec.patrolIndex = patrolRec.patrolWaypoints.length + 5;
   assert.throws(() => restore(rec), /patrolIndex/);
+});
+
+test('CorpGuard round-trips through snapshot/restore as archetype "guard"', () => {
+  // fakeContract seed 12345 / fodderCount 1 deterministically rolls a guard.
+  const run = freshCombatRun(7);
+  const guard = [...run.world.entities.values()].find(e => e instanceof CorpGuard);
+  assert.ok(guard, 'expected a CorpGuard from this contract seed');
+  guard.state = 'engage';
+  guard.lastKnownTarget = { x: 4, y: 9 };
+
+  const rec = snapshot(run);
+  const guardRec = rec.entities.find(e => e.id === guard.id);
+  assert.equal(guardRec?.archetype, 'guard', 'serialises under its own archetype tag');
+  assert.ok(guardRec?.guard, 'state machine lives in the guard block, not the drone block');
+  assert.equal(guardRec.drone, undefined, 'a guard does not write a drone record');
+  assert.equal(guardRec.guard.state, 'engage');
+
+  const { world: restoredWorld } = restore(rec);
+  const restored = [...restoredWorld.entities.values()].find(e => e.id === guard.id);
+  assert.ok(restored instanceof CorpGuard, 'restored as a CorpGuard');
+  assert.equal(restored.glyph, 'g');
+  assert.equal(restored.state, 'engage');
+  assert.deepEqual(restored.lastKnownTarget, { x: 4, y: 9 });
 });
 
 test('restore preserves turnNumber and currentFaction', () => {

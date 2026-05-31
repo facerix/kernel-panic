@@ -49,6 +49,8 @@ import { Razor } from './archetypes/Razor.js';
 import { Tech } from './archetypes/Tech.js';
 import { Turret } from './Turret.js';
 import { CorpDrone, DRONE_STATE } from './ai/CorpDrone.js';
+import { CorpGuard } from './ai/CorpGuard.js';
+import { PatrolHostile } from './ai/PatrolHostile.js';
 import { CorpCivilian } from './entities/CorpCivilian.js';
 import { NeutralCivilian } from './entities/NeutralCivilian.js';
 import { Door } from './entities/Door.js';
@@ -72,6 +74,7 @@ import type { CrewInit } from './Crew.js';
 import type { Inventory, Gear } from './Crew.js';
 import type { TurretInit } from './Turret.js';
 import type { CorpDroneProps } from './ai/CorpDrone.js';
+import type { CorpGuardProps } from './ai/CorpGuard.js';
 import type { CorpCivilianInit } from './entities/CorpCivilian.js';
 import type { NeutralCivilianInit } from './entities/NeutralCivilian.js';
 import type { DoorInit } from './entities/Door.js';
@@ -109,6 +112,7 @@ type RestoreEntityProps = Partial<
   CrewInit &
     TurretInit &
     CorpDroneProps &
+    CorpGuardProps &
     CorpCivilianInit &
     NeutralCivilianInit &
     DoorInit &
@@ -142,6 +146,7 @@ const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) =
     tech: (props: RestoreEntityProps) => new Tech(props as CrewInit),
     turret: (props: RestoreEntityProps) => new Turret(props as TurretInit),
     drone: (props: RestoreEntityProps) => new CorpDrone(props as CorpDroneProps),
+    guard: (props: RestoreEntityProps) => new CorpGuard(props as CorpGuardProps),
     'corp-civilian': (props: RestoreEntityProps) => new CorpCivilian(props as CorpCivilianInit),
     'neutral-civilian': (props: RestoreEntityProps) =>
       new NeutralCivilian(props as NeutralCivilianInit),
@@ -399,7 +404,7 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
 
   for (const entity of restoredEntities) {
     run.world.addEntity(entity);
-    if (entity instanceof CorpDrone) {
+    if (entity instanceof PatrolHostile) {
       entity.bindToBus(run.bus);
     }
     if (entity === player) {
@@ -553,6 +558,9 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
   if (rec.archetype === 'drone') {
     entityProps.patrolWaypoints = rec.drone?.patrolWaypoints ?? [];
   }
+  if (rec.archetype === 'guard') {
+    entityProps.patrolWaypoints = rec.guard?.patrolWaypoints ?? [];
+  }
   if (rec.archetype === 'turret' && rec.turret) {
     // Turret's range/attackDamage are tunables that survive a round-trip;
     // passing them through the constructor keeps a custom-tuned improvised
@@ -680,29 +688,39 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
     entity.turretReady = !!rec.tech.turretReady;
   }
 
-  if (rec.archetype === 'drone' && rec.drone) {
-    if (!(entity instanceof CorpDrone)) {
-      throw new Error(`restore: drone entity ${rec.id} did not restore as CorpDrone`);
+  // CorpDrone and CorpGuard share the PatrolHostile state machine; each
+  // serialises under its own key (`drone` / `guard`) but restores identically.
+  const patrolRec =
+    rec.archetype === 'drone' ? rec.drone : rec.archetype === 'guard' ? rec.guard : null;
+  if (patrolRec) {
+    if (!(entity instanceof PatrolHostile)) {
+      throw new Error(
+        `restore: ${rec.archetype} entity ${rec.id} did not restore as a PatrolHostile`
+      );
     }
-    if (rec.drone.state && !KNOWN_DRONE_STATES.has(rec.drone.state as CorpDrone['state'])) {
-      throw new Error(`restore: drone ${rec.id} has unknown state "${rec.drone.state}"`);
+    if (patrolRec.state && !KNOWN_DRONE_STATES.has(patrolRec.state as CorpDrone['state'])) {
+      throw new Error(`restore: ${rec.archetype} ${rec.id} has unknown state "${patrolRec.state}"`);
     }
-    if (rec.drone.state) entity.state = rec.drone.state as CorpDrone['state'];
-    if (rec.drone.lastKnownTarget) {
-      const lk = rec.drone.lastKnownTarget;
+    if (patrolRec.state) entity.state = patrolRec.state as CorpDrone['state'];
+    if (patrolRec.lastKnownTarget) {
+      const lk = patrolRec.lastKnownTarget;
       if (!Number.isInteger(lk.x) || !Number.isInteger(lk.y)) {
-        throw new TypeError(`restore: drone ${rec.id} lastKnownTarget must have integer coords`);
+        throw new TypeError(
+          `restore: ${rec.archetype} ${rec.id} lastKnownTarget must have integer coords`
+        );
       }
       entity.lastKnownTarget = { x: lk.x, y: lk.y };
     }
-    if (Number.isInteger(rec.drone.patrolIndex)) {
-      const idx = rec.drone.patrolIndex as number;
+    if (Number.isInteger(patrolRec.patrolIndex)) {
+      const idx = patrolRec.patrolIndex as number;
       const len = entity.patrolWaypoints.length;
       // Bounds-check against the restored waypoint list — `takeTurnSteps`
       // dereferences `patrolWaypoints[patrolIndex]` without a guard, so a
       // stale or corrupt index would crash mid-turn. Fail loudly here instead.
       if (idx < 0 || (len > 0 && idx >= len)) {
-        throw new RangeError(`restore: drone ${rec.id} patrolIndex=${idx} out of [0, ${len})`);
+        throw new RangeError(
+          `restore: ${rec.archetype} ${rec.id} patrolIndex=${idx} out of [0, ${len})`
+        );
       }
       entity.patrolIndex = len > 0 ? idx : 0;
     }

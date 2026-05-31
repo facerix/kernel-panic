@@ -538,6 +538,74 @@ test('dead drone ignores alarm events', () => {
 
 // --- M5: drones must not target NEUTRAL civilians ----------------------------
 
+// --- M2.1: skirmisher kiting (preferred engagement band) ---------------------
+
+test('drone kites away from a target that closed inside preferredMin (with retreat room)', () => {
+  const w = openWorld(14, 6);
+  const player = new Entity({ id: 'p', x: 5, y: 2, faction: FACTION.PLAYER, glyph: '@' });
+  // Adjacent (cheb 1 < preferredMin 3). 2 AP — enough to fire (cost 2) OR move;
+  // it must CHOOSE to retreat rather than fire at point-blank.
+  const drone = new CorpDrone({ id: 'd', x: 6, y: 2, maxAp: 2 });
+  w.addEntity(player);
+  w.addEntity(drone);
+  const log = drone.takeTurn(w, new StubRng([0])); // a 0-roll would guarantee a hit IF it fired
+  assert.equal(player.hp, player.maxHp, 'drone retreated instead of firing point-blank');
+  assert.ok(!log.some(s => s.type === 'fire'), 'no shot while kiting');
+  assert.ok(
+    log.some(s => s.type === 'move-engage'),
+    'drone stepped away under the engage banner'
+  );
+  assert.ok(drone.x > 6, 'drone increased distance from the player');
+});
+
+test('cornered drone fires when no retreat tile increases distance', () => {
+  // Left wall at x=0 boxes the drone at x=1; the only legal neighbours
+  // (1,1)/(1,3) sit at the same Chebyshev distance to the player, so none
+  // strictly increases distance → kite is impossible → it stands and fires.
+  const grid = new Grid(8, 6);
+  for (let y = 0; y < 6; y++) grid.setTile(0, y, TILE.WALL);
+  const w = new World(grid);
+  const player = new Entity({ id: 'p', x: 2, y: 2, faction: FACTION.PLAYER, glyph: '@' });
+  const drone = new CorpDrone({ id: 'd', x: 1, y: 2, maxAp: AP_COST.RANGED_ATTACK });
+  w.addEntity(player);
+  w.addEntity(drone);
+  const log = drone.takeTurn(w, new StubRng([0]));
+  assert.equal(drone.state, DRONE_STATE.ENGAGE);
+  assert.ok(
+    log.some(s => s.type === 'fire'),
+    'cornered drone falls back to firing'
+  );
+  assert.equal(player.hp, player.maxHp - 1);
+});
+
+test('drone at or beyond preferredMin fires rather than kiting', () => {
+  // cheb distance exactly preferredMin (3): outside the kite band, so it fires.
+  const w = openWorld();
+  const player = new Entity({ id: 'p', x: 3, y: 2, faction: FACTION.PLAYER, glyph: '@' });
+  const drone = new CorpDrone({ id: 'd', x: 6, y: 2, maxAp: AP_COST.RANGED_ATTACK });
+  assert.equal(drone.preferredMin, 3, 'default kite band');
+  w.addEntity(player);
+  w.addEntity(drone);
+  const log = drone.takeTurn(w, new StubRng([0]));
+  assert.equal(log[0].type, 'fire');
+  assert.equal(player.hp, player.maxHp - 1);
+});
+
+test('drone does NOT kite away from an adjacent stealthed target (would lose acquisition)', () => {
+  // A stealthed target is only spottable at Chebyshev ≤1; retreating would drop
+  // it entirely, so the drone stands and fires instead of kiting itself blind.
+  const w = openWorld();
+  const player = new Entity({ id: 'p', x: 5, y: 2, faction: FACTION.PLAYER, glyph: '@' });
+  player.stealthed = true;
+  const drone = new CorpDrone({ id: 'd', x: 6, y: 2, maxAp: AP_COST.RANGED_ATTACK });
+  w.addEntity(player);
+  w.addEntity(drone);
+  const log = drone.takeTurn(w, new StubRng([0]));
+  assert.equal(drone.state, DRONE_STATE.ENGAGE);
+  assert.ok(log.some(s => s.type === 'fire'));
+  assert.equal(player.hp, player.maxHp - 1);
+});
+
 test('drone does not acquire NEUTRAL entities as targets', () => {
   const grid = new Grid(10, 10);
   for (let x = 0; x < 10; x++) {

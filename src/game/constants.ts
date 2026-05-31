@@ -130,6 +130,16 @@ export const VAULT_DAMAGE = 2;
 export const SIGHT_RANGE = 8;
 
 /**
+ * Skirmisher kiting band (Phase 2.7 M2.1). A ranged fodder unit (`CorpDrone`)
+ * retreats instead of firing when a target closes inside this Chebyshev
+ * distance — i.e. `cheb(target) < PREFERRED_MIN` triggers a kite step if a
+ * legal retreat tile that keeps LOS exists. At `3`, the skirmisher refuses to
+ * fight within 2 tiles, opening real spacing pressure without backpedaling
+ * across the whole map. Per-instance override via the constructor.
+ */
+export const PREFERRED_MIN = 3;
+
+/**
  * Salvage parameters. Phase 2 salvage is generic units (no typed components).
  * Drone corpses drop a random amount in [DROP_MIN, DROP_MAX]; improvised
  * turrets cost IMPROVISED_TURRET_COST units from the crew member's inventory.

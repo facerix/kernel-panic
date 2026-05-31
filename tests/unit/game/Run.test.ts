@@ -9,6 +9,7 @@ import { Entity } from '../../../src/game/Entity.js';
 import { Terminal } from '../../../src/game/entities/Terminal.js';
 import { EVENT } from '../../../src/game/events.js';
 import { Turret } from '../../../src/game/Turret.js';
+import { resolveMelee } from '../../../src/game/Combat.js';
 import { CorpTurret } from '../../../src/game/entities/CorpTurret.js';
 import { CorpCivilian } from '../../../src/game/entities/CorpCivilian.js';
 import { NeutralCivilian } from '../../../src/game/entities/NeutralCivilian.js';
@@ -100,8 +101,72 @@ test('enterCombat passes contract threat and difficulty into map generation', ()
     })
   );
   run.enterCombat();
-  const drones = [...run.world.entities.values()].filter(entity => entity.id.startsWith('drone-'));
-  assert.equal(drones.length, 4);
+  // Phase 2.7 M2: threatCount sizes the *fodder* count, and the seed-driven
+  // composition fills each anchor with a skirmisher (`drone-`) or a guard
+  // (`guard-`). Count both so the assertion tracks the threat budget rather
+  // than a single class.
+  const fodder = [...run.world.entities.values()].filter(
+    entity => entity.id.startsWith('drone-') || entity.id.startsWith('guard-')
+  );
+  assert.equal(fodder.length, 4);
+});
+
+test('STANDARD encounter fills fodder anchors with a deterministic skirmisher/guard mix', () => {
+  // seed 42 / STANDARD / fodderCount 3 → composeEncounter rolls [guard, guard,
+  // skirmisher], mapped 1:1 onto the three drone anchors. Deterministic on the
+  // contract seed, independent of mapgen.
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 1 });
+  run.enterBriefing(fakeContract({ seed: 42, difficulty: 'standard', threatCount: 3 }));
+  run.enterCombat();
+  const ids = [...run.world.entities.values()].map(e => e.id);
+  assert.equal(ids.filter(id => id.startsWith('guard-')).length, 2);
+  assert.equal(ids.filter(id => id.startsWith('drone-')).length, 1);
+});
+
+test('drone-all sweep is not satisfied while a guard remains alive', () => {
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 1 });
+  run.enterBriefing(
+    fakeContract({
+      seed: 42, // → 2 guards + 1 skirmisher
+      difficulty: 'standard',
+      threatCount: 3,
+      objective: {
+        kind: OBJECTIVES.SWEEP,
+        title: 'Sweep',
+        briefing: 'Clear all hostiles.',
+        params: { sweepTarget: 'drone-all' },
+      },
+      context: testContractContext(OBJECTIVES.SWEEP),
+    })
+  );
+  run.enterCombat();
+  const fodder = [...run.world.entities.values()].filter(
+    e => e.id.startsWith('drone-') || e.id.startsWith('guard-')
+  );
+  // Kill only the skirmishers — guards still hold the room.
+  for (const e of fodder) if (e.id.startsWith('drone-')) e.damage(e.hp);
+  assert.equal(run.isObjectiveSatisfied(), false, 'sweep incomplete while guards live');
+  // Drop the guards too.
+  for (const e of fodder) if (e.id.startsWith('guard-')) e.damage(e.hp);
+  assert.equal(run.isObjectiveSatisfied(), true, 'all T1 fodder down — sweep complete');
+});
+
+test('a killed guard drops scrap salvage', () => {
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 1 });
+  run.enterBriefing(fakeContract({ seed: 42, difficulty: 'standard', threatCount: 3 }));
+  run.enterCombat();
+  const guard = [...run.world.entities.values()].find(e => e.id.startsWith('guard-'));
+  assert.ok(guard, 'seed 42 rolls at least one guard');
+  // Teleport the player adjacent and swing; the run's combat listener assigns
+  // loot on a kill. dodgeChance 0 forces a connect.
+  run.player.x = guard.x + 1;
+  run.player.y = guard.y;
+  guard.hp = 1; // one swing kills regardless of melee tuning
+  resolveMelee(run.world, run.player, guard, new Rng(1), { dodgeChance: 0 });
+  assert.ok(!guard.alive, 'guard down');
+  assert.ok(guard.loot, 'killed guard received loot');
+  assert.ok(totalSalvage(guard.loot.salvage) > 0);
+  assert.ok(guard.loot.salvage.scrap > 0, 'fodder drops scrap');
 });
 
 test('terminal-slice contract spawns a terminal and gates objective satisfaction', () => {

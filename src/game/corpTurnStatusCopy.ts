@@ -94,12 +94,12 @@ export function isCorpTurnStepLogVisibleToPlayer(
   const actor = world.entities.get(entityId);
   if (!actor?.alive) return false;
 
-  if (step.type === 'fire' && step.target === playerId) {
+  if ((step.type === 'fire' || step.type === 'melee') && step.target === playerId) {
     return true;
   }
 
   // kaizen: decide if we should surface this just on kills or also on hits
-  if (step.type === 'fire' && step.result.killed) {
+  if ((step.type === 'fire' || step.type === 'melee') && step.result.killed) {
     const victim = world.entities.get(step.target);
     if (victim instanceof Turret && victim.ownerId === playerId) {
       return true;
@@ -130,6 +130,16 @@ export function formatCorpTurnStep(
         `${actorLabel} fires at ${targetLabel} — ` +
         `${r.hit ? 'HIT' : 'miss'} (roll ${r.roll.toFixed(2)} vs ${r.threshold.toFixed(2)}` +
         `${r.inCover ? ', cover' : ''}).` +
+        (r.killed ? ` ${targetLabel.toUpperCase()} DOWN.` : '')
+      );
+    }
+    case 'melee': {
+      const r = step.result;
+      const targetLabel = resolve(step.target);
+      return (
+        `${actorLabel} strikes ${targetLabel} — ` +
+        `${r.hit ? 'HIT' : r.dodged ? 'dodged' : 'miss'} ` +
+        `(roll ${r.roll.toFixed(2)} vs ${r.dodgeThreshold.toFixed(2)}${r.inCover ? ', cover' : ''}).` +
         (r.killed ? ` ${targetLabel.toUpperCase()} DOWN.` : '')
       );
     }
