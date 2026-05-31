@@ -341,7 +341,7 @@ function difficultyLabel(contract: Contract): string {
 
 function rewardCopy(contract: Contract): string {
   const recruit = contract.reward.recruit ? ' · recruit lead' : '';
-  return `${contract.threatCount} drones · Cr +${contract.reward.credits} · REP +${contract.reward.repDelta}${recruit}`;
+  return `${contract.threatCount} hostiles · Cr +${contract.reward.credits} · REP +${contract.reward.repDelta}${recruit}`;
 }
 
 function objectiveCopy(contract: Contract): string {

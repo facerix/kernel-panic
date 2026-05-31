@@ -2,7 +2,7 @@
  * Corp-aligned non-combatant — office workers, desk security. CORP faction,
  * no weapons, no movement. On each corp turn, checks LOS to the deployed
  * crew member; if visible, emits an `alarm` event that transitions all
- * subscribed CorpDrones to ENGAGE.
+ * subscribed patrol hostiles (skirmishers, guards, …) to ENGAGE.
  *
  * The alarm is a **map-wide cadence** stored on `world.alarm`. Once any
  * CorpCivilian triggers it, the facility stays alert for a short hold window,

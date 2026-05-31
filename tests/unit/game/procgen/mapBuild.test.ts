@@ -54,7 +54,7 @@ test('buildMap is deterministic for the same seed', () => {
   assert.deepEqual(Array.from(a.grid.tiles), Array.from(b.grid.tiles), 'grid bytes diverged');
   assert.deepEqual(a.spawns, b.spawns);
   assert.deepEqual(a.exitTile, b.exitTile);
-  assert.deepEqual(a.drones, b.drones);
+  assert.deepEqual(a.fodder, b.fodder);
 });
 
 test('checkpoint divider wall survives corridor carve (regression: map-debug seed)', () => {
@@ -291,53 +291,53 @@ test('exit is reachable from spawn', () => {
   assert.ok(path && path.length > 0, 'exit unreachable from spawn');
 });
 
-test('drone count matches the requested threat budget', () => {
+test('fodder count matches the requested threat budget', () => {
   for (const threat of [1, 2, 3]) {
     const map = buildMap({ rng: new Rng(11 + threat), width: W, height: H, threatCount: threat });
-    assert.equal(map.drones.length, threat, `expected ${threat} drones, got ${map.drones.length}`);
-    for (const drone of map.drones) {
+    assert.equal(map.fodder.length, threat, `expected ${threat} fodder anchors, got ${map.fodder.length}`);
+    for (const anchor of map.fodder) {
       assert.equal(
-        map.grid.tileAt(drone.x, drone.y),
+        map.grid.tileAt(anchor.x, anchor.y),
         TILE.FLOOR,
-        `drone anchor (${drone.x},${drone.y}) is not FLOOR`
+        `fodder anchor (${anchor.x},${anchor.y}) is not FLOOR`
       );
       assert.notDeepEqual(
-        { x: drone.x, y: drone.y },
+        { x: anchor.x, y: anchor.y },
         map.spawns.player,
-        'drone anchor coincides with spawn'
+        'fodder anchor coincides with spawn'
       );
       assert.notDeepEqual(
-        { x: drone.x, y: drone.y },
+        { x: anchor.x, y: anchor.y },
         map.exitTile,
-        'drone anchor coincides with exit'
+        'fodder anchor coincides with exit'
       );
     }
   }
 });
 
-test('drone anchors are unique tiles (no two drones on the same square)', () => {
+test('fodder anchors are unique tiles (no two hostiles on the same square)', () => {
   const map = buildMap({ rng: new Rng(0xc0ffee), width: W, height: H, threatCount: 3 });
   const seen = new Set();
-  for (const drone of map.drones) {
-    const key = `${drone.x},${drone.y}`;
-    assert.ok(!seen.has(key), `duplicate drone anchor at ${key}`);
+  for (const anchor of map.fodder) {
+    const key = `${anchor.x},${anchor.y}`;
+    assert.ok(!seen.has(key), `duplicate fodder anchor at ${key}`);
     seen.add(key);
   }
 });
 
-test('every drone receives a moving patrol path', () => {
+test('every fodder anchor receives a moving patrol path', () => {
   for (const seed of [0xc0ffee, 0xfeedface, 0xdeadbeef, 0x12345678]) {
     const map = buildMap({ rng: new Rng(seed), width: W, height: H, threatCount: 5 });
-    for (const drone of map.drones) {
+    for (const anchor of map.fodder) {
       assert.ok(
-        drone.waypoints.length >= 2,
-        `seed ${seed.toString(16)} drone at (${drone.x},${drone.y}) has too few waypoints`
+        anchor.waypoints.length >= 2,
+        `seed ${seed.toString(16)} fodder at (${anchor.x},${anchor.y}) has too few waypoints`
       );
       assert.ok(
-        drone.waypoints.some(wp => wp.x !== drone.x || wp.y !== drone.y),
-        `seed ${seed.toString(16)} drone at (${drone.x},${drone.y}) patrols in place`
+        anchor.waypoints.some(wp => wp.x !== anchor.x || wp.y !== anchor.y),
+        `seed ${seed.toString(16)} fodder at (${anchor.x},${anchor.y}) patrols in place`
       );
-      for (const wp of drone.waypoints) {
+      for (const wp of anchor.waypoints) {
         assert.equal(
           map.grid.tileAt(wp.x, wp.y),
           TILE.FLOOR,
@@ -348,9 +348,9 @@ test('every drone receives a moving patrol path', () => {
   }
 });
 
-test('threatCount=0 returns no drones', () => {
+test('threatCount=0 returns no fodder anchors', () => {
   const map = buildMap({ rng: new Rng(2), width: W, height: H, threatCount: 0 });
-  assert.equal(map.drones.length, 0);
+  assert.equal(map.fodder.length, 0);
 });
 
 test('non-integer dimensions throw', () => {

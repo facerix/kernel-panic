@@ -10,7 +10,7 @@ import {
 import { FACTION, TILE } from '../../../src/game/constants.js';
 import { Grid } from '../../../src/game/Grid.js';
 import { World } from '../../../src/game/World.js';
-import { CorpDrone } from '../../../src/game/ai/CorpDrone.js';
+import { Skirmisher } from '../../../src/game/ai/Skirmisher.js';
 import { Turret } from '../../../src/game/Turret.js';
 
 test('countVisibleCorpEntities counts only alive corp on visible tiles', () => {
@@ -76,7 +76,7 @@ function makeDroneWorld() {
     }
   }
   const world = new World(grid);
-  const drone = new CorpDrone({
+  const drone = new Skirmisher({
     id: 'd1',
     x: 2,
     y: 2,

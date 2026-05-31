@@ -8,7 +8,7 @@ import { Grid } from '../../../src/game/Grid.js';
 import { World } from '../../../src/game/World.js';
 import { Entity } from '../../../src/game/Entity.js';
 import { Turret } from '../../../src/game/Turret.js';
-import { CorpDrone } from '../../../src/game/ai/CorpDrone.js';
+import { Skirmisher } from '../../../src/game/ai/Skirmisher.js';
 import { NeutralCivilian } from '../../../src/game/entities/NeutralCivilian.js';
 import { EventBus } from '../../../src/game/events.js';
 import { TILE, FACTION, REP } from '../../../src/game/constants.js';
@@ -63,7 +63,7 @@ test('runPlayerAftermathSteps yields one step per live turret', () => {
 test('formatPlayerAftermathLogLines describes a turret hit', () => {
   const { world, bus } = makeOpenWorld();
   const turret = new Turret({ id: 't1', x: 2, y: 2 });
-  const drone = new CorpDrone({
+  const drone = new Skirmisher({
     id: 'drone-0',
     x: 3,
     y: 2,

@@ -47,8 +47,8 @@ import { Merc } from './archetypes/Merc.js';
 import { Razor } from './archetypes/Razor.js';
 import { Tech } from './archetypes/Tech.js';
 import { Turret } from './Turret.js';
-import { CorpDrone } from './ai/CorpDrone.js';
-import { CorpGuard } from './ai/CorpGuard.js';
+import { Skirmisher } from './ai/Skirmisher.js';
+import { Guard } from './ai/Guard.js';
 import { PatrolHostile } from './ai/PatrolHostile.js';
 import { composeEncounter, ENEMY_ARCHETYPE } from './encounters.js';
 import { CorpCivilian } from './entities/CorpCivilian.js';
@@ -177,7 +177,7 @@ export type RunEntitySnapshot = {
     patrolWaypoints: GridPoint[];
     patrolIndex: number;
   };
-  // CorpGuard shares the PatrolHostile state machine but serialises under its
+  // Guard shares the PatrolHostile state machine but serialises under its
   // own key so drone saves stay byte-identical. (Future kaizen: consolidate
   // into a shared `patrol` block once more patrol hostiles exist.)
   guard?: {
@@ -477,28 +477,28 @@ export class Run {
     this.exitTile = { ...map.exitTile };
     const doorLinkedContract = contractRequiresDoor(this.contract);
     if (doorLinkedContract) {
-      // Place unlock terminals and door-gated props before drones so patrol
+      // Place unlock terminals and door-gated props before fodder so patrol
       // anchors cannot consume every spawn-side interactable tile.
       this.#placeObjectiveInteractables();
     }
     // Phase 2.7 M2: resolve the fodder role mix (skirmishers vs guards) from the
     // contract seed and difficulty. `composeEncounter` forks its own RNG so the
     // mix is deterministic and independent of mapgen rolls. The fodder entries
-    // map 1:1 onto the drone anchors; specialist/elite entries (ELEVATED/CRITICAL)
+    // map 1:1 onto the fodder anchors; specialist/elite entries (ELEVATED/CRITICAL)
     // are intentionally NOT spawned yet — their classes and extra anchors are the
     // remaining M1.3/M3/M4 work, and we must not reskin them as fodder.
     const composition = composeEncounter({
       seed: this.contract.seed,
       difficulty: this.contract.difficulty,
-      fodderCount: map.drones.length,
+      fodderCount: map.fodder.length,
     });
     const fodder = composition.entries.filter(e => e.role === ENEMY_ROLE.FODDER);
-    for (let i = 0; i < map.drones.length; i++) {
-      const a = map.drones[i]!;
+    for (let i = 0; i < map.fodder.length; i++) {
+      const a = map.fodder[i]!;
       const entry = fodder[i];
       const hostile =
         entry?.archetype === ENEMY_ARCHETYPE.GUARD
-          ? new CorpGuard({
+          ? new Guard({
               id: `guard-${i}`,
               x: a.x,
               y: a.y,
@@ -506,7 +506,7 @@ export class Run {
               patrolWaypoints: a.waypoints,
               tier: entry.tier,
             })
-          : new CorpDrone({
+          : new Skirmisher({
               id: `drone-${i}`,
               x: a.x,
               y: a.y,
@@ -1516,14 +1516,14 @@ function snapshotEntity(entity: Entity): RunEntitySnapshot {
     alive: entity.alive,
     stealthed: !!entity.stealthed,
   };
-  if (entity instanceof CorpGuard) {
+  if (entity instanceof Guard) {
     base.guard = {
       state: entity.state,
       lastKnownTarget: entity.lastKnownTarget ? { ...entity.lastKnownTarget } : null,
       patrolWaypoints: entity.patrolWaypoints.map(wp => ({ x: wp.x, y: wp.y })),
       patrolIndex: entity.patrolIndex,
     };
-  } else if (entity instanceof CorpDrone) {
+  } else if (entity instanceof Skirmisher) {
     base.drone = {
       state: entity.state,
       lastKnownTarget: entity.lastKnownTarget ? { ...entity.lastKnownTarget } : null,
@@ -1633,8 +1633,8 @@ function archetypeOf(entity: Entity): EntityArchetypeId {
   if (entity instanceof Razor) return 'razor';
   if (entity instanceof Tech) return 'tech';
   if (entity instanceof Turret) return 'turret';
-  if (entity instanceof CorpGuard) return 'guard';
-  if (entity instanceof CorpDrone) return 'drone';
+  if (entity instanceof Guard) return 'guard';
+  if (entity instanceof Skirmisher) return 'drone';
   if (entity instanceof CorpCivilian) return 'corp-civilian';
   if (entity instanceof NeutralCivilian) return 'neutral-civilian';
   if (entity instanceof Door) return 'door';
@@ -1777,7 +1777,7 @@ function targetLabel(target: string): string {
 
 /**
  * Sweep quota types:
- *   - `drone-all`:   All CorpDrone and CorpGuard (T1 fodder) entities dead.
+ *   - `drone-all`:   All Skirmisher and Guard (T1 fodder) entities dead.
  *   - `relay-node`:  All RelayNode entities dead (or a params.count subset).
  *   - `turret`:      All CorpTurret entities dead (or a params.count subset).
  *
@@ -1807,7 +1807,7 @@ function isSweepSatisfied(contract: Contract, world?: World | null): boolean {
   switch (quota) {
     case SWEEP_QUOTA.DRONE_ALL: {
       for (const entity of world.entities.values()) {
-        if ((entity instanceof CorpDrone || entity instanceof CorpGuard) && entity.alive) {
+        if ((entity instanceof Skirmisher || entity instanceof Guard) && entity.alive) {
           return false;
         }
       }

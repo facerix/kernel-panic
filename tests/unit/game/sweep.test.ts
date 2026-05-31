@@ -12,7 +12,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { RelayNode } from '../../../src/game/entities/RelayNode.js';
 import { CorpTurret } from '../../../src/game/entities/CorpTurret.js';
-import { CorpDrone } from '../../../src/game/ai/CorpDrone.js';
+import { Skirmisher } from '../../../src/game/ai/Skirmisher.js';
 import { entityLabel } from '../../../src/game/Entity.js';
 import { Grid } from '../../../src/game/Grid.js';
 import { World } from '../../../src/game/World.js';
@@ -111,7 +111,7 @@ describe('RelayNode', () => {
 describe('Sweep objective (drone-all)', () => {
   it('is NOT satisfied when live drones remain', () => {
     const world = makeWorld();
-    const drone = new CorpDrone({ id: 'drone-0', x: 3, y: 3 });
+    const drone = new Skirmisher({ id: 'drone-0', x: 3, y: 3 });
     world.addEntity(drone);
     const contract = makeSweepContract('drone-all');
     assert.equal(isObjectiveSatisfied(contract, world), false);
@@ -119,7 +119,7 @@ describe('Sweep objective (drone-all)', () => {
 
   it('is satisfied when all drones are dead', () => {
     const world = makeWorld();
-    const drone = new CorpDrone({ id: 'drone-0', x: 3, y: 3 });
+    const drone = new Skirmisher({ id: 'drone-0', x: 3, y: 3 });
     world.addEntity(drone);
     drone.damage(drone.maxHp);
     const contract = makeSweepContract('drone-all');
@@ -134,7 +134,7 @@ describe('Sweep objective (drone-all)', () => {
 
   it('falls back to drone-all for unrecognized target', () => {
     const world = makeWorld();
-    const drone = new CorpDrone({ id: 'drone-0', x: 3, y: 3 });
+    const drone = new Skirmisher({ id: 'drone-0', x: 3, y: 3 });
     world.addEntity(drone);
     const contract = makeSweepContract('unknown-target');
     assert.equal(isObjectiveSatisfied(contract, world), false);
@@ -155,7 +155,7 @@ describe('Sweep objective (drone-all)', () => {
       reward: { credits: 50, repDelta: 5 },
     };
     const world = makeWorld();
-    const drone = new CorpDrone({ id: 'drone-0', x: 3, y: 3 });
+    const drone = new Skirmisher({ id: 'drone-0', x: 3, y: 3 });
     world.addEntity(drone);
     assert.equal(isObjectiveSatisfied(contract, world), false);
     drone.damage(drone.maxHp);
@@ -283,8 +283,8 @@ describe('Sweep golden path (extract gating)', () => {
 
   it('blocks extraction until all drones killed (drone-all)', () => {
     const world = makeWorld();
-    const d0 = new CorpDrone({ id: 'drone-0', x: 3, y: 3 });
-    const d1 = new CorpDrone({ id: 'drone-1', x: 5, y: 5 });
+    const d0 = new Skirmisher({ id: 'drone-0', x: 3, y: 3 });
+    const d1 = new Skirmisher({ id: 'drone-1', x: 5, y: 5 });
     world.addEntity(d0);
     world.addEntity(d1);
     const contract = makeSweepContract('drone-all');

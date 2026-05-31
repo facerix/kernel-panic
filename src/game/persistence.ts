@@ -48,9 +48,9 @@ import { Merc } from './archetypes/Merc.js';
 import { Razor } from './archetypes/Razor.js';
 import { Tech } from './archetypes/Tech.js';
 import { Turret } from './Turret.js';
-import { CorpDrone, DRONE_STATE } from './ai/CorpDrone.js';
-import { CorpGuard } from './ai/CorpGuard.js';
-import { PatrolHostile } from './ai/PatrolHostile.js';
+import { Skirmisher, type SkirmisherProps } from './ai/Skirmisher.js';
+import { Guard, type GuardProps } from './ai/Guard.js';
+import { PatrolHostile, PATROL_STATE } from './ai/PatrolHostile.js';
 import { CorpCivilian } from './entities/CorpCivilian.js';
 import { NeutralCivilian } from './entities/NeutralCivilian.js';
 import { Door } from './entities/Door.js';
@@ -73,8 +73,6 @@ import { normalizeHubReveals } from './hub/hubReveals.js';
 import type { CrewInit } from './Crew.js';
 import type { Inventory, Gear } from './Crew.js';
 import type { TurretInit } from './Turret.js';
-import type { CorpDroneProps } from './ai/CorpDrone.js';
-import type { CorpGuardProps } from './ai/CorpGuard.js';
 import type { CorpCivilianInit } from './entities/CorpCivilian.js';
 import type { NeutralCivilianInit } from './entities/NeutralCivilian.js';
 import type { DoorInit } from './entities/Door.js';
@@ -111,8 +109,8 @@ const ARCHETYPE_KEY = Symbol.for('kernel-panic.archetype');
 type RestoreEntityProps = Partial<
   CrewInit &
     TurretInit &
-    CorpDroneProps &
-    CorpGuardProps &
+    SkirmisherProps &
+    GuardProps &
     CorpCivilianInit &
     NeutralCivilianInit &
     DoorInit &
@@ -145,8 +143,8 @@ const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) =
     razor: (props: RestoreEntityProps) => new Razor(props as CrewInit),
     tech: (props: RestoreEntityProps) => new Tech(props as CrewInit),
     turret: (props: RestoreEntityProps) => new Turret(props as TurretInit),
-    drone: (props: RestoreEntityProps) => new CorpDrone(props as CorpDroneProps),
-    guard: (props: RestoreEntityProps) => new CorpGuard(props as CorpGuardProps),
+    drone: (props: RestoreEntityProps) => new Skirmisher(props as SkirmisherProps),
+    guard: (props: RestoreEntityProps) => new Guard(props as GuardProps),
     'corp-civilian': (props: RestoreEntityProps) => new CorpCivilian(props as CorpCivilianInit),
     'neutral-civilian': (props: RestoreEntityProps) =>
       new NeutralCivilian(props as NeutralCivilianInit),
@@ -176,7 +174,7 @@ const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) =
 
 const KNOWN_FACTIONS = new Set(Object.values(FACTION));
 const KNOWN_RUN_STATES = new Set(Object.values(RUN_STATE));
-const KNOWN_DRONE_STATES = new Set(Object.values(DRONE_STATE));
+const KNOWN_PATROL_STATES = new Set(Object.values(PATROL_STATE));
 
 type RestoreOptions = {
   onPersist?: (record: RunSnapshot) => void;
@@ -688,7 +686,7 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
     entity.turretReady = !!rec.tech.turretReady;
   }
 
-  // CorpDrone and CorpGuard share the PatrolHostile state machine; each
+  // Skirmisher and Guard share the PatrolHostile state machine; each
   // serialises under its own key (`drone` / `guard`) but restores identically.
   const patrolRec =
     rec.archetype === 'drone' ? rec.drone : rec.archetype === 'guard' ? rec.guard : null;
@@ -698,10 +696,10 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
         `restore: ${rec.archetype} entity ${rec.id} did not restore as a PatrolHostile`
       );
     }
-    if (patrolRec.state && !KNOWN_DRONE_STATES.has(patrolRec.state as CorpDrone['state'])) {
+    if (patrolRec.state && !KNOWN_PATROL_STATES.has(patrolRec.state as PatrolHostile['state'])) {
       throw new Error(`restore: ${rec.archetype} ${rec.id} has unknown state "${patrolRec.state}"`);
     }
-    if (patrolRec.state) entity.state = patrolRec.state as CorpDrone['state'];
+    if (patrolRec.state) entity.state = patrolRec.state as PatrolHostile['state'];
     if (patrolRec.lastKnownTarget) {
       const lk = patrolRec.lastKnownTarget;
       if (!Number.isInteger(lk.x) || !Number.isInteger(lk.y)) {

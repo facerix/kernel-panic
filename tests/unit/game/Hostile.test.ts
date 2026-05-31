@@ -5,7 +5,7 @@ import { Entity } from '../../../src/game/Entity.js';
 import { Grid } from '../../../src/game/Grid.js';
 import { Hostile } from '../../../src/game/Hostile.js';
 import { World } from '../../../src/game/World.js';
-import { CorpDrone } from '../../../src/game/ai/CorpDrone.js';
+import { Skirmisher } from '../../../src/game/ai/Skirmisher.js';
 import { EscortNpc } from '../../../src/game/entities/EscortNpc.js';
 import { FACTION } from '../../../src/game/constants.js';
 import type { Rng } from '../../../src/rng.js';
@@ -26,9 +26,9 @@ const makeHostile = (overrides = {}) =>
     ...overrides,
   });
 
-test('Hostile extends Entity and CorpDrone extends Hostile', () => {
+test('Hostile extends Entity and Skirmisher extends Hostile', () => {
   const hostile = makeHostile();
-  const drone = new CorpDrone({ id: 'd', x: 2, y: 2 });
+  const drone = new Skirmisher({ id: 'd', x: 2, y: 2 });
 
   assert.ok(hostile instanceof Entity);
   assert.ok(drone instanceof Hostile);

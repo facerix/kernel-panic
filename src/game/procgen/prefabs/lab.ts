@@ -1,6 +1,6 @@
 /**
  * "Lab" prefab — 10×6 experiment bay with a central equipment island, two
- * drone sentry points, and both civilian taxonomies so alarm/Rep play gets
+ * fodder sentry points, and both civilian taxonomies so alarm/Rep play gets
  * exercised in generated maps.
  */
 
@@ -20,7 +20,7 @@ export const METADATA = Object.freeze({
   w: 10,
   h: 6,
   anchors: {
-    drones: [
+    fodder: [
       { x: 2, y: 1 },
       { x: 7, y: 4 },
     ],

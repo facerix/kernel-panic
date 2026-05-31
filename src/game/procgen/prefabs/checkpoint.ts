@@ -19,7 +19,7 @@ export const METADATA = Object.freeze({
   w: 7,
   h: 5,
   anchors: {
-    drones: [
+    fodder: [
       {
         x: 5,
         y: 2,

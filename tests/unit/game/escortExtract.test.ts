@@ -12,7 +12,7 @@ import { Run, RUN_STATE, OUTCOME, isObjectiveSatisfied } from '../../../src/game
 import { Entity } from '../../../src/game/Entity.js';
 import { Grid } from '../../../src/game/Grid.js';
 import { World } from '../../../src/game/World.js';
-import { CorpDrone } from '../../../src/game/ai/CorpDrone.js';
+import { Skirmisher } from '../../../src/game/ai/Skirmisher.js';
 import { EscortNpc } from '../../../src/game/entities/EscortNpc.js';
 import { runPlayerAftermathSteps } from '../../../src/game/combatTurnPipeline.js';
 import { buildCrewMember } from '../../../src/game/archetypes/index.js';
@@ -121,7 +121,7 @@ describe('EscortNpc', () => {
       label: 'Witness',
       activated: true,
     });
-    const drone = new CorpDrone({ id: 'drone-0', x: 1, y: 1, maxAp: 3 });
+    const drone = new Skirmisher({ id: 'drone-0', x: 1, y: 1, maxAp: 3 });
     world.addEntity(player);
     world.addEntity(escort);
     world.addEntity(drone);

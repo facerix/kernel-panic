@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { CorpDrone } from '../../../src/game/ai/CorpDrone.js';
+import { Skirmisher } from '../../../src/game/ai/Skirmisher.js';
 import {
   CONTRACT_DIFFICULTY,
   DEFAULT_AP,
@@ -40,8 +40,8 @@ test('fodder stats stay baseline even in T3 encounters', () => {
   assert.deepEqual(t3, { maxHp: 3, maxAp: 3, damageReduction: 0 });
 });
 
-test('CorpDrone accepts tier hook while preserving fodder baseline', () => {
-  const drone = new CorpDrone({ id: 'drone-0', x: 1, y: 1, maxAp: 3, tier: ENEMY_TIER.T3 });
+test('Skirmisher accepts tier hook while preserving fodder baseline', () => {
+  const drone = new Skirmisher({ id: 'drone-0', x: 1, y: 1, maxAp: 3, tier: ENEMY_TIER.T3 });
 
   assert.equal(drone.maxHp, DEFAULT_HP);
   assert.equal(drone.maxAp, 3);

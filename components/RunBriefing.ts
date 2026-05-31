@@ -190,7 +190,7 @@ function hexSeed(seed: number) {
 function threatCopy(count: number) {
   if (!Number.isInteger(count)) return '?';
   if (count === 0) return 'No hostiles detected';
-  return `${count} ${count === 1 ? 'drone' : 'drones'}`;
+  return `${count} ${count === 1 ? 'hostile' : 'hostiles'}`;
 }
 
 function rewardCopy(contract: Partial<Contract>) {

@@ -12,12 +12,13 @@ export type PrefabAnchor = {
   y: number;
 };
 
-export type PrefabDroneAnchor = PrefabAnchor & {
+export type PrefabFodderAnchor = PrefabAnchor & {
   waypoints?: PrefabAnchor[];
 };
 
 export type PrefabAnchorsSpec = {
-  drones: PrefabDroneAnchor[];
+  /** T1 fodder spawn points (skirmisher/guard mix decided at encounter roll). */
+  fodder: PrefabFodderAnchor[];
   cover: PrefabAnchor[];
   exit: PrefabAnchor[];
   /** M5: corp-aligned non-combatant spawn points. */
@@ -37,7 +38,7 @@ export type PrefabMetadata = {
   w?: number;
   h?: number;
   anchors: PrefabAnchorsSpec;
-  /** M7: reusable patrol waypoint lists, assigned to nearest drone anchor. */
+  /** Patrol waypoint lists, assigned to nearest fodder anchor. */
   patrolPaths?: PrefabAnchor[][];
 };
 

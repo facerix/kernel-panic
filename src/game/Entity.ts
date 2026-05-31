@@ -113,7 +113,7 @@ export class Entity {
      * Stealth flag. The Razor's `slide` perk sets this true; it clears on the
      * archetype's next AP refresh (so it lasts through the corp turn but no
      * further). Generic so future cyberware (cloak, ghost-protocol) can flip
-     * the same field without touching observer code. CorpDrone uses
+     * the same field without touching observer code. Skirmisher uses
      * `isSpottableBy` to honour it.
      */
     this.stealthed = false;

@@ -230,7 +230,7 @@ function buildTraceLines(telemetry: Telemetry) {
       tag: '',
     });
     lines.push({
-      text: `  0x03  ai::CorpDrone::takeTurn()`,
+      text: `  0x03  ai::Hostile::takeTurn()`,
       tag: '',
     });
   } else {

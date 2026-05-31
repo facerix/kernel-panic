@@ -803,7 +803,7 @@ function onBriefingDeploy(evt: Event) {
   attachAnimationListeners();
   attachRepListeners();
   recomputeVision();
-  flash('JACKED IN. Reach the exit tile (¤) before the drones drop you.');
+  flash('JACKED IN. Reach the exit tile (¤) before the corpos drop you.');
   renderShell();
 }
 

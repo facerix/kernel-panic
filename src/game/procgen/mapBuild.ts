@@ -1,6 +1,6 @@
 /**
  * Procedural map builder. Pure over an `Rng` — same seed + dimensions +
- * threat count produces an identical grid, drone roster, and exit tile.
+ * threat count produces an identical grid, fodder roster, and exit tile.
  *
  * Pipeline:
  *   1. Fork the caller's rng with label `'mapgen'` so future procgen tweaks
@@ -16,9 +16,9 @@
  *      checkpoint `|`) are not punched through by corridor geometry.
  *   7. Place the player spawn at the first leaf's prefab center; the exit
  *      tile at the last leaf's first declared exit anchor (or its center).
- *   8. Pick `threatCount` drone anchors from leaves *other than* the spawn
+ *   8. Pick `threatCount` fodder anchors from leaves *other than* the spawn
  *      leaf — first-come-first-served in DFS order. If we can't satisfy the
- *      threat budget, throw — silently dropping a drone is data corruption
+ *      threat budget, throw — silently dropping a spawn slot is data corruption
  *      that would mask a content bug.
  *
  * The exit cell is stamped as `TILE.EXIT` (passable like FLOOR) so the
@@ -80,7 +80,7 @@ export type DynamicDoorAnchor = {
 export type Map = {
   grid: Grid;
   spawns: { player: GridPoint };
-  drones: EntityAnchor[];
+  fodder: EntityAnchor[];
   corpCivilians: CivilianAnchor[];
   neutralCivilians: CivilianAnchor[];
   /** Prefab/authored door anchors only. Dynamic doors are in `dynamicDoors`. */
@@ -96,7 +96,7 @@ type StampedLeaf = {
   originX: number;
   originY: number;
   center: GridPoint;
-  droneWorld: EntityAnchor[];
+  fodderWorld: EntityAnchor[];
   patrolPathsWorld: GridPoint[][];
   exitWorld: GridPoint[];
   doorWorld: GridPoint[];
@@ -120,7 +120,7 @@ type BuildMapOptions = {
  * @param {{ rng: import('../../rng.js').Rng, width: number, height: number,
  *           threatCount?: number }} options
  * @returns {{ grid: Grid, spawns: { player: {x:number,y:number} },
- *             drones: Array<{x:number,y:number,waypoints:{x:number,y:number}[]}>,
+ *             fodder: Array<{x:number,y:number,waypoints:{x:number,y:number}[]}>,
  *             exitTile: { x: number, y: number } }}
  */
 export function buildMap(options: BuildMapOptions): Map {
@@ -319,15 +319,15 @@ function buildMapOnce(mapRng: Rng, options: BuildMapOptions): Map {
     exitTile,
   });
 
-  // Drones — two passes:
-  //   1) Use authored drone anchors from non-spawn leaves first; each anchor
+  // Fodder — two passes:
+  //   1) Use authored fodder anchors from non-spawn leaves first; each anchor
   //      carries the nearest authored patrol path for its prefab.
-  //   2) If the threat budget isn't met (some prefabs declare no drone
+  //   2) If the threat budget isn't met (some prefabs declare no fodder
   //      anchors — `hallway` is intentionally one), fall back to picking
   //      FLOOR tiles inside non-spawn leaves and synthesise a two-point
   //      cardinal patrol. Better than refusing to spawn the run, and more
   //      alive than the old stand-still fallback.
-  const droneAnchors: EntityAnchor[] = [];
+  const fodderAnchors: EntityAnchor[] = [];
   const corpCivilians: CivilianAnchor[] = [];
   const neutralCivilians: CivilianAnchor[] = [];
   const isAlreadyTaken = (x: number, y: number): boolean =>
@@ -336,16 +336,16 @@ function buildMapOnce(mapRng: Rng, options: BuildMapOptions): Map {
     doorAnchors.some(a => a.x === x && a.y === y) ||
     dynamicDoors.some(a => a.door.x === x && a.door.y === y) ||
     dynamicDoors.some(a => a.terminal.x === x && a.terminal.y === y) ||
-    droneAnchors.some(a => a.x === x && a.y === y) ||
+    fodderAnchors.some(a => a.x === x && a.y === y) ||
     corpCivilians.some(a => a.x === x && a.y === y) ||
     neutralCivilians.some(a => a.x === x && a.y === y);
 
-  for (let i = 1; i < stamped.length && droneAnchors.length < threatCount; i++) {
-    for (const anchor of stamped[i].droneWorld) {
-      if (droneAnchors.length >= threatCount) break;
+  for (let i = 1; i < stamped.length && fodderAnchors.length < threatCount; i++) {
+    for (const anchor of stamped[i].fodderWorld) {
+      if (fodderAnchors.length >= threatCount) break;
       if (isAlreadyTaken(anchor.x, anchor.y)) continue;
       if (grid.tileAt(anchor.x, anchor.y) !== TILE.FLOOR) continue;
-      droneAnchors.push({
+      fodderAnchors.push({
         x: anchor.x,
         y: anchor.y,
         waypoints:
@@ -355,15 +355,15 @@ function buildMapOnce(mapRng: Rng, options: BuildMapOptions): Map {
       });
     }
   }
-  for (let i = 1; i < stamped.length && droneAnchors.length < threatCount; i++) {
+  for (let i = 1; i < stamped.length && fodderAnchors.length < threatCount; i++) {
     const region = stamped[i].leaf.region;
     for (let yy = region.y; yy < region.y + region.height; yy++) {
-      if (droneAnchors.length >= threatCount) break;
+      if (fodderAnchors.length >= threatCount) break;
       for (let xx = region.x; xx < region.x + region.width; xx++) {
-        if (droneAnchors.length >= threatCount) break;
+        if (fodderAnchors.length >= threatCount) break;
         if (grid.tileAt(xx, yy) !== TILE.FLOOR) continue;
         if (isAlreadyTaken(xx, yy)) continue;
-        droneAnchors.push({
+        fodderAnchors.push({
           x: xx,
           y: yy,
           waypoints: synthesizeFallbackPatrol(grid, { x: xx, y: yy }),
@@ -371,15 +371,15 @@ function buildMapOnce(mapRng: Rng, options: BuildMapOptions): Map {
       }
     }
   }
-  if (droneAnchors.length < threatCount) {
+  if (fodderAnchors.length < threatCount) {
     throw new Error(
-      `buildMap: only ${droneAnchors.length}/${threatCount} drone anchors available for a ${width}x${height} map`
+      `buildMap: only ${fodderAnchors.length}/${threatCount} fodder anchors available for a ${width}x${height} map`
     );
   }
 
   // Civilians — collect authored spawn points from non-spawn leaves, capped
   // by maxCorpCivilians / maxNeutralCivilians. No fallback generation (unlike
-  // drones) — civilians are optional content. Only place civilians on
+  // fodder) — civilians are optional content. Only place civilians on
   // passable, unoccupied tiles.
   for (let i = 1; i < stamped.length; i++) {
     if (
@@ -404,13 +404,13 @@ function buildMapOnce(mapRng: Rng, options: BuildMapOptions): Map {
   return {
     grid,
     spawns: { player: playerSpawn },
-    drones:
+    fodder:
       difficulty === CONTRACT_DIFFICULTY.CRITICAL
-        ? droneAnchors.map(anchor => ({
+        ? fodderAnchors.map(anchor => ({
             ...anchor,
             waypoints: tightenPatrol(grid, anchor.waypoints),
           }))
-        : droneAnchors,
+        : fodderAnchors,
     corpCivilians,
     neutralCivilians,
     doors: doorAnchors.filter(
@@ -871,7 +871,7 @@ function planPrefabStamp(
       y: originY + wp.y,
     }))
   );
-  const droneWorld = prefab.anchors.drones.map(a => {
+  const fodderWorld = prefab.anchors.fodder.map(a => {
     const spawn = { x: originX + a.x, y: originY + a.y };
     const assignedPath = assignNearestPatrolPath(spawn, patrolPathsWorld);
     return {
@@ -907,7 +907,7 @@ function planPrefabStamp(
     originX,
     originY,
     center,
-    droneWorld,
+    fodderWorld,
     patrolPathsWorld,
     exitWorld,
     doorWorld,

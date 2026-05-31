@@ -45,22 +45,22 @@ export type MeleeAttackResult = {
   killed: boolean;
 };
 
-/** Movement yields from `CorpDrone` pathing (`#stepToward`). */
-export type CorpDroneMoveKind = 'engage' | 'investigate' | 'patrol';
+/** Movement yields from `PatrolHostile` pathing (`stepToward`). */
+export type PatrolHostileMoveKind = 'engage' | 'investigate' | 'patrol';
 
-export type CorpDroneMoveStep = {
-  type: `move-${CorpDroneMoveKind}`;
+export type PatrolHostileMoveStep = {
+  type: `move-${PatrolHostileMoveKind}`;
   to: GridPoint;
 };
 
 /**
- * One yield from `CorpDrone#takeTurnSteps` — a discrete committed mutation or
+ * One yield from `PatrolHostile#takeTurnSteps` — a discrete committed mutation or
  * a no-AP status line the shell can still pace (patrol-arrived, etc.).
  */
-export type CorpDroneTurnStep =
+export type PatrolHostileTurnStep =
   | { type: 'fire'; target: string; result: RangedAttackResult }
-  // `melee` is shared by all PatrolHostiles — CorpGuard's close-and-strike
-  // counterpart to the drone's `fire`. Lives in this union so the corp-turn
+  // `melee` is shared by all PatrolHostiles — Guard's close-and-strike
+  // counterpart to the skirmisher's `fire`. Lives in this union so the corp-turn
   // driver, status copy, and tests treat every patrol-hostile yield uniformly.
   | { type: 'melee'; target: string; result: MeleeAttackResult }
   | { type: 'fire-blocked'; reason: string }
@@ -68,7 +68,7 @@ export type CorpDroneTurnStep =
   | { type: 'investigate-abandoned' }
   | { type: 'patrol-arrived'; waypoint: GridPoint }
   | { type: 'patrol-skipped'; waypoint: GridPoint }
-  | CorpDroneMoveStep;
+  | PatrolHostileMoveStep;
 
 /** CorpCivilian alarm step — yielded when a corp non-combatant spots the player. */
 export type CorpCivilianTurnStep = { type: 'alarm'; target: string };
@@ -85,7 +85,7 @@ export type NeutralCivilianTurnStep =
  * AIs should extend this union so `corpTurnDriver` and tests can treat
  * generators uniformly.
  */
-export type TurnActionStep = CorpDroneTurnStep | CorpCivilianTurnStep | NeutralCivilianTurnStep;
+export type TurnActionStep = PatrolHostileTurnStep | CorpCivilianTurnStep | NeutralCivilianTurnStep;
 
 /**
  * Generator contract for entities the corp turn driver paces one yield at a

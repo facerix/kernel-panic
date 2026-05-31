@@ -130,7 +130,7 @@ export const VAULT_DAMAGE = 2;
 export const SIGHT_RANGE = 8;
 
 /**
- * Skirmisher kiting band (Phase 2.7 M2.1). A ranged fodder unit (`CorpDrone`)
+ * Skirmisher kiting band (Phase 2.7 M2.1). A ranged fodder unit (`Skirmisher`)
  * retreats instead of firing when a target closes inside this Chebyshev
  * distance — i.e. `cheb(target) < PREFERRED_MIN` triggers a kite step if a
  * legal retreat tile that keeps LOS exists. At `3`, the skirmisher refuses to

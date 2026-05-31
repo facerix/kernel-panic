@@ -444,7 +444,7 @@ class KeyHelp extends HTMLElement {
       ? `Your archetype special (${this.#archetypeInfo.perkName}) is a strong ability`
       : 'Your archetype special (Vault, Slide, or Deploy) is a strong reposition';
     const combatExtra = h('p', {
-      textContent: `Opposing hostiles act after you wait (.) and pass the round. Walls and corners break line of sight for ranged shots; melee is usually cheaper AP than firing. ${perkHint} — pick it, aim a direction when prompted, then confirm.`,
+      textContent: `Opposing hostiles and defenses act after you wait (.) and pass the round. Walls and corners break line of sight for ranged shots; melee is usually cheaper AP than firing. ${perkHint} — pick it, aim a direction when prompted, then confirm.`,
     });
 
     const moveHint = h('p', {

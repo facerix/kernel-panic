@@ -1,5 +1,5 @@
 /**
- * Corp guard — the melee fodder counterpart to the skirmisher (`CorpDrone`).
+ * Melee fodder guard — the close-and-strike counterpart to the skirmisher.
  * Shares the patrol → investigate → engage state machine via `PatrolHostile`;
  * its identity is the ENGAGE behaviour: close the gap, swing when adjacent.
  *
@@ -17,22 +17,16 @@ import type { Entity } from '../Entity.js';
 import type { World } from '../World.js';
 import type { Rng } from '../../rng.js';
 
-export interface CorpGuardProps extends Omit<PatrolHostileInit, 'faction' | 'glyph'> {
+export interface GuardProps extends Omit<PatrolHostileInit, 'faction' | 'glyph'> {
   tier?: EnemyTier;
 }
 
-export class CorpGuard extends PatrolHostile {
-  constructor({ tier = ENEMY_TIER.T1, patrolWaypoints, ...props }: CorpGuardProps) {
+export class Guard extends PatrolHostile {
+  constructor({ tier = ENEMY_TIER.T1, patrolWaypoints, ...props }: GuardProps) {
     const stats = resolveEnemyStats(props, ENEMY_ROLE.FODDER, tier);
     super({ ...props, ...stats, faction: FACTION.CORP, glyph: 'g', patrolWaypoints });
   }
 
-  /**
-   * Melee engage: strike when adjacent and AP allows, otherwise step toward the
-   * target to close. `canMelee` reporting `not-adjacent` is the normal "keep
-   * closing" path — only an unexpected failure (or no path / no AP) breaks the
-   * turn.
-   */
   protected override *engageSteps(world: World, rng: Rng, target: Entity): EngageSteps {
     const meleeCheck = canMelee(world, this, target);
     if (meleeCheck.ok) {
@@ -41,11 +35,8 @@ export class CorpGuard extends PatrolHostile {
       return 'continue';
     }
     if (meleeCheck.reason !== 'not-adjacent' && meleeCheck.reason !== 'insufficient-ap') {
-      // Same-faction / dead-target edge cases — should be rare at this layer.
-      // Stop rather than thrash.
       return 'break';
     }
-    // Not adjacent (or can't afford the swing yet) — close the distance.
     if (this.ap < AP_COST.MOVE) return 'break';
     const step = this.stepToward(world, target.x, target.y, 'engage');
     if (!step) return 'break';

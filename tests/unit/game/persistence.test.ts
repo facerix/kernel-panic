@@ -5,7 +5,7 @@ import { Campaign, CAMPAIGN_STATE } from '../../../src/game/Campaign.js';
 import { Run, RUN_STATE } from '../../../src/game/Run.js';
 import { buildContractRecipeFixture, OBJECTIVES } from '../../../src/game/hub/Curator.js';
 import { Terminal } from '../../../src/game/entities/Terminal.js';
-import { CorpGuard } from '../../../src/game/ai/CorpGuard.js';
+import { Guard } from '../../../src/game/ai/Guard.js';
 import {
   restore,
   restoreCampaign,
@@ -177,11 +177,11 @@ test('restore throws on a drone patrolIndex past the waypoint list', () => {
   assert.throws(() => restore(rec), /patrolIndex/);
 });
 
-test('CorpGuard round-trips through snapshot/restore as archetype "guard"', () => {
+test('Guard round-trips through snapshot/restore as archetype "guard"', () => {
   // fakeContract seed 12345 / fodderCount 1 deterministically rolls a guard.
   const run = freshCombatRun(7);
-  const guard = [...run.world.entities.values()].find(e => e instanceof CorpGuard);
-  assert.ok(guard, 'expected a CorpGuard from this contract seed');
+  const guard = [...run.world.entities.values()].find(e => e instanceof Guard);
+  assert.ok(guard, 'expected a Guard from this contract seed');
   guard.state = 'engage';
   guard.lastKnownTarget = { x: 4, y: 9 };
 
@@ -194,7 +194,7 @@ test('CorpGuard round-trips through snapshot/restore as archetype "guard"', () =
 
   const { world: restoredWorld } = restore(rec);
   const restored = [...restoredWorld.entities.values()].find(e => e.id === guard.id);
-  assert.ok(restored instanceof CorpGuard, 'restored as a CorpGuard');
+  assert.ok(restored instanceof Guard, 'restored as a Guard');
   assert.equal(restored.glyph, 'g');
   assert.equal(restored.state, 'engage');
   assert.deepEqual(restored.lastKnownTarget, { x: 4, y: 9 });

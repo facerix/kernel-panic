@@ -10,7 +10,7 @@
  * - **investigate**: A* toward the last known target position. On arrival
  *     without re-acquiring the target, lapse back to patrol.
  * - **engage**: target is in LOS + range. Subclasses decide *how* to engage
- *     (ranged fire + kite for `CorpDrone`, close + melee for `CorpGuard`) by
+ *     (ranged fire + kite for `Skirmisher`, close + melee for `Guard`) by
  *     implementing `engageSteps`. Losing the target drops to investigate with
  *     the last observed coordinates.
  *
@@ -34,8 +34,8 @@ import { EVENT } from '../events.js';
 import type { EventBus } from '../events.js';
 import type { Entity } from '../Entity.js';
 import type {
-  CorpDroneMoveKind,
-  CorpDroneMoveStep,
+  PatrolHostileMoveKind,
+  PatrolHostileMoveStep,
   TurnActionStep,
   TurnActionSteps,
 } from '../../types.js';
@@ -279,8 +279,8 @@ export abstract class PatrolHostile extends Hostile {
     world: World,
     gx: number,
     gy: number,
-    kind: CorpDroneMoveKind
-  ): CorpDroneMoveStep | null {
+    kind: PatrolHostileMoveKind
+  ): PatrolHostileMoveStep | null {
     const path = findPath(world, { x: this.x, y: this.y }, { x: gx, y: gy });
     if (!path || path.length === 0) return null;
     const next = path[0];
@@ -291,6 +291,6 @@ export abstract class PatrolHostile extends Hostile {
     const check = world.canMoveEntity(this, dx, dy);
     if (!check.ok) return null;
     world.moveEntity(this, dx, dy);
-    return { type: `move-${kind}`, to: { x: this.x, y: this.y } } satisfies CorpDroneMoveStep;
+    return { type: `move-${kind}`, to: { x: this.x, y: this.y } } satisfies PatrolHostileMoveStep;
   }
 }
