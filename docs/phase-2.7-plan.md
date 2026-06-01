@@ -70,8 +70,8 @@ Durable and/or multi-verb. Mini-boss feel. **Per-tier stat scaling** (HP, AP, ar
 
 | Archetype | Class | Verbs | Defensive identity | Status |
 |-----------|-------|-------|--------------------|--------|
-| **Bruiser** | `Bruiser` | close + melee, **punish disengage** | `damageReduction` + knockback-on-hit | new (M4.1) |
-| **Juggernaut** | `Juggernaut` | suppressing ranged fire, slow advance | high HP + armor, low AP | new (M4.2) |
+| **Bruiser** | `Bruiser` | close + melee, **Merc-mirror knockback-on-hit** | light `damageReduction`; fast (T3 Guard) | new (M4.1) |
+| **Juggernaut** | `Juggernaut` | **Tech-mirror suppress** + slow advance | high HP + armor, low AP; T3 Skirmisher band | new (M4.2) |
 | **Flanker** | `Flanker` | stalk from cover → **SLIDE** → melee ambush | cover-occluded from player + post-slide vanish | new (M4.3) |
 
 Elites are the canonical **durable patients** for medics and the **stat-scaling showcase** for the tier system.
@@ -351,17 +351,67 @@ Playtest pass on T1 fodder pacing:
 
 #### M4.1 — Bruiser
 
+**Contrast with Juggernaut:** Bruiser is the **T3 Guard** — fast melee that owns adjacency. Juggernaut is the **T3 Skirmisher** — ranged attrition from a suppress band. Same elite tier and armor floor; opposite distance bands and player mirrors (Merc knockback vs Tech suppression).
+
 **Problem:** melee that closes on enemy phase dies to a free player burst (symptom #2).
 
-- **Armor** (`damageReduction`, tier-scaled) so chip damage doesn't melt it.
-- **Knockback-on-hit** (reuse vault knockback primitive): connected swing shoves player back one tile, forcing AP to re-close.
-- Fast and scary — goal is *reaching you costs something*, not sponge HP.
-- **TDD:** knockback in away direction (blocked if destination occupied/solid); survives two 1-damage hits that would kill a guard.
+**Locked design (pre-implementation):**
+
+| Axis | Decision |
+|------|----------|
+| Player mirror | **Merc Vault knockback, minus Vault** — connected melee shoves the target **1 tile away from the bruiser** (cardinal/diagonal unit vector). No cover hop, no landing swap. Reuse Merc's knockback-lane validation (OOB, wall, occupied; **COVER destination allowed**). If the lane is blocked, the hit still lands — **no knockback, no extra damage**. |
+| Class shape | **`Bruiser extends PatrolHostile`** — same patrol → investigate → engage shell as `Guard`. ENGAGE: close + melee; identity is the post-hit shove, not a new state machine. |
+| Speed | **Fast** — `DEFAULT_AP` (4) + elite T3 `apBonus` (+1 → **5 AP**). Closes like a guard; survives the approach unlike one. |
+| Melee | **`HEAVY_MELEE_DAMAGE` (3)** on a connected swing via `resolveMelee`. Primary tax is **position** (knockback), not chip — same heavy-melee tier as Razor. |
+| Knockback trigger | **Connected hit only** — dodge/miss → no shove. Applied after damage resolves (same order as armor: dodge → hit → DR → knockback). |
+| Knockback motion | **`World.relocateEntity`** on the target (silent move — no `NOISE`; the melee swing already emitted noise). Direction: normalize `(target − bruiser)` to one of eight neighbours; if both offsets non-zero, prefer the axis with larger delta (deterministic tie-break). |
+| Armor | **`ENEMY_ROLE.ELITE` T3** — `resolveEnemyStats(...)` → 1.5× HP, `armorFloor` ≥ 1. Goal: survive the **approach burst** that deletes a guard in two player swings, not shrug off a full focus phase. |
+| Ranged / kiting | **Never** — no fire, no retreat. If adjacent and AP-blocked on melee, idle. |
+| Medic patient | **Valid but spike-shaped** — bruiser closes fast; medic must pre-shield or the bruiser eats your alpha then shoves. Juggernaut remains the **canonical** slow patient. |
+
+**Behaviour:**
+
+- **`Bruiser extends PatrolHostile`.** `engageSteps`: `canMelee` → `resolveMelee` → on connected hit, attempt knockback along away vector; else `stepToward`.
+- **Extract** shared knockback-lane helper from `Merc.canVault` (destination passability + occupancy) — bruiser and Merc both call it; bruise direction is `(tx−bx, ty−by)` not vault `(dx, dy)`.
+- Land full plumbing: types (`knockback` turn-step or enrich `melee` result), persistence, snapshot/restore, loot, `corpTurnStatusCopy`, `kindFromId`, glyph `e`.
+- **TDD:** connected melee deals 3 damage; knockback 1 tile away when lane clear; blocked lane → damage only; dodge/miss → no knockback; survives two 1-damage plinks that kill a T1 guard; 5 AP closes multiple tiles per corp turn; no ranged steps; guard/bruiser engage shape matches except knockback; hazard knockback (kaizen) deferred — default **allow** shove into hazard tiles.
 
 #### M4.2 — Juggernaut
 
-- High HP, meaningful `damageReduction`, **slow** (low AP), suppressing ranged fire. Tempo/attrition check; canonical medic patient.
-- **TDD:** survives sustained focus that kills a skirmisher; movement slower than baseline; armor + ≥1 floor hold.
+**Contrast with Bruiser:** Juggernaut is the **T3 Skirmisher** — ranged band control + soak. Not fear-kiting (skirmisher fragility); **band-kiting** (maintain suppress range while advancing). **Tech mirror:** walking suppression platform — `CorpTurret` (`$`) with legs and armor, **not** a deploy verb (map `$` and Tech `T` already own placed turrets).
+
+**Locked design (pre-implementation):**
+
+| Axis | Decision |
+|------|----------|
+| Player mirror | **Tech Deploy Turret, minus Deploy** — the body *is* the denial asset. Same spatial fantasy as `TURRET_RANGE` / `CORP_TURRET_RANGE` (4-tile bubble), but **mobile**, **durable**, and firing on the **corp turn** instead of player aftermath. Does **not** spawn `$` or `T` entities. |
+| Class shape | **`Juggernaut extends PatrolHostile`** — patrol/investigate/engage shell shared with skirmisher. ENGAGE identity = suppress + slow advance, not a new AI framework. |
+| Suppress range | **`JUGGERNAUT_SUPPRESS_RANGE = 5`** (playtest band 4–6). Baseline `SIGHT_RANGE` 8 for acquisition/patrol; **fire validation uses suppress range only** — tighter than skirmisher, wider than `$` turret (4). |
+| Suppress shot | **`JUGGERNAUT_SUPPRESS_AP = 1`**, **`JUGGERNAUT_SUPPRESS_DAMAGE = 1`**. Route through `resolveRanged` at suppress range (normal hit roll + cover penalties). **`{ type: 'suppress', target }` turn-step** + corp log copy (*"Suppressing fire pins you down."*). Emits normal ranged `NOISE`. Attrition chip — lethal alone only over many turns; dangerous while fodder/medics work. |
+| Full shot | **None in v0.2.7** — no sniper-style burst or second verb. Suppress *is* the only ranged attack. |
+| AP budget | **Low** — base **`maxAp = 3`** (before elite `apBonus` → **4 AP** at T3 elite). Typical corp turn: **move (1) + suppress (1)** or **suppress twice** when already in band; cannot match skirmisher's 4-AP dance at default fodder AP. |
+| Advance | When target out of suppress range + LOS → **one `stepToward` per corp turn** (same as skirmisher close). When in band + LOS → **suppress first**, then reposition if AP remains. |
+| Band / "kiting" | **`JUGGERNAUT_PREFERRED_MIN = 3`** — reuse skirmisher distance-maximising neighbour logic **only when** `cheb < preferredMin` **and** a legal tile still holds suppress range + LOS. Motivation: **maintain gunner band**, not panic retreat. Unlike skirmisher, **may stand ground** when cornered — DR + HP absorb melee; optional 1-damage shove (below) instead of fleeing. |
+| Melee fallback | **Weak shove only** — if adjacent and cannot suppress (out of AP or blocked), **`JUGGERNAUT_SHOVE_DAMAGE = 1`** via `resolveMelee`. **No knockback** (that is Bruiser's mirror). Prevents infinite kiting in a dead-end without making juggernaut a melee elite. |
+| Cover / LOS / stealth | **Standard combat LOS** for suppress validation. **Hostile stealth rules** — cannot suppress stealthed targets beyond Chebyshev 1. Smoke blocks suppress like any ranged check. |
+| Turret interaction | **Player turret (`T`, range 4)** can engage juggernaut inside the bubble — juggernaut has no sniper-style range conceal. Juggernaut pathing when advancing should treat player turret threat tiles as **high cost** (reuse sniper deferred pattern when implemented). |
+| Durability | **`ENEMY_ROLE.ELITE` T3** — 1.5× HP + `armorFloor` ≥ 1. Canonical **medic patient** — slow advance keeps medic in range; suppress chip punishes ignoring the elite while clearing fodder. |
+| Speed vs skirmisher | **Same family, different tempo** — skirmisher: fragile, full AP, plink at `RANGED_DAMAGE` 1. Juggernaut: soak, low AP, suppress at 1 dmg — **attrition + inevitability**, not spacing fragility. |
+
+**Behaviour:**
+
+- **`Juggernaut extends PatrolHostile`.** `engageSteps` priority: (1) if `cheb < JUGGERNAUT_PREFERRED_MIN` and band-reposition tile exists → step (skirmisher `#stepAwayFrom` pattern scoped to `JUGGERNAUT_SUPPRESS_RANGE`); (2) else if in suppress range + LOS + AP → `suppress`; (3) else if adjacent + AP → weak shove; (4) else `stepToward`.
+- **Constants** in `constants.ts`: `JUGGERNAUT_SUPPRESS_RANGE`, `JUGGERNAUT_SUPPRESS_AP`, `JUGGERNAUT_SUPPRESS_DAMAGE`, `JUGGERNAUT_PREFERRED_MIN`, `JUGGERNAUT_SHOVE_DAMAGE`.
+- Land full plumbing: types (`suppress` turn-step), persistence, snapshot/restore, loot, `corpTurnStatusCopy`, `kindFromId`, glyph `j` (provisional — finalize in 2.8 alphabet pass).
+- **TDD:** in suppress range + LOS → 1-AP suppress for 1 damage (hit roll applies); out of range → one step toward; `cheb < preferredMin` with legal band tile → reposition not panic flee; 3 AP → move + suppress in one corp turn; survives sustained 1-damage focus that kills skirmisher; armor floor ≥ 1; weak shove at adjacency, no knockback; stealthed beyond Chebyshev 1 not suppressed; no deploy/spawn of `$`/`T`; bruiser unchanged; skirmisher kiting regression guard holds.
+
+**Elite mirror summary (M4):**
+
+| Player perk | Elite twist | Role |
+|-------------|-------------|------|
+| Razor **SLIDE** | Flanker `slideConcealed` (M4.3) | stalk / ambush |
+| Merc **Vault** knockback | Bruiser knockback-on-hit, no hop | melee tax |
+| Tech **Deploy** turret | Juggernaut walking suppress platform | attrition / soak |
 
 #### M4.3 — Flanker
 
@@ -409,7 +459,8 @@ So a flanker that SLIDEs on corp turn N vanishes for the player's entire turn N+
 ## Open questions / kaizen notes
 
 - **Corp civilian harm from player-placed breaching charges:** M5 Rep only tracks `FACTION.NEUTRAL` via `civilian:harmed`; killing a `CorpCivilian` (`c` glyph) in a breach blast does not cost Rep or block the clean-extraction bonus, even though the charge is player-planted and the log reads `Blast killed [Corp]Civilian.` Player-planted breach attribution now passes the deployed crew member as `attacker` on `entity:damaged` (so neutral bystanders count). Revisit whether corp-aligned non-combatants should also count toward civilian-casualty Rep / the "no civilian casualties" clean bonus, and whether the flash copy should distinguish corp staff vs neutral bystanders.
-- **Knockback into hazards:** should a bruiser's shove push the player into a hazard tile? Decide during M4.1.
+- **Knockback into hazards:** bruiser shove **allows** hazard destinations in v0.2.7 (same as any `relocateEntity` tile); revisit if hazard + knockback feels unfair in playtest.
+- **`JUGGERNAUT_SUPPRESS_RANGE` tuning:** locked at 5; playtest band 4–6 vs `$` turret (4) and skirmisher sight (8).
 - **Armor vs. dodge interaction:** resolved in M1.2 — dodge/miss resolves first; `damageReduction` applies only on a connected hit, with a 1-damage floor. Documented in `Combat.ts`.
 - **Sniper telegraph readability:** locked — `aim` turn-step + corp log + **crosshair overlay** on target tile during aim window; range conceal at Chebyshev ≥ 6 while aiming (M3.2).
 - **`SNIPER_CONCEAL_MIN_RANGE` tuning:** locked at 6; playtest ceiling 5–7 if reveal band feels too narrow/wide.
