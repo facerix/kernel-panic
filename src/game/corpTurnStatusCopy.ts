@@ -152,6 +152,9 @@ export function formatCorpTurnStep(
         `${actorLabel} strikes ${targetLabel} — ` +
         `${r.hit ? 'HIT' : r.dodged ? 'dodged' : 'miss'} ` +
         `(roll ${r.roll.toFixed(2)} vs ${r.dodgeThreshold.toFixed(2)}${r.inCover ? ', cover' : ''}).` +
+        (step.knockback
+          ? ` ${targetLabel} is shoved to (${step.knockback.x}, ${step.knockback.y}).`
+          : '') +
         (r.killed ? ` ${targetLabel.toUpperCase()} DOWN.` : '')
       );
     }

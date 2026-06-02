@@ -49,6 +49,7 @@ import { Tech } from './archetypes/Tech.js';
 import { Turret } from './Turret.js';
 import { Skirmisher } from './ai/Skirmisher.js';
 import { Guard } from './ai/Guard.js';
+import { Bruiser } from './ai/Bruiser.js';
 import { Spotter } from './ai/Spotter.js';
 import { Sniper } from './ai/Sniper.js';
 import { PatrolHostile } from './ai/PatrolHostile.js';
@@ -109,6 +110,7 @@ export type EntityArchetypeId =
   | 'turret'
   | 'drone'
   | 'guard'
+  | 'bruiser'
   | 'spotter'
   | 'sniper'
   | 'corp-civilian'
@@ -183,6 +185,14 @@ export type RunEntitySnapshot = {
   // own key so drone saves stay byte-identical. (Future kaizen: consolidate
   // into a shared `patrol` block once more patrol hostiles exist.)
   guard?: {
+    state: string;
+    lastKnownTarget: GridPoint | null;
+    patrolWaypoints: GridPoint[];
+    patrolIndex: number;
+  };
+  // Bruiser (T3 elite) shares the PatrolHostile state machine; serialised
+  // under its own key so guard/drone saves stay byte-identical.
+  bruiser?: {
     state: string;
     lastKnownTarget: GridPoint | null;
     patrolWaypoints: GridPoint[];
@@ -512,7 +522,10 @@ export class Run {
       seed: this.contract.seed,
       difficulty: this.contract.difficulty,
       fodderCount: map.fodder.length,
-      available: { specialists: [ENEMY_ARCHETYPE.SPOTTER, ENEMY_ARCHETYPE.SNIPER], elites: [] },
+      available: {
+        specialists: [ENEMY_ARCHETYPE.SPOTTER, ENEMY_ARCHETYPE.SNIPER],
+        elites: [ENEMY_ARCHETYPE.BRUISER],
+      },
     });
     const fodder = composition.entries.filter(e => e.role === ENEMY_ROLE.FODDER);
     for (let i = 0; i < map.fodder.length; i++) {
@@ -578,6 +591,33 @@ export class Run {
       }
       this.world.addEntity(specialist);
       specialist.bindToBus(this.bus);
+    }
+    // Elites map 1:1 onto elite anchors. CRITICAL maps currently reserve one
+    // anchor; a mismatch means composition and map budget drifted apart.
+    const elites = composition.entries.filter(e => e.role === ENEMY_ROLE.ELITE);
+    if (elites.length > map.elites.length) {
+      throw new Error(
+        `Run.enterCombat: ${elites.length} elite(s) composed but only ` +
+          `${map.elites.length} anchor(s) for a ${this.contract.difficulty} map`
+      );
+    }
+    for (let i = 0; i < elites.length; i++) {
+      const entry = elites[i]!;
+      const a = map.elites[i]!;
+      let elite: PatrolHostile;
+      if (entry.archetype === ENEMY_ARCHETYPE.BRUISER) {
+        elite = new Bruiser({
+          id: `bruiser-${i}`,
+          x: a.x,
+          y: a.y,
+          patrolWaypoints: a.waypoints,
+          tier: entry.tier,
+        });
+      } else {
+        throw new Error(`Run.enterCombat: no spawn case for elite "${entry.archetype}"`);
+      }
+      this.world.addEntity(elite);
+      elite.bindToBus(this.bus);
     }
     for (let i = 0; i < map.corpCivilians.length; i++) {
       const a = map.corpCivilians[i]!;
@@ -870,9 +910,8 @@ export class Run {
 
     // M3: assign loot to killed hostiles. The loot roll uses the Run's own
     // Rng so it's deterministic on the contract seed.
-    // M4.2: loot is now typed — drones drop scrap (mechanical), corp turrets
-    // drop chips (electronics). Other future Hostiles fall through to the
-    // scrap default so adding a new enemy class doesn't break the loot loop.
+    // M4.2: loot is now typed — fodder drops scrap (mechanical), corp turrets
+    // drop chips (electronics), elites drop bio (augmentations).
     const lootTarget = target as Partial<LootableEntity>;
     if (killed && target instanceof Hostile && !lootTarget.loot) {
       lootTarget.loot = { salvage: this.#rollLoot(target) };
@@ -888,6 +927,9 @@ export class Run {
       // Pure electronics — chips only. Slightly tighter range than drones
       // since turrets are infrastructure rather than mobile threats.
       return makeSalvage({ chips: this.rng.intRange(SALVAGE_DROP_MIN, SALVAGE_DROP_MAX + 1) });
+    }
+    if (target instanceof Bruiser) {
+      return makeSalvage({ bio: this.rng.intRange(SALVAGE_DROP_MIN, SALVAGE_DROP_MAX + 1) });
     }
     return makeSalvage({
       scrap: this.rng.intRange(SALVAGE_DROP_MIN, SALVAGE_DROP_MAX + 1),
@@ -1579,7 +1621,14 @@ function snapshotEntity(entity: Entity): RunEntitySnapshot {
     alive: entity.alive,
     stealthed: !!entity.stealthed,
   };
-  if (entity instanceof Sniper) {
+  if (entity instanceof Bruiser) {
+    base.bruiser = {
+      state: entity.state,
+      lastKnownTarget: entity.lastKnownTarget ? { ...entity.lastKnownTarget } : null,
+      patrolWaypoints: entity.patrolWaypoints.map(wp => ({ x: wp.x, y: wp.y })),
+      patrolIndex: entity.patrolIndex,
+    };
+  } else if (entity instanceof Sniper) {
     base.sniper = {
       state: entity.state,
       lastKnownTarget: entity.lastKnownTarget ? { ...entity.lastKnownTarget } : null,
@@ -1711,6 +1760,7 @@ function archetypeOf(entity: Entity): EntityArchetypeId {
   if (entity instanceof Razor) return 'razor';
   if (entity instanceof Tech) return 'tech';
   if (entity instanceof Turret) return 'turret';
+  if (entity instanceof Bruiser) return 'bruiser';
   if (entity instanceof Sniper) return 'sniper';
   if (entity instanceof Spotter) return 'spotter';
   if (entity instanceof Guard) return 'guard';

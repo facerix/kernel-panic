@@ -15,6 +15,7 @@ import { CorpCivilian } from '../../../src/game/entities/CorpCivilian.js';
 import { NeutralCivilian } from '../../../src/game/entities/NeutralCivilian.js';
 import { ConsumablePickup } from '../../../src/game/entities/ConsumablePickup.js';
 import { restore, snapshot } from '../../../src/game/persistence.js';
+import { Bruiser } from '../../../src/game/ai/Bruiser.js';
 import { Sniper } from '../../../src/game/ai/Sniper.js';
 import { buildCrewMember } from '../../../src/game/archetypes/index.js';
 import { findPath } from '../../../src/game/Pathfinding.js';
@@ -136,6 +137,8 @@ test('enterCombat passes contract threat and difficulty into map generation', ()
     entity => entity.id.startsWith('drone-') || entity.id.startsWith('guard-')
   );
   assert.equal(fodder.length, 4);
+  const elites = [...run.world.entities.values()].filter(entity => entity instanceof Bruiser);
+  assert.equal(elites.length, 1, 'CRITICAL contracts spawn one T3 elite anchor');
 });
 
 test('STANDARD encounter fills fodder anchors with a deterministic skirmisher/guard mix', () => {
@@ -209,6 +212,29 @@ test('a spawned Sniper round-trips aimTargetId through a run snapshot', () => {
   const after = [...world.entities.values()].find(e => e.id.startsWith('sniper-'));
   assert.ok(after instanceof Sniper, 'sniper survives the round-trip');
   assert.equal(after.aimTargetId, run.player!.id);
+});
+
+test('a spawned Bruiser round-trips through a run snapshot', () => {
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 1 });
+  run.enterBriefing(fakeContract({ seed: 42, difficulty: 'critical', threatCount: 4 }));
+  run.enterCombat();
+  const before = [...run.world.entities.values()].find(e => e instanceof Bruiser);
+  assert.ok(before instanceof Bruiser, 'bruiser present pre-snapshot');
+  before.state = 'investigate';
+  before.lastKnownTarget = { x: before.x, y: before.y };
+
+  const rec = snapshot(run);
+  const bruiserRec = rec.entities.find(e => e.id === before.id);
+  assert.equal(bruiserRec?.archetype, 'bruiser');
+  assert.ok(bruiserRec?.bruiser, 'state machine lives in the bruiser block');
+  assert.equal(bruiserRec.guard, undefined, 'a bruiser does not write a guard record');
+
+  const { world } = restore(rec);
+  const after = [...world.entities.values()].find(e => e.id === before.id);
+  assert.ok(after instanceof Bruiser, 'bruiser survives the round-trip');
+  assert.equal(after.glyph, 'e');
+  assert.equal(after.state, 'investigate');
+  assert.deepEqual(after.lastKnownTarget, before.lastKnownTarget);
 });
 
 test('hostile-all sweep is not satisfied while a guard remains alive', () => {
@@ -548,6 +574,30 @@ test('killing a CorpTurret drops chips, not scrap (M4.2)', () => {
   assert.ok(
     turret.loot.salvage.chips >= SALVAGE_DROP_MIN && turret.loot.salvage.chips <= SALVAGE_DROP_MAX,
     `chips ${turret.loot.salvage.chips} outside [${SALVAGE_DROP_MIN}, ${SALVAGE_DROP_MAX}]`
+  );
+});
+
+test('killing a Bruiser drops bio salvage, not scrap or chips', () => {
+  const run = new Run({ crewMember: makeCrew('merc'), seed: 1 });
+  run.enterBriefing(fakeContract({ seed: 42, difficulty: 'critical', threatCount: 4 }));
+  run.enterCombat();
+  const bruiser = [...run.world.entities.values()].find(e => e instanceof Bruiser);
+  assert.ok(bruiser instanceof Bruiser, 'critical job should spawn a bruiser');
+  bruiser.damage(bruiser.maxHp);
+  run.bus.emit('entity:damaged', {
+    attacker: run.player,
+    target: bruiser,
+    damage: bruiser.maxHp,
+    killed: true,
+    source: 'ranged',
+  });
+  assert.ok(bruiser.loot, 'killed bruiser should have loot assigned');
+  assert.equal(bruiser.loot.salvage.scrap, 0, 'bruiser loot has no scrap');
+  assert.equal(bruiser.loot.salvage.chips, 0, 'bruiser loot has no chips');
+  assert.equal(bruiser.loot.salvage.data, 0, 'bruiser loot has no data');
+  assert.ok(
+    bruiser.loot.salvage.bio >= SALVAGE_DROP_MIN && bruiser.loot.salvage.bio <= SALVAGE_DROP_MAX,
+    `bio ${bruiser.loot.salvage.bio} outside [${SALVAGE_DROP_MIN}, ${SALVAGE_DROP_MAX}]`
   );
 });
 

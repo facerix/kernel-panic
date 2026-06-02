@@ -62,7 +62,7 @@ export type PatrolHostileTurnStep =
   // `melee` is shared by all PatrolHostiles — Guard's close-and-strike
   // counterpart to the skirmisher's `fire`. Lives in this union so the corp-turn
   // driver, status copy, and tests treat every patrol-hostile yield uniformly.
-  | { type: 'melee'; target: string; result: MeleeAttackResult }
+  | { type: 'melee'; target: string; result: MeleeAttackResult; knockback?: GridPoint | null }
   | { type: 'fire-blocked'; reason: string }
   | { type: 'investigate-cleared' }
   | { type: 'investigate-abandoned' }

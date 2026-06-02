@@ -350,7 +350,7 @@ Playtest pass on T1 fodder pacing:
 
 ### M4 — Tier 3 elites
 
-#### M4.1 — Bruiser
+#### M4.1 — Bruiser ✅
 
 **Contrast with Juggernaut:** Bruiser is the **T3 Guard** — fast melee that owns adjacency. Juggernaut is the **T3 Skirmisher** — ranged attrition from a suppress band. Same elite tier and armor floor; opposite distance bands and player mirrors (Merc knockback vs Tech suppression).
 
@@ -377,6 +377,8 @@ Playtest pass on T1 fodder pacing:
 - Land full plumbing: types (`knockback` turn-step or enrich `melee` result), persistence, snapshot/restore, loot, `corpTurnStatusCopy`, `kindFromId`, glyph `e`.
 - **Loot:** killed elites yield **bio salvage** rather than scrap/chips, reflecting their augmentations.
 - **TDD:** connected melee deals 3 damage; knockback 1 tile away when lane clear; blocked lane → damage only; dodge/miss → no knockback; survives two 1-damage plinks that kill a T1 guard; 5 AP closes multiple tiles per corp turn; no ranged steps; guard/bruiser engage shape matches except knockback; hazard knockback (kaizen) deferred — default **allow** shove into hazard tiles.
+
+**Implementation note:** `Bruiser` (glyph `e`, `ENEMY_ROLE.ELITE`) extends `PatrolHostile`; ENGAGE mirrors Guard's close-and-melee loop, with `HEAVY_MELEE_DAMAGE` and post-hit shove through shared `knockbackByOffset` (`COVER` destinations allowed, blocked lanes preserve damage and omit movement). CRITICAL maps now reserve and spawn one elite anchor from the buildable elite allowlist (`bruiser` only in M4.1). Plumbing landed in turn-step copy (`melee.knockback`), snapshot/restore (`bruiser?` block), persistence factory, `kindFromId`, SW precache, and loot: killed Bruisers drop bio salvage.
 
 #### M4.2 — Juggernaut
 

@@ -6,6 +6,7 @@ import { Run, RUN_STATE } from '../../../src/game/Run.js';
 import { buildContractRecipeFixture, OBJECTIVES } from '../../../src/game/hub/Curator.js';
 import { Terminal } from '../../../src/game/entities/Terminal.js';
 import { Guard } from '../../../src/game/ai/Guard.js';
+import { Bruiser } from '../../../src/game/ai/Bruiser.js';
 import {
   restore,
   restoreCampaign,
@@ -198,6 +199,28 @@ test('Guard round-trips through snapshot/restore as archetype "guard"', () => {
   assert.equal(restored.glyph, 'g');
   assert.equal(restored.state, 'engage');
   assert.deepEqual(restored.lastKnownTarget, { x: 4, y: 9 });
+});
+
+test('Bruiser round-trips through snapshot/restore as archetype "bruiser"', () => {
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 7 });
+  run.enterBriefing(fakeContract({ seed: 42, difficulty: 'critical', threatCount: 4 }));
+  run.enterCombat();
+  const bruiser = [...run.world.entities.values()].find(e => e instanceof Bruiser);
+  assert.ok(bruiser instanceof Bruiser, 'expected a Bruiser from this critical contract');
+  bruiser.state = 'engage';
+  bruiser.lastKnownTarget = { x: 3, y: 8 };
+
+  const rec = snapshot(run);
+  const bruiserRec = rec.entities.find(e => e.id === bruiser.id);
+  assert.equal(bruiserRec?.archetype, 'bruiser');
+  assert.ok(bruiserRec?.bruiser, 'state machine lives in the bruiser block');
+
+  const { world: restoredWorld } = restore(rec);
+  const restored = [...restoredWorld.entities.values()].find(e => e.id === bruiser.id);
+  assert.ok(restored instanceof Bruiser, 'restored as a Bruiser');
+  assert.equal(restored.glyph, 'e');
+  assert.equal(restored.state, 'engage');
+  assert.deepEqual(restored.lastKnownTarget, { x: 3, y: 8 });
 });
 
 test('restore preserves turnNumber and currentFaction', () => {

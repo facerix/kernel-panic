@@ -1,5 +1,6 @@
 import { Crew } from '../Crew.js';
 import { TILE, AP_COST, FACTION, MERC_RANGED_DAMAGE } from '../constants.js';
+import { canKnockbackByOffset } from '../knockback.js';
 import type { CrewInit } from '../Crew.js';
 import type { World } from '../World.js';
 
@@ -117,18 +118,8 @@ export class Merc extends Crew {
         return { ok: false, reason: 'blocked' };
       } else {
         // Hostile on the landing tile — need a clear knockback lane.
-        const kbX = landX + dx;
-        const kbY = landY + dy;
-        if (!world.grid.inBounds(kbX, kbY)) {
-          return { ok: false, reason: 'knockback-oob' };
-        }
-        const kbTile = world.grid.tileAt(kbX, kbY);
-        if (!world.grid.isPassable(kbX, kbY) && kbTile !== TILE.COVER) {
-          return { ok: false, reason: 'knockback-blocked' };
-        }
-        if (world.entityAt(kbX, kbY)) {
-          return { ok: false, reason: 'knockback-occupied' };
-        }
+        const knockback = canKnockbackByOffset(world, occupant, dx, dy);
+        if (!knockback.ok) return { ok: false, reason: knockback.reason };
       }
     }
 
@@ -156,7 +147,7 @@ export class Merc extends Crew {
     // bounds/passability/occupancy and emits ENTITY_MOVED — no silent
     // bypasses. (#7 adversarial review)
     if (occupant) {
-      world.relocateEntity(occupant, occupant.x + dx, occupant.y + dy);
+      world.relocateEntity(occupant, occupant.x + dx, occupant.y + dy, { allowCover: true });
     }
 
     this.spendAp(AP_COST.VAULT);

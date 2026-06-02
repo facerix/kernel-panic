@@ -131,8 +131,25 @@ test('spotter+sniper allowlist rolls only buildable T2 specialists', () => {
   }
 });
 
+test('bruiser elite allowlist rolls only the buildable T3 elite', () => {
+  for (let seed = 0; seed < 200; seed++) {
+    const composition = composeEncounter({
+      seed,
+      difficulty: CONTRACT_DIFFICULTY.CRITICAL,
+      fodderCount: 4,
+      available: {
+        specialists: [ENEMY_ARCHETYPE.SPOTTER],
+        elites: [ENEMY_ARCHETYPE.BRUISER],
+      },
+    });
+    const elites = composition.entries.filter(e => e.role === ENEMY_ROLE.ELITE);
+    assert.equal(elites.length, 1, `seed ${seed} still has exactly one elite`);
+    assert.equal(elites[0].archetype, ENEMY_ARCHETYPE.BRUISER, `seed ${seed}`);
+  }
+});
+
 test('empty elite allowlist composes no elite (never a reskin or silent drop)', () => {
-  // CRITICAL with no buildable elite yet: the resolver carries fodder + the one
+  // CRITICAL with no buildable elite: the resolver carries fodder + the one
   // available specialist, and simply no elite — output matches what can spawn.
   const composition = composeEncounter({
     seed: 789,

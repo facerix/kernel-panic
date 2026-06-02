@@ -165,6 +165,28 @@ test('formatCorpTurnStep narrates a spotter mark with the target label', () => {
   assert.match(line, /converging/i);
 });
 
+test('formatCorpTurnStep narrates melee knockback when present', () => {
+  const line = formatCorpTurnStep(
+    '[Corp]Bruiser',
+    {
+      type: 'melee',
+      target: 'crew-merc',
+      knockback: { x: 4, y: 2 },
+      result: {
+        hit: true,
+        dodged: false,
+        roll: 0.99,
+        dodgeThreshold: 0.2,
+        inCover: false,
+        damage: 3,
+        killed: false,
+      },
+    },
+    id => (id === 'crew-merc' ? 'Patch' : id)
+  );
+  assert.match(line, /Patch is shoved to \(4, 2\)/);
+});
+
 test('isCorpTurnStepLogVisibleToPlayer: a spotter mark on the player is felt even when unseen', () => {
   const { world } = makeDroneWorld();
   const step = { type: 'spot' as const, target: 'p1' };

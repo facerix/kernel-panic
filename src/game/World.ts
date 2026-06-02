@@ -562,7 +562,7 @@ export class World {
    * Use cases: vault knockback, neutral civilian flee — movements that are
    * mechanically free but must still update the world consistently.
    */
-  relocateEntity(entity: Entity, x: number, y: number) {
+  relocateEntity(entity: Entity, x: number, y: number, options: { allowCover?: boolean } = {}) {
     if (!Number.isInteger(x) || !Number.isInteger(y)) {
       throw new TypeError(`relocateEntity requires integer coords, got (${x}, ${y})`);
     }
@@ -572,7 +572,10 @@ export class World {
     if (!this.grid.inBounds(x, y)) {
       throw new Error(`relocateEntity: (${x}, ${y}) is out of bounds`);
     }
-    if (!this.grid.isPassable(x, y)) {
+    if (
+      !this.grid.isPassable(x, y) &&
+      !(options.allowCover === true && this.grid.tileAt(x, y) === TILE.COVER)
+    ) {
       throw new Error(`relocateEntity: (${x}, ${y}) is not passable`);
     }
     const blocker = this.entityAt(x, y);

@@ -186,6 +186,19 @@ test('Merc.vault knocks hostile back and lands on vacated tile', () => {
   assert.equal(drone.y, 3);
 });
 
+test('Merc.vault can knock hostile into COVER and land on the vacated tile', () => {
+  const g = new Grid(8, 8);
+  g.setTile(4, 3, TILE.COVER);
+  g.setTile(6, 3, TILE.COVER);
+  const drone = new Entity({ id: 'd', x: 5, y: 3, faction: FACTION.CORP, glyph: 'd' });
+  const { world, merc } = makeWorld({ grid: g, extraEntities: [drone] });
+  const { occupant } = merc.vault(world, 1, 0);
+  assert.equal(occupant, drone);
+  assert.equal(merc.x, 5);
+  assert.equal(drone.x, 6);
+  assert.equal(world.grid.tileAt(drone.x, drone.y), TILE.COVER);
+});
+
 test('Merc.vault returns null occupant when landing tile is empty', () => {
   const g = new Grid(8, 8);
   g.setTile(4, 3, TILE.COVER);

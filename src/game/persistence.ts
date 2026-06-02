@@ -50,6 +50,7 @@ import { Tech } from './archetypes/Tech.js';
 import { Turret } from './Turret.js';
 import { Skirmisher, type SkirmisherProps } from './ai/Skirmisher.js';
 import { Guard, type GuardProps } from './ai/Guard.js';
+import { Bruiser, type BruiserProps } from './ai/Bruiser.js';
 import { Spotter, type SpotterProps } from './ai/Spotter.js';
 import { Sniper, type SniperProps } from './ai/Sniper.js';
 import { PatrolHostile, PATROL_STATE } from './ai/PatrolHostile.js';
@@ -114,6 +115,7 @@ type RestoreEntityProps = Partial<
     TurretInit &
     SkirmisherProps &
     GuardProps &
+    BruiserProps &
     SpotterProps &
     SniperProps &
     CorpCivilianInit &
@@ -150,6 +152,7 @@ const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) =
     turret: (props: RestoreEntityProps) => new Turret(props as TurretInit),
     drone: (props: RestoreEntityProps) => new Skirmisher(props as SkirmisherProps),
     guard: (props: RestoreEntityProps) => new Guard(props as GuardProps),
+    bruiser: (props: RestoreEntityProps) => new Bruiser(props as BruiserProps),
     spotter: (props: RestoreEntityProps) => new Spotter(props as SpotterProps),
     sniper: (props: RestoreEntityProps) => new Sniper(props as SniperProps),
     'corp-civilian': (props: RestoreEntityProps) => new CorpCivilian(props as CorpCivilianInit),
@@ -568,6 +571,9 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
   if (rec.archetype === 'guard') {
     entityProps.patrolWaypoints = rec.guard?.patrolWaypoints ?? [];
   }
+  if (rec.archetype === 'bruiser') {
+    entityProps.patrolWaypoints = rec.bruiser?.patrolWaypoints ?? [];
+  }
   if (rec.archetype === 'spotter') {
     entityProps.patrolWaypoints = rec.spotter?.patrolWaypoints ?? [];
   }
@@ -701,19 +707,19 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
     entity.turretReady = !!rec.tech.turretReady;
   }
 
-  // Skirmisher, Guard, and Spotter share the PatrolHostile state machine; each
-  // serialises under its own key (`drone` / `guard` / `spotter`) but restores
-  // identically.
+  // Patrol hostiles serialise under per-archetype keys but restore identically.
   const patrolRec =
     rec.archetype === 'drone'
       ? rec.drone
       : rec.archetype === 'guard'
         ? rec.guard
-        : rec.archetype === 'spotter'
-          ? rec.spotter
-          : rec.archetype === 'sniper'
-            ? rec.sniper
-            : null;
+        : rec.archetype === 'bruiser'
+          ? rec.bruiser
+          : rec.archetype === 'spotter'
+            ? rec.spotter
+            : rec.archetype === 'sniper'
+              ? rec.sniper
+              : null;
   if (patrolRec) {
     if (!(entity instanceof PatrolHostile)) {
       throw new Error(
