@@ -1181,7 +1181,7 @@ export class Run {
    * Place sweep-objective entities based on the sweep quota type:
    *   - relay-node: 3 RelayNode entities spread across the map.
    *   - turret: 2 CorpTurret entities at defensible positions.
-   *   - drone-all: 1 CorpTurret for ambient pressure (drones are already placed).
+   *   - hostile-all: 1 CorpTurret for ambient pressure (hostiles are already placed).
    */
   #placeSweepTargets(): void {
     if (!this.world || !this.player || !this.contract || !this.exitTile) return;
@@ -1211,9 +1211,10 @@ export class Run {
         }
         break;
       }
+      case SWEEP_QUOTA.HOSTILE_ALL:
       case SWEEP_QUOTA.DRONE_ALL:
       default: {
-        // Drones are already placed by enterCombat; add one corp turret
+        // Hostiles are already placed by enterCombat; add one corp turret
         // for ambient pressure.
         this.#placeCorpTurret(0);
         break;
@@ -1856,15 +1857,18 @@ function targetLabel(target: string): string {
 
 /**
  * Sweep quota types:
- *   - `drone-all`:   All Skirmisher and Guard (T1 fodder) entities dead.
+ *   - `hostile-all`: All live Hostile entities dead.
+ *   - `drone-all`:   Legacy save alias for `hostile-all`.
  *   - `relay-node`:  All RelayNode entities dead (or a params.count subset).
  *   - `turret`:      All CorpTurret entities dead (or a params.count subset).
  *
  * The quota type is inferred from `params.sweepTarget` (explicit) or
  * `params.target` (label-driven default). If no recognizable target is set,
- * falls back to `drone-all` — kill every drone on the map.
+ * falls back to `hostile-all` — clear the opposing force.
  */
 export const SWEEP_QUOTA = Object.freeze({
+  HOSTILE_ALL: 'hostile-all',
+  /** @deprecated Legacy save alias for HOSTILE_ALL. New contracts emit hostile-all. */
   DRONE_ALL: 'drone-all',
   RELAY_NODE: 'relay-node',
   TURRET: 'turret',
@@ -1874,19 +1878,21 @@ function sweepQuotaType(contract: Contract): string {
   const target = (contract.objective.params?.sweepTarget ?? contract.objective.params?.target) as
     | string
     | undefined;
-  if (!target) return SWEEP_QUOTA.DRONE_ALL;
+  if (!target) return SWEEP_QUOTA.HOSTILE_ALL;
+  if (target === 'hostile-all' || target === 'drone-all') return SWEEP_QUOTA.HOSTILE_ALL;
   if (target === 'relay-node' || target === 'skybridge-relay') return SWEEP_QUOTA.RELAY_NODE;
   if (target === 'turret' || target === 'corp-turret') return SWEEP_QUOTA.TURRET;
-  return SWEEP_QUOTA.DRONE_ALL;
+  return SWEEP_QUOTA.HOSTILE_ALL;
 }
 
 function isSweepSatisfied(contract: Contract, world?: World | null): boolean {
   if (!world) return false;
   const quota = sweepQuotaType(contract);
   switch (quota) {
+    case SWEEP_QUOTA.HOSTILE_ALL:
     case SWEEP_QUOTA.DRONE_ALL: {
       for (const entity of world.entities.values()) {
-        if ((entity instanceof Skirmisher || entity instanceof Guard) && entity.alive) {
+        if (entity instanceof Hostile && entity.alive) {
           return false;
         }
       }

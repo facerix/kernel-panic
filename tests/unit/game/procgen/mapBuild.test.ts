@@ -55,6 +55,8 @@ test('buildMap is deterministic for the same seed', () => {
   assert.deepEqual(a.spawns, b.spawns);
   assert.deepEqual(a.exitTile, b.exitTile);
   assert.deepEqual(a.fodder, b.fodder);
+  assert.deepEqual(a.specialists, b.specialists);
+  assert.deepEqual(a.elites, b.elites);
 });
 
 test('checkpoint divider wall survives corridor carve (regression: map-debug seed)', () => {
@@ -325,6 +327,56 @@ test('fodder anchors are unique tiles (no two hostiles on the same square)', () 
   for (const anchor of map.fodder) {
     const key = `${anchor.x},${anchor.y}`;
     assert.ok(!seen.has(key), `duplicate fodder anchor at ${key}`);
+    seen.add(key);
+  }
+});
+
+test('elite anchors are reserved only for critical maps', () => {
+  const standard = buildMap({
+    rng: new Rng(0x51a7e),
+    width: W,
+    height: H,
+    threatCount: 2,
+    difficulty: CONTRACT_DIFFICULTY.STANDARD,
+  });
+  assert.equal(standard.elites.length, 0);
+
+  const elevated = buildMap({
+    rng: new Rng(0x51a7e),
+    width: W,
+    height: H,
+    threatCount: 3,
+    difficulty: CONTRACT_DIFFICULTY.ELEVATED,
+  });
+  assert.equal(elevated.elites.length, 0);
+
+  const critical = buildMap({
+    rng: new Rng(0x51a7e),
+    width: W,
+    height: H,
+    threatCount: 4,
+    difficulty: CONTRACT_DIFFICULTY.CRITICAL,
+  });
+  assert.equal(critical.elites.length, 1);
+  const [elite] = critical.elites;
+  assert.ok(elite);
+  assert.equal(critical.grid.tileAt(elite.x, elite.y), TILE.FLOOR);
+  assert.notDeepEqual({ x: elite.x, y: elite.y }, critical.spawns.player);
+  assert.notDeepEqual({ x: elite.x, y: elite.y }, critical.exitTile);
+});
+
+test('fodder, specialist, and elite anchors share a collision budget', () => {
+  const map = buildMap({
+    rng: new Rng(0xc0ffee),
+    width: W,
+    height: H,
+    threatCount: 4,
+    difficulty: CONTRACT_DIFFICULTY.CRITICAL,
+  });
+  const seen = new Set<string>();
+  for (const anchor of [...map.fodder, ...map.specialists, ...map.elites]) {
+    const key = `${anchor.x},${anchor.y}`;
+    assert.ok(!seen.has(key), `duplicate combat anchor at ${key}`);
     seen.add(key);
   }
 });

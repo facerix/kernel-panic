@@ -207,7 +207,7 @@ export const CONTRACT_LEXICON = Object.freeze({
       target: 'power-siphon',
     }),
     token('identity-spool', 'identity spool', ['terminal', 'data'], { target: 'server-rack' }),
-    token('drone-cache', 'drone cache', ['sweep', 'security'], { target: 'drone-all' }),
+    token('hostile-cache', 'hostile cache', ['sweep', 'security'], { target: 'hostile-all' }),
     token('site-layout', 'site layout', ['recon', 'infrastructure'], { target: 'site-layout' }),
     token('patrol-map', 'patrol map', ['recon', 'security'], { target: 'patrol-map' }),
     token('service-plan', 'service plan', ['recon', 'data'], { target: 'service-plan' }),

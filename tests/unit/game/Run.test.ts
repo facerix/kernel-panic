@@ -211,7 +211,7 @@ test('a spawned Sniper round-trips aimTargetId through a run snapshot', () => {
   assert.equal(after.aimTargetId, run.player!.id);
 });
 
-test('drone-all sweep is not satisfied while a guard remains alive', () => {
+test('hostile-all sweep is not satisfied while a guard remains alive', () => {
   const run = new Run({ crewMember: makeCrew('razor'), seed: 1 });
   run.enterBriefing(
     fakeContract({
@@ -222,7 +222,7 @@ test('drone-all sweep is not satisfied while a guard remains alive', () => {
         kind: OBJECTIVES.SWEEP,
         title: 'Sweep',
         briefing: 'Clear all hostiles.',
-        params: { sweepTarget: 'drone-all' },
+        params: { sweepTarget: 'hostile-all' },
       },
       context: testContractContext(OBJECTIVES.SWEEP),
     })
@@ -231,12 +231,16 @@ test('drone-all sweep is not satisfied while a guard remains alive', () => {
   const fodder = [...run.world.entities.values()].filter(
     e => e.id.startsWith('drone-') || e.id.startsWith('guard-')
   );
+  const turret = [...run.world.entities.values()].find(e => e instanceof CorpTurret);
+  assert.ok(turret, 'hostile-all sweep places an ambient turret that counts as hostile');
   // Kill only the skirmishers — guards still hold the room.
   for (const e of fodder) if (e.id.startsWith('drone-')) e.damage(e.hp);
   assert.equal(run.isObjectiveSatisfied(), false, 'sweep incomplete while guards live');
-  // Drop the guards too.
+  // Drop the guards too, but the ambient turret is still a live hostile.
   for (const e of fodder) if (e.id.startsWith('guard-')) e.damage(e.hp);
-  assert.equal(run.isObjectiveSatisfied(), true, 'all T1 fodder down — sweep complete');
+  assert.equal(run.isObjectiveSatisfied(), false, 'sweep incomplete while turret lives');
+  turret.damage(turret.hp);
+  assert.equal(run.isObjectiveSatisfied(), true, 'all live hostiles down — sweep complete');
 });
 
 test('a killed guard drops scrap salvage', () => {

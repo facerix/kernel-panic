@@ -20,6 +20,8 @@
  *      leaf — first-come-first-served in DFS order. If we can't satisfy the
  *      threat budget, throw — silently dropping a spawn slot is data corruption
  *      that would mask a content bug.
+ *   9. Reserve specialist/elite anchors from remaining FLOOR tiles by
+ *      difficulty so role composition can fail loud before spawning.
  *
  * The exit cell is stamped as `TILE.EXIT` (passable like FLOOR) so the
  * renderer shows a door glyph. `exitTile` remains the sidecar coordinate
@@ -87,6 +89,12 @@ export type Map = {
    * Run maps the composed specialist entry onto these anchors.
    */
   specialists: EntityAnchor[];
+  /**
+   * T3 elite spawn slots (Phase 2.7 M4). Sized by difficulty: CRITICAL gets
+   * one reserved slot even while `Run` keeps the buildable elite allowlist
+   * empty. This lets map legality fail loud before elite classes land.
+   */
+  elites: EntityAnchor[];
   corpCivilians: CivilianAnchor[];
   neutralCivilians: CivilianAnchor[];
   /** Prefab/authored door anchors only. Dynamic doors are in `dynamicDoors`. */
@@ -335,6 +343,7 @@ function buildMapOnce(mapRng: Rng, options: BuildMapOptions): Map {
   //      alive than the old stand-still fallback.
   const fodderAnchors: EntityAnchor[] = [];
   const specialistAnchors: EntityAnchor[] = [];
+  const eliteAnchors: EntityAnchor[] = [];
   const corpCivilians: CivilianAnchor[] = [];
   const neutralCivilians: CivilianAnchor[] = [];
   const isAlreadyTaken = (x: number, y: number): boolean =>
@@ -345,6 +354,7 @@ function buildMapOnce(mapRng: Rng, options: BuildMapOptions): Map {
     dynamicDoors.some(a => a.terminal.x === x && a.terminal.y === y) ||
     fodderAnchors.some(a => a.x === x && a.y === y) ||
     specialistAnchors.some(a => a.x === x && a.y === y) ||
+    eliteAnchors.some(a => a.x === x && a.y === y) ||
     corpCivilians.some(a => a.x === x && a.y === y) ||
     neutralCivilians.some(a => a.x === x && a.y === y);
 
@@ -414,6 +424,34 @@ function buildMapOnce(mapRng: Rng, options: BuildMapOptions): Map {
     );
   }
 
+  // Elite anchors (Phase 2.7 M4 foundation) — CRITICAL maps reserve exactly
+  // one elite slot after fodder/specialists. Classes spawn later via
+  // Run.enterCombat's buildable elite allowlist, but map legality is already
+  // enforced here so M4 cannot silently degrade a T3 composition.
+  const eliteCount = eliteAnchorCount(difficulty);
+  for (let i = 1; i < stamped.length && eliteAnchors.length < eliteCount; i++) {
+    const region = stamped[i].leaf.region;
+    for (let yy = region.y; yy < region.y + region.height; yy++) {
+      if (eliteAnchors.length >= eliteCount) break;
+      for (let xx = region.x; xx < region.x + region.width; xx++) {
+        if (eliteAnchors.length >= eliteCount) break;
+        if (grid.tileAt(xx, yy) !== TILE.FLOOR) continue;
+        if (isAlreadyTaken(xx, yy)) continue;
+        eliteAnchors.push({
+          x: xx,
+          y: yy,
+          waypoints: synthesizeFallbackPatrol(grid, { x: xx, y: yy }),
+        });
+      }
+    }
+  }
+  if (eliteAnchors.length < eliteCount) {
+    throw new Error(
+      `buildMap: only ${eliteAnchors.length}/${eliteCount} elite anchors ` +
+        `available for a ${width}x${height} ${difficulty} map`
+    );
+  }
+
   // Civilians — collect authored spawn points from non-spawn leaves, capped
   // by maxCorpCivilians / maxNeutralCivilians. No fallback generation (unlike
   // fodder) — civilians are optional content. Only place civilians on
@@ -455,6 +493,13 @@ function buildMapOnce(mapRng: Rng, options: BuildMapOptions): Map {
             waypoints: tightenPatrol(grid, anchor.waypoints),
           }))
         : specialistAnchors,
+    elites:
+      difficulty === CONTRACT_DIFFICULTY.CRITICAL
+        ? eliteAnchors.map(anchor => ({
+            ...anchor,
+            waypoints: tightenPatrol(grid, anchor.waypoints),
+          }))
+        : eliteAnchors,
     corpCivilians,
     neutralCivilians,
     doors: doorAnchors.filter(
@@ -846,11 +891,24 @@ function civilianCapsForDifficulty(difficulty: ContractDifficulty): {
 /**
  * How many specialist spawn slots a tier needs (Phase 2.7 M3). Mirrors the
  * encounter composition rules: ELEVATED and CRITICAL each carry exactly one
- * specialist; STANDARD carries none. (Elite anchors land with M4.)
+ * specialist; STANDARD carries none.
  */
 function specialistAnchorCount(difficulty: ContractDifficulty): number {
   switch (difficulty) {
     case CONTRACT_DIFFICULTY.ELEVATED:
+    case CONTRACT_DIFFICULTY.CRITICAL:
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+/**
+ * How many elite spawn slots a tier needs (Phase 2.7 M4). CRITICAL carries
+ * exactly one elite; lower tiers carry none.
+ */
+function eliteAnchorCount(difficulty: ContractDifficulty): number {
+  switch (difficulty) {
     case CONTRACT_DIFFICULTY.CRITICAL:
       return 1;
     default:

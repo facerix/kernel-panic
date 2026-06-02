@@ -12,7 +12,6 @@ import {
   BREACHING_CHARGE_RANGE,
   TARGETING_BONUS,
   DODGE_BONUS,
-  RANGED_DAMAGE,
   RANGED_DAMAGE_BONUS,
   DEFAULT_HP,
 } from '../../../src/game/constants.js';
