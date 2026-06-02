@@ -9,11 +9,14 @@
  *   3. BSP-split the map until every leaf is between MIN_LEAF and MAX_LEAF.
  *   4. Plan a prefab per leaf (random offset inside the leaf) and translate
  *      anchors into world coordinates.
- *   5. Carve L-shaped corridors between subtree leaf-region centres so the
- *      map is one connected component on FLOOR tiles. Corridors only
- *      overwrite WALL.
+ *   5. Carve L-shaped corridors between subtree leaf-region centres.
+ *      Corridors only overwrite WALL.
  *   6. Paint prefabs over the carved grid so authored divider walls (e.g.
  *      checkpoint `|`) are not punched through by corridor geometry.
+ *   6b. Connect each prefab to the corridor floors carved in its leaf (step 5)
+ *       when random prefab offset leaves a wall band between room and spine.
+ *       Door-gated contracts still retry on a forked substream when the linked-
+ *       contract probe fails.
  *   7. Place the player spawn at the first leaf's prefab center; the exit
  *      tile at the last leaf's first declared exit anchor (or its center).
  *   8. Pick `threatCount` fodder anchors from leaves *other than* the spawn
@@ -164,6 +167,22 @@ export function buildMap(options: BuildMapOptions): Map {
   );
 }
 
+/** True when spawn can path to exit and every passable tile on the grid. */
+export function mapIsFullyConnectedFromSpawn(map: Map): boolean {
+  const world = new World(map.grid);
+  const spawn = map.spawns.player;
+  if (findPath(world, spawn, map.exitTile) === null) return false;
+  for (let y = 0; y < map.grid.height; y++) {
+    for (let x = 0; x < map.grid.width; x++) {
+      const tile = map.grid.tileAt(x, y);
+      if (tile !== TILE.FLOOR && tile !== TILE.EXIT) continue;
+      if (x === spawn.x && y === spawn.y) continue;
+      if (findPath(world, spawn, { x, y }) === null) return false;
+    }
+  }
+  return true;
+}
+
 function validateBuildMapOptions({
   rng,
   width,
@@ -276,8 +295,16 @@ function buildMapOnce(mapRng: Rng, options: BuildMapOptions): Map {
     carveCorridor(grid, a, b);
   }
 
+  const corridorFloorsByLeaf = stamped.map(stamp =>
+    collectLeafCorridorFloors(grid, stamp.leaf.region)
+  );
+
   for (const stamp of stamped) {
     writePrefabToGrid(grid, stamp);
+  }
+
+  for (let i = 0; i < stamped.length; i++) {
+    connectPrefabToLeafCorridors(grid, stamped[i]!, corridorFloorsByLeaf[i]!);
   }
 
   if (stamped.length === 0) {
@@ -476,7 +503,7 @@ function buildMapOnce(mapRng: Rng, options: BuildMapOptions): Map {
     }
   }
 
-  return {
+  const map: Map = {
     grid,
     spawns: { player: playerSpawn },
     fodder:
@@ -512,6 +539,13 @@ function buildMapOnce(mapRng: Rng, options: BuildMapOptions): Map {
     dynamicDoorCount: dynamicDoors.length,
     exitTile,
   };
+  if (!mapIsFullyConnectedFromSpawn(map)) {
+    throw new Error(
+      'buildMap: prefab-corridor connectors failed to join layout ' +
+        `(spawn ${playerSpawn.x},${playerSpawn.y} exit ${exitTile.x},${exitTile.y})`
+    );
+  }
+  return map;
 }
 
 export type PlaceDoorsOptions = {
@@ -1040,6 +1074,102 @@ function writePrefabToGrid(grid: Grid, stamp: StampedLeaf): void {
       grid.setTile(originX + x, originY + y, prefab.tiles[y * prefab.w + x]);
     }
   }
+}
+
+/** FLOOR tiles carved in step 5 inside `region`, before prefab paint. */
+function collectLeafCorridorFloors(
+  grid: Grid,
+  region: { x: number; y: number; width: number; height: number }
+): GridPoint[] {
+  const floors: GridPoint[] = [];
+  for (let y = region.y; y < region.y + region.height; y++) {
+    for (let x = region.x; x < region.x + region.width; x++) {
+      if (grid.tileAt(x, y) === TILE.FLOOR) floors.push({ x, y });
+    }
+  }
+  return floors;
+}
+
+function isPrefabPassableTile(grid: Grid, x: number, y: number): boolean {
+  if (!grid.inBounds(x, y)) return false;
+  const tile = grid.tileAt(x, y);
+  return tile === TILE.FLOOR || tile === TILE.EXIT || tile === TILE.COVER;
+}
+
+function prefabPassableTiles(grid: Grid, stamp: StampedLeaf): GridPoint[] {
+  const tiles: GridPoint[] = [];
+  for (let y = 0; y < stamp.prefab.h; y++) {
+    for (let x = 0; x < stamp.prefab.w; x++) {
+      const wx = stamp.originX + x;
+      const wy = stamp.originY + y;
+      if (isPrefabPassableTile(grid, wx, wy)) tiles.push({ x: wx, y: wy });
+    }
+  }
+  return tiles;
+}
+
+function prefabReachableCorridorFloors(
+  grid: Grid,
+  stamp: StampedLeaf,
+  corridorFloors: GridPoint[]
+): boolean {
+  const passable = prefabPassableTiles(grid, stamp);
+  if (passable.length === 0) return corridorFloors.length === 0;
+  if (corridorFloors.length === 0) return true;
+
+  const corridorKeys = new Set(corridorFloors.map(point => coordKey(point.x, point.y)));
+  const queue = passable.map(point => ({ ...point }));
+  const seen = new Set(passable.map(point => coordKey(point.x, point.y)));
+  for (let i = 0; i < queue.length; i++) {
+    const point = queue[i]!;
+    if (corridorKeys.has(coordKey(point.x, point.y))) return true;
+    for (const [dx, dy] of CARDINAL_OFFSETS) {
+      const nx = point.x + dx;
+      const ny = point.y + dy;
+      const key = coordKey(nx, ny);
+      if (seen.has(key)) continue;
+      if (!isPrefabPassableTile(grid, nx, ny)) continue;
+      seen.add(key);
+      queue.push({ x: nx, y: ny });
+    }
+  }
+  return false;
+}
+
+/**
+ * When prefab offset leaves a wall band between the room and the corridor
+ * spine carved at step 5, punch a 1-tile L-connector (WALL only) to the
+ * nearest corridor anchor in the same leaf.
+ */
+function connectPrefabToLeafCorridors(
+  grid: Grid,
+  stamp: StampedLeaf,
+  corridorFloors: GridPoint[]
+): void {
+  if (corridorFloors.length === 0) return;
+  if (prefabReachableCorridorFloors(grid, stamp, corridorFloors)) return;
+
+  const passable = prefabPassableTiles(grid, stamp);
+  if (passable.length === 0) {
+    throw new Error(
+      `buildMap: leaf at (${stamp.leaf.region.x},${stamp.leaf.region.y}) has no passable prefab tiles`
+    );
+  }
+
+  let bestPrefab = passable[0]!;
+  let bestCorridor = corridorFloors[0]!;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const prefabTile of passable) {
+    for (const corridorTile of corridorFloors) {
+      const distance = manhattan(prefabTile, corridorTile);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestPrefab = prefabTile;
+        bestCorridor = corridorTile;
+      }
+    }
+  }
+  carveCorridor(grid, bestPrefab, bestCorridor);
 }
 
 function assignNearestPatrolPath(spawn: GridPoint, paths: GridPoint[][]): GridPoint[] | null {

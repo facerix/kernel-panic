@@ -7,7 +7,7 @@ import {
   normalizeMapDimensions,
   resolveMapDimensions,
 } from '../../../../src/game/procgen/mapDimensions.js';
-import { buildMap } from '../../../../src/game/procgen/mapBuild.js';
+import { buildMap, mapIsFullyConnectedFromSpawn } from '../../../../src/game/procgen/mapBuild.js';
 import { CONTRACT_DIFFICULTY } from '../../../../src/game/constants.js';
 import { Rng } from '../../../../src/rng.js';
 
@@ -46,27 +46,46 @@ test('different seeds at the same difficulty can produce different dimensions', 
 });
 
 test('every allowlisted size can build the matching difficulty threat budget', () => {
-  const threatByDifficulty = {
-    [CONTRACT_DIFFICULTY.STANDARD]: 2,
-    [CONTRACT_DIFFICULTY.ELEVATED]: 3,
-    [CONTRACT_DIFFICULTY.CRITICAL]: 4,
-  };
-
   for (const difficulty of Object.values(CONTRACT_DIFFICULTY)) {
     for (const dimensions of MAP_DIMENSION_BANDS[difficulty]) {
       const map = buildMap({
         rng: new Rng(1234),
         width: dimensions.width,
         height: dimensions.height,
-        threatCount: threatByDifficulty[difficulty],
+        threatCount:
+          difficulty === CONTRACT_DIFFICULTY.STANDARD
+            ? 2
+            : difficulty === CONTRACT_DIFFICULTY.ELEVATED
+              ? 3
+              : 4,
         difficulty,
       });
 
       assert.equal(map.grid.width, dimensions.width);
       assert.equal(map.grid.height, dimensions.height);
-      assert.equal(map.fodder.length, threatByDifficulty[difficulty]);
+      assert.equal(
+        map.fodder.length,
+        difficulty === CONTRACT_DIFFICULTY.STANDARD
+          ? 2
+          : difficulty === CONTRACT_DIFFICULTY.ELEVATED
+            ? 3
+            : 4
+      );
+      assert.ok(
+        mapIsFullyConnectedFromSpawn(map),
+        `${dimensions.width}x${dimensions.height} disconnected`
+      );
     }
   }
+});
+
+test('STANDARD band minimum footprint is the legacy 24x16 baseline', () => {
+  const minWidth = Math.min(...MAP_DIMENSION_BANDS[CONTRACT_DIFFICULTY.STANDARD].map(d => d.width));
+  const minHeight = Math.min(
+    ...MAP_DIMENSION_BANDS[CONTRACT_DIFFICULTY.STANDARD].map(d => d.height)
+  );
+  assert.equal(minWidth, DEFAULT_COMBAT_MAP_DIMENSIONS.width);
+  assert.equal(minHeight, DEFAULT_COMBAT_MAP_DIMENSIONS.height);
 });
 
 test('normalizeMapDimensions defaults only fully legacy records', () => {

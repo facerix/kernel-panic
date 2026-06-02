@@ -26,14 +26,14 @@ export const MAX_COMBAT_MAP_DIMENSIONS: MapDimensions = Object.freeze({
 export const MAP_DIMENSION_BANDS: Record<ContractDifficulty, readonly MapDimensions[]> =
   Object.freeze({
     [CONTRACT_DIFFICULTY.STANDARD]: Object.freeze([
-      Object.freeze({ width: 22, height: 14 }),
       DEFAULT_COMBAT_MAP_DIMENSIONS,
       Object.freeze({ width: 26, height: 16 }),
+      Object.freeze({ width: 28, height: 16 }),
     ]),
     [CONTRACT_DIFFICULTY.ELEVATED]: Object.freeze([
-      DEFAULT_COMBAT_MAP_DIMENSIONS,
       Object.freeze({ width: 26, height: 18 }),
       Object.freeze({ width: 28, height: 18 }),
+      Object.freeze({ width: 30, height: 18 }),
     ]),
     [CONTRACT_DIFFICULTY.CRITICAL]: Object.freeze([
       Object.freeze({ width: 28, height: 18 }),

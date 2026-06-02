@@ -8,11 +8,26 @@ import { World } from '../../../../src/game/World.js';
 import { Door } from '../../../../src/game/entities/Door.js';
 import { Terminal } from '../../../../src/game/entities/Terminal.js';
 import { findPath } from '../../../../src/game/Pathfinding.js';
-import { buildMap, placeDoors } from '../../../../src/game/procgen/mapBuild.js';
+import {
+  buildMap,
+  mapIsFullyConnectedFromSpawn,
+  placeDoors,
+} from '../../../../src/game/procgen/mapBuild.js';
+import { MAP_DIMENSION_BANDS } from '../../../../src/game/procgen/mapDimensions.js';
 import { PREFABS } from '../../../../src/game/procgen/prefabs/index.js';
 
 const W = 24;
 const H = 16;
+
+const THREAT_BY_DIFFICULTY = {
+  [CONTRACT_DIFFICULTY.STANDARD]: 2,
+  [CONTRACT_DIFFICULTY.ELEVATED]: 3,
+  [CONTRACT_DIFFICULTY.CRITICAL]: 4,
+} as const;
+
+function assertMapConnected(map: ReturnType<typeof buildMap>, context: string): void {
+  assert.ok(mapIsFullyConnectedFromSpawn(map), `${context}: spawn cannot reach all passable tiles`);
+}
 
 function simpleCorridorWorld() {
   const grid = new Grid(7, 3, TILE.WALL);
@@ -266,23 +281,9 @@ test('player spawn and exit are different tiles; spawn FLOOR, exit EXIT', () => 
 });
 
 test('every FLOOR cell is reachable from the player spawn', () => {
-  // Try a handful of seeds — connectivity has to hold for all of them.
   for (const seed of [1, 42, 0xabcd1234, 0xdeadbeef, 0x55555555]) {
     const map = buildMap({ rng: new Rng(seed), width: W, height: H, threatCount: 2 });
-    const world = new World(map.grid);
-    const spawn = map.spawns.player;
-    for (let y = 0; y < H; y++) {
-      for (let x = 0; x < W; x++) {
-        const t = map.grid.tileAt(x, y);
-        if (t !== TILE.FLOOR && t !== TILE.EXIT) continue;
-        if (x === spawn.x && y === spawn.y) continue;
-        const path = findPath(world, spawn, { x, y });
-        assert.ok(
-          path !== null && path.length > 0,
-          `seed ${seed.toString(16)}: floor (${x},${y}) unreachable from spawn (${spawn.x},${spawn.y})`
-        );
-      }
-    }
+    assertMapConnected(map, `seed ${seed.toString(16)} at ${W}x${H}`);
   }
 });
 
@@ -291,6 +292,65 @@ test('exit is reachable from spawn', () => {
   const world = new World(map.grid);
   const path = findPath(world, map.spawns.player, map.exitTile);
   assert.ok(path && path.length > 0, 'exit unreachable from spawn');
+});
+
+test('STANDARD dimension band excludes the legacy 22x14 footprint', () => {
+  assert.ok(
+    !MAP_DIMENSION_BANDS[CONTRACT_DIFFICULTY.STANDARD].some(
+      dimensions => dimensions.width === 22 && dimensions.height === 14
+    )
+  );
+});
+
+test('regression: formerly disconnected seed connects via prefab-corridor carve', () => {
+  const map = buildMap({
+    rng: new Rng(1090470777),
+    width: 22,
+    height: 14,
+    threatCount: 2,
+    difficulty: CONTRACT_DIFFICULTY.STANDARD,
+  });
+  assertMapConnected(map, 'seed 1090470777 at legacy 22x14');
+  assert.notDeepEqual(map.spawns.player, map.exitTile);
+  const path = findPath(new World(map.grid), map.spawns.player, map.exitTile);
+  assert.ok(path && path.length > 0);
+});
+
+test('every allowlisted footprint stays connected across a seed sweep', () => {
+  const seedsPerSize = 40;
+  for (const difficulty of Object.values(CONTRACT_DIFFICULTY)) {
+    for (const dimensions of MAP_DIMENSION_BANDS[difficulty]) {
+      for (let i = 0; i < seedsPerSize; i++) {
+        const seed = i * 7919 + dimensions.width * 17 + dimensions.height;
+        const map = buildMap({
+          rng: new Rng(seed),
+          width: dimensions.width,
+          height: dimensions.height,
+          threatCount: THREAT_BY_DIFFICULTY[difficulty],
+          difficulty,
+        });
+        assertMapConnected(
+          map,
+          `${difficulty} ${dimensions.width}x${dimensions.height} seed ${seed}`
+        );
+      }
+    }
+  }
+});
+
+test('door-linked maps stay connected across a seed sweep', () => {
+  for (let seed = 0; seed < 60; seed++) {
+    const map = buildMap({
+      rng: new Rng(seed),
+      width: W,
+      height: H,
+      threatCount: 3,
+      difficulty: CONTRACT_DIFFICULTY.ELEVATED,
+      includePrefabDoors: true,
+    });
+    assert.ok(map.doors.length > 0, `seed ${seed}: expected prefab door anchors`);
+    assertMapConnected(map, `door-linked seed ${seed}`);
+  }
 });
 
 test('fodder count matches the requested threat budget', () => {
