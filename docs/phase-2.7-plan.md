@@ -70,7 +70,7 @@ Durable and/or multi-verb. Mini-boss feel. **Per-tier stat scaling** (HP, AP, ar
 
 | Archetype | Class | Verbs | Defensive identity | Status |
 |-----------|-------|-------|--------------------|--------|
-| **Bruiser** | `Bruiser` | close + melee, **Merc-mirror knockback-on-hit** | light `damageReduction`; fast (T3 Guard) | new (M4.1) |
+| **Bruiser** | `Bruiser` | close + melee, **Merc-mirror knockback-on-hit** | light `damageReduction`; fast (T3 Guard) | exists (M4.1) ✅ |
 | **Juggernaut** | `Juggernaut` | **Tech-mirror suppress** + slow advance | high HP + armor, low AP; T3 Skirmisher band | new (M4.2) |
 | **Flanker** | `Flanker` | stalk from cover → **SLIDE** → melee ambush | cover-occluded from player + post-slide vanish | new (M4.3) |
 
@@ -135,7 +135,7 @@ All rolls derive from the contract seed (deterministic, save-compatible).
 | M1 — Tier doctrine foundations | 🟡 In progress |
 | M1.1 — `EnemyTier` model + per-tier stat scaling hook | ✅ Complete |
 | M1.2 — `damageReduction` (armor) stat on `Entity` | ✅ Complete |
-| M1.3 — Encounter composition by tier (roles, not just counts) | 🟡 In progress — resolver landed; **fodder slice wired** (M2 spawns skirmisher/guard mix); **specialist slice wired** (M3.1/M3.2 spawns Spotter/Sniper on ELEVATED/CRITICAL via the `available` allowlist + mapgen specialist anchors); **elite anchor budget wired** (CRITICAL reserves one mapgen elite anchor); elite classes/spawn cases still pending (M4) |
+| M1.3 — Encounter composition by tier (roles, not just counts) | 🟡 In progress — resolver landed; **fodder slice wired** (M2); **specialist slice wired** (M3.1/M3.2 + mapgen specialist anchors); **elite slice wired for Bruiser** (M4.1: CRITICAL `available.elites` + elite anchor spawn); Juggernaut/Flanker spawn cases pending (M4.2–M4.3) |
 | M1.4 — CorpCivilian cover-occluded LOS | ✅ Complete |
 | M1.5 — Variable combat map dimensions (tier + seed) | ✅ Complete |
 | M2 — Tier 1 fodder roster | ✅ Complete |
@@ -146,9 +146,9 @@ All rolls derive from the contract seed (deterministic, save-compatible).
 | M3.1 — Spotter (mobile per-turn target share; not CorpCivilian) | ✅ Complete |
 | M3.2 — Sniper (telegraphed long-range burst) | ✅ Complete |
 | M3.3 — Medic (proactive shield + heal; patient-gated spawn) | 🔲 Not started |
-| M4 — Tier 3 elites | 🔲 Not started |
+| M4 — Tier 3 elites | 🟡 In progress |
 | M4.0 — Elite anchor budget + hostile sweep foundation | ✅ Complete |
-| M4.1 — Bruiser (armor + knockback-on-hit) | 🔲 Not started |
+| M4.1 — Bruiser (armor + knockback-on-hit) | ✅ Complete |
 | M4.2 — Juggernaut (armor soak + suppression) | 🔲 Not started |
 | M4.3 — Flanker (cover concealment + Razor-mirror SLIDE) | 🔲 Not started |
 | M5 — Netrunner / disruption (status-effect groundwork) | 🔲 Deferred-candidate (feeds Phase 3) |
@@ -225,10 +225,10 @@ All rolls derive from the contract seed (deterministic, save-compatible).
 
 **Proposed size bands (starting point — tune in playtest):**
 
-| Difficulty | Allowlist examples (outer w×h) |
+| Difficulty | Allowlist (outer w×h) — **as shipped** |
 |------------|--------------------------------|
-| `STANDARD` | 22×14, 24×16 (current baseline), 26×16 |
-| `ELEVATED` | 24×16, 26×18, 28×18 |
+| `STANDARD` | 24×16 (baseline), 26×16, 28×16 |
+| `ELEVATED` | 26×18, 28×18, 30×18 |
 | `CRITICAL` | 28×18, 30×20, 32×20 |
 
 **Implementation sketch:**
@@ -241,6 +241,8 @@ All rolls derive from the contract seed (deterministic, save-compatible).
 - **TDD:** same `(seed, difficulty)` → same dimensions; different seeds at same tier can differ; `buildMap` + `composeEncounter` both deterministic; restore/revisit uses stored dimensions; allowlist rejects playable area below `MIN_LEAF`.
 
 **Implementation note:** `src/game/procgen/mapDimensions.ts` owns the per-difficulty allowlists and pure `resolveMapDimensions({ seed, difficulty })` resolver using the dedicated `'map-size'` RNG fork. Curator-generated contracts now store `mapWidth`/`mapHeight`; revisits copy dimensions from the pinned `LocationSite`; `Run.enterCombat` builds from the stored contract fields. Legacy contracts and roster sites with both fields missing normalize to 24×16, while partial dimension records throw. The new runtime module is precached and the service-worker cache version is bumped for offline clients.
+
+**Mapgen connectivity (post-M1.5):** Random prefab offset inside a BSP leaf can leave a WALL band between the carved corridor spine (step 5) and passable prefab tiles after paint (step 6). `buildMap` now records per-leaf corridor FLOOR tiles before prefab write, then **`connectPrefabToLeafCorridors`** (step 6b) punches a 1-tile L-connector (WALL only) to the nearest corridor anchor when the room is not already reachable. **`mapIsFullyConnectedFromSpawn`** asserts spawn → exit and spawn → every FLOOR/EXIT tile; `buildMapOnce` throws if connectors fail. Allowlists were tightened after playtest: **22×14 dropped from STANDARD** (minimum footprint is the 24×16 baseline); ELEVATED no longer rolls 24×16; **28×16** added to STANDARD and **30×18** to ELEVATED. Regression tests sweep every allowlisted size × difficulty threat budget plus door-linked maps.
 
 **Schedule:** Land **before M3** specialist placement (anchor budget) and ideally alongside the remainder of **M1.3** (composition + non-fodder anchors). Low risk if allowlists stay conservative — does not block M2 fodder work.
 
@@ -307,7 +309,7 @@ Playtest pass on T1 fodder pacing:
 - Land full plumbing: types, persistence, snapshot/restore, loot, `corpTurnStatusCopy`, `kindFromId`.
 - **TDD:** spotter with LOS emits `ALARM` `{ kind: 'spotter' }` every turn without calling `raiseAlarm`; allies re-engage on fresh target coords on both kinds; spotter without LOS moves toward max-distance vantage; killing spotter stops pings; spotter ignores incoming `ALARM`; civilian `raiseAlarm` emits `kind: 'facility'` and behaviour unchanged (regression guard); stealthed player beyond Chebyshev 1 not spotted.
 
-**Implementation note:** `ALARM_KIND` (`events.ts`) discriminates `facility` vs `spotter`; `World.raiseAlarm()` now stamps `kind: 'facility'` (back-compat default). `PatrolHostile` gained two overridable hooks: `listensForAlarm()` (default `true`; `Spotter` returns `false` so it never consumes pings) and `investigateStep()` (default `stepToward`; `Spotter` overrides to seek a distance-maximising LOS vantage, falling back to closing in). `src/game/ai/Spotter.ts` (glyph `s`, `SPOTTER_SIGHT_RANGE = 10`, `ENEMY_ROLE.SPECIALIST` stats) emits the `spotter`-kind ping + a `spot` turn-step (`types.ts`) each engage turn, then evasively repositions. **Spawn wiring (specialist slice of M1.3):** `composeEncounter` gained an `available: { specialists, elites }` allowlist (defaults to the full roster) so it only composes *buildable* archetypes — never a reskin or silent drop; `Run.enterCombat` passes `{ specialists: [SPOTTER], elites: [] }`. `buildMap` budgets one **specialist anchor** for ELEVATED/CRITICAL (fails loud if the footprint can't fit it). Full plumbing: `spotter` archetype/snapshot block + `PatrolHostile` restore (`persistence.ts`/`Run.ts`), `kindFromId → Spotter`, `formatCorpTurnStep`/visibility for `spot` (a mark on the player surfaces even when the spotter tile is unseen), precache + SW cache bump (`0.2.7b`). **M4.0 note:** `hostile-all` sweep now counts Spotter/Sniper and future elites; legacy `drone-all` aliases to the same quota.
+**Implementation note:** `ALARM_KIND` (`events.ts`) discriminates `facility` vs `spotter`; `World.raiseAlarm()` now stamps `kind: 'facility'` (back-compat default). `PatrolHostile` gained two overridable hooks: `listensForAlarm()` (default `true`; `Spotter` returns `false` so it never consumes pings) and `investigateStep()` (default `stepToward`; `Spotter` overrides to seek a distance-maximising LOS vantage, falling back to closing in). `src/game/ai/Spotter.ts` (glyph `s`, `SPOTTER_SIGHT_RANGE = 10`, `ENEMY_ROLE.SPECIALIST` stats) emits the `spotter`-kind ping + a `spot` turn-step (`types.ts`) each engage turn, then evasively repositions. **Spawn wiring (specialist slice of M1.3):** `composeEncounter` gained an `available: { specialists, elites }` allowlist (defaults to the full roster) so it only composes *buildable* archetypes — never a reskin or silent drop. Allowlist grew with each shipped class (see `Run.enterCombat` for the live list). `buildMap` budgets one **specialist anchor** for ELEVATED/CRITICAL (fails loud if the footprint can't fit it). Full plumbing: `spotter` archetype/snapshot block + `PatrolHostile` restore (`persistence.ts`/`Run.ts`), `kindFromId → Spotter`, `formatCorpTurnStep`/visibility for `spot` (a mark on the player surfaces even when the spotter tile is unseen), precache + SW cache bump (`0.2.7b`). **M4.0 note:** `hostile-all` sweep now counts Spotter/Sniper and future elites; legacy `drone-all` aliases to the same quota.
 
 #### M3.2 — Sniper
 
@@ -340,7 +342,7 @@ Playtest pass on T1 fodder pacing:
 - Land full plumbing: types (`aim` / `aim-cancelled` turn-steps), persistence, snapshot/restore, loot, `corpTurnStatusCopy`, `kindFromId`, renderer crosshair + concealment omit.
 - **TDD:** corp N in range → `aim` step + `aimTargetId` set; corp N+1 intact LOS → guaranteed 3 damage; corp N+1 after player broke LOS → `aim-cancelled`, no damage; SLIDE/stealth breaks pending aim; sniper damage during aim window clears `aimTargetId`; move+kite then aim same corp turn; kiting inside `preferredMin`; snapshot round-trips `aimTargetId`; no aim NOISE; fire emits ranged NOISE as today; **concealed at aim + Chebyshev ≥ 6** (no glyph, not crew-targetable, anonymous aim log); **revealed at Chebyshev ≤ 5**; visible before aim; **turret cannot acquire sniper at typical aim distance** (range 4 vs conceal ≥ 6); **turret engages sniper inside turret range regardless of player conceal**; sniper pathing avoids turret threat zone when seeking aim vantage.
 
-**Implementation note:** `src/game/ai/Sniper.ts` (glyph `n`, cross-turn `aimTargetId` preamble, guaranteed fire via `resolveRanged` override, damage-breaks-aim via `ENTITY_DAMAGED`). `playerPerception.isConcealedFromPlayer` gates renderer omit + crew target resolution at Chebyshev ≥ `SNIPER_CONCEAL_MIN_RANGE` (6) while holding aim; `buildFrame` paints a red `+` crosshair on the marked target tile. Spawn allowlist now `[SPOTTER, SNIPER]`; precache + SW `0.2.7c`. Turret pathing / threat-zone avoidance deferred (turrets already cannot reach typical aim distance). KeyHelp legend adds `n`/`s`.
+**Implementation note:** `src/game/ai/Sniper.ts` (glyph `n`, cross-turn `aimTargetId` preamble, guaranteed fire via `resolveRanged` override, damage-breaks-aim via `ENTITY_DAMAGED`). `playerPerception.isConcealedFromPlayer` gates renderer omit + crew target resolution at Chebyshev ≥ `SNIPER_CONCEAL_MIN_RANGE` (6) while holding aim; `buildFrame` paints a red `+` crosshair on the marked target tile. Specialist allowlist `[SPOTTER, SNIPER]` (elite list empty until M4.1); precache + SW `0.2.7c`. Turret pathing / threat-zone avoidance deferred (turrets already cannot reach typical aim distance). KeyHelp legend adds `n`/`s`.
 
 #### M3.3 — Medic
 
@@ -378,7 +380,7 @@ Playtest pass on T1 fodder pacing:
 - **Loot:** killed elites yield **bio salvage** rather than scrap/chips, reflecting their augmentations.
 - **TDD:** connected melee deals 3 damage; knockback 1 tile away when lane clear; blocked lane → damage only; dodge/miss → no knockback; survives two 1-damage plinks that kill a T1 guard; 5 AP closes multiple tiles per corp turn; no ranged steps; guard/bruiser engage shape matches except knockback; hazard knockback (kaizen) deferred — default **allow** shove into hazard tiles.
 
-**Implementation note:** `Bruiser` (glyph `e`, `ENEMY_ROLE.ELITE`) extends `PatrolHostile`; ENGAGE mirrors Guard's close-and-melee loop, with `HEAVY_MELEE_DAMAGE` and post-hit shove through shared `knockbackByOffset` (`COVER` destinations allowed, blocked lanes preserve damage and omit movement). CRITICAL maps now reserve and spawn one elite anchor from the buildable elite allowlist (`bruiser` only in M4.1). Plumbing landed in turn-step copy (`melee.knockback`), snapshot/restore (`bruiser?` block), persistence factory, `kindFromId`, SW precache, and loot: killed Bruisers drop bio salvage.
+**Implementation note:** `src/game/ai/Bruiser.ts` (glyph `e`, `ENEMY_ROLE.ELITE`) extends `PatrolHostile`; ENGAGE mirrors Guard's close-and-melee loop, with `HEAVY_MELEE_DAMAGE` and post-hit shove through shared `src/game/knockback.ts` (`canKnockbackTo` / `knockbackByOffset`; COVER destinations allowed, blocked lanes preserve damage and omit movement). Merc Vault lane checks now call the shared helper. `Run.enterCombat` passes `available: { elites: [BRUISER] }` on CRITICAL and spawns composed elites at `map.elites` anchors. Plumbing: `melee.knockback` on turn-steps, `bruiser?` snapshot block, persistence factory, `kindFromId`, `corpTurnStatusCopy`, precache + SW **`0.2.7d`**. Loot: killed Bruisers drop bio salvage (`Run.#rollLoot` elite branch). **Deferred from design doc:** turret threat-zone pathing (unchanged sniper deferral).
 
 #### M4.2 — Juggernaut
 
@@ -472,7 +474,8 @@ So a flanker that SLIDEs on corp turn N vanishes for the player's entire turn N+
 - **`SNIPER_CONCEAL_MIN_RANGE` tuning:** locked at 6; playtest ceiling 5–7 if reveal band feels too narrow/wide.
 - **Flanker SLIDE noise tell:** M4.3 optional footstep NOISE without glyph — lean silent for v0.2.7, add tell if playtests feel unfair.
 - **Composition determinism:** all tier/role rolls derive from contract seed (Phase 2.5 standard).
-- **Map size allowlists (M1.5):** starting bands above are proposals — playtest whether STANDARD should ever dip below 24×16, whether CRITICAL needs 32×20, and whether aspect ratio should stay ~3:2 or allow taller “tower” maps for sniper verticality.
+- **Map size allowlists (M1.5):** 22×14 removed from STANDARD after disconnected-room regressions; minimum band footprint is 24×16. Playtest whether CRITICAL needs 32×20 and whether aspect ratio should stay ~3:2 or allow taller “tower” maps for sniper verticality.
+- **Prefab–corridor connectors (M1.5):** step 6b is deterministic given seed/layout; if a future prefab shape still fails `mapIsFullyConnectedFromSpawn`, `buildMap` fails loud — shrink allowlist or adjust prefab anchors rather than silent tier-2 fallback.
 - **Map size vs. objective timer:** longer maps may need objective-timer review (Phase 2.5) so retrieve/sweep gigs don’t feel padded on large footprints — defer tuning until sizes land.
 - **UI copy:** contract briefing uses "N hostiles" (not "N drones"); role-specific aliases land in Phase 2.8.
 - **Spotter + civilian coexistence:** office prefabs may spawn ambient civilians on ELEVATED/CRITICAL maps that also roll a spotter specialist — confirm briefing/log copy distinguishes `[Corp]Civilian` from the spotter alias once Phase 2.8 theming lands.
