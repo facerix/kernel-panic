@@ -1,22 +1,27 @@
 /**
- * <key-help> — help overlay: how to play, then scope-filtered shortcuts.
+ * <key-help> — help overlay with tabbed How To Play / Map Key / Shortcuts.
  *
- * Reads `describeKeymap(scope)` from `/src/input/keyHelp.js` so the rendered
- * list is the same source of truth a unit test ties to the keymap itself —
- * if a future milestone adds a binding to `keymap.js` without an entry in
- * `HELP_ROWS`, the drift test fails before this panel can lie to the player.
+ * Reads `describeKeymap(scope)` from `/src/input/keyHelp.js` and map rows from
+ * `/src/input/mapKeyRows.js`. Shortcuts tab is omitted on coarse-pointer devices.
  *
  * Usage:
  *   const help = document.querySelector('key-help');
  *   help.setScope('hub');     // or 'combat'
- *   help.show();              // help.hide() / help.toggle() also exist
+ *   help.show();
  *
- * The host shell owns `?` and Esc routing (so the same `?` can also dismiss
- * other panels) — see /index.js.
+ * The host shell owns `?` and Esc routing — see /index.js.
  */
 
-import { h, hFrag } from '/src/domUtils.js';
+import { h } from '/src/domUtils.js';
 import { describeKeymap } from '/src/input/keyHelp.js';
+import {
+  MAP_KEY_UNIVERSAL,
+  MAP_KEY_HUB,
+  MAP_KEY_COMBAT_TERRAIN,
+  MAP_KEY_COMBAT_HOSTILES,
+  MAP_KEY_COMBAT_ALLIES,
+  type MapKeyRow,
+} from '/src/input/mapKeyRows.js';
 import { ARCHETYPES } from '/src/game/archetypes/index.js';
 import type { ArchetypeInfo } from '/src/game/archetypes/index.js';
 
@@ -34,6 +39,8 @@ const GROUPS = Object.freeze([
   { id: 'action', title: 'ACTIONS' },
   { id: 'system', title: 'SYSTEM' },
 ]);
+
+type HelpTabId = 'play' | 'map' | 'keys';
 
 /** True when the primary pointer is coarse (touch / most on-screen pads). */
 function isCoarsePointer() {
@@ -75,31 +82,66 @@ const CSS = `
   box-shadow: var(--help-shadow);
   min-width: min(380px, 92vw);
   max-width: min(640px, 96vw);
+  max-height: min(88vh, 720px);
+  display: flex;
+  flex-direction: column;
 }
 
 .title {
-  margin: 0 0 0.65rem;
+  margin: 0 0 0.5rem;
   text-align: center;
   font-size: 0.95rem;
   letter-spacing: 0.18em;
   color: var(--help-accent);
   border-bottom: 1px dashed var(--help-border);
   padding-bottom: 0.4rem;
+  flex-shrink: 0;
 }
 
-.intro,
-.tile-hints {
-  margin: 0 0 0.85rem;
-  padding: 0 0 0.75rem;
+.tab-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0 0 0.65rem;
+  padding-bottom: 0.5rem;
   border-bottom: 1px dashed rgba(0, 217, 165, 0.25);
+  flex-shrink: 0;
 }
 
-.intro-heading {
-  margin: 0 0 0.45rem;
-  font-size: 0.78rem;
-  letter-spacing: 0.16em;
+.tab-btn {
+  font: inherit;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid rgba(0, 217, 165, 0.35);
+  border-radius: 4px;
+  background: transparent;
   color: var(--help-dim);
-  font-weight: 600;
+  cursor: pointer;
+}
+
+.tab-btn[aria-selected="true"] {
+  color: var(--help-accent);
+  border-color: var(--help-accent);
+  background: rgba(0, 217, 165, 0.08);
+}
+
+.tab-body {
+  display: grid;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.tab-pane {
+  grid-area: 1 / 1;
+  min-width: 0;
+  width: 100%;
+}
+
+.tab-pane:not(.is-active) {
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .intro p {
@@ -119,7 +161,7 @@ const CSS = `
   column-gap: 1rem;
   align-items: start;
   margin: 0.5rem 0 0;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
 }
 
 .controls-note {
@@ -144,13 +186,8 @@ const CSS = `
 }
 
 @media (pointer: coarse) {
-  .section-label {
-    font-size: 0.72rem;
-    opacity: 0.95;
-  }
   section.group h3 {
     font-size: 0.65rem !important;
-    opacity: 0.95;
   }
   dl.rows {
     font-size: 0.82rem;
@@ -181,7 +218,7 @@ dl.rows {
 dl.rows dt {
   color: var(--help-accent);
   white-space: nowrap;
-  text-align: center;
+  text-align: left;
 }
 
 dl.rows dd {
@@ -195,6 +232,7 @@ dl.rows dd {
   color: var(--help-dim);
   letter-spacing: 0.1em;
   margin-top: 0.8rem;
+  flex-shrink: 0;
 }
 `;
 
@@ -206,30 +244,52 @@ function joinKeys(keys: string[]) {
   return keys.map(labelForKey).join(' ');
 }
 
+function rowsFromMapKey(entries: readonly MapKeyRow[]) {
+  const dl = h('dl', { className: 'rows' });
+  for (const row of entries) {
+    dl.appendChild(h('dt', { textContent: row.glyph }));
+    dl.appendChild(h('dd', { textContent: row.label }));
+  }
+  return dl;
+}
+
+/** Keys routed to tab switching while the overlay is open (see index.ts). */
+const TAB_NAV_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'Tab', 'a', 'd']);
+
 class KeyHelp extends HTMLElement {
   #scope = 'combat';
   #archetypeInfo: ArchetypeInfo | null = null;
+  #activeTab: HelpTabId = 'play';
   #ready = false;
+  #tabBarEl: HTMLDivElement | null = null;
   #body: HTMLDivElement | null = null;
   #panelEl: HTMLDivElement | null = null;
   #onBackdrop: EventListener | null = null;
+  #onKeyDown: ((this: HTMLElement, ev: KeyboardEvent) => void) | null = null;
 
   connectedCallback() {
     if (this.#ready) return;
+    this.tabIndex = -1;
     const shadow = this.attachShadow({ mode: 'open' });
     const style = h('style');
     style.textContent = CSS;
     shadow.appendChild(style);
 
-    this.#body = h('div') as HTMLDivElement;
+    this.#tabBarEl = h('div', { className: 'tab-bar', role: 'tablist' }) as HTMLDivElement;
+    this.#body = h('div', { className: 'tab-body' }) as HTMLDivElement;
     this.#panelEl = h('section', { className: 'panel' }, [
       h('h2', { className: 'title', textContent: '── HELP ──' }) as HTMLHeadingElement,
+      this.#tabBarEl,
       this.#body,
-      h('p', { className: 'hint', textContent: '[ ? or Esc to close ]' }) as HTMLParagraphElement,
+      h('p', {
+        className: 'hint',
+        textContent: '[ ←/→ tab  ·  ? or Esc to close ]',
+      }) as HTMLParagraphElement,
     ]) as HTMLDivElement;
     shadow.appendChild(this.#panelEl);
 
-    // Backdrop click closes on outside click.
+    this.#onKeyDown = this.#handleKey.bind(this);
+    this.addEventListener('keydown', this.#onKeyDown);
     this.#onBackdrop = evt => {
       if (!evt.composedPath().includes(this.#panelEl as EventTarget)) this.#emit('dismiss');
     };
@@ -239,11 +299,6 @@ class KeyHelp extends HTMLElement {
     this.#render();
   }
 
-  /**
-   * Filter the rows shown. Re-renders immediately if connected; throws on an
-   * unknown scope to match the crash-over-silent-fallback rule (a typo
-   * elsewhere would otherwise render an empty help panel).
-   */
   setScope(scope: string, archetypeId?: string) {
     this.#scope = scope;
     this.#archetypeInfo =
@@ -255,6 +310,7 @@ class KeyHelp extends HTMLElement {
 
   show() {
     this.setAttribute('open', '');
+    queueMicrotask(() => this.focus());
   }
 
   hide() {
@@ -272,28 +328,105 @@ class KeyHelp extends HTMLElement {
   }
 
   disconnectedCallback() {
+    if (this.#onKeyDown) this.removeEventListener('keydown', this.#onKeyDown);
     if (this.#onBackdrop) this.removeEventListener('click', this.#onBackdrop);
   }
 
-  // ---- internal ---------------------------------------------------------
+  /** Used by index.ts to allow tab keys through the global swallow layer. */
+  static isTabNavKey(key: string) {
+    return TAB_NAV_KEYS.has(key);
+  }
 
-  #render() {
-    if (!this.#body) return;
-    while (this.#body.firstChild) this.#body.removeChild(this.#body.firstChild);
-    const touchDevice = isCoarsePointer();
+  #visibleTabs(): HelpTabId[] {
+    const tabs: HelpTabId[] = ['play', 'map'];
+    if (!isCoarsePointer()) tabs.push('keys');
+    return tabs;
+  }
 
-    this.#body.appendChild(this.#buildIntro(touchDevice));
-    this.#body.appendChild(this.#buildTileHints());
+  #switchTab(tab: HelpTabId) {
+    if (tab === this.#activeTab) return;
+    this.#activeTab = tab;
+    this.#render();
+    queueMicrotask(() => this.focus());
+  }
 
-    if (!touchDevice) {
-      this.#body.appendChild(this.#buildKeybinds());
+  #switchTabRelative(delta: number) {
+    const tabs = this.#visibleTabs();
+    const idx = tabs.indexOf(this.#activeTab);
+    if (idx < 0) return;
+    const next = tabs[(idx + delta + tabs.length) % tabs.length];
+    this.#switchTab(next);
+  }
+
+  #handleKey(evt: KeyboardEvent) {
+    if (!this.isOpen) return;
+    evt.stopPropagation();
+
+    if (evt.key === 'ArrowLeft' || evt.key === 'a') {
+      evt.preventDefault();
+      this.#switchTabRelative(-1);
+      return;
+    }
+    if (evt.key === 'ArrowRight' || evt.key === 'd') {
+      evt.preventDefault();
+      this.#switchTabRelative(1);
+      return;
+    }
+    if (evt.key === 'Tab') {
+      evt.preventDefault();
+      this.#switchTabRelative(1);
     }
   }
 
-  /**
-   * Short gameplay primer + pointer-specific control hint. Copy is hand-tuned
-   * to match Hub vs Combat scope from `helpScopeForRunState()` in index.js.
-   */
+  #render() {
+    if (!this.#body || !this.#tabBarEl) return;
+    const touchDevice = isCoarsePointer();
+    if (touchDevice && this.#activeTab === 'keys') {
+      this.#activeTab = 'play';
+    }
+
+    while (this.#tabBarEl.firstChild) this.#tabBarEl.removeChild(this.#tabBarEl.firstChild);
+    const tabs: { id: HelpTabId; label: string }[] = [
+      { id: 'play', label: 'How To Play' },
+      { id: 'map', label: 'Map Key' },
+    ];
+    if (!touchDevice) tabs.push({ id: 'keys', label: 'Shortcuts' });
+
+    for (const tab of tabs) {
+      const btn = h('button', {
+        type: 'button',
+        className: 'tab-btn',
+        role: 'tab',
+        textContent: tab.label,
+      }) as HTMLButtonElement;
+      btn.setAttribute('aria-selected', this.#activeTab === tab.id ? 'true' : 'false');
+      btn.setAttribute('aria-controls', `key-help-pane-${tab.id}`);
+      btn.addEventListener('click', () => this.#switchTab(tab.id));
+      this.#tabBarEl.appendChild(btn);
+    }
+
+    while (this.#body.firstChild) this.#body.removeChild(this.#body.firstChild);
+    const panes: { id: HelpTabId; el: HTMLElement }[] = [
+      { id: 'play', el: this.#buildIntro(touchDevice) },
+      { id: 'map', el: this.#buildMapKey() },
+    ];
+    if (!touchDevice) {
+      panes.push({ id: 'keys', el: this.#buildKeybinds() });
+    }
+    for (const { id, el } of panes) {
+      const active = id === this.#activeTab;
+      const pane = h('div', {
+        className: active ? 'tab-pane is-active' : 'tab-pane',
+        id: `key-help-pane-${id}`,
+        role: 'tabpanel',
+      }) as HTMLDivElement;
+      pane.setAttribute('aria-hidden', active ? 'false' : 'true');
+      pane.appendChild(el);
+      this.#body.appendChild(pane);
+    }
+    this.#body.scrollTop = 0;
+  }
+
   #buildIntro(touchDevice = false) {
     const scope = this.#scope;
 
@@ -311,119 +444,63 @@ class KeyHelp extends HTMLElement {
       ? `Your archetype special (${this.#archetypeInfo.perkName}) is a strong ability`
       : 'Your archetype special (Vault, Slide, or Deploy) is a strong reposition';
     const combatExtra = h('p', {
-      textContent: `Opposing drones and defenses act after you wait (.) and pass the round. Walls and corners break line of sight for ranged shots; melee is usually cheaper AP than firing. ${perkHint} — pick it, aim a direction when prompted, then confirm.`,
+      textContent: `Opposing hostiles act after you wait (.) and pass the round. Walls and corners break line of sight for ranged shots; melee is usually cheaper AP than firing. ${perkHint} — pick it, aim a direction when prompted, then confirm.`,
     });
 
     const moveHint = h('p', {
       textContent: 'Moving into a hostile attacks; into anything else, you interact.',
     });
 
+    const turretHint =
+      scope === 'combat' && this.#archetypeInfo?.id === 'tech'
+        ? h('p', {
+            textContent:
+              'Your deployed turret (T) inherits your max HP and fires twice each time you wait — before hostiles move.',
+          })
+        : null;
+
     const controlHint = touchDevice
       ? null
       : h('p', {
           className: 'controls-note',
-          textContent: 'Use the shortcut table below as a live reference while you play.',
+          textContent: 'Open the Shortcuts tab for the live key reference.',
         });
 
     const children = [
-      h('h3', { className: 'intro-heading', textContent: 'HOW TO PLAY' }),
       shared,
       scope === 'hub' ? hubExtra : combatExtra,
       moveHint,
+      turretHint,
       controlHint,
-    ].filter(Boolean) as HTMLElement[]; // the filter strips out nulls, but TS can't infer the type
+    ].filter(Boolean) as HTMLElement[];
 
     return h('div', { className: 'intro' }, children);
   }
 
-  /**
-   * Build the tile hints section. Always shown, but content varies depending on location.
-   */
-  #buildTileHints() {
+  #buildMapKey() {
     const scope = this.#scope;
-    const inCombat = scope === 'combat';
+    const sections: HTMLElement[] = [rowsFromMapKey(MAP_KEY_UNIVERSAL)];
 
-    const universalTiles = h('dl', { className: 'rows' }, [
-      h('dt', { textContent: '#' }),
-      h('dd', { textContent: 'wall' }),
-      h('dt', { textContent: '=' }),
-      h('dd', { textContent: 'cover' }),
-      h('dt', { textContent: '¤' }),
-      h('dd', { textContent: 'exit' }),
-      hFrag(
-        inCombat
-          ? [
-              h('dt', { textContent: '░' }),
-              h('dd', { textContent: 'smoke' }),
-              h('dt', { textContent: '▓' }),
-              h('dd', { textContent: 'hazard' }),
-              h('dt', { textContent: '%' }),
-              h('dd', { textContent: 'rubble / scrap' }),
-            ]
-          : []
-      ),
-    ]);
-
-    const hubTiles = h('dl', { className: 'rows' }, [
-      h('dt', { textContent: 'C' }),
-      h('dd', { textContent: 'Curator' }),
-      h('dt', { textContent: '¥' }),
-      h('dd', { textContent: "Finn's shop" }),
-      h('dt', { textContent: '⧰' }),
-      h('dd', { textContent: 'Clinic (Patch)' }),
-      h('dt', { textContent: '‡' }),
-      h('dd', { textContent: 'Crew terminal' }),
-    ]);
-    const combatTiles = hFrag([
-      h('dl', { className: 'rows' }, [
-        h('dt', { textContent: 'd' }),
-        h('dd', { textContent: 'corp drone' }),
-        h('dt', { textContent: 'c' }),
-        h('dd', { textContent: 'corp civilian' }),
-        h('dt', { textContent: '$' }),
-        h('dd', { textContent: 'corp turret' }),
-        h('dt', { textContent: '◆' }),
-        h('dd', { textContent: 'corp asset' }),
-        h('dt', { textContent: '~' }),
-        h('dd', { textContent: 'relay node' }),
-        h('dt', { textContent: '▪ ▫' }),
-        h('dd', { textContent: 'locked / open door' }),
-      ]),
-      h('dl', { className: 'rows' }, [
-        h('dt', { textContent: '‡' }),
-        h('dd', { textContent: 'terminal' }),
-        h('dt', { textContent: '§' }),
-        h('dd', { textContent: 'mirror unit' }),
-        h('dt', { textContent: '&' }),
-        h('dd', { textContent: 'handoff contact' }),
-        h('dt', { textContent: 'A' }),
-        h('dd', { textContent: 'escort ally' }),
-        h('dt', { textContent: '! *' }),
-        h('dd', { textContent: 'dead drops' }),
-        h('dt', { textContent: 'κ' }),
-        h('dd', { textContent: 'access keycard' }),
-        h('dt', { textContent: 'ø' }),
-        h('dd', { textContent: 'breaching charge' }),
-      ]),
-    ]);
-
-    const children = [
-      universalTiles,
-      scope === 'hub' ? hubTiles : null,
-      scope === 'combat' ? combatTiles : null,
-    ].filter(Boolean);
+    if (scope === 'hub') {
+      sections.push(rowsFromMapKey(MAP_KEY_HUB));
+    } else {
+      sections.push(
+        rowsFromMapKey(MAP_KEY_COMBAT_TERRAIN),
+        rowsFromMapKey(MAP_KEY_COMBAT_HOSTILES),
+        rowsFromMapKey(MAP_KEY_COMBAT_ALLIES)
+      );
+    }
 
     return h('section', { className: 'tile-hints' }, [
-      h('h3', { className: 'section-label', textContent: 'KEY TO MAP SYMBOLS' }),
-      h('div', { className: 'tile-hints-content' }, children as HTMLElement[]),
+      h('p', {
+        className: 'section-label',
+        textContent: scope === 'hub' ? 'HUB & UNIVERSAL' : 'COMBAT MAP',
+      }),
+      h('div', { className: 'tile-hints-content' }, sections),
     ]);
   }
 
-  /**
-   * Build the keybinds section. Only shown on non-touch devices.
-   */
   #buildKeybinds() {
-    // `describeKeymap` throws on a bad scope — propagate, don't paper over.
     const rows = describeKeymap(this.#scope);
     const sections = [];
     for (const group of GROUPS) {
@@ -442,10 +519,7 @@ class KeyHelp extends HTMLElement {
       );
     }
 
-    return h('div', { className: 'keybinds' }, [
-      h('h3', { className: 'section-label', textContent: 'SHORTCUTS' }),
-      ...sections,
-    ]);
+    return h('div', { className: 'keybinds' }, sections);
   }
 
   #emit(eventName: string, detail: unknown | null = null) {

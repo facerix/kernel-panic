@@ -51,10 +51,12 @@ test('runPlayerAftermathSteps yields one step per live turret', () => {
   dead.damage(dead.maxHp);
 
   const steps = [...runPlayerAftermathSteps(world, new Rng(1))];
-  assert.equal(steps.length, 1);
-  assert.equal(steps[0].type, 'turret-autofire');
+  assert.equal(steps.length, 2);
+  assert.ok(steps.every(s => s.type === 'turret-autofire'));
   assert.equal(steps[0].turret, live);
+  assert.equal(steps[1].turret, live);
   assert.equal(steps[0].action.reason, 'no-target');
+  assert.equal(steps[1].action.reason, 'no-target');
 });
 
 test('formatPlayerAftermathLogLines describes a turret hit', () => {
@@ -65,6 +67,7 @@ test('formatPlayerAftermathLogLines describes a turret hit', () => {
     x: 3,
     y: 2,
     maxAp: 3,
+    maxHp: 10,
     patrolWaypoints: [{ x: 3, y: 2 }],
   });
   world.addEntity(turret);
@@ -72,10 +75,11 @@ test('formatPlayerAftermathLogLines describes a turret hit', () => {
   drone.bindToBus(bus);
   const aftermath = runPlayerAftermath(world, new Rng(0));
   const lines = formatPlayerAftermathLogLines(aftermath);
-  assert.deepEqual(formatPlayerAftermathStepLogLines(aftermath.steps[0]), lines);
-  assert.equal(lines.length, 1);
+  assert.equal(aftermath.steps.length, 2);
+  assert.equal(lines.length, 2);
   assert.match(lines[0], /auto-fires at \[Corp\]Drone/);
   assert.match(lines[0], /HIT|miss/);
+  assert.match(lines[1], /auto-fires at \[Corp\]Drone/);
 });
 
 test('drivePlayerAftermath pumps one step per schedule tick', () => {
@@ -103,9 +107,13 @@ test('drivePlayerAftermath pumps one step per schedule tick', () => {
   assert.equal(scheduleQueue[0].ms, 50);
 
   scheduleQueue.shift().fn();
-  assert.deepEqual(calls, ['t1', 't2']);
+  assert.deepEqual(calls, ['t1', 't1']);
   scheduleQueue.shift().fn();
-  assert.deepEqual(calls, ['t1', 't2', 'finish']);
+  assert.deepEqual(calls, ['t1', 't1', 't2']);
+  scheduleQueue.shift().fn();
+  assert.deepEqual(calls, ['t1', 't1', 't2', 't2']);
+  scheduleQueue.shift().fn();
+  assert.deepEqual(calls, ['t1', 't1', 't2', 't2', 'finish']);
 });
 
 test('advanceFromPlayerTurn orders player aftermath before corp and final player handoff', () => {
@@ -135,6 +143,7 @@ test('advanceFromPlayerTurn orders player aftermath before corp and final player
   assert.deepEqual(calls, [
     'queue.endTurn',
     'corp.ready',
+    'player.aftermath.step',
     'player.aftermath.step',
     'corp.drive',
     'queue.endTurn',
@@ -226,7 +235,13 @@ test('advanceFromPlayerTurn resumeFromCorpSlice skips the opening queue.endTurn'
     onPlayerTurnReady: () => calls.push('player.ready'),
   });
 
-  assert.deepEqual(calls, ['player.aftermath.step', 'corp.drive', 'queue.endTurn', 'player.ready']);
+  assert.deepEqual(calls, [
+    'player.aftermath.step',
+    'player.aftermath.step',
+    'corp.drive',
+    'queue.endTurn',
+    'player.ready',
+  ]);
 });
 
 test('advanceFromPlayerTurn lets async corp driver own when the player turn resumes', () => {

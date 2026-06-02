@@ -43,6 +43,8 @@ function gearLines(gear: Gear) {
   if (gear.hitBonus > 0) lines.push(`Targeting Chip  +${(gear.hitBonus * 100).toFixed(0)}%`);
   if ((gear.dodgeBonus ?? 0) > 0)
     lines.push(`Reflex Weave  +${((gear.dodgeBonus ?? 0) * 100).toFixed(0)}%`);
+  if ((gear.rangedDamageBonus ?? 0) > 0)
+    lines.push(`Ballistics Coil  +${gear.rangedDamageBonus} ranged dmg`);
   return lines;
 }
 

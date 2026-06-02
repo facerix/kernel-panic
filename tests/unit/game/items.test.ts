@@ -12,6 +12,8 @@ import {
   BREACHING_CHARGE_RANGE,
   TARGETING_BONUS,
   DODGE_BONUS,
+  RANGED_DAMAGE,
+  RANGED_DAMAGE_BONUS,
   DEFAULT_HP,
 } from '../../../src/game/constants.js';
 import { Merc } from '../../../src/game/archetypes/Merc.js';
@@ -71,6 +73,12 @@ test('applyGear(REFLEX_WEAVE) sets dodgeBonus', () => {
   assert.equal(crew.gear.dodgeBonus, DODGE_BONUS);
 });
 
+test('applyGear(BALLISTICS_COIL) sets rangedDamageBonus', () => {
+  const crew = new Merc({ id: 'merc', x: 0, y: 0 });
+  crew.applyGear(ITEM_ID.BALLISTICS_COIL);
+  assert.equal(crew.gear.rangedDamageBonus, RANGED_DAMAGE_BONUS);
+});
+
 // ---------------------------------------------------------------------------
 // Combat.resolveRanged reads hitBonus from gear
 // ---------------------------------------------------------------------------
@@ -88,6 +96,20 @@ test('resolveRanged incorporates gear hitBonus into threshold', () => {
   const result = resolveRanged(world, attacker, target, rng);
   // Merc baseHitChance is 0.8; one targeting chip adds TARGETING_BONUS.
   assert.equal(result.threshold, attacker.baseHitChance + TARGETING_BONUS);
+});
+
+test('resolveRanged incorporates gear rangedDamageBonus into damage', () => {
+  const grid = new Grid(12, 6, TILE.FLOOR);
+  const bus = new EventBus();
+  const world = new World(grid, { events: bus });
+  const attacker = new Merc({ id: 'merc', x: 2, y: 2, maxAp: 4 });
+  attacker.applyGear(ITEM_ID.BALLISTICS_COIL);
+  const target = new CorpDrone({ id: 'drone', x: 5, y: 2 });
+  world.addEntity(attacker);
+  world.addEntity(target);
+  const rng = new Rng(0); // guaranteed hit
+  const result = resolveRanged(world, attacker, target, rng);
+  assert.equal(result.damage, RANGED_DAMAGE + RANGED_DAMAGE_BONUS);
 });
 
 // ---------------------------------------------------------------------------

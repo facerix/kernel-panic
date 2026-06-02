@@ -98,7 +98,7 @@ import '/components/CrewRoster.js';
 import '/components/FinnShop.js';
 import '/components/ClinicModal.js';
 import '/components/ItemInventory.js';
-import '/components/KeyHelp.js';
+import KeyHelp from '/components/KeyHelp.js';
 
 // ---------------------------------------------------------------------------
 // State
@@ -1475,8 +1475,26 @@ function driveCombatTurnPipeline(run: Run, options: { resumeFromCorpSlice?: bool
 
 function advanceTurn(): void {
   const scene = currentScene();
-  if (!scene || !isRun(scene)) return;
-  driveCombatTurnPipeline(scene);
+  if (!scene) return;
+  if (!scene.world || !scene.queue) {
+    throw new Error(`[shell] cannot advance turn without world/queue in state "${scene.state}"`);
+  }
+
+  if (isRun(scene)) {
+    driveCombatTurnPipeline(scene);
+    return;
+  }
+
+  // Hub — no corp actors; sync PLAYER→CORP→PLAYER flip refreshes operator AP.
+  advanceFromPlayerTurn({
+    queue: scene.queue,
+    world: scene.world,
+    rng: scene.rng,
+    isTerminal: () => false,
+    drivePlayerAftermath: ({ onFinish }) => onFinish(),
+    driveCorpTurn: ({ onFinish }) => onFinish(),
+    onPlayerTurnReady: () => paint(),
+  });
 }
 
 /**
@@ -2250,6 +2268,11 @@ function handleGlobalKey(evt: KeyboardEvent): void {
       evt.preventDefault();
       evt.stopPropagation();
       keyHelpEl.hide();
+      return;
+    }
+    // Tab navigation: prevent scroll/focus churn but let <key-help> handle it.
+    if (KeyHelp.isTabNavKey(evt.key)) {
+      evt.preventDefault();
       return;
     }
     // Everything else: block, don't process.

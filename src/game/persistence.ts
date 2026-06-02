@@ -654,16 +654,9 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
   entity.stealthed = !!rec.stealthed;
   if (rec.glyph) entity.glyph = rec.glyph;
 
-  // Repair latent hitBonus overflow on crew entities (same migration as
-  // restoreCrewMember, but for mid-combat run snapshots).
-  if (entity instanceof Crew && entity.gear) {
-    if (entity.gear.hitBonus > entity.maxHitBonus) {
-      entity.gear.hitBonus = entity.maxHitBonus;
-    }
-    const dodgeBonus = entity.gear.dodgeBonus ?? 0;
-    if (dodgeBonus > entity.maxDodgeBonus) {
-      entity.gear.dodgeBonus = entity.maxDodgeBonus;
-    }
+  // Repair latent gear overflow on crew entities (same as restoreCrewMember).
+  if (entity instanceof Crew) {
+    repairGearForCrew(entity);
   }
 
   if (rec.archetype === 'tech' && rec.tech) {
@@ -907,6 +900,23 @@ function validateRecord(record: unknown): asserts record is RunSnapshot {
 
 const KNOWN_ARCHETYPES_SET = new Set<CrewArchetypeId>(['merc', 'razor', 'tech']);
 
+/** Clamp gear bonuses to archetype caps after restore. */
+function repairGearForCrew(member: Crew) {
+  if (!member.gear) return;
+  const gear = member.gear;
+  if (gear.hitBonus > member.maxHitBonus) {
+    gear.hitBonus = member.maxHitBonus;
+  }
+  const dodgeBonus = gear.dodgeBonus ?? 0;
+  if (dodgeBonus > member.maxDodgeBonus) {
+    gear.dodgeBonus = member.maxDodgeBonus;
+  }
+  const rangedBonus = gear.rangedDamageBonus ?? 0;
+  if (rangedBonus > member.maxRangedDamageBonus) {
+    gear.rangedDamageBonus = member.maxRangedDamageBonus;
+  }
+}
+
 function snapshotCrewMember(member: Crew): CampaignCrewSnapshot {
   const archetype = archetypeOfCrew(member);
   return {
@@ -968,17 +978,8 @@ function restoreCrewMember(rec: CampaignCrewSnapshot): Crew {
   if (Number.isInteger(rec.ap)) member.ap = rec.ap;
   member.alive = rec.alive ?? member.hp > 0;
 
-  // Repair latent data corruption: a previous bug allowed hitBonus to
-  // accumulate past the archetype's cap, causing resolveRanged to throw.
-  if (member.gear) {
-    if (member.gear.hitBonus > member.maxHitBonus) {
-      member.gear.hitBonus = member.maxHitBonus;
-    }
-    const dodgeBonus = member.gear.dodgeBonus ?? 0;
-    if (dodgeBonus > member.maxDodgeBonus) {
-      member.gear.dodgeBonus = member.maxDodgeBonus;
-    }
-  }
+  // Repair latent gear overflow.
+  repairGearForCrew(member);
 
   return member;
 }

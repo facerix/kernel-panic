@@ -110,6 +110,7 @@ const CacheConfig = {
       '/src/input/applyIntent.js',
       '/src/input/KeyboardController.js',
       '/src/input/keyHelp.js',
+      '/src/input/mapKeyRows.js',
       '/src/input/keymap.js',
       '/src/input/touchpad.js',
       '/src/render/animations.js',

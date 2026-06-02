@@ -150,7 +150,9 @@ export function resolveRanged(
   let damage = 0;
   let killed = false;
   if (hit) {
-    const intendedDamage = options.damage ?? RANGED_DAMAGE;
+    const gearDamageBonus =
+      (attacker as Entity & { gear?: { rangedDamageBonus?: number } }).gear?.rangedDamageBonus ?? 0;
+    const intendedDamage = options.damage ?? RANGED_DAMAGE + gearDamageBonus;
     const appliedDamage = target.damage(intendedDamage);
     damage = appliedDamage === 0 ? 0 : intendedDamage;
     killed = !target.alive;
