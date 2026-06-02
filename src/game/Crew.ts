@@ -10,6 +10,10 @@ import {
   INCENDIARY_THROW_DIST,
   BREACHING_CHARGE_RANGE,
   TARGETING_BONUS,
+  TURRET_DAMAGE,
+  RANGED_DAMAGE,
+  RANGED_DAMAGE_BONUS,
+  RANGED_MAX_DAMAGE_BONUS,
   type FactionId,
 } from './constants.js';
 import { ITEM_ID } from './items.js';
@@ -27,10 +31,16 @@ export type Gear = {
   maxHpBonus: number;
   hitBonus: number;
   dodgeBonus: number;
+  rangedDamageBonus: number;
 };
 
 const createDefaultInventory = (): Inventory => ({ salvage: emptySalvage(), consumables: [] });
-const createDefaultGear = (): Gear => ({ maxHpBonus: 0, hitBonus: 0, dodgeBonus: 0 });
+const createDefaultGear = (): Gear => ({
+  maxHpBonus: 0,
+  hitBonus: 0,
+  dodgeBonus: 0,
+  rangedDamageBonus: 0,
+});
 
 /**
  * Crew — the base class for every player-controlled archetype.
@@ -114,6 +124,33 @@ export class Crew extends Entity {
     return 1 - this.baseDodgeChance;
   }
 
+  /** Cap for {@link ITEM_ID.BALLISTICS_COIL} stacks on this operator. */
+  get maxRangedDamageBonus(): number {
+    return RANGED_MAX_DAMAGE_BONUS;
+  }
+
+  /** Capped Ballistics Coil bonus for this operator's outgoing ranged damage. */
+  get effectiveRangedDamageBonus(): number {
+    return Math.min(this.gear?.rangedDamageBonus ?? 0, this.maxRangedDamageBonus);
+  }
+
+  /** Flat damage for this crew member's personal ranged attacks (gear included). */
+  rangedAttackDamage(): number {
+    return RANGED_DAMAGE + this.effectiveRangedDamageBonus;
+  }
+
+  /**
+   * Stats for a player turret this crew member deploys (Tech). HP mirrors the
+   * owner's current max (includes Armour Plating); damage uses the same coil
+   * bonus on the turret base (`TURRET_DAMAGE`).
+   */
+  turretDeployProfile(): { maxHp: number; attackDamage: number } {
+    return {
+      maxHp: this.maxHp,
+      attackDamage: TURRET_DAMAGE + this.effectiveRangedDamageBonus,
+    };
+  }
+
   constructor({
     callsign = null,
     flatlined = false,
@@ -189,6 +226,12 @@ export class Crew extends Entity {
         this.gear!.dodgeBonus = Math.min(
           (this.gear!.dodgeBonus ?? 0) + DODGE_BONUS,
           this.maxDodgeBonus
+        );
+        break;
+      case ITEM_ID.BALLISTICS_COIL:
+        this.gear!.rangedDamageBonus = Math.min(
+          (this.gear!.rangedDamageBonus ?? 0) + RANGED_DAMAGE_BONUS,
+          this.maxRangedDamageBonus
         );
         break;
       default:

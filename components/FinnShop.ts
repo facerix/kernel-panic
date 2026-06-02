@@ -33,6 +33,7 @@ type CrewMemberSnapshot = {
   flatlined: boolean;
   atMaxHit: boolean;
   atMaxDodge: boolean;
+  atMaxRangedDamage: boolean;
 };
 
 const SALVAGE_TYPE_LABELS: Record<SalvageType, string> = {
@@ -354,7 +355,13 @@ button.target-row[aria-current='true'] .cursor {
 
 const SCOPE_LABELS: Record<string, string> = {
   [ITEM_SCOPE.JOB]: 'CONSUMABLES',
-  [ITEM_SCOPE.CAMPAIGN]: 'CREW GEAR',
+  [ITEM_SCOPE.CAMPAIGN]: 'CREW GEAR (Applies to a single crew member)',
+};
+
+const ITEM_CAP_LABELS: Record<string, string> = {
+  [ITEM_ID.TARGETING_CHIP]: 'MAX HIT',
+  [ITEM_ID.BALLISTICS_COIL]: 'MAX RANGED DMG',
+  [ITEM_ID.REFLEX_WEAVE]: 'MAX DODGE',
 };
 
 const SCOPE_ORDER = [ITEM_SCOPE.JOB, ITEM_SCOPE.CAMPAIGN];
@@ -441,6 +448,7 @@ class FinnShop extends HTMLElement {
       flatlined: !!member.flatlined,
       atMaxHit: (member.gear?.hitBonus ?? 0) >= member.maxHitBonus,
       atMaxDodge: (member.gear?.dodgeBonus ?? 0) >= member.maxDodgeBonus,
+      atMaxRangedDamage: (member.gear?.rangedDamageBonus ?? 0) >= member.maxRangedDamageBonus,
     }));
     this.#credits = balances.credits ?? 0;
     this.#salvage = balances.salvage ?? emptySalvage();
@@ -618,10 +626,14 @@ class FinnShop extends HTMLElement {
 
     const isTargetingChip = item.id === ITEM_ID.TARGETING_CHIP;
     const isReflexWeave = item.id === ITEM_ID.REFLEX_WEAVE;
+    const isBallisticsCoil = item.id === ITEM_ID.BALLISTICS_COIL;
     const rows = h('div', { className: 'rows' });
     for (let i = 0; i < this.#crew.length; i++) {
       const member = this.#crew[i];
-      const atCap = (isTargetingChip && member.atMaxHit) || (isReflexWeave && member.atMaxDodge);
+      const atCap =
+        (isTargetingChip && member.atMaxHit) ||
+        (isReflexWeave && member.atMaxDodge) ||
+        (isBallisticsCoil && member.atMaxRangedDamage);
       const disabled = this.#isTargetDisabled(member);
       const btn = h('button', {
         type: 'button',
@@ -631,7 +643,7 @@ class FinnShop extends HTMLElement {
       }) as HTMLButtonElement;
       btn.dataset.targetIndex = String(i);
       btn.addEventListener('click', () => this.#confirmTarget(i));
-      const capLabel = isTargetingChip ? 'MAX HIT' : isReflexWeave ? 'MAX DODGE' : '';
+      const capLabel = ITEM_CAP_LABELS[item.id] ?? '';
       const suffix = member.flatlined ? ' FLATLINED' : atCap ? ` ${capLabel}` : '';
       btn.append(
         h('span', { className: 'cursor', textContent: '>' }),
@@ -783,9 +795,16 @@ class FinnShop extends HTMLElement {
 
   #isTargetDisabled(member: CrewMemberSnapshot) {
     if (member.flatlined || !this.#pendingItem) return true;
-    if (this.#pendingItem.id === ITEM_ID.TARGETING_CHIP) return member.atMaxHit;
-    if (this.#pendingItem.id === ITEM_ID.REFLEX_WEAVE) return member.atMaxDodge;
-    return false;
+    switch (this.#pendingItem.id) {
+      case ITEM_ID.TARGETING_CHIP:
+        return member.atMaxHit;
+      case ITEM_ID.REFLEX_WEAVE:
+        return member.atMaxDodge;
+      case ITEM_ID.BALLISTICS_COIL:
+        return member.atMaxRangedDamage;
+      default:
+        return false;
+    }
   }
 
   #syncCurrent() {

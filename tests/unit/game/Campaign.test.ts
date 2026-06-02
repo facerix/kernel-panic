@@ -448,7 +448,12 @@ test('crew gear survives campaign snapshot/restore round-trip', () => {
   const snap = snapshotCampaign(campaign);
   const restored = restoreCampaign(snap);
   const restoredMember = restored.crew[0];
-  assert.deepEqual(restoredMember.gear, { maxHpBonus: 1, hitBonus: 0.1, dodgeBonus: 0 });
+  assert.deepEqual(restoredMember.gear, {
+    maxHpBonus: 1,
+    hitBonus: 0.1,
+    dodgeBonus: 0,
+    rangedDamageBonus: 0,
+  });
   assert.equal(restoredMember.maxHp, member.maxHp);
 });
 

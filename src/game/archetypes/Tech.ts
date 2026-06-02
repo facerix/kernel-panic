@@ -132,12 +132,15 @@ export class Tech extends Crew {
     const ty = this.y + dy;
     this.spendAp(AP_COST.DEPLOY);
     this.turretReady = false;
+    const { maxHp, attackDamage } = this.turretDeployProfile();
     const turret = new Turret({
       id: `${this.id}-turret`,
       x: tx,
       y: ty,
       faction: FACTION.PLAYER,
       ownerId: this.id,
+      maxHp,
+      attackDamage,
     });
     world.addEntity(turret);
     return turret;
@@ -202,12 +205,15 @@ export class Tech extends Crew {
     this.spendAp(AP_COST.DEPLOY);
     this.inventory!.salvage.scrap -= SALVAGE_PER_IMPROVISED_TURRET;
     this._improvisedTurretCount++;
+    const { maxHp, attackDamage } = this.turretDeployProfile();
     const turret = new Turret({
       id: `${this.id}-imp-turret-${this._improvisedTurretCount}`,
       x: tx,
       y: ty,
       faction: FACTION.PLAYER,
       ownerId: this.id,
+      maxHp,
+      attackDamage,
     });
     world.addEntity(turret);
     return turret;

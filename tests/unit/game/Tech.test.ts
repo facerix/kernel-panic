@@ -21,7 +21,10 @@ import {
   FACTION,
   AP_COST,
   SALVAGE_PER_IMPROVISED_TURRET,
+  TURRET_DAMAGE,
+  RANGED_DAMAGE_BONUS,
 } from '../../../src/game/constants.js';
+import { ITEM_ID } from '../../../src/game/items.js';
 import { makeSalvage, totalSalvage } from '../../../src/game/salvage.js';
 
 function makeWorld({ techAt = [3, 3], grid, extraEntities = [] } = {}) {
@@ -122,6 +125,21 @@ test('Tech.deployTurret places a Turret on the target tile and debits AP', () =>
   assert.equal(tech.turretReady, false, 'turretReady consumed on commit');
   // The turret must now be a live grid entity.
   assert.equal(world.entityAt(4, 3), turret);
+});
+
+test('Tech.deployTurret sets turret maxHp to owner maxHp (Armour Plating)', () => {
+  const { world, tech } = makeWorld();
+  tech.applyGear(ITEM_ID.ARMOUR_PLATING);
+  const turret = tech.deployTurret(world, 1, 0);
+  assert.equal(turret.maxHp, tech.maxHp);
+  assert.equal(turret.hp, tech.maxHp);
+});
+
+test('Tech.deployTurret applies Ballistics Coil to attackDamage', () => {
+  const { world, tech } = makeWorld();
+  tech.applyGear(ITEM_ID.BALLISTICS_COIL);
+  const turret = tech.deployTurret(world, 1, 0);
+  assert.equal(turret.attackDamage, TURRET_DAMAGE + RANGED_DAMAGE_BONUS);
 });
 
 test('Tech.deployTurret throws on illegal preconditions and leaves state untouched', () => {

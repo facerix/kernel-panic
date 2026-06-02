@@ -68,11 +68,18 @@ export const AP_COST = Object.freeze({
  *   - `TURRET_MAX_HP` — destruction takes the same shots as a drone (3).
  *   - `TURRET_RANGE` — half the player's SIGHT_RANGE, so it cleans up adjacent
  *     drones but doesn't dominate the engagement.
- *   - `TURRET_DAMAGE` — flat 1; same per-hit damage as the player's gun.
+ *   - `TURRET_DAMAGE` — flat 2; matches the Merc's heavy sidearm (see `MERC_RANGED_DAMAGE`).
+ *   - `TURRET_SHOTS_PER_AFTERMATH` — two resolve passes per turret each player yield (2.6.5).
+ * Deployed turrets copy the owner's {@link Crew.maxHp} at drop time (Armour Plating applies).
  */
 export const TURRET_MAX_HP = 3;
 export const TURRET_RANGE = 4;
-export const TURRET_DAMAGE = 1;
+export const TURRET_DAMAGE = 2;
+/** Autofire passes per live player turret during {@link runPlayerAftermathSteps}. */
+export const TURRET_SHOTS_PER_AFTERMATH = 2;
+/** Per Ballistics Coil purchase — applies to owner ranged shots and deployed turrets. */
+export const RANGED_DAMAGE_BONUS = 1;
+export const RANGED_MAX_DAMAGE_BONUS = 1;
 
 /**
  * Default AP per turn for an entity. Not in the blueprint — picked so that a
@@ -223,6 +230,7 @@ export const SHOP_COST = Object.freeze({
   ARMOUR_PLATING: 60,
   TARGETING_CHIP: 80,
   REFLEX_WEAVE: 80,
+  BALLISTICS_COIL: 80,
 });
 
 /** M5.3: Patch clinic — Creds per HP restored (partial heal not offered). */

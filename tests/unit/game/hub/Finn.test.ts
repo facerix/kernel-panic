@@ -66,10 +66,11 @@ test('Finn.catalog at KNOWN rep adds gear items', () => {
   const f = new Finn();
   const items = f.catalog(55); // KNOWN tier
   const ids = items.map(i => i.id);
-  assert.equal(items.length, 7);
+  assert.equal(items.length, 8);
   assert.ok(ids.includes(ITEM_ID.ARMOUR_PLATING));
   assert.ok(ids.includes(ITEM_ID.TARGETING_CHIP));
   assert.ok(ids.includes(ITEM_ID.REFLEX_WEAVE));
+  assert.ok(ids.includes(ITEM_ID.BALLISTICS_COIL));
 });
 
 // ---------------------------------------------------------------------------
@@ -78,8 +79,8 @@ test('Finn.catalog at KNOWN rep adds gear items', () => {
 
 test('getShopCatalog returns all items at TRUSTED rep', () => {
   const items = getShopCatalog(85);
-  // M7.1: 7 items (4 consumables + 3 gear) visible at TRUSTED tier.
-  assert.equal(items.length, 7);
+  // 8 items (4 consumables + 4 gear) visible at TRUSTED tier.
+  assert.equal(items.length, 8);
 });
 
 test('getItemById returns the item for a valid id', () => {

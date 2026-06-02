@@ -2,7 +2,7 @@ import { Turret, type TurretAutoFireResult } from './Turret.js';
 import { NeutralCivilian } from './entities/NeutralCivilian.js';
 import { EscortNpc, type EscortFollowStep } from './entities/EscortNpc.js';
 import { entityLabel } from './Entity.js';
-import { TILE, HAZARD_DAMAGE, REP, FACTION } from './constants.js';
+import { TILE, HAZARD_DAMAGE, REP, FACTION, TURRET_SHOTS_PER_AFTERMATH } from './constants.js';
 import { EVENT } from './events.js';
 import { chebyshev, findPath } from './Pathfinding.js';
 import { detonateBreachingCharge } from './breachBlast.js';
@@ -307,15 +307,18 @@ export function* runPlayerAftermathSteps(
     world.removeEntity(charge.id);
   }
 
-  // Phase 1: turret autofire
+  // Phase 1: turret autofire (two shots per turret per player yield — 2.6.5)
   for (const entity of world.entities.values()) {
     if (!(entity instanceof Turret)) continue;
     if (!entity.alive) continue;
-    yield {
-      type: 'turret-autofire',
-      turret: entity,
-      action: entity.autoFire(world, rng),
-    };
+    for (let shot = 0; shot < TURRET_SHOTS_PER_AFTERMATH; shot++) {
+      if (!entity.alive) break;
+      yield {
+        type: 'turret-autofire',
+        turret: entity,
+        action: entity.autoFire(world, rng),
+      };
+    }
   }
   // Phase 2: neutral civilian reactions (flee / panic / idle based on rep)
   const rep = opts?.rep ?? REP.START;
