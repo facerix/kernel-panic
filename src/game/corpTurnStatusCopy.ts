@@ -94,7 +94,13 @@ export function isCorpTurnStepLogVisibleToPlayer(
   const actor = world.entities.get(entityId);
   if (!actor?.alive) return false;
 
-  if ((step.type === 'fire' || step.type === 'melee') && step.target === playerId) {
+  if (
+    (step.type === 'fire' ||
+      step.type === 'melee' ||
+      step.type === 'suppress' ||
+      step.type === 'shove') &&
+    step.target === playerId
+  ) {
     return true;
   }
 
@@ -157,6 +163,20 @@ export function formatCorpTurnStep(
           : '') +
         (r.killed ? ` ${targetLabel.toUpperCase()} DOWN.` : '')
       );
+    }
+    case 'suppress': {
+      const r = step.result;
+      const targetLabel = resolve(step.target);
+      return (
+        `${actorLabel} lays down suppressing fire on ${targetLabel} — ` +
+        `${r.hit ? 'HIT' : 'miss'} (roll ${r.roll.toFixed(2)} vs ${r.threshold.toFixed(2)}` +
+        `${r.inCover ? ', cover' : ''}).` +
+        (r.killed ? ` ${targetLabel.toUpperCase()} DOWN.` : '')
+      );
+    }
+    case 'shove': {
+      const targetLabel = resolve(step.target);
+      return `${actorLabel} body-checks ${targetLabel} back to (${step.to.x}, ${step.to.y}) — making room to fire.`;
     }
     case 'fire-blocked':
       return `${actorLabel} targets locked — ${step.reason}.`;

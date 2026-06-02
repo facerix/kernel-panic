@@ -15,9 +15,8 @@ import {
 import type { EnemyTier } from '../constants.js';
 import { canMelee, resolveMelee } from '../Combat.js';
 import type { Entity } from '../Entity.js';
-import { knockbackByOffset } from '../knockback.js';
+import { knockbackByOffset, awayVector } from '../knockback.js';
 import type { World } from '../World.js';
-import type { GridPoint } from '../../types.js';
 import type { Rng } from '../../rng.js';
 
 export interface BruiserProps extends Omit<PatrolHostileInit, 'faction' | 'glyph'> {
@@ -55,16 +54,4 @@ export class Bruiser extends PatrolHostile {
     yield step;
     return 'continue';
   }
-}
-
-function awayVector(attacker: Entity, target: Entity): GridPoint | null {
-  const rawDx = target.x - attacker.x;
-  const rawDy = target.y - attacker.y;
-  if (rawDx === 0 && rawDy === 0) return null;
-
-  const absDx = Math.abs(rawDx);
-  const absDy = Math.abs(rawDy);
-  if (absDx > absDy) return { x: Math.sign(rawDx), y: 0 };
-  if (absDy > absDx) return { x: 0, y: Math.sign(rawDy) };
-  return { x: Math.sign(rawDx), y: Math.sign(rawDy) };
 }

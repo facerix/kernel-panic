@@ -50,6 +50,7 @@ import { Turret } from './Turret.js';
 import { Skirmisher } from './ai/Skirmisher.js';
 import { Guard } from './ai/Guard.js';
 import { Bruiser } from './ai/Bruiser.js';
+import { Juggernaut } from './ai/Juggernaut.js';
 import { Spotter } from './ai/Spotter.js';
 import { Sniper } from './ai/Sniper.js';
 import { PatrolHostile } from './ai/PatrolHostile.js';
@@ -111,6 +112,7 @@ export type EntityArchetypeId =
   | 'drone'
   | 'guard'
   | 'bruiser'
+  | 'juggernaut'
   | 'spotter'
   | 'sniper'
   | 'corp-civilian'
@@ -161,6 +163,31 @@ export type ObjectiveProgressSnapshot = {
   securedPickups: string[];
 };
 
+/**
+ * Serialised `PatrolHostile` state machine. Every patrol hostile (Skirmisher,
+ * Guard, Bruiser, Juggernaut, Spotter, Sniper) round-trips this identical block;
+ * each persists it under a key equal to its own archetype id (`drone` for the
+ * Skirmisher, for save-compat). The Sniper extends it with `aimTargetId`.
+ */
+export type PatrolSnapshotBlock = {
+  state: string;
+  lastKnownTarget: GridPoint | null;
+  patrolWaypoints: GridPoint[];
+  patrolIndex: number;
+};
+
+/** Archetype ids whose snapshot carries a {@link PatrolSnapshotBlock}. */
+export const PATROL_ARCHETYPE_IDS = Object.freeze([
+  'drone',
+  'guard',
+  'bruiser',
+  'juggernaut',
+  'spotter',
+  'sniper',
+] as const);
+
+export type PatrolArchetypeId = (typeof PATROL_ARCHETYPE_IDS)[number];
+
 export type RunEntitySnapshot = {
   archetype: EntityArchetypeId;
   id: string;
@@ -175,47 +202,15 @@ export type RunEntitySnapshot = {
   maxAp: number;
   alive: boolean;
   stealthed: boolean;
-  drone?: {
-    state: string;
-    lastKnownTarget: GridPoint | null;
-    patrolWaypoints: GridPoint[];
-    patrolIndex: number;
-  };
-  // Guard shares the PatrolHostile state machine but serialises under its
-  // own key so drone saves stay byte-identical. (Future kaizen: consolidate
-  // into a shared `patrol` block once more patrol hostiles exist.)
-  guard?: {
-    state: string;
-    lastKnownTarget: GridPoint | null;
-    patrolWaypoints: GridPoint[];
-    patrolIndex: number;
-  };
-  // Bruiser (T3 elite) shares the PatrolHostile state machine; serialised
-  // under its own key so guard/drone saves stay byte-identical.
-  bruiser?: {
-    state: string;
-    lastKnownTarget: GridPoint | null;
-    patrolWaypoints: GridPoint[];
-    patrolIndex: number;
-  };
-  // Spotter (T2 specialist) shares the PatrolHostile state machine; serialised
-  // under its own key alongside drone/guard (see kaizen note above).
-  spotter?: {
-    state: string;
-    lastKnownTarget: GridPoint | null;
-    patrolWaypoints: GridPoint[];
-    patrolIndex: number;
-  };
-  // Sniper (T2 specialist) shares the PatrolHostile machine; `aimTargetId`
-  // captures a held shot mid-telegraph so a save during the aim window restores
-  // the pending fire-or-cancel.
-  sniper?: {
-    state: string;
-    lastKnownTarget: GridPoint | null;
-    patrolWaypoints: GridPoint[];
-    patrolIndex: number;
-    aimTargetId: string | null;
-  };
+  // Patrol hostiles each serialise a shared {@link PatrolSnapshotBlock} under a
+  // key matching their archetype id (`drone` = Skirmisher) so older per-class
+  // saves stay byte-identical. The Sniper's block also carries `aimTargetId`.
+  drone?: PatrolSnapshotBlock;
+  guard?: PatrolSnapshotBlock;
+  bruiser?: PatrolSnapshotBlock;
+  juggernaut?: PatrolSnapshotBlock;
+  spotter?: PatrolSnapshotBlock;
+  sniper?: PatrolSnapshotBlock & { aimTargetId: string | null };
   tech?: { turretReady: boolean };
   callsign?: string | null;
   flatlined?: boolean;
@@ -524,7 +519,7 @@ export class Run {
       fodderCount: map.fodder.length,
       available: {
         specialists: [ENEMY_ARCHETYPE.SPOTTER, ENEMY_ARCHETYPE.SNIPER],
-        elites: [ENEMY_ARCHETYPE.BRUISER],
+        elites: [ENEMY_ARCHETYPE.BRUISER, ENEMY_ARCHETYPE.JUGGERNAUT],
       },
     });
     const fodder = composition.entries.filter(e => e.role === ENEMY_ROLE.FODDER);
@@ -608,6 +603,16 @@ export class Run {
       if (entry.archetype === ENEMY_ARCHETYPE.BRUISER) {
         elite = new Bruiser({
           id: `bruiser-${i}`,
+          x: a.x,
+          y: a.y,
+          patrolWaypoints: a.waypoints,
+          tier: entry.tier,
+        });
+      } else if (entry.archetype === ENEMY_ARCHETYPE.JUGGERNAUT) {
+        // Juggernaut keeps its low base AP (lifted to 4 by the T3 elite bonus)
+        // so it cannot match the skirmisher's 4-AP dance.
+        elite = new Juggernaut({
+          id: `juggernaut-${i}`,
           x: a.x,
           y: a.y,
           patrolWaypoints: a.waypoints,
@@ -928,7 +933,7 @@ export class Run {
       // since turrets are infrastructure rather than mobile threats.
       return makeSalvage({ chips: this.rng.intRange(SALVAGE_DROP_MIN, SALVAGE_DROP_MAX + 1) });
     }
-    if (target instanceof Bruiser) {
+    if (target instanceof Bruiser || target instanceof Juggernaut) {
       return makeSalvage({ bio: this.rng.intRange(SALVAGE_DROP_MIN, SALVAGE_DROP_MAX + 1) });
     }
     return makeSalvage({
@@ -1621,42 +1626,22 @@ function snapshotEntity(entity: Entity): RunEntitySnapshot {
     alive: entity.alive,
     stealthed: !!entity.stealthed,
   };
-  if (entity instanceof Bruiser) {
-    base.bruiser = {
+  if (entity instanceof PatrolHostile) {
+    // Every patrol hostile serialises the same block under its own archetype
+    // key (`drone` for Skirmisher); the Sniper extends it with `aimTargetId`.
+    const block: PatrolSnapshotBlock = {
       state: entity.state,
       lastKnownTarget: entity.lastKnownTarget ? { ...entity.lastKnownTarget } : null,
       patrolWaypoints: entity.patrolWaypoints.map(wp => ({ x: wp.x, y: wp.y })),
       patrolIndex: entity.patrolIndex,
     };
-  } else if (entity instanceof Sniper) {
-    base.sniper = {
-      state: entity.state,
-      lastKnownTarget: entity.lastKnownTarget ? { ...entity.lastKnownTarget } : null,
-      patrolWaypoints: entity.patrolWaypoints.map(wp => ({ x: wp.x, y: wp.y })),
-      patrolIndex: entity.patrolIndex,
-      aimTargetId: entity.aimTargetId,
-    };
-  } else if (entity instanceof Spotter) {
-    base.spotter = {
-      state: entity.state,
-      lastKnownTarget: entity.lastKnownTarget ? { ...entity.lastKnownTarget } : null,
-      patrolWaypoints: entity.patrolWaypoints.map(wp => ({ x: wp.x, y: wp.y })),
-      patrolIndex: entity.patrolIndex,
-    };
-  } else if (entity instanceof Guard) {
-    base.guard = {
-      state: entity.state,
-      lastKnownTarget: entity.lastKnownTarget ? { ...entity.lastKnownTarget } : null,
-      patrolWaypoints: entity.patrolWaypoints.map(wp => ({ x: wp.x, y: wp.y })),
-      patrolIndex: entity.patrolIndex,
-    };
-  } else if (entity instanceof Skirmisher) {
-    base.drone = {
-      state: entity.state,
-      lastKnownTarget: entity.lastKnownTarget ? { ...entity.lastKnownTarget } : null,
-      patrolWaypoints: entity.patrolWaypoints.map(wp => ({ x: wp.x, y: wp.y })),
-      patrolIndex: entity.patrolIndex,
-    };
+    if (entity instanceof Sniper) {
+      base.sniper = { ...block, aimTargetId: entity.aimTargetId };
+    } else {
+      // archetype ∈ {drone, guard, bruiser, juggernaut, spotter} here — all
+      // plain PatrolSnapshotBlock keys.
+      base[archetype as Exclude<PatrolArchetypeId, 'sniper'>] = block;
+    }
   }
   if (entity instanceof Tech) {
     // M1 design lock: the Tech's pre-built turret is a flag, not a count. M3
@@ -1761,6 +1746,7 @@ function archetypeOf(entity: Entity): EntityArchetypeId {
   if (entity instanceof Tech) return 'tech';
   if (entity instanceof Turret) return 'turret';
   if (entity instanceof Bruiser) return 'bruiser';
+  if (entity instanceof Juggernaut) return 'juggernaut';
   if (entity instanceof Sniper) return 'sniper';
   if (entity instanceof Spotter) return 'spotter';
   if (entity instanceof Guard) return 'guard';

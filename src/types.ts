@@ -91,6 +91,19 @@ export type SniperTurnStep =
   | { type: 'aim'; target: string }
   | { type: 'aim-cancelled'; reason: string };
 
+/**
+ * Juggernaut steps (Phase 2.7 M4.2). `suppress` is the 1-AP / 1-damage chip from
+ * the suppress band (carries the `RangedAttackResult` so logging/visibility treat
+ * it like any incoming fire). `shove` is the cornered, point-blank **body-check**:
+ * a no-damage knockback that pushes the target one tile away (to `to`) to reopen
+ * the band so the elite can resume suppressing — distinct from the Bruiser's
+ * offensive knockback-on-hit. Only emitted when the lane is clear; a blocked lane
+ * makes the juggernaut hold its ground (no step).
+ */
+export type JuggernautTurnStep =
+  | { type: 'suppress'; target: string; result: RangedAttackResult }
+  | { type: 'shove'; target: string; to: GridPoint };
+
 /** NeutralCivilian aftermath steps — yielded during the player aftermath phase. */
 export type NeutralCivilianTurnStep =
   | { type: 'neutral-idle' }
@@ -108,6 +121,7 @@ export type TurnActionStep =
   | CorpCivilianTurnStep
   | SpotterTurnStep
   | SniperTurnStep
+  | JuggernautTurnStep
   | NeutralCivilianTurnStep;
 
 /**

@@ -51,6 +51,7 @@ import { Turret } from './Turret.js';
 import { Skirmisher, type SkirmisherProps } from './ai/Skirmisher.js';
 import { Guard, type GuardProps } from './ai/Guard.js';
 import { Bruiser, type BruiserProps } from './ai/Bruiser.js';
+import { Juggernaut, type JuggernautProps } from './ai/Juggernaut.js';
 import { Spotter, type SpotterProps } from './ai/Spotter.js';
 import { Sniper, type SniperProps } from './ai/Sniper.js';
 import { PatrolHostile, PATROL_STATE } from './ai/PatrolHostile.js';
@@ -69,7 +70,7 @@ import { EscortNpc } from './entities/EscortNpc.js';
 import { KeyCard } from './entities/KeyCard.js';
 import { BreachingCharge } from './entities/BreachingCharge.js';
 import type { BreachingChargeInit } from './entities/BreachingCharge.js';
-import { Run, RUN_STATE } from './Run.js';
+import { Run, RUN_STATE, PATROL_ARCHETYPE_IDS } from './Run.js';
 import { Campaign, CAMPAIGN_STATE } from './Campaign.js';
 import { normalizeContractContext, normalizeObjective } from './hub/Curator.js';
 import { normalizeHubReveals } from './hub/hubReveals.js';
@@ -94,6 +95,8 @@ import type { FactionId } from './constants.js';
 import type {
   CrewArchetypeId,
   EntityArchetypeId,
+  PatrolArchetypeId,
+  PatrolSnapshotBlock,
   RunEntitySnapshot,
   RunResult,
   RunSnapshot,
@@ -116,6 +119,7 @@ type RestoreEntityProps = Partial<
     SkirmisherProps &
     GuardProps &
     BruiserProps &
+    JuggernautProps &
     SpotterProps &
     SniperProps &
     CorpCivilianInit &
@@ -153,6 +157,7 @@ const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) =
     drone: (props: RestoreEntityProps) => new Skirmisher(props as SkirmisherProps),
     guard: (props: RestoreEntityProps) => new Guard(props as GuardProps),
     bruiser: (props: RestoreEntityProps) => new Bruiser(props as BruiserProps),
+    juggernaut: (props: RestoreEntityProps) => new Juggernaut(props as JuggernautProps),
     spotter: (props: RestoreEntityProps) => new Spotter(props as SpotterProps),
     sniper: (props: RestoreEntityProps) => new Sniper(props as SniperProps),
     'corp-civilian': (props: RestoreEntityProps) => new CorpCivilian(props as CorpCivilianInit),
@@ -185,6 +190,38 @@ const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) =
 const KNOWN_FACTIONS = new Set(Object.values(FACTION));
 const KNOWN_RUN_STATES = new Set(Object.values(RUN_STATE));
 const KNOWN_PATROL_STATES = new Set(Object.values(PATROL_STATE));
+const PATROL_ARCHETYPE_SET = new Set<EntityArchetypeId>(PATROL_ARCHETYPE_IDS);
+
+function isPatrolArchetype(archetype: EntityArchetypeId): archetype is PatrolArchetypeId {
+  return PATROL_ARCHETYPE_SET.has(archetype);
+}
+
+/**
+ * The serialised {@link PatrolSnapshotBlock} for a patrol-hostile record, or
+ * `null` for any other archetype. Every patrol hostile stores its block under a
+ * key equal to its archetype id (`drone` = Skirmisher); the Sniper's also
+ * carries `aimTargetId`. Replaces the old per-archetype ternary/if cascade.
+ */
+function patrolSnapshotBlock(
+  rec: RunEntitySnapshot
+): (PatrolSnapshotBlock & { aimTargetId?: string | null }) | null {
+  switch (rec.archetype) {
+    case 'drone':
+      return rec.drone ?? null;
+    case 'guard':
+      return rec.guard ?? null;
+    case 'bruiser':
+      return rec.bruiser ?? null;
+    case 'juggernaut':
+      return rec.juggernaut ?? null;
+    case 'spotter':
+      return rec.spotter ?? null;
+    case 'sniper':
+      return rec.sniper ?? null;
+    default:
+      return null;
+  }
+}
 
 type RestoreOptions = {
   onPersist?: (record: RunSnapshot) => void;
@@ -565,20 +602,8 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
     entityProps.inventory = rec.inventory ?? null;
     entityProps.gear = rec.gear ?? null;
   }
-  if (rec.archetype === 'drone') {
-    entityProps.patrolWaypoints = rec.drone?.patrolWaypoints ?? [];
-  }
-  if (rec.archetype === 'guard') {
-    entityProps.patrolWaypoints = rec.guard?.patrolWaypoints ?? [];
-  }
-  if (rec.archetype === 'bruiser') {
-    entityProps.patrolWaypoints = rec.bruiser?.patrolWaypoints ?? [];
-  }
-  if (rec.archetype === 'spotter') {
-    entityProps.patrolWaypoints = rec.spotter?.patrolWaypoints ?? [];
-  }
-  if (rec.archetype === 'sniper') {
-    entityProps.patrolWaypoints = rec.sniper?.patrolWaypoints ?? [];
+  if (isPatrolArchetype(rec.archetype)) {
+    entityProps.patrolWaypoints = patrolSnapshotBlock(rec)?.patrolWaypoints ?? [];
   }
   if (rec.archetype === 'turret' && rec.turret) {
     // Turret's range/attackDamage are tunables that survive a round-trip;
@@ -708,18 +733,7 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
   }
 
   // Patrol hostiles serialise under per-archetype keys but restore identically.
-  const patrolRec =
-    rec.archetype === 'drone'
-      ? rec.drone
-      : rec.archetype === 'guard'
-        ? rec.guard
-        : rec.archetype === 'bruiser'
-          ? rec.bruiser
-          : rec.archetype === 'spotter'
-            ? rec.spotter
-            : rec.archetype === 'sniper'
-              ? rec.sniper
-              : null;
+  const patrolRec = patrolSnapshotBlock(rec);
   if (patrolRec) {
     if (!(entity instanceof PatrolHostile)) {
       throw new Error(

@@ -173,6 +173,32 @@ export const SNIPER_DAMAGE = 3;
 export const SNIPER_CONCEAL_MIN_RANGE = 6;
 
 /**
+ * Juggernaut parameters (Phase 2.7 M4.2). The T3 elite is the **Tech mirror** —
+ * a walking suppression platform: high HP + armor, low AP, controlling a tighter
+ * band than fodder. It acquires/patrols at the baseline `SIGHT_RANGE` (8) but
+ * only *fires* inside `JUGGERNAUT_SUPPRESS_RANGE` (5) — tighter than a skirmisher,
+ * wider than the player/corp turret bubble (4).
+ *
+ * Suppression is a cheap attrition chip: `JUGGERNAUT_SUPPRESS_AP` (1) per shot
+ * for `JUGGERNAUT_SUPPRESS_DAMAGE` (1) damage. Lethal only over many turns —
+ * dangerous while fodder/medics work, never a burst threat (no second verb).
+ *
+ * `JUGGERNAUT_PREFERRED_MIN` (3) is the band floor: the juggernaut band-kites
+ * to maintain gunner distance (the skirmisher kite, scoped to suppress range)
+ * rather than panic-fleeing. Cornered at point-blank (adjacent, no band-kite
+ * tile) it body-checks the target one tile away — a **no-damage knockback** that
+ * reopens the band so it can resume suppressing. This is a defensive spacing
+ * reset, distinct from the Bruiser's offensive knockback-on-hit; a blocked lane
+ * makes the juggernaut hold its ground instead.
+ */
+export const JUGGERNAUT_SUPPRESS_RANGE = 5;
+export const JUGGERNAUT_SUPPRESS_AP = 1;
+export const JUGGERNAUT_SUPPRESS_DAMAGE = 1;
+export const JUGGERNAUT_PREFERRED_MIN = 3;
+/** Base AP before the T3 elite `apBonus` (+1) — yields 4 AP at T3. */
+export const JUGGERNAUT_BASE_AP = 3;
+
+/**
  * Salvage parameters. Phase 2 salvage is generic units (no typed components).
  * Drone corpses drop a random amount in [DROP_MIN, DROP_MAX]; improvised
  * turrets cost IMPROVISED_TURRET_COST units from the crew member's inventory.

@@ -135,7 +135,7 @@ All rolls derive from the contract seed (deterministic, save-compatible).
 | M1 — Tier doctrine foundations | 🟡 In progress |
 | M1.1 — `EnemyTier` model + per-tier stat scaling hook | ✅ Complete |
 | M1.2 — `damageReduction` (armor) stat on `Entity` | ✅ Complete |
-| M1.3 — Encounter composition by tier (roles, not just counts) | 🟡 In progress — resolver landed; **fodder slice wired** (M2); **specialist slice wired** (M3.1/M3.2 + mapgen specialist anchors); **elite slice wired for Bruiser** (M4.1: CRITICAL `available.elites` + elite anchor spawn); Juggernaut/Flanker spawn cases pending (M4.2–M4.3) |
+| M1.3 — Encounter composition by tier (roles, not just counts) | 🟡 In progress — resolver landed; **fodder slice wired** (M2); **specialist slice wired** (M3.1/M3.2 + mapgen specialist anchors); **elite slice wired for Bruiser + Juggernaut** (M4.1/M4.2: CRITICAL `available.elites` + elite anchor spawn); Flanker spawn case pending (M4.3) |
 | M1.4 — CorpCivilian cover-occluded LOS | ✅ Complete |
 | M1.5 — Variable combat map dimensions (tier + seed) | ✅ Complete |
 | M2 — Tier 1 fodder roster | ✅ Complete |
@@ -149,13 +149,16 @@ All rolls derive from the contract seed (deterministic, save-compatible).
 | M4 — Tier 3 elites | 🟡 In progress |
 | M4.0 — Elite anchor budget + hostile sweep foundation | ✅ Complete |
 | M4.1 — Bruiser (armor + knockback-on-hit) | ✅ Complete |
-| M4.2 — Juggernaut (armor soak + suppression) | 🔲 Not started |
+| M4.2 — Juggernaut (armor soak + suppression) | ✅ Complete |
 | M4.3 — Flanker (cover concealment + Razor-mirror SLIDE) | 🔲 Not started |
 | M5 — Netrunner / disruption (status-effect groundwork) | 🔲 Deferred-candidate (feeds Phase 3) |
+| M6 — Snapshot schema slimming (persistence refactor, no gameplay change) | 🟡 In progress |
+| M6.1 — Shared `PatrolSnapshotBlock` + patrol (de)serialize consolidation | ✅ Complete |
+| M6.2 — Property-bag `extra` + per-entity snapshot ownership | 🔲 Not started |
 
 **Phase 2.7** is complete when:
 
-1. Every milestone above is ✅ except M5 (deliberate Phase 3 on-ramp).
+1. Every milestone above is ✅ except M5 (deliberate Phase 3 on-ramp). M6 is a non-gating tech-debt refactor — it does not block `v0.2.7`, but should land before Phase 2.8 reskins add more entity shapes.
 2. T1/T2/T3 composition rules are live: STANDARD = fodder only, ELEVATED = fodder + 1 specialist, CRITICAL = fodder + specialist + elite (or fodder + elite).
 3. Combat map width/height vary by contract difficulty and seed (M1.5); revisits and run snapshots reproduce the same footprint.
 4. Each archetype in the roster table has a distinct tactical identity verified by tests and playtest — including sharp separation of `CorpCivilian` (ambient facility alarm, cover-occluded LOS) from `Spotter` (mobile T2 specialist, extended LOS).
@@ -398,7 +401,7 @@ Playtest pass on T1 fodder pacing:
 | AP budget | **Low** — base **`maxAp = 3`** (before elite `apBonus` → **4 AP** at T3 elite). Typical corp turn: **move (1) + suppress (1)** or **suppress twice** when already in band; cannot match skirmisher's 4-AP dance at default fodder AP. |
 | Advance | When target out of suppress range + LOS → **one `stepToward` per corp turn** (same as skirmisher close). When in band + LOS → **suppress first**, then reposition if AP remains. |
 | Band / "kiting" | **`JUGGERNAUT_PREFERRED_MIN = 3`** — reuse skirmisher distance-maximising neighbour logic **only when** `cheb < preferredMin` **and** a legal tile still holds suppress range + LOS. Motivation: **maintain gunner band**, not panic retreat. Unlike skirmisher, **may stand ground** when cornered — DR + HP absorb melee; optional 1-damage shove (below) instead of fleeing. |
-| Melee fallback | **Weak shove only** — if adjacent and cannot suppress (out of AP or blocked), **`JUGGERNAUT_SHOVE_DAMAGE = 1`** via `resolveMelee`. **No knockback** (that is Bruiser's mirror). Prevents infinite kiting in a dead-end without making juggernaut a melee elite. |
+| Melee fallback | **Cornered body-check (no-damage knockback)** — when the target is adjacent and no band-kite tile exists (a dead-end), shove it **one tile away** along the away-vector via the shared `knockback.ts` helper to *reopen* the suppress band, then suppress from range next turn. **No damage.** This is a defensive spacing reset, **distinct from the Bruiser's offensive knockback-on-hit** (different trigger: cornered-only vs every melee hit; different intent: create distance vs punish adjacency). A blocked lane (wall/OOB/occupied) → hold ground, never fire point-blank. *(Revised from the original "1-damage melee, no knockback" after the M4.2 implementation review — see implementation note.)* |
 | Cover / LOS / stealth | **Standard combat LOS** for suppress validation. **Hostile stealth rules** — cannot suppress stealthed targets beyond Chebyshev 1. Smoke blocks suppress like any ranged check. |
 | Turret interaction | **Player turret (`T`, range 4)** can engage juggernaut inside the bubble — juggernaut has no sniper-style range conceal. Juggernaut pathing when advancing should treat player turret threat tiles as **high cost** (reuse sniper deferred pattern when implemented). |
 | Durability | **`ENEMY_ROLE.ELITE` T3** — 1.5× HP + `armorFloor` ≥ 1. Canonical **medic patient** — slow advance keeps medic in range; suppress chip punishes ignoring the elite while clearing fodder. |
@@ -406,11 +409,19 @@ Playtest pass on T1 fodder pacing:
 
 **Behaviour:**
 
-- **`Juggernaut extends PatrolHostile`.** `engageSteps` priority: (1) if `cheb < JUGGERNAUT_PREFERRED_MIN` and band-reposition tile exists → step (skirmisher `#stepAwayFrom` pattern scoped to `JUGGERNAUT_SUPPRESS_RANGE`); (2) else if in suppress range + LOS + AP → `suppress`; (3) else if adjacent + AP → weak shove; (4) else `stepToward`.
-- **Constants** in `constants.ts`: `JUGGERNAUT_SUPPRESS_RANGE`, `JUGGERNAUT_SUPPRESS_AP`, `JUGGERNAUT_SUPPRESS_DAMAGE`, `JUGGERNAUT_PREFERRED_MIN`, `JUGGERNAUT_SHOVE_DAMAGE`.
-- Land full plumbing: types (`suppress` turn-step), persistence, snapshot/restore, loot, `corpTurnStatusCopy`, `kindFromId`, glyph `j` (provisional — finalize in 2.8 alphabet pass).
+- **`Juggernaut extends PatrolHostile`.** `engageSteps` priority: (1) if `cheb < JUGGERNAUT_PREFERRED_MIN` and band-reposition tile exists → step (skirmisher `#stepAwayFrom` pattern scoped to `JUGGERNAUT_SUPPRESS_RANGE`); (2) else if adjacent + cornered (no band-kite tile) + clear lane → **no-damage knockback** (shove 1 tile away to reopen the band; blocked lane → hold ground); (3) else if in suppress range + LOS + AP → `suppress`; (4) else `stepToward`.
+- **Constants** in `constants.ts`: `JUGGERNAUT_SUPPRESS_RANGE`, `JUGGERNAUT_SUPPRESS_AP`, `JUGGERNAUT_SUPPRESS_DAMAGE`, `JUGGERNAUT_PREFERRED_MIN`, `JUGGERNAUT_BASE_AP`. (The cornered shove deals no damage, so there is no `JUGGERNAUT_SHOVE_DAMAGE`.)
+- Land full plumbing: types (`suppress` + `shove` turn-steps), persistence, snapshot/restore, loot, `corpTurnStatusCopy`, `kindFromId`, glyph `j` (provisional — finalize in 2.8 alphabet pass).
 - **Loot:** killed elites yield **bio salvage** rather than scrap/chips, reflecting their augmentations.
-- **TDD:** in suppress range + LOS → 1-AP suppress for 1 damage (hit roll applies); out of range → one step toward; `cheb < preferredMin` with legal band tile → reposition not panic flee; 3 AP → move + suppress in one corp turn; survives sustained 1-damage focus that kills skirmisher; armor floor ≥ 1; weak shove at adjacency, no knockback; stealthed beyond Chebyshev 1 not suppressed; no deploy/spawn of `$`/`T`; bruiser unchanged; skirmisher kiting regression guard holds.
+- **TDD:** in suppress range + LOS → 1-AP suppress for 1 damage (hit roll applies); out of range → one step toward; `cheb < preferredMin` with legal band tile → reposition not panic flee; move + suppress in one low-AP corp turn; survives sustained 1-damage focus that kills skirmisher; armor floor ≥ 1; cornered point-blank → no-damage knockback that pushes the target 1 tile away; blocked knockback lane → hold ground (no damage, no AP spent); stealthed beyond Chebyshev 1 not suppressed; no deploy/spawn of `$`/`T`; bruiser unchanged; skirmisher kiting regression guard holds.
+
+**Implementation note:** `src/game/ai/Juggernaut.ts` (glyph `j`, `ENEMY_ROLE.ELITE`) extends `PatrolHostile`; acquisition/patrol use baseline `SIGHT_RANGE` (8) while fire validation uses `JUGGERNAUT_SUPPRESS_RANGE` (5) only. Constants in `constants.ts`: `JUGGERNAUT_SUPPRESS_RANGE` (5), `JUGGERNAUT_SUPPRESS_AP` (1), `JUGGERNAUT_SUPPRESS_DAMAGE` (1), `JUGGERNAUT_PREFERRED_MIN` (3), plus `JUGGERNAUT_BASE_AP` (3 → 4 at T3 via the elite `apBonus`). `engageSteps` priority: (1) band-kite (skirmisher `#stepAwayFrom` mirror scoped to suppress range so it *maintains gunner distance* rather than fleeing to sight range), (2) **cornered shove** — adjacent with no band-kite tile → **no-damage knockback** (1 AP) that pushes the target 1 tile away along the away-vector via the shared `knockback.ts` helper (`awayVector` extracted from `Bruiser`; `knockbackByOffset` relocates silently), reopening the band; a blocked lane spends no AP and ends the turn (hold ground), (3) suppress via `resolveRanged` with `freeShot: true` (bypasses the 2-AP ranged gate so we charge the 1-AP suppress cost ourselves; normal hit roll + cover penalties + ranged NOISE), (4) `stepToward`. New `suppress` + `shove` turn-steps in `types.ts` (suppress carries the `RangedAttackResult`; shove carries the landing `to`); `corpTurnStatusCopy` formats both and surfaces them as incoming on the player even when the juggernaut tile is unseen. Full plumbing: `juggernaut` archetype/snapshot block + `PatrolHostile` restore (`persistence.ts`/`Run.ts`), `kindFromId → Juggernaut`, `archetypeOf`, bio-salvage loot (shared elite branch with Bruiser), `Run.enterCombat` `available.elites` now `[Bruiser, Juggernaut]`, KeyHelp/`mapKeyRows` legend adds `j` (and the previously-missing Bruiser `e`), precache + SW cache bump **`0.2.7e`**.
+
+**Design decision (point-blank, M4.2):** two locks were revised during implementation. **(a) Priority:** the spec listed suppress before shove, but at Chebyshev-1 a target is *always* in suppress range (5) and in LOS (no tile lies between adjacent cells), so suppress would always win and the shove branch was unreachable. Per the prose intent ("stand ground when cornered… shove instead of fleeing"), the shipped priority shoves when the target is **adjacent and no band-kite tile exists** (a dead-end), and suppresses from range ≥ 2 — point-blank suppress is never the chosen verb. **(b) Shove semantics:** the spec defined the shove as a 1-damage melee with *no* knockback (reserving knockback for the Bruiser). Playtest-review with Rylee revised this to a **no-damage knockback**: a 1-damage chip doesn't solve the cornered problem (the elite stays point-blank), whereas pushing the target out reopens the suppress band — the coherent loop for a "maintain gunner distance" elite. Kept distinct from the Bruiser: the Bruiser's knockback is an *offensive* tax on every connected heavy-melee hit; the Juggernaut's is a *defensive, cornered-only* spacing reset that deals no damage. `awayVector` is now shared in `knockback.ts`.
+
+**Test-seed note (M4.2):** widening `available.elites` to `[Bruiser, Juggernaut]` shifted the deterministic CRITICAL elite roll. Seed-pinned Bruiser tests moved to contract seed **5** (still a Bruiser); seed **7** now deterministically rolls a Juggernaut; the elite-anchor budget test is now class-agnostic. New `Juggernaut.test.ts` covers identity/stats, band suppress (1-AP/1-dmg), advance-when-out-of-range, band-kite-to-edge-then-suppress, move+suppress in one low-AP turn, cornered no-damage knockback (target pushed 1 tile), blocked-lane hold-ground, stealth gate, no-turret-spawn, and armor outlasting chip fire that kills a skirmisher.
+
+**Kaizen (M4.2):** suppress is uncapped per corp turn — at 4 AP a juggernaut already in the band can fire up to 4× (4 chip damage). Locked numbers per spec; revisit a per-turn suppress cap if playtest finds the soak elite out-damages its "attrition + inevitability" brief.
 
 **Elite mirror summary (M4):**
 
@@ -454,6 +465,43 @@ So a flanker that SLIDEs on corp turn N vanishes for the player's entire turn N+
 - Ranged **disruptor** applying debuff via LOS (AP-drain, turret stun) instead of HP damage.
 - Requires **status-effect system** (`Entity` status field, application/expiry, UI) — Phase 3 wants this for Cyberspace/Decker anyway.
 - **Recommendation:** design the primitive here so M1–M4 don't preclude it.
+
+### M6 — Snapshot schema slimming (persistence refactor)
+
+**Why this exists:** Building out the M2–M4 roster surfaced two persistence smells. (1) `restoreEntity` in `persistence.ts` is a ~400-line function with ~30 `if (rec.archetype === 'X')` blocks split across three phases (build props → construct → validate), mirrored by an `if/else if` chain in `Run.ts` `snapshotEntity`. (2) `RunEntitySnapshot` is a **god-type**: common fields plus ~24 hand-discriminated optional sub-blocks (`drone?`, `terminal?`, `door?`, …). Adding the Juggernaut required touching ~6 scattered sites — classic shotgun surgery. This is a **pure refactor: no gameplay change, no new save fields** (the on-disk *layout* changes; the data does not).
+
+**Architecture decision — Data Mapper, not Active Record.** Persistence logic stays centralized in `persistence.ts`; domain classes do **not** gain `restore`/`toSnapshot` methods and stay ignorant of the save format. Rationale: keep `Entity` a clean leaf and avoid inverting the dependency direction (domain → orchestrator). We explicitly considered and declined baking a static `restore` onto `Entity` — TypeScript can't enforce `abstract static` (so a dispatch registry is needed *regardless*), and it would force every entity to import the snapshot record shape.
+
+**The two axes (kept independent):**
+- **Axis A — logic location:** centralized **Data-Mapper registry** keyed by archetype id (chosen). Not class methods.
+- **Axis B — per-entity shape typing:** replace the god-union with an **opaque property bag** at the center + a **strict per-entity snapshot type** (chosen). This is the change that actually dissolves the god-type *and* removes any need for entities to import `RunEntitySnapshot`.
+
+**Locked design:**
+
+| Decision | Detail |
+|----------|--------|
+| Center type | `RunEntitySnapshot` slims to common fields (`id`, `x`, `y`, `faction`, `glyph`, `hp`/`maxHp`/`damageReduction`, `ap`/`maxAp`, `alive`, `stealthed`) + a single `extra?: EntitySnapshotExtra`. The ~24 optional sub-blocks collapse into `extra`. |
+| Shared leaf types | `JsonValue` and `EntitySnapshotExtra = { [k: string]: JsonValue }` live in the import-free `types.ts`. |
+| Per-entity shape | Each entity exports a **strict local** `XSnapshot` type (the shape that used to be its optional sub-block), e.g. `TerminalSnapshot`. `persistence.ts` imports those types (arrow points *up* into the persistence layer — entities import nothing new). |
+| Registry | A per-archetype `ENTITY_RESTORE` table with `{ create, buildProps(rec.extra) → throws on missing/malformed state, validate(rec, entity) }`. `restoreEntity` becomes a generic skeleton: `validateCommon → baseProps → crew/patrol props → buildProps → create → applyCommonState → restorePatrolState → validate`. `snapshotEntity` gets the symmetric treatment (typed `extra` per entity, no instanceof cascade). |
+| Bag hygiene | Bag fields are **non-optional / null-not-`undefined`** so they stay assignable to `JsonValue` (`undefined` is not JSON). |
+| Back-compat | **Must** read legacy saves: normalize pre-refactor top-level sub-blocks (`rec.terminal`, `rec.drone`, …) into `extra` on restore. Covered by a back-compat round-trip test against a legacy-shaped fixture. (No silent fallback — a shape we can't normalize throws.) |
+| Tautological guards | The `instanceof X` post-construct checks stay vestigial under Data Mapper (only fail on a mis-wired registry `create`); keep one cheap guard or drop per entry. Full deletion was the sole Active-Record win and we declined that path. |
+
+**Status:** **M6.1 ✅ done** — `PatrolSnapshotBlock` extracted (`Run.ts`), the 6-way nested ternary + per-archetype waypoint `if` blocks in `persistence.ts` collapsed into `patrolSnapshotBlock()` + `isPatrolArchetype()`, and `snapshotEntity`'s 6-branch patrol cascade reduced to one shared block + a key router. Save format unchanged; full suite green.
+
+**Next steps (M6.2 — its own clean turn):**
+
+1. **Safety net first (TDD).** Audit `persistence.test.ts` for throw-branch coverage; add **characterization tests** for every validation branch not already pinned (e.g. each `… requires state`, door glyph-mismatch, each `… did not restore as X`) *before* refactoring. This is the gate that makes the rewrite safe.
+2. Add `JsonValue` / `EntitySnapshotExtra` to `types.ts`.
+3. **Spike one entity end-to-end** (`Terminal`): export `TerminalSnapshot`, slim its slice of `RunEntitySnapshot` into `extra`, add its `ENTITY_RESTORE` entry + symmetric snapshot path, and prove the round-trip **and** a legacy-shape save both pass. Validate the ergonomics before scaling.
+4. Roll out remaining entities incrementally (each: export `XSnapshot`, add registry entry, drop its god-type sub-block), then collapse `restoreEntity` + `snapshotEntity` to the generic skeletons.
+5. Implement + test the legacy-save normalization.
+6. Bump the service-worker cache version (`0.2.7e` → next) since precached module surface changes.
+
+**Out of scope for M6 (separate axis, deferred):** converting the `archetypeOf` instanceof-chain and the `kindFromId` id-prefix chain to a class-level `static archetypeId` / label registry. Real smell, but ~24-file blast radius and orthogonal to the schema work — revisit after M6.2 if the appetite's there.
+
+**Kaizen note:** while reading `restoreEntity`, found the **`deny-target` post-construction validation is duplicated** (two near-identical blocks). The registry rollout naturally folds it into one entry; fix it then (or sooner if convenient).
 
 ---
 

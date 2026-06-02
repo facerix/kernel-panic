@@ -7,6 +7,7 @@ import { buildContractRecipeFixture, OBJECTIVES } from '../../../src/game/hub/Cu
 import { Terminal } from '../../../src/game/entities/Terminal.js';
 import { Guard } from '../../../src/game/ai/Guard.js';
 import { Bruiser } from '../../../src/game/ai/Bruiser.js';
+import { Juggernaut } from '../../../src/game/ai/Juggernaut.js';
 import {
   restore,
   restoreCampaign,
@@ -203,7 +204,9 @@ test('Guard round-trips through snapshot/restore as archetype "guard"', () => {
 
 test('Bruiser round-trips through snapshot/restore as archetype "bruiser"', () => {
   const run = new Run({ crewMember: makeCrew('razor'), seed: 7 });
-  run.enterBriefing(fakeContract({ seed: 42, difficulty: 'critical', threatCount: 4 }));
+  // contract seed 5 deterministically rolls a Bruiser (seed 42 now rolls a
+  // Juggernaut after M4.2 widened the CRITICAL elite pool).
+  run.enterBriefing(fakeContract({ seed: 5, difficulty: 'critical', threatCount: 4 }));
   run.enterCombat();
   const bruiser = [...run.world.entities.values()].find(e => e instanceof Bruiser);
   assert.ok(bruiser instanceof Bruiser, 'expected a Bruiser from this critical contract');
@@ -221,6 +224,30 @@ test('Bruiser round-trips through snapshot/restore as archetype "bruiser"', () =
   assert.equal(restored.glyph, 'e');
   assert.equal(restored.state, 'engage');
   assert.deepEqual(restored.lastKnownTarget, { x: 3, y: 8 });
+});
+
+test('Juggernaut round-trips through snapshot/restore as archetype "juggernaut"', () => {
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 7 });
+  // contract seed 7 deterministically rolls a Juggernaut elite.
+  run.enterBriefing(fakeContract({ seed: 7, difficulty: 'critical', threatCount: 4 }));
+  run.enterCombat();
+  const juggernaut = [...run.world.entities.values()].find(e => e instanceof Juggernaut);
+  assert.ok(juggernaut instanceof Juggernaut, 'expected a Juggernaut from this critical contract');
+  juggernaut.state = 'engage';
+  juggernaut.lastKnownTarget = { x: 5, y: 4 };
+
+  const rec = snapshot(run);
+  const jugRec = rec.entities.find(e => e.id === juggernaut.id);
+  assert.equal(jugRec?.archetype, 'juggernaut');
+  assert.ok(jugRec?.juggernaut, 'state machine lives in the juggernaut block');
+  assert.equal(jugRec.bruiser, undefined, 'a juggernaut does not write a bruiser record');
+
+  const { world: restoredWorld } = restore(rec);
+  const restored = [...restoredWorld.entities.values()].find(e => e.id === juggernaut.id);
+  assert.ok(restored instanceof Juggernaut, 'restored as a Juggernaut');
+  assert.equal(restored.glyph, 'j');
+  assert.equal(restored.state, 'engage');
+  assert.deepEqual(restored.lastKnownTarget, { x: 5, y: 4 });
 });
 
 test('restore preserves turnNumber and currentFaction', () => {
