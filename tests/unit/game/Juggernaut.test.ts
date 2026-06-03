@@ -69,7 +69,11 @@ test('Juggernaut at T3 has high HP, an armor floor, and low (elite-bumped) AP', 
   const jug = new Juggernaut({ id: 'juggernaut-0', x: 1, y: 1, tier: ENEMY_TIER.T3 });
   // DEFAULT_HP (3) × 1.5 = 4.5 → ceil 5; base AP 3 + elite apBonus 1 = 4; armor floor 1.
   assert.equal(jug.maxHp, 5);
-  assert.equal(jug.maxAp, 4, 'low base AP (3) lifted to 4 — never the skirmisher 4-AP-from-fodder dance');
+  assert.equal(
+    jug.maxAp,
+    4,
+    'low base AP (3) lifted to 4 — never the skirmisher 4-AP-from-fodder dance'
+  );
   assert.ok(jug.damageReduction >= 1, 'elite armor floor');
 });
 
@@ -227,7 +231,11 @@ test('Juggernaut never deploys or spawns a turret entity', () => {
 
   const log = jug.takeTurn(w, alwaysHit());
 
-  assert.equal([...w.entities.values()].length, 2, 'no new entity spawned (body is the denial asset)');
+  assert.equal(
+    [...w.entities.values()].length,
+    2,
+    'no new entity spawned (body is the denial asset)'
+  );
   assert.ok(
     log.every(step => ['suppress', 'move-engage', 'melee'].includes(step.type)),
     'only band-control verbs — no deploy step'

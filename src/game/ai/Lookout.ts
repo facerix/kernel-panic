@@ -1,13 +1,13 @@
 /**
- * Tier-2 **Spotter** — a mobile combat specialist that never fires. Its force
+ * Tier-2 **Lookout** — a mobile combat specialist that never fires. Its force
  * multiplier is *coordination*: every corp turn it holds line of sight, it
  * pings the fireteam with the target's fresh coordinates, dragging every
  * subscribed patrol hostile onto the player (and refreshing stale pursuit data
  * so kiting doesn't shake them). Kill it, or keep breaking its sight, to defuse
  * the encounter — it is the canonical start of the T2 priority-target puzzle.
  *
- * **Not a `CorpCivilian`** (see phase-2.7-plan.md → "CorpCivilian vs Spotter"):
- * - Emits `ALARM` with `kind: 'spotter'` *directly on the bus* — no
+ * **Not a `CorpCivilian`** (see phase-2.7-plan.md → "CorpCivilian vs Lookout"):
+ * - Emits `ALARM` with `kind: 'lookout'` *directly on the bus* — no
  *   `World.raiseAlarm()`, so no facility latch and no Rep penalty.
  * - Pings **every** corp turn it holds LOS (civilians fire once per alert).
  * - Uses standard combat LOS (cover does not block it) and Hostile stealth
@@ -30,7 +30,7 @@ import {
   AP_COST,
   ENEMY_ROLE,
   ENEMY_TIER,
-  SPOTTER_SIGHT_RANGE,
+  LOOKOUT_SIGHT_RANGE,
   resolveEnemyStats,
 } from '../constants.js';
 import type { EnemyTier } from '../constants.js';
@@ -41,7 +41,7 @@ import type { Entity } from '../Entity.js';
 import type { World } from '../World.js';
 import type { Rng } from '../../rng.js';
 
-export interface SpotterProps extends Omit<PatrolHostileInit, 'faction' | 'glyph'> {
+export interface LookoutProps extends Omit<PatrolHostileInit, 'faction' | 'glyph'> {
   tier?: EnemyTier;
 }
 
@@ -56,19 +56,19 @@ const NEIGHBOR_OFFSETS: ReadonlyArray<readonly [number, number]> = Object.freeze
   [1, 1],
 ]);
 
-export class Spotter extends PatrolHostile {
+export class Lookout extends PatrolHostile {
   constructor({
     tier = ENEMY_TIER.T2,
-    sightRange = SPOTTER_SIGHT_RANGE,
+    sightRange = LOOKOUT_SIGHT_RANGE,
     patrolWaypoints,
     ...props
-  }: SpotterProps) {
+  }: LookoutProps) {
     const stats = resolveEnemyStats(props, ENEMY_ROLE.SPECIALIST, tier);
-    super({ ...props, ...stats, sightRange, faction: FACTION.CORP, glyph: 's', patrolWaypoints });
+    super({ ...props, ...stats, sightRange, faction: FACTION.CORP, glyph: 'l', patrolWaypoints });
   }
 
   /**
-   * The spotter emits `spotter`-kind alarms; it must never consume them — no
+   * The lookout emits `lookout`-kind alarms; it must never consume them — no
    * self-wake, no coupling to the facility latch. (Axis 1 of the locked design.)
    */
   protected override listensForAlarm(): boolean {
@@ -82,7 +82,7 @@ export class Spotter extends PatrolHostile {
    */
   protected override *engageSteps(world: World, _rng: Rng, target: Entity): EngageSteps {
     world.events?.emit(EVENT.ALARM, {
-      kind: ALARM_KIND.SPOTTER,
+      kind: ALARM_KIND.LOOKOUT,
       source: this,
       target,
       origin: { x: this.x, y: this.y },
@@ -103,7 +103,7 @@ export class Spotter extends PatrolHostile {
   /**
    * Lost LOS: head for the farthest tile that *restores* sight to the lead,
    * not the lead itself. Falls back to closing in (base `stepToward`) when no
-   * reachable neighbour regains LOS, so the spotter can reacquire.
+   * reachable neighbour regains LOS, so the lookout can reacquire.
    */
   protected override investigateStep(
     world: World,

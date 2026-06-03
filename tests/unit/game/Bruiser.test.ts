@@ -38,7 +38,7 @@ test('Bruiser is a corp-faction elite PatrolHostile with the elite glyph', () =>
   assert.ok(!(bruiser instanceof Guard), 'sibling of Guard, not a subclass');
   assert.ok(!(bruiser instanceof Skirmisher), 'not a ranged skirmisher');
   assert.equal(bruiser.faction, FACTION.CORP);
-  assert.equal(bruiser.glyph, 'e');
+  assert.equal(bruiser.glyph, 'b');
 });
 
 test('Bruiser at T3 has elite durability, armor floor, fast AP, and heavy melee', () => {

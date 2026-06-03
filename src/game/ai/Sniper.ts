@@ -1,5 +1,5 @@
 /**
- * Tier-2 **Sniper** — a long-range, telegraphed specialist. Unlike the Spotter
+ * Tier-2 **Sniper** — a long-range, telegraphed specialist. Unlike the Lookout
  * (which coordinates fodder via `ALARM` pings), the sniper is a *self-contained
  * personal threat*: break its line of sight, close the distance, or eat a heavy
  * guaranteed shot. It has no ally force-multiplier.
@@ -18,7 +18,7 @@
  *    loop so a held shot resolves even when live LOS is gone.
  *  - **Reposition mirror** of the skirmisher kite (`preferredMin`): retreat when
  *    a target closes inside the band, then aim from range. Never melees.
- *  - **Vantage pathing** (Spotter mirror): investigate and blocked-engage seek
+ *  - **Vantage pathing** (Lookout mirror): investigate and blocked-engage seek
  *    the farthest tile that restores LOS — never blindly close on the lead like
  *    fodder. Out-of-range approach still closes, but picks the farthest in-range
  *    step. No vantage → hold or abandon the lead, don't charge.
@@ -91,7 +91,7 @@ export class Sniper extends PatrolHostile {
     ...props
   }: SniperProps) {
     const stats = resolveEnemyStats(props, ENEMY_ROLE.SPECIALIST, tier);
-    super({ ...props, ...stats, sightRange, faction: FACTION.CORP, glyph: 'n', patrolWaypoints });
+    super({ ...props, ...stats, sightRange, faction: FACTION.CORP, glyph: 's', patrolWaypoints });
     const band = preferredMin ?? PREFERRED_MIN;
     if (!Number.isInteger(band) || band < 0) {
       throw new RangeError(`Sniper preferredMin must be a non-negative integer, got ${band}`);
@@ -147,7 +147,7 @@ export class Sniper extends PatrolHostile {
 
   /**
    * Lost LOS: seek the farthest tile that *restores* sight to the lead — same
-   * vantage hunt as the Spotter. Unlike fodder, never blindly closes on the
+   * vantage hunt as the Lookout. Unlike fodder, never blindly closes on the
    * coordinate; if no neighbour regains LOS, abandon the lead.
    */
   protected override investigateStep(

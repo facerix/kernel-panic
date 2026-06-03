@@ -52,7 +52,7 @@ import { Skirmisher, type SkirmisherProps } from './ai/Skirmisher.js';
 import { Guard, type GuardProps } from './ai/Guard.js';
 import { Bruiser, type BruiserProps } from './ai/Bruiser.js';
 import { Juggernaut, type JuggernautProps } from './ai/Juggernaut.js';
-import { Spotter, type SpotterProps } from './ai/Spotter.js';
+import { Lookout, type LookoutProps } from './ai/Lookout.js';
 import { Sniper, type SniperProps } from './ai/Sniper.js';
 import { PatrolHostile, PATROL_STATE } from './ai/PatrolHostile.js';
 import { CorpCivilian } from './entities/CorpCivilian.js';
@@ -120,7 +120,7 @@ type RestoreEntityProps = Partial<
     GuardProps &
     BruiserProps &
     JuggernautProps &
-    SpotterProps &
+    LookoutProps &
     SniperProps &
     CorpCivilianInit &
     NeutralCivilianInit &
@@ -158,7 +158,7 @@ const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) =
     guard: (props: RestoreEntityProps) => new Guard(props as GuardProps),
     bruiser: (props: RestoreEntityProps) => new Bruiser(props as BruiserProps),
     juggernaut: (props: RestoreEntityProps) => new Juggernaut(props as JuggernautProps),
-    spotter: (props: RestoreEntityProps) => new Spotter(props as SpotterProps),
+    lookout: (props: RestoreEntityProps) => new Lookout(props as LookoutProps),
     sniper: (props: RestoreEntityProps) => new Sniper(props as SniperProps),
     'corp-civilian': (props: RestoreEntityProps) => new CorpCivilian(props as CorpCivilianInit),
     'neutral-civilian': (props: RestoreEntityProps) =>
@@ -214,8 +214,8 @@ function patrolSnapshotBlock(
       return rec.bruiser ?? null;
     case 'juggernaut':
       return rec.juggernaut ?? null;
-    case 'spotter':
-      return rec.spotter ?? null;
+    case 'lookout':
+      return rec.lookout ?? null;
     case 'sniper':
       return rec.sniper ?? null;
     default:

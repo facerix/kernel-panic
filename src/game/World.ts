@@ -105,7 +105,7 @@ export class World {
     this.alarm = alertAlarm(previous.triggers + 1);
     this.events?.emit(EVENT.ALARM, {
       // Facility-cadence alarm. The `kind` discriminator (M3.1) lets patrol
-      // hostiles distinguish a building-wide raise from a Spotter's direct
+      // hostiles distinguish a building-wide raise from a Lookout's direct
       // target-share ping; only `facility` latches the cadence / Rep penalty.
       kind: ALARM_KIND.FACILITY,
       ...context,

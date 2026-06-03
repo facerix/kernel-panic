@@ -49,7 +49,7 @@ const CacheConfig = {
       '/src/game/ai/Guard.js',
       '/src/game/ai/Bruiser.js',
       '/src/game/ai/Juggernaut.js',
-      '/src/game/ai/Spotter.js',
+      '/src/game/ai/Lookout.js',
       '/src/game/ai/Sniper.js',
       '/src/game/ai/PatrolHostile.js',
       '/src/game/breachBlast.js',

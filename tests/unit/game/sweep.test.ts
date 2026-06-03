@@ -13,7 +13,7 @@ import assert from 'node:assert/strict';
 import { RelayNode } from '../../../src/game/entities/RelayNode.js';
 import { CorpTurret } from '../../../src/game/entities/CorpTurret.js';
 import { Skirmisher } from '../../../src/game/ai/Skirmisher.js';
-import { Spotter } from '../../../src/game/ai/Spotter.js';
+import { Lookout } from '../../../src/game/ai/Lookout.js';
 import { entityLabel } from '../../../src/game/Entity.js';
 import { Grid } from '../../../src/game/Grid.js';
 import { World } from '../../../src/game/World.js';
@@ -130,23 +130,23 @@ describe('Sweep objective (hostile-all)', () => {
   it('includes specialists in the hostile quota', () => {
     const world = makeWorld();
     const drone = new Skirmisher({ id: 'drone-0', x: 3, y: 3 });
-    const spotter = new Spotter({ id: 'spotter-0', x: 5, y: 5 });
+    const lookout = new Lookout({ id: 'lookout-0', x: 5, y: 5 });
     world.addEntity(drone);
-    world.addEntity(spotter);
+    world.addEntity(lookout);
     const contract = makeSweepContract('hostile-all');
 
     drone.damage(drone.maxHp);
-    assert.equal(isObjectiveSatisfied(contract, world), false, 'spotter still holds the site');
-    spotter.damage(spotter.maxHp);
+    assert.equal(isObjectiveSatisfied(contract, world), false, 'lookout still holds the site');
+    lookout.damage(lookout.maxHp);
     assert.equal(isObjectiveSatisfied(contract, world), true);
   });
 
   it('accepts legacy drone-all as a hostile-all alias for old saves', () => {
     const world = makeWorld();
     const drone = new Skirmisher({ id: 'drone-0', x: 3, y: 3 });
-    const spotter = new Spotter({ id: 'spotter-0', x: 5, y: 5 });
+    const lookout = new Lookout({ id: 'lookout-0', x: 5, y: 5 });
     world.addEntity(drone);
-    world.addEntity(spotter);
+    world.addEntity(lookout);
     const contract = makeSweepContract('drone-all');
 
     drone.damage(drone.maxHp);
@@ -155,7 +155,7 @@ describe('Sweep objective (hostile-all)', () => {
       false,
       'legacy alias still counts specialists'
     );
-    spotter.damage(spotter.maxHp);
+    lookout.damage(lookout.maxHp);
     assert.equal(isObjectiveSatisfied(contract, world), true);
   });
 

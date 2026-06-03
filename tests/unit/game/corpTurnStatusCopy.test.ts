@@ -159,9 +159,9 @@ test('isCorpTurnStepLogVisibleToPlayer: hit on turret that survives still requir
   );
 });
 
-test('formatCorpTurnStep narrates a spotter mark with the target label', () => {
-  const line = formatCorpTurnStep('[Corp]Spotter', { type: 'spot', target: 'p1' }, () => 'you');
-  assert.match(line, /\[Corp\]Spotter marks you/);
+test('formatCorpTurnStep narrates a lookout mark with the target label', () => {
+  const line = formatCorpTurnStep('[Corp]Lookout', { type: 'spot', target: 'p1' }, () => 'you');
+  assert.match(line, /\[Corp\]Lookout marks you/);
   assert.match(line, /converging/i);
 });
 
@@ -187,7 +187,7 @@ test('formatCorpTurnStep narrates melee knockback when present', () => {
   assert.match(line, /Patch is shoved to \(4, 2\)/);
 });
 
-test('isCorpTurnStepLogVisibleToPlayer: a spotter mark on the player is felt even when unseen', () => {
+test('isCorpTurnStepLogVisibleToPlayer: a lookout mark on the player is felt even when unseen', () => {
   const { world } = makeDroneWorld();
   const step = { type: 'spot' as const, target: 'p1' };
   assert.equal(
@@ -196,7 +196,7 @@ test('isCorpTurnStepLogVisibleToPlayer: a spotter mark on the player is felt eve
   );
 });
 
-test('isCorpTurnStepLogVisibleToPlayer: a spotter mark on another target requires a visible spotter', () => {
+test('isCorpTurnStepLogVisibleToPlayer: a lookout mark on another target requires a visible lookout', () => {
   const { world } = makeDroneWorld();
   const step = { type: 'spot' as const, target: 'other' };
   assert.equal(

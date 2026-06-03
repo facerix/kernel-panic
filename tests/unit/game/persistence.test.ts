@@ -221,7 +221,7 @@ test('Bruiser round-trips through snapshot/restore as archetype "bruiser"', () =
   const { world: restoredWorld } = restore(rec);
   const restored = [...restoredWorld.entities.values()].find(e => e.id === bruiser.id);
   assert.ok(restored instanceof Bruiser, 'restored as a Bruiser');
-  assert.equal(restored.glyph, 'e');
+  assert.equal(restored.glyph, 'b');
   assert.equal(restored.state, 'engage');
   assert.deepEqual(restored.lastKnownTarget, { x: 3, y: 8 });
 });

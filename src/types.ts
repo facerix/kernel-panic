@@ -74,11 +74,11 @@ export type PatrolHostileTurnStep =
 export type CorpCivilianTurnStep = { type: 'alarm'; target: string };
 
 /**
- * Spotter target-share step (Phase 2.7 M3.1) — yielded each corp turn the
- * spotter holds LOS and pings the fireteam with the target's fresh coords. The
- * spotter never attacks, so this is its only combat-relevant yield.
+ * Lookout target-share step (Phase 2.7 M3.1) — yielded each corp turn the
+ * lookout holds LOS and pings the fireteam with the target's fresh coords. The
+ * lookout never attacks, so this is its only combat-relevant yield.
  */
-export type SpotterTurnStep = { type: 'spot'; target: string };
+export type LookoutTurnStep = { type: 'spot'; target: string };
 
 /**
  * Sniper telegraph steps (Phase 2.7 M3.2). `aim` is yielded the corp turn the
@@ -119,7 +119,7 @@ export type NeutralCivilianTurnStep =
 export type TurnActionStep =
   | PatrolHostileTurnStep
   | CorpCivilianTurnStep
-  | SpotterTurnStep
+  | LookoutTurnStep
   | SniperTurnStep
   | JuggernautTurnStep
   | NeutralCivilianTurnStep;

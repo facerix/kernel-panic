@@ -12,7 +12,7 @@ export const ENEMY_ARCHETYPE = Object.freeze({
   SKIRMISHER: 'skirmisher',
   GUARD: 'guard',
   SNIPER: 'sniper',
-  SPOTTER: 'spotter',
+  LOOKOUT: 'lookout',
   MEDIC: 'medic',
   BRUISER: 'bruiser',
   JUGGERNAUT: 'juggernaut',
@@ -57,7 +57,7 @@ export type ComposeEncounterOptions = Readonly<{
 const FODDER_ARCHETYPES = Object.freeze([ENEMY_ARCHETYPE.SKIRMISHER, ENEMY_ARCHETYPE.GUARD]);
 const SPECIALIST_ARCHETYPES = Object.freeze([
   ENEMY_ARCHETYPE.SNIPER,
-  ENEMY_ARCHETYPE.SPOTTER,
+  ENEMY_ARCHETYPE.LOOKOUT,
   ENEMY_ARCHETYPE.MEDIC,
 ]);
 const ELITE_ARCHETYPES = Object.freeze([

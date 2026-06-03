@@ -154,17 +154,17 @@ test('STANDARD encounter fills fodder anchors with a deterministic skirmisher/gu
   const ids = [...run.world.entities.values()].map(e => e.id);
   assert.equal(ids.filter(id => id.startsWith('guard-')).length, 2);
   assert.equal(ids.filter(id => id.startsWith('drone-')).length, 1);
-  assert.equal(ids.filter(id => id.startsWith('spotter-')).length, 0, 'STANDARD has no specialist');
+  assert.equal(ids.filter(id => id.startsWith('lookout-')).length, 0, 'STANDARD has no specialist');
 });
 
 test('ELEVATED encounter spawns fodder plus exactly one specialist', () => {
   // Phase 2.7 M3: ELEVATED (T2) rolls one specialist from the buildable pool
-  // ([sniper, spotter] in canonical order). Seed 7 → sniper on this roster.
+  // ([sniper, lookout] in canonical order). Seed 7 → sniper on this roster.
   const run = new Run({ crewMember: makeCrew('razor'), seed: 1 });
   run.enterBriefing(fakeContract({ seed: 7, difficulty: 'elevated', threatCount: 3 }));
   run.enterCombat();
   const specialists = [...run.world.entities.values()].filter(
-    e => e.id.startsWith('spotter-') || e.id.startsWith('sniper-')
+    e => e.id.startsWith('lookout-') || e.id.startsWith('sniper-')
   );
   assert.equal(specialists.length, 1, 'exactly one T2 specialist');
   assert.equal(specialists[0].constructor.name, 'Sniper');
@@ -174,24 +174,24 @@ test('ELEVATED encounter spawns fodder plus exactly one specialist', () => {
   assert.equal(fodder.length, 3, 'fodder count still tracks threatCount');
 });
 
-test('a spawned Spotter round-trips through a run snapshot', () => {
+test('a spawned Lookout round-trips through a run snapshot', () => {
   const run = new Run({ crewMember: makeCrew('razor'), seed: 1 });
   run.enterBriefing(fakeContract({ seed: 3, difficulty: 'elevated', threatCount: 3 }));
   run.enterCombat();
-  const before = [...run.world.entities.values()].find(e => e.id.startsWith('spotter-'));
-  assert.ok(before, 'spotter present pre-snapshot');
+  const before = [...run.world.entities.values()].find(e => e.id.startsWith('lookout-'));
+  assert.ok(before, 'lookout present pre-snapshot');
   before.state = 'investigate';
   before.lastKnownTarget = { x: before.x, y: before.y };
 
   const rec = snapshot(run);
   assert.ok(
-    rec.entities.some(entity => entity.archetype === 'spotter'),
-    'spotter serialised under its own archetype'
+    rec.entities.some(entity => entity.archetype === 'lookout'),
+    'lookout serialised under its own archetype'
   );
   const { world } = restore(rec);
-  const after = [...world.entities.values()].find(e => e.id.startsWith('spotter-'));
-  assert.ok(after, 'spotter survives the round-trip');
-  assert.equal(after.constructor.name, 'Spotter');
+  const after = [...world.entities.values()].find(e => e.id.startsWith('lookout-'));
+  assert.ok(after, 'lookout survives the round-trip');
+  assert.equal(after.constructor.name, 'Lookout');
   assert.equal(after.x, before.x);
   assert.equal(after.y, before.y);
   assert.equal(after.state, 'investigate');
@@ -237,7 +237,7 @@ test('a spawned Bruiser round-trips through a run snapshot', () => {
   const { world } = restore(rec);
   const after = [...world.entities.values()].find(e => e.id === before.id);
   assert.ok(after instanceof Bruiser, 'bruiser survives the round-trip');
-  assert.equal(after.glyph, 'e');
+  assert.equal(after.glyph, 'b');
   assert.equal(after.state, 'investigate');
   assert.deepEqual(after.lastKnownTarget, before.lastKnownTarget);
 });

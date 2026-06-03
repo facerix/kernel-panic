@@ -206,7 +206,7 @@ function kindFromId(id: string): string {
   if (id.startsWith('guard')) return 'Guard';
   if (id.startsWith('bruiser')) return 'Bruiser';
   if (id.startsWith('juggernaut')) return 'Juggernaut';
-  if (id.startsWith('spotter')) return 'Spotter';
+  if (id.startsWith('lookout')) return 'Lookout';
   if (id.startsWith('sniper')) return 'Sniper';
   if (id.startsWith('neutral-civ')) return 'Civilian';
   if (id.startsWith('corp-civ')) return 'Civilian';

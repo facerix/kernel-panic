@@ -49,7 +49,7 @@ test('CorpCivilian emits alarm when player is in LOS', () => {
   assert.equal(payload.source, civ);
   assert.equal(payload.target, player);
   // M3.1: facility raises carry the `facility` kind so patrol hostiles can tell
-  // a building-wide alert from a spotter's direct ping. Civilian behaviour is
+  // a building-wide alert from a lookout's direct ping. Civilian behaviour is
   // otherwise unchanged (regression guard).
   assert.equal(payload.kind, ALARM_KIND.FACILITY);
   assert.equal(world.alarmActive, true, 'alarm should latch on the world');

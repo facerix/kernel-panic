@@ -299,7 +299,7 @@ test('buildFrame reveals a sniper holding aim when the player closes within 5 ti
   w.addEntity(player);
   w.addEntity(sniper);
   const frame = buildFrame(w, { x: 0, y: 0, width: 10, height: 4 }, { player });
-  assert.equal(cellAt(frame, 6, 1).char, 'n', 'revealed sniper glyph at cheb 5');
+  assert.equal(cellAt(frame, 6, 1).char, 's', 'revealed sniper glyph at cheb 5');
 });
 
 test('buildFrame composes a red crosshair over the sniper aim target glyph', () => {

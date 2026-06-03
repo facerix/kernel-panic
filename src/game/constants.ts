@@ -146,17 +146,17 @@ export const SIGHT_RANGE = 8;
 export const PREFERRED_MIN = 3;
 
 /**
- * Spotter vision range (Phase 2.7 M3.1). The mobile T2 specialist marks the
+ * Lookout vision range (Phase 2.7 M3.1). The mobile T2 specialist marks the
  * player for the fireteam at a longer reach than baseline `SIGHT_RANGE` (8) so
  * it can coordinate fire from a vantage the player hasn't closed on yet. `12`
  * is the playtest ceiling if `10` proves too short. The Sniper (`12`) reaches
- * further still; the spotter sits between fodder and sniper.
+ * further still; the lookout sits between fodder and sniper.
  */
-export const SPOTTER_SIGHT_RANGE = 10;
+export const LOOKOUT_SIGHT_RANGE = 10;
 
 /**
  * Sniper parameters (Phase 2.7 M3.2). The T2 long-range specialist out-reaches
- * fodder (`SIGHT_RANGE` 8) and the spotter (10): it acquires and fires from
+ * fodder (`SIGHT_RANGE` 8) and the lookout (10): it acquires and fires from
  * `SNIPER_SIGHT_RANGE` so the player must break LOS or close to answer it.
  *
  * It is **telegraphed** — aim on corp turn N, fire on N+1 — leaving a full

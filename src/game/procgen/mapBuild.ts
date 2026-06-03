@@ -424,7 +424,7 @@ function buildMapOnce(mapRng: Rng, options: BuildMapOptions): Map {
 
   // Specialist anchors (Phase 2.7 M3) — one per rolled specialist on
   // ELEVATED/CRITICAL. Picked from FLOOR tiles in non-spawn leaves *after*
-  // fodder so they never collide; each gets a synthesised patrol so a spotter
+  // fodder so they never collide; each gets a synthesised patrol so a lookout
   // sweeps for vantage rather than standing still. Fail loud if the map can't
   // budget them (M1.5 anchor budget) — that footprint is illegal for the tier.
   const specialistCount = specialistAnchorCount(difficulty);

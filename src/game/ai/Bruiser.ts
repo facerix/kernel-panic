@@ -26,7 +26,7 @@ export interface BruiserProps extends Omit<PatrolHostileInit, 'faction' | 'glyph
 export class Bruiser extends PatrolHostile {
   constructor({ tier = ENEMY_TIER.T3, patrolWaypoints, ...props }: BruiserProps) {
     const stats = resolveEnemyStats(props, ENEMY_ROLE.ELITE, tier);
-    super({ ...props, ...stats, faction: FACTION.CORP, glyph: 'e', patrolWaypoints });
+    super({ ...props, ...stats, faction: FACTION.CORP, glyph: 'b', patrolWaypoints });
   }
 
   get meleeDamage(): number {

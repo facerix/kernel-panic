@@ -104,7 +104,7 @@ export function isCorpTurnStepLogVisibleToPlayer(
     return true;
   }
 
-  // A spotter marking the player is felt even when the spotter itself is unseen
+  // A lookout marking the player is felt even when the lookout itself is unseen
   // — "this fireteam is coordinating on you right now." Surface it like a shot.
   if (step.type === 'spot' && step.target === playerId) {
     return true;

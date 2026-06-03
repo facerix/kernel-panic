@@ -45,13 +45,13 @@ const KNOWN_TYPES = new Set<string>(Object.values(EVENT));
  *   - **`facility`** — the building noticed you. Emitted by `World.raiseAlarm()`
  *     (CorpCivilian / terminal). Latches the facility alarm cadence and carries
  *     the Rep penalty. Default kind for legacy emits that omit one.
- *   - **`spotter`** — a `Spotter` is calling fire on you *right now*. Emitted
+ *   - **`lookout`** — a `Lookout` is calling fire on you *right now*. Emitted
  *     directly on the bus, every corp turn it holds LOS. No facility latch, no
- *     Rep penalty — kill the spotter or break its sight to stop the pings.
+ *     Rep penalty — kill the lookout or break its sight to stop the pings.
  */
 export const ALARM_KIND = Object.freeze({
   FACILITY: 'facility',
-  SPOTTER: 'spotter',
+  LOOKOUT: 'lookout',
 });
 
 export type AlarmKind = (typeof ALARM_KIND)[keyof typeof ALARM_KIND];

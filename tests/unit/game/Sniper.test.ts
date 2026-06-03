@@ -35,7 +35,7 @@ test('Sniper is a corp PatrolHostile with its own glyph and the longest sight', 
   assert.ok(sniper instanceof PatrolHostile, 'shares the patrol state machine');
   assert.ok(!(sniper instanceof Skirmisher), 'is a sibling of Skirmisher, not a subclass');
   assert.equal(sniper.faction, FACTION.CORP);
-  assert.equal(sniper.glyph, 'n');
+  assert.equal(sniper.glyph, 's');
   assert.equal(sniper.sightRange, SNIPER_SIGHT_RANGE);
   assert.equal(sniper.aimTargetId, null);
 });

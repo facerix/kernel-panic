@@ -110,8 +110,8 @@ export abstract class PatrolHostile extends Hostile {
       this.#onNoise(payload as NoiseEventPayload)
     );
     this.#unsubs.push(offNoise);
-    // A `Spotter` opts out of the ALARM bus (`listensForAlarm() === false`):
-    // it is the *source* of `spotter`-kind pings and must not self-wake or
+    // A `Lookout` opts out of the ALARM bus (`listensForAlarm() === false`):
+    // it is the *source* of `lookout`-kind pings and must not self-wake or
     // couple to the facility latch. Skirmishers/guards subscribe (default).
     if (this.listensForAlarm()) {
       const offAlarm = events.on(EVENT.ALARM, (payload: unknown) =>
@@ -123,9 +123,9 @@ export abstract class PatrolHostile extends Hostile {
   }
 
   /**
-   * Whether this unit reacts to `ALARM` bus events (facility *and* spotter
+   * Whether this unit reacts to `ALARM` bus events (facility *and* lookout
    * kinds). Override to `false` for units that emit alarms but must not consume
-   * them (the `Spotter`). Default: subscribe.
+   * them (the `Lookout`). Default: subscribe.
    */
   protected listensForAlarm(): boolean {
     return true;
@@ -283,7 +283,7 @@ export abstract class PatrolHostile extends Hostile {
   /**
    * Movement chosen while INVESTIGATING a `lastKnownTarget` coordinate (no live
    * target in sight). Default: A* one step toward the lead. Overridden by the
-   * `Spotter`, which seeks a *distance-maximising vantage* that restores LOS to
+   * `Lookout`, which seeks a *distance-maximising vantage* that restores LOS to
    * the lead rather than closing on it. Returns `null` when no useful move
    * exists (the loop then abandons the lead and resumes patrol).
    */

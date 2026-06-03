@@ -107,25 +107,25 @@ test('available allowlist restricts the specialist roll to buildable archetypes'
       seed,
       difficulty: CONTRACT_DIFFICULTY.ELEVATED,
       fodderCount: 3,
-      available: { specialists: [ENEMY_ARCHETYPE.SPOTTER], elites: [] },
+      available: { specialists: [ENEMY_ARCHETYPE.LOOKOUT], elites: [] },
     });
     const specialists = composition.entries.filter(e => e.role === ENEMY_ROLE.SPECIALIST);
     assert.equal(specialists.length, 1, `seed ${seed} still has exactly one specialist`);
-    assert.equal(specialists[0].archetype, ENEMY_ARCHETYPE.SPOTTER, `seed ${seed}`);
+    assert.equal(specialists[0].archetype, ENEMY_ARCHETYPE.LOOKOUT, `seed ${seed}`);
   }
 });
 
-test('spotter+sniper allowlist rolls only buildable T2 specialists', () => {
+test('lookout+sniper allowlist rolls only buildable T2 specialists', () => {
   for (let seed = 0; seed < 200; seed++) {
     const composition = composeEncounter({
       seed,
       difficulty: CONTRACT_DIFFICULTY.ELEVATED,
       fodderCount: 3,
-      available: { specialists: [ENEMY_ARCHETYPE.SPOTTER, ENEMY_ARCHETYPE.SNIPER], elites: [] },
+      available: { specialists: [ENEMY_ARCHETYPE.LOOKOUT, ENEMY_ARCHETYPE.SNIPER], elites: [] },
     });
     const spec = composition.entries.find(e => e.role === ENEMY_ROLE.SPECIALIST);
     assert.ok(
-      spec?.archetype === ENEMY_ARCHETYPE.SPOTTER || spec?.archetype === ENEMY_ARCHETYPE.SNIPER,
+      spec?.archetype === ENEMY_ARCHETYPE.LOOKOUT || spec?.archetype === ENEMY_ARCHETYPE.SNIPER,
       `seed ${seed}`
     );
   }
@@ -138,7 +138,7 @@ test('bruiser elite allowlist rolls only the buildable T3 elite', () => {
       difficulty: CONTRACT_DIFFICULTY.CRITICAL,
       fodderCount: 4,
       available: {
-        specialists: [ENEMY_ARCHETYPE.SPOTTER],
+        specialists: [ENEMY_ARCHETYPE.LOOKOUT],
         elites: [ENEMY_ARCHETYPE.BRUISER],
       },
     });
@@ -155,12 +155,12 @@ test('empty elite allowlist composes no elite (never a reskin or silent drop)', 
     seed: 789,
     difficulty: CONTRACT_DIFFICULTY.CRITICAL,
     fodderCount: 4,
-    available: { specialists: [ENEMY_ARCHETYPE.SPOTTER], elites: [] },
+    available: { specialists: [ENEMY_ARCHETYPE.LOOKOUT], elites: [] },
   });
   assert.equal(composition.entries.filter(e => e.role === ENEMY_ROLE.ELITE).length, 0);
   const specialists = composition.entries.filter(e => e.role === ENEMY_ROLE.SPECIALIST);
   assert.equal(specialists.length, 1);
-  assert.equal(specialists[0].archetype, ENEMY_ARCHETYPE.SPOTTER);
+  assert.equal(specialists[0].archetype, ENEMY_ARCHETYPE.LOOKOUT);
 });
 
 test('an empty specialist allowlist composes no specialist', () => {

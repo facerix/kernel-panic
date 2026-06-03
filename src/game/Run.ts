@@ -51,7 +51,7 @@ import { Skirmisher } from './ai/Skirmisher.js';
 import { Guard } from './ai/Guard.js';
 import { Bruiser } from './ai/Bruiser.js';
 import { Juggernaut } from './ai/Juggernaut.js';
-import { Spotter } from './ai/Spotter.js';
+import { Lookout } from './ai/Lookout.js';
 import { Sniper } from './ai/Sniper.js';
 import { PatrolHostile } from './ai/PatrolHostile.js';
 import { composeEncounter, ENEMY_ARCHETYPE } from './encounters.js';
@@ -113,7 +113,7 @@ export type EntityArchetypeId =
   | 'guard'
   | 'bruiser'
   | 'juggernaut'
-  | 'spotter'
+  | 'lookout'
   | 'sniper'
   | 'corp-civilian'
   | 'neutral-civilian'
@@ -165,7 +165,7 @@ export type ObjectiveProgressSnapshot = {
 
 /**
  * Serialised `PatrolHostile` state machine. Every patrol hostile (Skirmisher,
- * Guard, Bruiser, Juggernaut, Spotter, Sniper) round-trips this identical block;
+ * Guard, Bruiser, Juggernaut, Lookout, Sniper) round-trips this identical block;
  * each persists it under a key equal to its own archetype id (`drone` for the
  * Skirmisher, for save-compat). The Sniper extends it with `aimTargetId`.
  */
@@ -182,7 +182,7 @@ export const PATROL_ARCHETYPE_IDS = Object.freeze([
   'guard',
   'bruiser',
   'juggernaut',
-  'spotter',
+  'lookout',
   'sniper',
 ] as const);
 
@@ -209,7 +209,7 @@ export type RunEntitySnapshot = {
   guard?: PatrolSnapshotBlock;
   bruiser?: PatrolSnapshotBlock;
   juggernaut?: PatrolSnapshotBlock;
-  spotter?: PatrolSnapshotBlock;
+  lookout?: PatrolSnapshotBlock;
   sniper?: PatrolSnapshotBlock & { aimTargetId: string | null };
   tech?: { turretReady: boolean };
   callsign?: string | null;
@@ -511,14 +511,14 @@ export class Run {
     // RNG so the mix is deterministic and independent of mapgen rolls. The
     // `available` allowlist restricts the specialist/elite roll to archetypes
     // with a buildable class so the resolver never composes a hostile we'd have
-    // to reskin or silently drop. Spotter and Sniper (M3.1/M3.2) ship as T2
+    // to reskin or silently drop. Lookout and Sniper (M3.1/M3.2) ship as T2
     // specialists; Medic and elites join their lists as M3.3–M4 land.
     const composition = composeEncounter({
       seed: this.contract.seed,
       difficulty: this.contract.difficulty,
       fodderCount: map.fodder.length,
       available: {
-        specialists: [ENEMY_ARCHETYPE.SPOTTER, ENEMY_ARCHETYPE.SNIPER],
+        specialists: [ENEMY_ARCHETYPE.LOOKOUT, ENEMY_ARCHETYPE.SNIPER],
         elites: [ENEMY_ARCHETYPE.BRUISER, ENEMY_ARCHETYPE.JUGGERNAUT],
       },
     });
@@ -561,9 +561,9 @@ export class Run {
       const entry = specialists[i]!;
       const a = map.specialists[i]!;
       let specialist: PatrolHostile;
-      if (entry.archetype === ENEMY_ARCHETYPE.SPOTTER) {
-        specialist = new Spotter({
-          id: `spotter-${i}`,
+      if (entry.archetype === ENEMY_ARCHETYPE.LOOKOUT) {
+        specialist = new Lookout({
+          id: `lookout-${i}`,
           x: a.x,
           y: a.y,
           maxAp: 3,
@@ -1638,7 +1638,7 @@ function snapshotEntity(entity: Entity): RunEntitySnapshot {
     if (entity instanceof Sniper) {
       base.sniper = { ...block, aimTargetId: entity.aimTargetId };
     } else {
-      // archetype ∈ {drone, guard, bruiser, juggernaut, spotter} here — all
+      // archetype ∈ {drone, guard, bruiser, juggernaut, lookout} here — all
       // plain PatrolSnapshotBlock keys.
       base[archetype as Exclude<PatrolArchetypeId, 'sniper'>] = block;
     }
@@ -1748,7 +1748,7 @@ function archetypeOf(entity: Entity): EntityArchetypeId {
   if (entity instanceof Bruiser) return 'bruiser';
   if (entity instanceof Juggernaut) return 'juggernaut';
   if (entity instanceof Sniper) return 'sniper';
-  if (entity instanceof Spotter) return 'spotter';
+  if (entity instanceof Lookout) return 'lookout';
   if (entity instanceof Guard) return 'guard';
   if (entity instanceof Skirmisher) return 'drone';
   if (entity instanceof CorpCivilian) return 'corp-civilian';
