@@ -216,7 +216,7 @@ test('recipe fixtures produce named compatibility examples', () => {
     difficulty: CONTRACT_DIFFICULTY.STANDARD,
     seed: 7,
   });
-  assert.equal(matsuda.label, '// Matsuda payroll mirror');
+  assert.equal(matsuda.label, '// Matsuda contractor annex - payroll mirror');
   assert.equal(matsuda.objective.kind, OBJECTIVES.DUAL_SITE);
   assert.deepEqual(matsuda.objective.params, { target: 'payroll-mirror', count: 2 });
 
@@ -229,7 +229,7 @@ test('recipe fixtures produce named compatibility examples', () => {
     difficulty: CONTRACT_DIFFICULTY.STANDARD,
     seed: 8,
   });
-  assert.equal(block9.label, '// Block 9 community power burn');
+  assert.equal(block9.label, '// HelioDyne Combine Block 9 - community power burn');
   assert.equal(block9.objective.kind, OBJECTIVES.DENY);
   assert.deepEqual(block9.objective.params, { target: 'power-siphon' });
   assert.equal(block9.context.principal.label, 'HelioDyne Combine');
@@ -246,7 +246,7 @@ test('recipe fixtures produce named compatibility examples', () => {
     difficulty: CONTRACT_DIFFICULTY.STANDARD,
     seed: 9,
   });
-  assert.equal(northstar.label, '// transit hub site layout survey');
+  assert.equal(northstar.label, '// Northstar Civic transit hub - site layout survey');
   assert.equal(northstar.objective.kind, OBJECTIVES.RECON);
   assert.deepEqual(northstar.objective.params, { target: 'site-layout' });
   assert.equal(northstar.context.principal.label, 'Northstar Civic');
@@ -261,7 +261,7 @@ test('recipe fixtures produce named compatibility examples', () => {
     difficulty: CONTRACT_DIFFICULTY.STANDARD,
     seed: 10,
   });
-  assert.equal(witness.label, '// clinic clinic witness escort');
+  assert.equal(witness.label, '// Orchid Vector clinic - clinic witness escort');
   assert.equal(witness.objective.kind, OBJECTIVES.ESCORT_EXTRACT);
   assert.deepEqual(witness.objective.params, {
     target: 'clinic-witness',
@@ -282,7 +282,7 @@ test('contract context separates principals from site state', () => {
     difficulty: CONTRACT_DIFFICULTY.STANDARD,
     seed: 10,
   });
-  assert.equal(clinic.label, '// Gassed clinic records recovery');
+  assert.equal(clinic.label, '// Orchid Vector clinic - Gassed records recovery');
   assert.equal(clinic.context.principal.label, 'Orchid Vector');
   assert.equal(clinic.context.site?.label, 'clinic');
   assert.equal(clinic.context.siteState?.label, 'Gassed');

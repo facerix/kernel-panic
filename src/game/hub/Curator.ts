@@ -107,7 +107,6 @@ type ContractRecipe = {
   siteStateGroups?: readonly string[];
   assetGroups: readonly string[];
   actionGroups: readonly string[];
-  label: (tokens: ContractRecipeTokens) => string;
   title: (tokens: ContractRecipeTokens) => string;
   briefing: (tokens: ContractRecipeTokens) => string;
   params: (tokens: ContractRecipeTokens) => ObjectiveParams | undefined;
@@ -173,7 +172,7 @@ export const CONTRACT_LEXICON = Object.freeze({
     }),
     token('shipment', 'shipment', ['deny', 'logistics'], { target: 'shipment' }),
     token('payroll', 'payroll', ['dual-site', 'finance'], { target: 'payroll-mirror' }),
-    token('relay-node', 'relay node', ['sweep', 'security'], { target: 'relay-node' }),
+    token('relay-node', 'relay nodes', ['sweep', 'security'], { target: 'relay-node' }),
     token('ransomware-terminal', 'ransomware terminal', ['terminal', 'data'], {
       target: 'server-rack',
     }),
@@ -200,7 +199,7 @@ export const CONTRACT_LEXICON = Object.freeze({
       method: 'breach',
       requiresBreach: true,
     }),
-    token('skybridge-relay', 'skybridge relay', ['sweep', 'security'], {
+    token('skybridge-relay', 'skybridge relays', ['sweep', 'security'], {
       target: 'skybridge-relay',
     }),
     token('community-power', 'community power', ['deny', 'infrastructure'], {
@@ -209,7 +208,7 @@ export const CONTRACT_LEXICON = Object.freeze({
     token('identity-spool', 'identity spool', ['terminal', 'data'], { target: 'server-rack' }),
     token('hostile-cache', 'hostile cache', ['sweep', 'security'], { target: 'hostile-all' }),
     token('site-layout', 'site layout', ['recon', 'infrastructure'], { target: 'site-layout' }),
-    token('patrol-map', 'patrol map', ['recon', 'security'], { target: 'patrol-map' }),
+    token('patrol-map', 'patrol route', ['recon', 'security'], { target: 'patrol-map' }),
     token('service-plan', 'service plan', ['recon', 'data'], { target: 'service-plan' }),
     token('clinic-witness', 'clinic witness', ['escort', 'medical'], {
       target: 'clinic-witness',
@@ -267,7 +266,6 @@ export const CONTRACT_RECIPES: readonly ContractRecipe[] = Object.freeze([
     siteStateGroups: Object.freeze(['normal', 'damaged', 'medical', 'hidden']),
     assetGroups: Object.freeze(['retrieve']),
     actionGroups: Object.freeze(['retrieve']),
-    label: tokens => `${sitePhrase(tokens)} ${tokens.asset.label} ${tokens.action.label}`,
     title: ({ asset }) => `Secure ${noun(asset)}`,
     briefing: ({ principal, site, asset }) =>
       `Find ${possessive(principal.label)} ${asset.label} at ${sitePhrase({ site })}, secure it, then extract.`,
@@ -282,7 +280,6 @@ export const CONTRACT_RECIPES: readonly ContractRecipe[] = Object.freeze([
     siteStateGroups: Object.freeze(['normal', 'abandoned']),
     assetGroups: Object.freeze(['handoff']),
     actionGroups: Object.freeze(['handoff']),
-    label: tokens => `${sitePhrase(tokens)} ${tokens.asset.label} ${tokens.action.label}`,
     title: ({ asset }) => `Make ${noun(asset)} handoff`,
     briefing: ({ principal, site, asset }) =>
       `Locate the ${principal.label} contact near ${sitePhrase({ site })}, complete the ${asset.label} transfer, then extract.`,
@@ -300,7 +297,6 @@ export const CONTRACT_RECIPES: readonly ContractRecipe[] = Object.freeze([
     siteStateGroups: Object.freeze(['normal', 'terminal', 'security']),
     assetGroups: Object.freeze(['terminal']),
     actionGroups: Object.freeze(['terminal']),
-    label: ({ principal, asset, action }) => `${principal.label} ${asset.label} ${action.label}`,
     title: ({ asset }) => `Slice ${noun(asset)}`,
     briefing: ({ principal, site, asset, action }) =>
       `Reach ${possessive(principal.label)} ${asset.label} at ${sitePhrase({ site })}, complete the ${action.label}, then extract.`,
@@ -315,7 +311,6 @@ export const CONTRACT_RECIPES: readonly ContractRecipe[] = Object.freeze([
     siteStateGroups: Object.freeze(['normal', 'damaged', 'infrastructure', 'street']),
     assetGroups: Object.freeze(['deny']),
     actionGroups: Object.freeze(['deny']),
-    label: tokens => `${sitePhrase(tokens)} ${tokens.asset.label} ${tokens.action.label}`,
     title: ({ asset }) => `Disable ${noun(asset)}`,
     briefing: ({ principal, site, asset, action }) =>
       `Find ${possessive(principal.label)} ${asset.label} at ${sitePhrase({ site })}, execute the ${action.label}, then extract.`,
@@ -330,7 +325,6 @@ export const CONTRACT_RECIPES: readonly ContractRecipe[] = Object.freeze([
     siteStateGroups: Object.freeze(['normal', 'damaged', 'infrastructure']),
     assetGroups: Object.freeze(['breach']),
     actionGroups: Object.freeze(['breach']),
-    label: tokens => `${sitePhrase(tokens)} ${tokens.asset.label} ${tokens.action.label}`,
     title: ({ asset }) => `Breach ${noun(asset)}`,
     briefing: ({ principal, site, asset }) =>
       `Plant a breaching charge on ${possessive(principal.label)} ${asset.label} at ${sitePhrase({ site })}, then extract.`,
@@ -345,7 +339,6 @@ export const CONTRACT_RECIPES: readonly ContractRecipe[] = Object.freeze([
     siteStateGroups: Object.freeze(['normal', 'security', 'damaged']),
     assetGroups: Object.freeze(['sweep']),
     actionGroups: Object.freeze(['sweep']),
-    label: tokens => `${sitePhrase(tokens)} ${tokens.asset.label} ${tokens.action.label}`,
     title: ({ asset }) => `Sweep ${noun(asset)}`,
     briefing: ({ principal, site, asset }) =>
       `Clear ${possessive(principal.label)} ${asset.label} coverage around ${sitePhrase({ site })} before extraction.`,
@@ -360,7 +353,6 @@ export const CONTRACT_RECIPES: readonly ContractRecipe[] = Object.freeze([
     siteStateGroups: Object.freeze(['normal']),
     assetGroups: Object.freeze(['dual-site']),
     actionGroups: Object.freeze(['dual-site']),
-    label: ({ principal, asset, action }) => `${principal.label} ${asset.label} ${action.label}`,
     title: ({ asset }) => `Sync ${pluralNoun(asset)}`,
     briefing: ({ principal, site, asset }) =>
       `Touch both ${principal.label} ${asset.label} sites around ${sitePhrase({ site })} before extraction.`,
@@ -375,7 +367,6 @@ export const CONTRACT_RECIPES: readonly ContractRecipe[] = Object.freeze([
     siteStateGroups: Object.freeze(['normal', 'damaged', 'security', 'hidden']),
     assetGroups: Object.freeze(['recon']),
     actionGroups: Object.freeze(['recon']),
-    label: tokens => `${sitePhrase(tokens)} ${tokens.asset.label} ${tokens.action.label}`,
     title: ({ asset }) => `Map ${noun(asset)}`,
     briefing: ({ principal, site, asset }) =>
       `Build a complete map of ${possessive(principal.label)} ${asset.label} around ${sitePhrase({ site })}, then extract.`,
@@ -390,7 +381,6 @@ export const CONTRACT_RECIPES: readonly ContractRecipe[] = Object.freeze([
     siteStateGroups: Object.freeze(['normal', 'damaged', 'medical', 'abandoned']),
     assetGroups: Object.freeze(['escort']),
     actionGroups: Object.freeze(['escort']),
-    label: tokens => `${sitePhrase(tokens)} ${tokens.asset.label} ${tokens.action.label}`,
     title: ({ asset }) => `Extract ${noun(asset)}`,
     briefing: ({ principal, site, asset }) =>
       `Find ${possessive(principal.label)} ${asset.label} around ${sitePhrase({ site })}, link them up, and reach extraction together.`,
@@ -1025,9 +1015,7 @@ function generateRevisitContract(
       asset,
       action,
     };
-    // Override the recipe's label with a consistent principal-led identity line
-    // so revisits are recognizable as the same place regardless of the job.
-    const label = renderRevisitLabel(principal, siteToken, asset, action);
+    const label = renderContractLabel(tokens);
     if (labelsUsed.has(label)) continue;
     const contract = buildContractFromRecipe(recipe, tokens, context);
     labelsUsed.add(label);
@@ -1037,18 +1025,19 @@ function generateRevisitContract(
 }
 
 /**
- * Revisit label: `// <principal> — <site> <asset> <action>` (site dropped when
- * absent). Principal-led so a remembered location keeps a recognizable name
- * across visits while the asset/action communicate the fresh job.
+ * Contract label: `// <principal> <site> - <state?> <asset> <action>`.
+ * Site is omitted when the recipe has no site token; transient site state
+ * (Gassed, Flooded, …) sits after the dash so the place identity reads stably
+ * on revisits (no site-state roll) and fresh contracts alike.
  */
-function renderRevisitLabel(
-  principal: ContractToken,
-  site: ContractToken | undefined,
-  asset: ContractToken,
-  action: ContractToken
-): string {
-  const place = site ? `${principal.label} — ${site.label}` : principal.label;
-  return `// ${place} ${asset.label} ${action.label}`;
+function renderContractLabel(tokens: ContractRecipeTokens): string {
+  const { principal, site, siteState, asset, action } = tokens;
+  const place = site ? `${principal.label} ${site.label}` : principal.label;
+  const statePrefix =
+    siteState && siteState.id !== 'active' ? (siteState.labelPrefix ?? siteState.label) : '';
+  const job = `${asset.label} ${action.label}`;
+  const tail = statePrefix ? `${statePrefix} ${job}` : job;
+  return `// ${place} - ${tail}`;
 }
 
 /** Rebuild a `ContractToken` from a stored location identity token. */
@@ -1072,7 +1061,7 @@ function buildContractFromRecipe(
     briefing: recipe.briefing(tokens),
     ...(params ? { params } : {}),
   });
-  const label = renderLabel(recipe, tokens);
+  const label = renderContractLabel(tokens);
   const contractContext = normalizeContractContext({
     recipeId: recipe.id,
     principal: contextToken(tokens.principal),
@@ -1088,10 +1077,6 @@ function buildContractFromRecipe(
   const contract = { objective, label, context: contractContext };
   validateRenderedContract(contract);
   return contract;
-}
-
-function renderLabel(recipe: ContractRecipe, tokens: ContractRecipeTokens): string {
-  return `// ${recipe.label(tokens)}`;
 }
 
 function contextToken(tokenValue: ContractToken): ContractContextToken {

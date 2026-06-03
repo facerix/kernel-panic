@@ -31,7 +31,7 @@ function validSite(overrides: Partial<LocationSite> = {}): LocationSite {
     seed: '12345',
     mapWidth: 24,
     mapHeight: 16,
-    label: '// Matsuda payroll mirror',
+    label: '// Matsuda contractor annex - payroll mirror',
     tier: 'roster',
     scoreTarget: false,
     mutationDeltas: [],
@@ -381,7 +381,7 @@ test('Curator: a revisit reuses the site seed and PINS principal + site identity
         assert.equal(contract.context.site?.id, site.site!.id);
         // Label is regenerated principal-led so the place stays recognizable.
         assert.ok(
-          contract.label.startsWith(`// ${site.principal!.label} — ${site.site!.label}`),
+          contract.label.startsWith(`// ${site.principal!.label} ${site.site!.label} -`),
           `label "${contract.label}" should lead with the pinned principal + site`
         );
       }

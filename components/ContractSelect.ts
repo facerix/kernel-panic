@@ -110,6 +110,17 @@ const CSS = `
   word-break: break-word;
 }
 
+.location {
+  color: var(--board-dim);
+  font-size: 0.84rem;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.2rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: baseline;
+}
+
 .badge {
   color: #020403;
   background: var(--board-accent);
@@ -141,12 +152,6 @@ const CSS = `
   color: var(--board-dim);
   font-size: 0.84rem;
   letter-spacing: 0.04em;
-}
-
-.objective {
-  color: var(--board-text);
-  font-size: 0.86rem;
-  margin-top: 0.2rem;
 }
 
 .take {
@@ -265,15 +270,10 @@ class ContractSelect extends HTMLElement {
                 className: `badge ${contract.difficulty}`,
                 textContent: difficultyLabel(contract),
               }),
-              h('span', { className: 'target', textContent: contract.label }),
-              // M7.2: flag contracts that revisit a remembered location so the
-              // player can anticipate prior breach holes / mapped geometry.
-              ...(contract.context.locationSiteId
-                ? [h('span', { className: 'known', textContent: '// known site' })]
-                : []),
+              h('span', { className: 'target', textContent: jobTitleCopy(contract) }),
             ]),
+            h('div', { className: 'location' }, locationLine(contract)),
             h('div', { className: 'meta', textContent: rewardCopy(contract) }),
-            h('div', { className: 'objective', textContent: objectiveCopy(contract) }),
           ]),
           h('div', { className: 'take', textContent: 'TAKE THE JOB' }),
         ]
@@ -344,11 +344,24 @@ function rewardCopy(contract: Contract): string {
   return `${contract.threatCount} hostiles · Cr +${contract.reward.credits} · REP +${contract.reward.repDelta}${recruit}`;
 }
 
-function objectiveCopy(contract: Contract): string {
+function jobTitleCopy(contract: Contract): string {
   const turnLimit = contract.objective.params?.turnLimit;
   const window =
     Number.isInteger(turnLimit) && Number(turnLimit) > 0 ? ` · WINDOW ${turnLimit} turns` : '';
-  return `OBJ ${contract.objective.title}${window}`;
+  return `// ${contract.objective.title}${window}`;
+}
+
+function locationLine(contract: Contract): HTMLElement[] {
+  const { principal, site, siteState, locationSiteId } = contract.context;
+  const place = site ? `${principal.label} ${site.label}` : principal.label;
+  const state = siteState ? ` [${siteState.label}]` : '';
+  const nodes: HTMLElement[] = [
+    h('span', { textContent: `Location: ${place}${state}` }),
+  ];
+  if (locationSiteId) {
+    nodes.push(h('span', { className: 'known', textContent: '// known site' }));
+  }
+  return nodes;
 }
 
 function cloneContract(contract: Contract): Contract {

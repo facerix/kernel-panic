@@ -438,7 +438,7 @@ test('campaign snapshot preserves generated contract context metadata', () => {
   const restored = restoreCampaign(rec);
 
   assert.deepEqual(restored.activeRun!.contract!.context, contract.context);
-  assert.equal(restored.activeRun!.contract!.label, '// Matsuda payroll mirror');
+  assert.equal(restored.activeRun!.contract!.label, '// Matsuda contractor annex - payroll mirror');
 });
 
 test('restoreCampaign restores legacy snapshots without credits as zero', () => {
