@@ -355,9 +355,7 @@ function locationLine(contract: Contract): HTMLElement[] {
   const { principal, site, siteState, locationSiteId } = contract.context;
   const place = site ? `${principal.label} ${site.label}` : principal.label;
   const state = siteState ? ` [${siteState.label}]` : '';
-  const nodes: HTMLElement[] = [
-    h('span', { textContent: `Location: ${place}${state}` }),
-  ];
+  const nodes: HTMLElement[] = [h('span', { textContent: `Location: ${place}${state}` })];
   if (locationSiteId) {
     nodes.push(h('span', { className: 'known', textContent: '// known site' }));
   }
