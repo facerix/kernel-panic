@@ -17,6 +17,7 @@ import { ConsumablePickup } from '../../../src/game/entities/ConsumablePickup.js
 import { restore, snapshot } from '../../../src/game/persistence.js';
 import { Bruiser } from '../../../src/game/ai/Bruiser.js';
 import { Juggernaut } from '../../../src/game/ai/Juggernaut.js';
+import { Flanker } from '../../../src/game/ai/Flanker.js';
 import { Sniper } from '../../../src/game/ai/Sniper.js';
 import { buildCrewMember } from '../../../src/game/archetypes/index.js';
 import { findPath } from '../../../src/game/Pathfinding.js';
@@ -139,7 +140,7 @@ test('enterCombat passes contract threat and difficulty into map generation', ()
   );
   assert.equal(fodder.length, 4);
   const elites = [...run.world.entities.values()].filter(
-    entity => entity instanceof Bruiser || entity instanceof Juggernaut
+    entity => entity instanceof Bruiser || entity instanceof Juggernaut || entity instanceof Flanker
   );
   assert.equal(elites.length, 1, 'CRITICAL contracts spawn one T3 elite anchor');
 });
@@ -218,10 +219,10 @@ test('a spawned Sniper round-trips aimTargetId through a run snapshot', () => {
 });
 
 test('a spawned Bruiser round-trips through a run snapshot', () => {
-  // contract seed 5 / CRITICAL / fodder 4 deterministically rolls a Bruiser
-  // elite (seed 42 now rolls a Juggernaut since M4.2 widened the elite pool).
+  // contract seed 0 / CRITICAL / fodder 4 deterministically rolls a Bruiser
+  // after M4.3 widened the elite pool to include Flanker.
   const run = new Run({ crewMember: makeCrew('razor'), seed: 1 });
-  run.enterBriefing(fakeContract({ seed: 5, difficulty: 'critical', threatCount: 4 }));
+  run.enterBriefing(fakeContract({ seed: 0, difficulty: 'critical', threatCount: 4 }));
   run.enterCombat();
   const before = [...run.world.entities.values()].find(e => e instanceof Bruiser);
   assert.ok(before instanceof Bruiser, 'bruiser present pre-snapshot');
@@ -243,9 +244,9 @@ test('a spawned Bruiser round-trips through a run snapshot', () => {
 });
 
 test('a spawned Juggernaut round-trips through a run snapshot', () => {
-  // contract seed 7 / CRITICAL / fodder 4 deterministically rolls a Juggernaut.
+  // contract seed 1 / CRITICAL / fodder 4 deterministically rolls a Juggernaut.
   const run = new Run({ crewMember: makeCrew('razor'), seed: 1 });
-  run.enterBriefing(fakeContract({ seed: 7, difficulty: 'critical', threatCount: 4 }));
+  run.enterBriefing(fakeContract({ seed: 1, difficulty: 'critical', threatCount: 4 }));
   run.enterCombat();
   const before = [...run.world.entities.values()].find(e => e instanceof Juggernaut);
   assert.ok(before instanceof Juggernaut, 'juggernaut present pre-snapshot');
@@ -264,6 +265,33 @@ test('a spawned Juggernaut round-trips through a run snapshot', () => {
   assert.equal(after.glyph, 'j');
   assert.equal(after.state, 'investigate');
   assert.deepEqual(after.lastKnownTarget, before.lastKnownTarget);
+});
+
+test('a spawned Flanker round-trips slide conceal through a run snapshot', () => {
+  // contract seed 2 / CRITICAL / fodder 4 deterministically rolls a Flanker.
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 1 });
+  run.enterBriefing(fakeContract({ seed: 2, difficulty: 'critical', threatCount: 4 }));
+  run.enterCombat();
+  const before = [...run.world.entities.values()].find(e => e instanceof Flanker);
+  assert.ok(before instanceof Flanker, 'flanker present pre-snapshot');
+  before.state = 'investigate';
+  before.lastKnownTarget = { x: before.x, y: before.y };
+  before.slideConcealed = true;
+
+  const rec = snapshot(run);
+  const flankerRec = rec.entities.find(e => e.id === before.id);
+  assert.equal(flankerRec?.archetype, 'flanker');
+  assert.ok(flankerRec?.flanker, 'state machine lives in the flanker block');
+  assert.equal(flankerRec.flanker.slideConcealed, true);
+  assert.equal(flankerRec.bruiser, undefined, 'a flanker does not write a bruiser record');
+
+  const { world } = restore(rec);
+  const after = [...world.entities.values()].find(e => e.id === before.id);
+  assert.ok(after instanceof Flanker, 'flanker survives the round-trip');
+  assert.equal(after.glyph, 'f');
+  assert.equal(after.state, 'investigate');
+  assert.deepEqual(after.lastKnownTarget, before.lastKnownTarget);
+  assert.equal(after.slideConcealed, true);
 });
 
 test('hostile-all sweep is not satisfied while a guard remains alive', () => {
@@ -608,7 +636,7 @@ test('killing a CorpTurret drops chips, not scrap (M4.2)', () => {
 
 test('killing a Bruiser drops bio salvage, not scrap or chips', () => {
   const run = new Run({ crewMember: makeCrew('merc'), seed: 1 });
-  run.enterBriefing(fakeContract({ seed: 5, difficulty: 'critical', threatCount: 4 }));
+  run.enterBriefing(fakeContract({ seed: 0, difficulty: 'critical', threatCount: 4 }));
   run.enterCombat();
   const bruiser = [...run.world.entities.values()].find(e => e instanceof Bruiser);
   assert.ok(bruiser instanceof Bruiser, 'critical job should spawn a bruiser');
@@ -632,7 +660,7 @@ test('killing a Bruiser drops bio salvage, not scrap or chips', () => {
 
 test('killing a Juggernaut drops bio salvage, not scrap or chips', () => {
   const run = new Run({ crewMember: makeCrew('merc'), seed: 1 });
-  run.enterBriefing(fakeContract({ seed: 7, difficulty: 'critical', threatCount: 4 }));
+  run.enterBriefing(fakeContract({ seed: 1, difficulty: 'critical', threatCount: 4 }));
   run.enterCombat();
   const juggernaut = [...run.world.entities.values()].find(e => e instanceof Juggernaut);
   assert.ok(juggernaut instanceof Juggernaut, 'critical job should spawn a juggernaut');
@@ -652,6 +680,30 @@ test('killing a Juggernaut drops bio salvage, not scrap or chips', () => {
     juggernaut.loot.salvage.bio >= SALVAGE_DROP_MIN &&
       juggernaut.loot.salvage.bio <= SALVAGE_DROP_MAX,
     `bio ${juggernaut.loot.salvage.bio} outside [${SALVAGE_DROP_MIN}, ${SALVAGE_DROP_MAX}]`
+  );
+});
+
+test('killing a Flanker drops bio salvage, not scrap or chips', () => {
+  const run = new Run({ crewMember: makeCrew('merc'), seed: 1 });
+  run.enterBriefing(fakeContract({ seed: 2, difficulty: 'critical', threatCount: 4 }));
+  run.enterCombat();
+  const flanker = [...run.world.entities.values()].find(e => e instanceof Flanker);
+  assert.ok(flanker instanceof Flanker, 'critical job should spawn a flanker');
+  flanker.damage(flanker.maxHp);
+  run.bus.emit('entity:damaged', {
+    attacker: run.player,
+    target: flanker,
+    damage: flanker.maxHp,
+    killed: true,
+    source: 'ranged',
+  });
+  assert.ok(flanker.loot, 'killed flanker should have loot assigned');
+  assert.equal(flanker.loot.salvage.scrap, 0, 'flanker loot has no scrap');
+  assert.equal(flanker.loot.salvage.chips, 0, 'flanker loot has no chips');
+  assert.equal(flanker.loot.salvage.data, 0, 'flanker loot has no data');
+  assert.ok(
+    flanker.loot.salvage.bio >= SALVAGE_DROP_MIN && flanker.loot.salvage.bio <= SALVAGE_DROP_MAX,
+    `bio ${flanker.loot.salvage.bio} outside [${SALVAGE_DROP_MIN}, ${SALVAGE_DROP_MAX}]`
   );
 });
 

@@ -135,7 +135,7 @@ All rolls derive from the contract seed (deterministic, save-compatible).
 | M1 — Tier doctrine foundations | 🟡 In progress |
 | M1.1 — `EnemyTier` model + per-tier stat scaling hook | ✅ Complete |
 | M1.2 — `damageReduction` (armor) stat on `Entity` | ✅ Complete |
-| M1.3 — Encounter composition by tier (roles, not just counts) | 🟡 In progress — resolver landed; **fodder slice wired** (M2); **specialist slice wired** (M3.1/M3.2 + mapgen specialist anchors); **elite slice wired for Bruiser + Juggernaut** (M4.1/M4.2: CRITICAL `available.elites` + elite anchor spawn); Flanker spawn case pending (M4.3) |
+| M1.3 — Encounter composition by tier (roles, not just counts) | ✅ Complete — resolver landed; **fodder slice wired** (M2); **specialist slice wired** (M3.1/M3.2 + mapgen specialist anchors); **elite slice wired for Bruiser + Juggernaut + Flanker** (M4.1–M4.3: CRITICAL `available.elites` + elite anchor spawn) |
 | M1.4 — CorpCivilian cover-occluded LOS | ✅ Complete |
 | M1.5 — Variable combat map dimensions (tier + seed) | ✅ Complete |
 | M2 — Tier 1 fodder roster | ✅ Complete |
@@ -150,7 +150,7 @@ All rolls derive from the contract seed (deterministic, save-compatible).
 | M4.0 — Elite anchor budget + hostile sweep foundation | ✅ Complete |
 | M4.1 — Bruiser (armor + knockback-on-hit) | ✅ Complete |
 | M4.2 — Juggernaut (armor soak + suppression) | ✅ Complete |
-| M4.3 — Flanker (cover concealment + Razor-mirror SLIDE) | 🔲 Not started |
+| M4.3 — Flanker (cover concealment + Razor-mirror SLIDE) | ✅ Complete |
 | M5 — Netrunner / disruption (status-effect groundwork) | 🔲 Deferred-candidate (feeds Phase 3) |
 | M6 — Snapshot schema slimming (persistence refactor, no gameplay change) | 🟡 In progress |
 | M6.1 — Shared `PatrolSnapshotBlock` + patrol (de)serialize consolidation | ✅ Complete |
@@ -459,6 +459,8 @@ So a flanker that SLIDEs on corp turn N vanishes for the player's entire turn N+
 - **Reuse:** extract or share Razor's two-tile dash validation from `Razor.canSlide` / `slide` rather than duplicating geometry.
 - **Loot:** killed elites yield **bio salvage** rather than scrap/chips, reflecting their augmentations.
 - **TDD:** cover hides flanker; SLIDE sets `slideConcealed` and hides even on open LOS/adjacent; flag clears on corp `refreshAp`; no melee same turn as SLIDE; slide silent (no NOISE); guard/bruiser unchanged; civilian M1.4 regression guard holds.
+
+**Implementation note:** `src/game/ai/Flanker.ts` (glyph `f`, `ENEMY_ROLE.ELITE`) extends `PatrolHostile`; T3 uses `FLANKER_BASE_AP` 3 plus elite AP bonus for the locked 4-AP cadence. Razor and Flanker now share `src/game/slide.ts` for two-tile silent SLIDE validation/commit. Flanker `slideConcealed` hides from `playerPerception.isConcealedFromPlayer` even adjacent/open, clears on corp `refreshAp`, and blocks same-turn melee while set; passive cover conceal uses `hasConcealedLineOfSight(world.grid, player → flanker)`. Player ranged/melee targeting and `buildFrame` pass world context so cover-concealed flankers are omitted and untargetable; corp-turn log lines from concealed flankers are suppressed. Spawn wiring: CRITICAL `available.elites` now includes `[Bruiser, Juggernaut, Flanker]`, Flanker gets a normal elite anchor, `flanker` snapshot block persists `slideConcealed`, `kindFromId`, KeyHelp, bio-salvage loot, precache + SW cache bump **`0.2.7g`**. Test seeds shifted with the widened elite pool: Bruiser seed **0**, Juggernaut seed **1**, Flanker seed **2**.
 
 ### M5 — Netrunner / disruption — Phase 3 on-ramp
 

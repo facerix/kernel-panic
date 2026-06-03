@@ -1,24 +1,38 @@
 /**
  * Player-perception helpers — what the deployed crew can see and target.
  * Hostile AI uses its own acquisition rules; these gates only affect the
- * shell (renderer, crew ranged/melee). Introduced for Sniper range conceal
- * (M3.2); Flanker cover conceal (M4.3) will extend this module.
+ * shell (renderer, crew ranged/melee). Sniper range conceal (M3.2) and
+ * Flanker cover/slide conceal (M4.3) live here.
  */
 
 import { SNIPER_CONCEAL_MIN_RANGE } from './constants.js';
+import { Flanker } from './ai/Flanker.js';
 import { Sniper } from './ai/Sniper.js';
+import { hasConcealedLineOfSight } from './LineOfSight.js';
 import type { Entity } from './Entity.js';
+import type { World } from './World.js';
 
 /**
  * True when `entity` should be hidden from the player's map view and direct
- * crew targeting. Today: a Sniper holding aim at Chebyshev ≥ 6 from the player.
- * Not active before aim commits — the sniper is visible during patrol.
+ * crew targeting. Sniper conceal is range-based while holding aim; Flanker
+ * conceal is active after SLIDE or passive when cover occludes player LOS.
  */
-export function isConcealedFromPlayer(entity: Entity, player: Entity): boolean {
-  if (!(entity instanceof Sniper)) return false;
-  if (!entity.aimTargetId) return false;
-  const cheb = Math.max(Math.abs(entity.x - player.x), Math.abs(entity.y - player.y));
-  return cheb >= SNIPER_CONCEAL_MIN_RANGE;
+export function isConcealedFromPlayer(entity: Entity, player: Entity, world?: World): boolean {
+  if (entity instanceof Flanker) {
+    if (entity.slideConcealed) return true;
+    if (!world) return false;
+    return !hasConcealedLineOfSight(world.grid, player.x, player.y, entity.x, entity.y, {
+      blockers: world.blockerKeys(),
+    });
+  }
+
+  if (entity instanceof Sniper) {
+    if (!entity.aimTargetId) return false;
+    const cheb = Math.max(Math.abs(entity.x - player.x), Math.abs(entity.y - player.y));
+    return cheb >= SNIPER_CONCEAL_MIN_RANGE;
+  }
+
+  return false;
 }
 
 /**

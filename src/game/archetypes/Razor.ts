@@ -1,6 +1,6 @@
 import { Crew } from '../Crew.js';
-import { AP_COST, HEAVY_MELEE_DAMAGE } from '../constants.js';
-import { EVENT } from '../events.js';
+import { HEAVY_MELEE_DAMAGE } from '../constants.js';
+import { canSlideTwoTiles, slideTwoTiles } from '../slide.js';
 import type { CrewInit } from '../Crew.js';
 import type { World } from '../World.js';
 
@@ -74,43 +74,7 @@ export class Razor extends Crew {
    * offsets (data-corruption guard, mirrors `World.canMoveEntity`).
    */
   canSlide(world: World, dx: number, dy: number) {
-    if (!Number.isInteger(dx) || !Number.isInteger(dy)) {
-      throw new TypeError(`canSlide requires integer offsets, got (${dx}, ${dy})`);
-    }
-    if (dx === 0 && dy === 0) {
-      return { ok: false, reason: 'no-op' };
-    }
-    if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
-      return { ok: false, reason: 'too-far' };
-    }
-    if (!this.canAfford(AP_COST.SLIDE)) {
-      return { ok: false, reason: 'insufficient-ap' };
-    }
-    if (!this.alive) {
-      return { ok: false, reason: 'dead' };
-    }
-
-    const stepX = this.x + dx;
-    const stepY = this.y + dy;
-    const landX = this.x + 2 * dx;
-    const landY = this.y + 2 * dy;
-
-    // Both the intermediate tile *and* the landing tile must be clear floor
-    // and unoccupied. Slide is two consecutive moves under the hood — if you
-    // can't legally walk through the first tile, you can't slide over it.
-    if (!world.grid.isPassable(stepX, stepY)) {
-      return { ok: false, reason: 'blocked-step' };
-    }
-    if (world.entityAt(stepX, stepY)) {
-      return { ok: false, reason: 'occupied-step' };
-    }
-    if (!world.grid.isPassable(landX, landY)) {
-      return { ok: false, reason: 'blocked' };
-    }
-    if (world.entityAt(landX, landY)) {
-      return { ok: false, reason: 'occupied' };
-    }
-    return { ok: true };
+    return canSlideTwoTiles(world, this, dx, dy);
   }
 
   /**
@@ -124,16 +88,8 @@ export class Razor extends Crew {
     if (!check.ok) {
       throw new Error(`Illegal slide for ${this.id}: ${check.reason}`);
     }
-    const from = { x: this.x, y: this.y };
-    this.spendAp(AP_COST.SLIDE);
-    this.x += 2 * dx;
-    this.y += 2 * dy;
+    slideTwoTiles(world, this, dx, dy);
     this.stealthed = true;
-    world.events?.emit(EVENT.ENTITY_MOVED, {
-      entity: this,
-      from,
-      to: { x: this.x, y: this.y },
-    });
   }
 
   /**

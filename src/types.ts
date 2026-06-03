@@ -104,6 +104,9 @@ export type JuggernautTurnStep =
   | { type: 'suppress'; target: string; result: RangedAttackResult }
   | { type: 'shove'; target: string; to: GridPoint };
 
+/** Flanker SLIDE — a silent two-tile reposition that vanishes from player view. */
+export type FlankerTurnStep = { type: 'slide'; to: GridPoint };
+
 /** NeutralCivilian aftermath steps — yielded during the player aftermath phase. */
 export type NeutralCivilianTurnStep =
   | { type: 'neutral-idle' }
@@ -122,6 +125,7 @@ export type TurnActionStep =
   | LookoutTurnStep
   | SniperTurnStep
   | JuggernautTurnStep
+  | FlankerTurnStep
   | NeutralCivilianTurnStep;
 
 /**

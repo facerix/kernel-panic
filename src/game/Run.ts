@@ -51,6 +51,7 @@ import { Skirmisher } from './ai/Skirmisher.js';
 import { Guard } from './ai/Guard.js';
 import { Bruiser } from './ai/Bruiser.js';
 import { Juggernaut } from './ai/Juggernaut.js';
+import { Flanker } from './ai/Flanker.js';
 import { Lookout } from './ai/Lookout.js';
 import { Sniper } from './ai/Sniper.js';
 import { PatrolHostile } from './ai/PatrolHostile.js';
@@ -113,6 +114,7 @@ export type EntityArchetypeId =
   | 'guard'
   | 'bruiser'
   | 'juggernaut'
+  | 'flanker'
   | 'lookout'
   | 'sniper'
   | 'corp-civilian'
@@ -165,9 +167,10 @@ export type ObjectiveProgressSnapshot = {
 
 /**
  * Serialised `PatrolHostile` state machine. Every patrol hostile (Skirmisher,
- * Guard, Bruiser, Juggernaut, Lookout, Sniper) round-trips this identical block;
- * each persists it under a key equal to its own archetype id (`drone` for the
- * Skirmisher, for save-compat). The Sniper extends it with `aimTargetId`.
+ * Guard, Bruiser, Juggernaut, Flanker, Lookout, Sniper) round-trips this
+ * identical block; each persists it under a key equal to its own archetype id
+ * (`drone` for the Skirmisher, for save-compat). The Sniper extends it with
+ * `aimTargetId`; the Flanker extends it with `slideConcealed`.
  */
 export type PatrolSnapshotBlock = {
   state: string;
@@ -182,6 +185,7 @@ export const PATROL_ARCHETYPE_IDS = Object.freeze([
   'guard',
   'bruiser',
   'juggernaut',
+  'flanker',
   'lookout',
   'sniper',
 ] as const);
@@ -209,6 +213,7 @@ export type RunEntitySnapshot = {
   guard?: PatrolSnapshotBlock;
   bruiser?: PatrolSnapshotBlock;
   juggernaut?: PatrolSnapshotBlock;
+  flanker?: PatrolSnapshotBlock & { slideConcealed: boolean };
   lookout?: PatrolSnapshotBlock;
   sniper?: PatrolSnapshotBlock & { aimTargetId: string | null };
   tech?: { turretReady: boolean };
@@ -519,7 +524,7 @@ export class Run {
       fodderCount: map.fodder.length,
       available: {
         specialists: [ENEMY_ARCHETYPE.LOOKOUT, ENEMY_ARCHETYPE.SNIPER],
-        elites: [ENEMY_ARCHETYPE.BRUISER, ENEMY_ARCHETYPE.JUGGERNAUT],
+        elites: [ENEMY_ARCHETYPE.BRUISER, ENEMY_ARCHETYPE.JUGGERNAUT, ENEMY_ARCHETYPE.FLANKER],
       },
     });
     const fodder = composition.entries.filter(e => e.role === ENEMY_ROLE.FODDER);
@@ -613,6 +618,14 @@ export class Run {
         // so it cannot match the skirmisher's 4-AP dance.
         elite = new Juggernaut({
           id: `juggernaut-${i}`,
+          x: a.x,
+          y: a.y,
+          patrolWaypoints: a.waypoints,
+          tier: entry.tier,
+        });
+      } else if (entry.archetype === ENEMY_ARCHETYPE.FLANKER) {
+        elite = new Flanker({
+          id: `flanker-${i}`,
           x: a.x,
           y: a.y,
           patrolWaypoints: a.waypoints,
@@ -925,7 +938,7 @@ export class Run {
 
   /**
    * Roll typed loot for a freshly-killed hostile. Drone = scrap, turret = chips,
-   * everything else = scrap (safe default).
+   * elites = bio, everything else = scrap (safe default).
    */
   #rollLoot(target: Hostile): TypedSalvage {
     if (target instanceof CorpTurret) {
@@ -933,7 +946,7 @@ export class Run {
       // since turrets are infrastructure rather than mobile threats.
       return makeSalvage({ chips: this.rng.intRange(SALVAGE_DROP_MIN, SALVAGE_DROP_MAX + 1) });
     }
-    if (target instanceof Bruiser || target instanceof Juggernaut) {
+    if (target instanceof Bruiser || target instanceof Juggernaut || target instanceof Flanker) {
       return makeSalvage({ bio: this.rng.intRange(SALVAGE_DROP_MIN, SALVAGE_DROP_MAX + 1) });
     }
     return makeSalvage({
@@ -1637,10 +1650,12 @@ function snapshotEntity(entity: Entity): RunEntitySnapshot {
     };
     if (entity instanceof Sniper) {
       base.sniper = { ...block, aimTargetId: entity.aimTargetId };
+    } else if (entity instanceof Flanker) {
+      base.flanker = { ...block, slideConcealed: entity.slideConcealed };
     } else {
       // archetype ∈ {drone, guard, bruiser, juggernaut, lookout} here — all
       // plain PatrolSnapshotBlock keys.
-      base[archetype as Exclude<PatrolArchetypeId, 'sniper'>] = block;
+      base[archetype as Exclude<PatrolArchetypeId, 'sniper' | 'flanker'>] = block;
     }
   }
   if (entity instanceof Tech) {
@@ -1747,6 +1762,7 @@ function archetypeOf(entity: Entity): EntityArchetypeId {
   if (entity instanceof Turret) return 'turret';
   if (entity instanceof Bruiser) return 'bruiser';
   if (entity instanceof Juggernaut) return 'juggernaut';
+  if (entity instanceof Flanker) return 'flanker';
   if (entity instanceof Sniper) return 'sniper';
   if (entity instanceof Lookout) return 'lookout';
   if (entity instanceof Guard) return 'guard';

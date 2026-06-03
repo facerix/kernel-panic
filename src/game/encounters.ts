@@ -68,6 +68,7 @@ const ELITE_ARCHETYPES = Object.freeze([
 const DURABLE_PATIENT_ARCHETYPES: ReadonlySet<EnemyArchetype> = new Set([
   ENEMY_ARCHETYPE.BRUISER,
   ENEMY_ARCHETYPE.JUGGERNAUT,
+  ENEMY_ARCHETYPE.FLANKER,
 ]);
 
 export function composeEncounter({

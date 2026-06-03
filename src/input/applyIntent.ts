@@ -202,7 +202,7 @@ export function pickFireTarget(ctx: ApplyIntentContext, dx: number, dy: number) 
     if (!hasLineOfSight(world.grid, player.x, player.y, x, y, { blockers })) return null;
     const e = world.entityAt(x, y);
     if (e && e.faction !== player.faction) {
-      if (isConcealedFromPlayer(e, player)) return null;
+      if (isConcealedFromPlayer(e, player, world)) return null;
       return e;
     }
   }

@@ -8,6 +8,7 @@ import { Terminal } from '../../../src/game/entities/Terminal.js';
 import { Guard } from '../../../src/game/ai/Guard.js';
 import { Bruiser } from '../../../src/game/ai/Bruiser.js';
 import { Juggernaut } from '../../../src/game/ai/Juggernaut.js';
+import { Flanker } from '../../../src/game/ai/Flanker.js';
 import {
   restore,
   restoreCampaign,
@@ -204,9 +205,9 @@ test('Guard round-trips through snapshot/restore as archetype "guard"', () => {
 
 test('Bruiser round-trips through snapshot/restore as archetype "bruiser"', () => {
   const run = new Run({ crewMember: makeCrew('razor'), seed: 7 });
-  // contract seed 5 deterministically rolls a Bruiser (seed 42 now rolls a
-  // Juggernaut after M4.2 widened the CRITICAL elite pool).
-  run.enterBriefing(fakeContract({ seed: 5, difficulty: 'critical', threatCount: 4 }));
+  // contract seed 0 deterministically rolls a Bruiser after M4.3 widened the
+  // CRITICAL elite pool to include Flanker.
+  run.enterBriefing(fakeContract({ seed: 0, difficulty: 'critical', threatCount: 4 }));
   run.enterCombat();
   const bruiser = [...run.world.entities.values()].find(e => e instanceof Bruiser);
   assert.ok(bruiser instanceof Bruiser, 'expected a Bruiser from this critical contract');
@@ -228,8 +229,8 @@ test('Bruiser round-trips through snapshot/restore as archetype "bruiser"', () =
 
 test('Juggernaut round-trips through snapshot/restore as archetype "juggernaut"', () => {
   const run = new Run({ crewMember: makeCrew('razor'), seed: 7 });
-  // contract seed 7 deterministically rolls a Juggernaut elite.
-  run.enterBriefing(fakeContract({ seed: 7, difficulty: 'critical', threatCount: 4 }));
+  // contract seed 1 deterministically rolls a Juggernaut elite.
+  run.enterBriefing(fakeContract({ seed: 1, difficulty: 'critical', threatCount: 4 }));
   run.enterCombat();
   const juggernaut = [...run.world.entities.values()].find(e => e instanceof Juggernaut);
   assert.ok(juggernaut instanceof Juggernaut, 'expected a Juggernaut from this critical contract');
@@ -248,6 +249,33 @@ test('Juggernaut round-trips through snapshot/restore as archetype "juggernaut"'
   assert.equal(restored.glyph, 'j');
   assert.equal(restored.state, 'engage');
   assert.deepEqual(restored.lastKnownTarget, { x: 5, y: 4 });
+});
+
+test('Flanker round-trips through snapshot/restore as archetype "flanker"', () => {
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 7 });
+  // contract seed 2 deterministically rolls a Flanker elite.
+  run.enterBriefing(fakeContract({ seed: 2, difficulty: 'critical', threatCount: 4 }));
+  run.enterCombat();
+  const flanker = [...run.world.entities.values()].find(e => e instanceof Flanker);
+  assert.ok(flanker instanceof Flanker, 'expected a Flanker from this critical contract');
+  flanker.state = 'engage';
+  flanker.lastKnownTarget = { x: 5, y: 4 };
+  flanker.slideConcealed = true;
+
+  const rec = snapshot(run);
+  const flankerRec = rec.entities.find(e => e.id === flanker.id);
+  assert.equal(flankerRec?.archetype, 'flanker');
+  assert.ok(flankerRec?.flanker, 'state machine lives in the flanker block');
+  assert.equal(flankerRec.flanker.slideConcealed, true);
+  assert.equal(flankerRec.juggernaut, undefined, 'a flanker does not write a juggernaut record');
+
+  const { world: restoredWorld } = restore(rec);
+  const restored = [...restoredWorld.entities.values()].find(e => e.id === flanker.id);
+  assert.ok(restored instanceof Flanker, 'restored as a Flanker');
+  assert.equal(restored.glyph, 'f');
+  assert.equal(restored.state, 'engage');
+  assert.deepEqual(restored.lastKnownTarget, { x: 5, y: 4 });
+  assert.equal(restored.slideConcealed, true);
 });
 
 test('restore preserves turnNumber and currentFaction', () => {

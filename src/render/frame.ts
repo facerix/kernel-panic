@@ -106,7 +106,7 @@ export function buildFrame(world: World, camera: Camera, options: BuildFrameOpti
   const { vision, blastOverlayKeys, lookCursor, player } = options;
   const cells: Glyph[] = Array.from({ length: width * height });
 
-  const omitEntity = (e: Entity) => player && isConcealedFromPlayer(e, player);
+  const omitEntity = (e: Entity) => player && isConcealedFromPlayer(e, player, world);
 
   // Index entities once so we don't pay an O(n) scan per cell. Three-pass:
   // dead first, then passable live props, then impassable live actors — so a

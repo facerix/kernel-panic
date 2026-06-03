@@ -6,7 +6,9 @@
 
 import { FACTION } from './constants.js';
 import type { Entity } from './Entity.js';
+import { Flanker } from './ai/Flanker.js';
 import { Turret } from './Turret.js';
+import { isConcealedFromPlayer } from './playerPerception.js';
 import type { World } from './World.js';
 import type { TurnActionStep } from '../types.js';
 
@@ -93,6 +95,10 @@ export function isCorpTurnStepLogVisibleToPlayer(
 ): boolean {
   const actor = world.entities.get(entityId);
   if (!actor?.alive) return false;
+  const player = world.entities.get(playerId);
+  if (actor instanceof Flanker && player && isConcealedFromPlayer(actor, player, world)) {
+    return false;
+  }
 
   if (
     (step.type === 'fire' ||
@@ -178,6 +184,8 @@ export function formatCorpTurnStep(
       const targetLabel = resolve(step.target);
       return `${actorLabel} body-checks ${targetLabel} back to (${step.to.x}, ${step.to.y}) — making room to fire.`;
     }
+    case 'slide':
+      return null;
     case 'fire-blocked':
       return `${actorLabel} targets locked — ${step.reason}.`;
     case 'move-engage':

@@ -199,6 +199,15 @@ export const JUGGERNAUT_PREFERRED_MIN = 3;
 export const JUGGERNAUT_BASE_AP = 3;
 
 /**
+ * Flanker parameters (Phase 2.7 M4.3). The T3 elite mirrors Razor's SLIDE:
+ * a silent two-tile reposition that vanishes from player perception through
+ * the entire following player turn. Base AP 3 plus the T3 elite bonus yields
+ * the locked 4 AP cadence: slide (2) + optional stalk step (1), then strike on
+ * the next corp turn after `slideConcealed` clears.
+ */
+export const FLANKER_BASE_AP = 3;
+
+/**
  * Salvage parameters. Phase 2 salvage is generic units (no typed components).
  * Drone corpses drop a random amount in [DROP_MIN, DROP_MAX]; improvised
  * turrets cost IMPROVISED_TURRET_COST units from the crew member's inventory.

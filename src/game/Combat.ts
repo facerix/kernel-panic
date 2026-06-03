@@ -95,6 +95,9 @@ export function canFireRanged(
   if (!options.freeShot && !attacker.canAfford(AP_COST.RANGED_ATTACK)) {
     return { ok: false, reason: 'insufficient-ap' };
   }
+  if (attacker.faction === FACTION.PLAYER && isConcealedFromPlayer(target, attacker, world)) {
+    return { ok: false, reason: 'concealed-target' };
+  }
 
   const range = options.range ?? SIGHT_RANGE;
   if (!withinRange(attacker.x, attacker.y, target.x, target.y, range)) {
@@ -207,7 +210,7 @@ export function canMelee(world: World, attacker: Entity, target: Entity) {
   if (!target || !target.alive) return { ok: false, reason: 'invalid-target' };
   if (target === attacker) return { ok: false, reason: 'self-target' };
   if (target.faction === attacker.faction) return { ok: false, reason: 'same-faction' };
-  if (attacker.faction === FACTION.PLAYER && isConcealedFromPlayer(target, attacker)) {
+  if (attacker.faction === FACTION.PLAYER && isConcealedFromPlayer(target, attacker, world)) {
     return { ok: false, reason: 'concealed-target' };
   }
   if (!attacker.canAfford(AP_COST.MELEE_ATTACK)) {

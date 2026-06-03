@@ -52,6 +52,7 @@ import { Skirmisher, type SkirmisherProps } from './ai/Skirmisher.js';
 import { Guard, type GuardProps } from './ai/Guard.js';
 import { Bruiser, type BruiserProps } from './ai/Bruiser.js';
 import { Juggernaut, type JuggernautProps } from './ai/Juggernaut.js';
+import { Flanker, type FlankerProps } from './ai/Flanker.js';
 import { Lookout, type LookoutProps } from './ai/Lookout.js';
 import { Sniper, type SniperProps } from './ai/Sniper.js';
 import { PatrolHostile, PATROL_STATE } from './ai/PatrolHostile.js';
@@ -120,6 +121,7 @@ type RestoreEntityProps = Partial<
     GuardProps &
     BruiserProps &
     JuggernautProps &
+    FlankerProps &
     LookoutProps &
     SniperProps &
     CorpCivilianInit &
@@ -158,6 +160,7 @@ const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) =
     guard: (props: RestoreEntityProps) => new Guard(props as GuardProps),
     bruiser: (props: RestoreEntityProps) => new Bruiser(props as BruiserProps),
     juggernaut: (props: RestoreEntityProps) => new Juggernaut(props as JuggernautProps),
+    flanker: (props: RestoreEntityProps) => new Flanker(props as FlankerProps),
     lookout: (props: RestoreEntityProps) => new Lookout(props as LookoutProps),
     sniper: (props: RestoreEntityProps) => new Sniper(props as SniperProps),
     'corp-civilian': (props: RestoreEntityProps) => new CorpCivilian(props as CorpCivilianInit),
@@ -214,6 +217,8 @@ function patrolSnapshotBlock(
       return rec.bruiser ?? null;
     case 'juggernaut':
       return rec.juggernaut ?? null;
+    case 'flanker':
+      return rec.flanker ?? null;
     case 'lookout':
       return rec.lookout ?? null;
     case 'sniper':
@@ -772,6 +777,13 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
   // resumes fire-or-cancel on the next corp turn.
   if (rec.archetype === 'sniper' && rec.sniper && entity instanceof Sniper) {
     entity.aimTargetId = rec.sniper.aimTargetId ?? null;
+  }
+
+  if (rec.archetype === 'flanker' && rec.flanker && entity instanceof Flanker) {
+    if (typeof rec.flanker.slideConcealed !== 'boolean') {
+      throw new TypeError(`restore: flanker ${rec.id} slideConcealed must be boolean`);
+    }
+    entity.slideConcealed = rec.flanker.slideConcealed;
   }
 
   if (rec.archetype === 'terminal' && rec.terminal) {
