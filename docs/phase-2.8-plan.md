@@ -53,8 +53,8 @@ All chrome is **combat-scoped** — Hub / briefing / debrief keep their existing
 | Identity | `#6ae8c8` | Match `.game-shell__stats` |
 | HP filled segments | `#6ae8c8` | Player vitals green |
 | HP empty segments | `#2a4a42` dim | Low-contrast empty slot |
-| AP remaining pips | `#6ae8c8` | Active AP |
-| AP spent pips | `#ff7a66` | Spent / unavailable (user sketch used red) |
+| AP available pips | `#6ae8c8` | Filled pips, right-aligned |
+| AP spent pips | `#ff7a66` | Empty pips, left of available AP |
 | Turn indicator (player) | `#b8f5e2` | Neutral phase read |
 | Turn indicator (corp) | `#ff7a66` | Hostile phase — replaces static grain as the "something is happening" signal |
 
@@ -110,13 +110,13 @@ All chrome is **combat-scoped** — Hub / briefing / debrief keep their existing
 
 #### M1.3 — HP segment bar (top-right, row 2)
 
-- Prefix `HP ` then `maxHp` segment chars: filled `■`, empty `□` (or palette-approved alternates if font coverage is thin on iOS).
+- Prefix `HP ` then `maxHp` segment chars: filled `■`, empty `□` (or palette-approved alternates if font coverage is thin on iOS). Right-fill live HP so depleted slots sit left in the right-aligned HUD.
 - Counts derive from `player.hp` / `player.maxHp` — no numeric fraction in the HUD string.
-- **TDD:** 3/3 → `HP ■■■`; 1/3 → `HP □□■` (or consistent empty-first ordering — pick one, document).
+- **TDD:** 3/3 → `HP ■■■`; 1/3 → `HP □□■`.
 
 #### M1.4 — AP pip row (top-right, row 3)
 
-- `maxAp` pips: remaining `○` (active green), spent `●` (spent coral) — order left-to-right as remaining-first or spent-first; **decided: remaining left, spent right** (`○○●●` = 2 of 4 left).
+- `maxAp` pips: available `●` (active green), spent `○` (spent coral). Right-fill available AP so depleted slots sit left in the right-aligned HUD (`○○●●` = 2 of 4 left).
 - Separate fill colors per pip state in the draw loop (not a single `fillStyle` for the whole string).
 - **TDD:** 4/4, 0/4, mid values; color assignment per index.
 
@@ -183,7 +183,7 @@ Remove from DOM output (combat branch):
 ## Open questions / kaizen notes
 
 - **Segment char font coverage:** verify `■□○●` render consistently in `ui-monospace` on iOS Safari; fall back to `[]` / `#` / `o` / `*` if needed.
-- **HP segment order:** empty-first vs filled-first — pick one and match AP pip convention.
+- **HP/AP segment order:** decided right-filled: depleted/spent slots left, live/available slots right, matching right-aligned HUD expectations.
 - **Corp turn label copy:** `HOSTILES ACTIVE` vs `CORP TURN` vs `[CORP]` — current lean is the user's sketch; revisit if playtesters miss that controls are locked.
 - **Objective row width:** long Curator titles may need truncation + ellipsis at ~28–32 chars to avoid overlapping top-right HUD on narrow viewports.
 - **Debrief / pause states:** confirm HUD hidden whenever `run.state !== RUN_STATE.COMBAT`.
