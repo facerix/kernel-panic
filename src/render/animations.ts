@@ -41,8 +41,6 @@ export const ANIMATION_DURATIONS = Object.freeze({
 
 export const SHAKE_CLASS = 'kp-shake';
 export const DAMAGE_CLASS = 'kp-damage-flash';
-/** CRT-style static overlay while unseen hostiles act during the corp turn. */
-export const CORP_STATIC_CLASS = 'kp-corp-static';
 
 const defaultTimers = Object.freeze({
   now: () => (typeof performance !== 'undefined' ? performance.now() : Date.now()),
@@ -85,12 +83,6 @@ export function triggerShake(stageEl: HTMLElement, timers = defaultTimers) {
 
 export function triggerDamageFlash(stageEl: HTMLElement, timers = defaultTimers) {
   return restartCssAnimation(stageEl, DAMAGE_CLASS, ANIMATION_DURATIONS.DAMAGE_FLASH, timers);
-}
-
-/** Toggle the off-screen corp-activity static overlay on the canvas layer. */
-export function setCorpStaticActive(overlayEl: HTMLElement, active: boolean) {
-  if (!overlayEl?.classList) return;
-  overlayEl.classList.toggle(CORP_STATIC_CLASS, active);
 }
 
 /**

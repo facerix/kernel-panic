@@ -6,11 +6,7 @@ import { Grid } from '../../../src/game/Grid.js';
 import { World } from '../../../src/game/World.js';
 import { EventBus } from '../../../src/game/events.js';
 import { OBJECTIVES } from '../../../src/game/hub/Curator.js';
-import {
-  formatObjectiveProgressTag,
-  objectiveProgress,
-  sweepObjectiveProgress,
-} from '../../../src/game/objectiveProgress.js';
+import { objectiveProgress, sweepObjectiveProgress } from '../../../src/game/objectiveProgress.js';
 import { TILE } from '../../../src/game/constants.js';
 import { testContractContext } from './contractTestUtils.js';
 import type { Contract } from '../../../src/game/hub/Curator.js';
@@ -84,12 +80,4 @@ test('objectiveProgress unifies sweep tally', () => {
     current: 1,
     total: 2,
   });
-});
-
-test('formatObjectiveProgressTag renders bracketed meter copy', () => {
-  assert.equal(
-    formatObjectiveProgressTag({ label: 'MAP', current: 4, total: 10 }),
-    ' <span class="todo">[MAP:4/10]</span>'
-  );
-  assert.equal(formatObjectiveProgressTag(null), '');
 });

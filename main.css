@@ -224,15 +224,9 @@ main {
     opacity: 0.55;
   }
 
-  .alert-tag,
-  .control-lock,
-  .objective-tag .todo {
+  .alert-tag {
     font-weight: 700;
     letter-spacing: 0.1em;
-  }
-
-  .alert-tag,
-  .control-lock {
     color: #ff7a66;
   }
 
@@ -251,12 +245,6 @@ main {
     50% {
       opacity: 0.55;
     }
-  }
-
-  .objective-tag .done {
-    color: #7dff9d;
-    font-weight: 700;
-    letter-spacing: 0.1em;
   }
 
   .game-shell__activity {
@@ -450,44 +438,6 @@ main {
   }
 }
 
-/* Off-screen corp activity — TV static over the canvas column only.
-   Pattern from https://codepen.io/t_afif/pen/oNdKYge */
-@keyframes kp-corp-static {
-  100% {
-    background-position:
-      50% 0,
-      60% 50%;
-  }
-}
-
-.game-canvas-static {
-  position: absolute;
-  z-index: 4;
-  pointer-events: none;
-  border-radius: 1rem 0.5rem 0.5rem 2rem;
-  opacity: 0;
-  visibility: hidden;
-}
-
-.game-canvas-static.kp-corp-static {
-  opacity: 0.25;
-  visibility: visible;
-  background:
-    repeating-radial-gradient(var(--background-color) 0 0.0001%, var(--text-color) 0 0.0002%) 50%
-      0 / 2500px 2500px,
-    repeating-conic-gradient(var(--background-color) 0 0.0001%, var(--text-color) 0 0.0002%) 60%
-      60% / 2500px 2500px;
-  background-blend-mode: difference;
-  /* animation: kp-corp-static 0.2s infinite alternate; */
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .game-canvas-static.kp-corp-static {
-    animation: none;
-    opacity: 0.25;
-  }
-}
-
 #game-canvas {
   display: block;
   width: 100%;
@@ -569,6 +519,18 @@ a:focus-visible {
 
 .u-hidden {
   display: none !important;
+}
+
+.u-sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
 }
 
 .u-flex {

@@ -22,9 +22,20 @@ function makeCanvas() {
     font: '',
     textAlign: '',
     textBaseline: '',
-    fillRect: () => drawCalls.push({ op: 'rect' }),
+    fillRect(x, y, w, h) {
+      drawCalls.push({ op: 'rect', x, y, w, h, fillStyle: ctx.fillStyle });
+    },
     fillText(char, px, py) {
-      drawCalls.push({ op: 'text', char, px, py, fillStyle: ctx.fillStyle, font: ctx.font });
+      drawCalls.push({
+        op: 'text',
+        char,
+        px,
+        py,
+        fillStyle: ctx.fillStyle,
+        shadowColor: ctx.shadowColor,
+        font: ctx.font,
+        textAlign: ctx.textAlign,
+      });
     },
     measureText: text => ({ width: String(text).length * 7 }),
     save: () => {},
@@ -129,6 +140,182 @@ test('draw() omits the location chip when no label is supplied', () => {
     .filter(c => c.op === 'text')
     .find(c => c.char === c.char?.toUpperCase?.() && c.char.length > 1);
   assert.equal(chip, undefined, 'no multi-char label text op without a locationLabel');
+});
+
+test('draw() paints generic HUD rows with left and right anchoring', () => {
+  const canvas = makeCanvas();
+  const r = new AsciiRenderer(canvas, { now: () => 0 });
+  const { world, player } = makeWorld();
+
+  r.draw(world, player, {
+    hudRows: [
+      { text: 'OBJ Sentinel [TODO]', anchor: 'top-left', row: 1 },
+      { text: 'Patch [TECH]', anchor: 'top-right', row: 0 },
+    ],
+  });
+
+  const textOps = canvas._drawCalls.filter(c => c.op === 'text');
+  const objective = textOps.find(c => c.char === 'OBJ Sentinel [TODO]');
+  const identity = textOps.find(c => c.char === 'Patch [TECH]');
+  assert.equal(objective?.px, 6, 'top-left row uses left padding');
+  assert.equal(objective?.py, 30, 'row 1 sits below the location row band');
+  assert.equal(objective?.textAlign, 'left');
+  assert.equal(identity?.px, canvas.width - 6, 'top-right row uses right padding');
+  assert.equal(identity?.py, 5, 'top-right row 0 starts at the top band');
+  assert.equal(identity?.textAlign, 'right');
+
+  const identityWidth = 'Patch [TECH]'.length * 7 + 12;
+  const identityBacking = canvas._drawCalls.find(
+    c => c.op === 'rect' && c.x === canvas.width - identityWidth && c.y === 0
+  );
+  assert.ok(identityBacking, 'right-anchored backing box should hug the canvas edge');
+});
+
+test('draw() anchors bottom HUD rows from the bottom edge', () => {
+  const canvas = makeCanvas();
+  const r = new AsciiRenderer(canvas, { now: () => 0 });
+  const { world, player } = makeWorld();
+
+  r.draw(world, player, {
+    hudRows: [{ text: 'HOSTILES ACTIVE', anchor: 'bottom-left', row: 0 }],
+  });
+
+  const phase = canvas._drawCalls
+    .filter(c => c.op === 'text')
+    .find(c => c.char === 'HOSTILES ACTIVE');
+  assert.equal(phase?.px, 30);
+  assert.equal(phase?.py, canvas.height - 18, 'bottom row text sits inside the bottom band');
+});
+
+test('draw() truncates HUD rows to their max width before measuring the backing box', () => {
+  const canvas = makeCanvas();
+  const r = new AsciiRenderer(canvas, { now: () => 0 });
+  const { world, player } = makeWorld();
+
+  r.draw(world, player, {
+    hudRows: [{ text: 'OBJECTIVE TITLE THAT WILL NOT FIT', anchor: 'top-left', maxWidth: 82 }],
+  });
+
+  const textOps = canvas._drawCalls.filter(c => c.op === 'text');
+  const row = textOps.find(c => String(c.char).startsWith('OBJECTI'));
+  assert.equal(row?.char, 'OBJECTI...');
+  const backing = canvas._drawCalls.find(
+    c => c.op === 'rect' && c.x === 0 && c.y === 0 && c.fillStyle === 'rgba(6, 9, 10, 0.72)'
+  );
+  assert.equal(backing?.w, 82, 'backing width matches the configured row max');
+});
+
+test('draw() preserves recon progress tags when the objective title is long', () => {
+  const canvas = makeCanvas();
+  const r = new AsciiRenderer(canvas, { now: () => 0 });
+  const { world, player } = makeWorld();
+
+  r.draw(world, player, {
+    combatHud: {
+      objective: {
+        title: 'Map the full district water board facility layout',
+        done: true,
+        progress: { label: 'MAP', current: 42, total: 120 },
+      },
+      identity: { callsign: 'Patch', archetype: 'tech', stealthed: false },
+      hp: { hp: 2, maxHp: 3 },
+      ap: { ap: 2, maxAp: 4 },
+      turn: { currentFaction: FACTION.PLAYER, turnNumber: 12 },
+    },
+  });
+
+  const textOps = canvas._drawCalls.filter(c => c.op === 'text');
+  const objective = textOps.find(c => String(c.char).includes('[MAP:42/120]'));
+  assert.ok(objective, 'MAP progress stays visible instead of truncating to [MAP...');
+  assert.match(String(objective?.char), /\[DONE\] \[MAP:42\/120\]$/);
+});
+
+test('draw() paints structured combat HUD rows in the planned canvas corners', () => {
+  const canvas = makeCanvas();
+  const r = new AsciiRenderer(canvas, { now: () => 0 });
+  const { world, player } = makeWorld();
+
+  r.draw(world, player, {
+    locationLabel: 'Vuong Holdings server farm',
+    combatHud: {
+      objective: { title: 'Sentinel window', done: false, turnsRemaining: 4 },
+      identity: { callsign: 'Patch', archetype: 'tech', stealthed: true },
+      hp: { hp: 2, maxHp: 3 },
+      ap: { ap: 2, maxAp: 4 },
+      turn: { currentFaction: FACTION.PLAYER, turnNumber: 12 },
+    },
+  });
+
+  const textOps = canvas._drawCalls.filter(c => c.op === 'text');
+  const objective = textOps.find(c => c.char === 'OBJ Sentinel window [TODO] [TURN:4]');
+  const identity = textOps.find(c => c.char === 'Patch [TECH] [CLOAKED]');
+  const hpPrefix = textOps.find(c => c.char === 'HP ');
+  const turn = textOps.find(c => c.char === 'TURN 12');
+
+  assert.equal(objective?.px, 6, 'objective row sits left');
+  assert.equal(objective?.py, 30, 'objective row sits below the location label');
+  assert.equal(identity?.px, canvas.width - 6, 'identity row sits right');
+  assert.equal(identity?.py, 5, 'identity row is the top-right first row');
+  assert.equal(identity?.textAlign, 'right');
+  assert.equal(hpPrefix?.py, 30, 'HP row shares top-right row 1');
+  assert.equal(turn?.px, 30, 'turn row sits bottom-left clear of the canvas frame corner');
+  assert.equal(turn?.py, canvas.height - 18);
+});
+
+test('draw() paints combat HUD HP and AP glyphs with per-state colors', () => {
+  const canvas = makeCanvas();
+  const r = new AsciiRenderer(canvas, { now: () => 0 });
+  const { world, player } = makeWorld();
+
+  r.draw(world, player, {
+    combatHud: {
+      objective: { title: 'Sentinel window', done: false },
+      identity: { callsign: 'Patch', archetype: 'tech', stealthed: false },
+      hp: { hp: 1, maxHp: 3 },
+      ap: { ap: 2, maxAp: 4 },
+      turn: { currentFaction: FACTION.CORP, turnNumber: 12 },
+    },
+  });
+
+  const textOps = canvas._drawCalls.filter(c => c.op === 'text');
+  const hpGlyphs = textOps.filter(c => (c.char === '□' || c.char === '■') && c.py === 30);
+  assert.deepEqual(
+    hpGlyphs.map(c => [c.char, c.fillStyle]),
+    [
+      ['□', '#2a4a42'],
+      ['□', '#2a4a42'],
+      ['■', '#6ae8c8'],
+    ]
+  );
+
+  const apGlyphs = textOps.filter(c => (c.char === '○' || c.char === '●') && c.py === 55);
+  assert.deepEqual(
+    apGlyphs.map(c => [c.char, c.fillStyle]),
+    [
+      ['○', '#ff7a66'],
+      ['○', '#ff7a66'],
+      ['●', '#6ae8c8'],
+      ['●', '#6ae8c8'],
+    ]
+  );
+
+  const corpTurn = textOps.find(c => c.char === 'HOSTILES ACTIVE');
+  assert.equal(corpTurn?.fillStyle, '#ff7a66');
+});
+
+test('draw() omits combat HUD rows when combatHud is null', () => {
+  const canvas = makeCanvas();
+  const r = new AsciiRenderer(canvas, { now: () => 0 });
+  const { world, player } = makeWorld();
+
+  r.draw(world, player, { combatHud: null });
+
+  const hudText = canvas._drawCalls
+    .filter(c => c.op === 'text')
+    .filter(c =>
+      ['OBJ ', 'HP ', 'TURN', 'HOSTILES'].some(prefix => String(c.char).startsWith(prefix))
+    );
+  assert.equal(hudText.length, 0);
 });
 
 test('flashes outside the camera are silently skipped (but stay registered)', () => {
