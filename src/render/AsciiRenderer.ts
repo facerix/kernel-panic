@@ -1,3 +1,12 @@
+import {
+  COMBAT_HUD_GLYPHS,
+  formatApPips,
+  formatHpSegments,
+  formatIdentityHud,
+  formatObjectiveHud,
+  formatTurnLabel,
+} from './combatHud.js';
+import { FACTION } from '../game/constants.js';
 import { buildFrame, cameraFor } from './frame.js';
 import type { Viewport, Camera, BuildFrameOptions, Frame } from './frame.js';
 
@@ -12,6 +21,7 @@ import type { Viewport, Camera, BuildFrameOptions, Frame } from './frame.js';
  */
 import type { World } from '../game/World.js';
 import type { Entity } from '../game/Entity.js';
+import type { CombatHudSummaryInput } from './combatHud.js';
 
 type NowFn = () => number;
 type AsciiRendererOptions = {
@@ -33,6 +43,8 @@ type DrawOptions = BuildFrameOptions & {
   locationLabel?: string;
   /** Renderer-owned canvas chrome rows, painted after the map and flashes. */
   hudRows?: readonly HudRow[];
+  /** Structured combat chrome, painted in the canonical combat HUD positions. */
+  combatHud?: CombatHudSummaryInput | null;
 };
 type FlashCellOptions = {
   duration?: number;
@@ -51,6 +63,11 @@ type Flash = {
 };
 
 type HudRowAnchor = 'top-left' | 'top-right' | 'bottom-left';
+type HudTextSegment = {
+  text: string;
+  color: string;
+  glowColor?: string;
+};
 type HudRow = {
   text: string;
   anchor: HudRowAnchor;
@@ -62,6 +79,7 @@ type HudRow = {
   uppercase?: boolean;
   /** Maximum backing-box width in CSS pixels. Text is truncated to fit. */
   maxWidth?: number;
+  segments?: readonly HudTextSegment[];
 };
 
 const HUD_FONT_PX = 12;
@@ -73,6 +91,16 @@ const HUD_ACCENT = 'rgba(0, 217, 165, 0.5)';
 const HUD_TEXT = '#9ff3da';
 const HUD_GLOW = '#6ae8c8';
 const TRUNCATION_MARK = '...';
+const HUD_OBJECTIVE_DONE = '#7dff9d';
+const HUD_OBJECTIVE_TODO = '#ff7a66';
+const HUD_IDENTITY = '#6ae8c8';
+const HUD_HP_EMPTY = '#2a4a42';
+const HUD_HP_FILLED = '#6ae8c8';
+const HUD_AP_SPENT = '#ff7a66';
+const HUD_AP_AVAILABLE = '#6ae8c8';
+const HUD_TURN_PLAYER = '#b8f5e2';
+const HUD_TURN_CORP = '#ff7a66';
+const OBJECTIVE_MAX_WIDTH = 260;
 
 export class AsciiRenderer {
   canvas: HTMLCanvasElement;
@@ -140,7 +168,7 @@ export class AsciiRenderer {
    */
   draw(world: World, followTarget: Entity, options: DrawOptions = {}) {
     this.#syncViewport();
-    const { camera: cameraOverride, locationLabel, hudRows, ...frameOpts } = options;
+    const { camera: cameraOverride, locationLabel, combatHud, hudRows, ...frameOpts } = options;
     const camera = cameraOverride ?? cameraFor(followTarget, this.viewport!);
     const frame = buildFrame(world, camera, frameOpts);
     this.#drawFrame(frame);
@@ -148,6 +176,7 @@ export class AsciiRenderer {
     this.#paintActiveFlashes();
     // Painted last so persistent chrome is never occluded by glyphs/flashes.
     this.#drawLocationLabel(locationLabel);
+    this.#drawCombatHud(combatHud);
     this.#drawHudRows(hudRows);
   }
 
@@ -234,6 +263,51 @@ export class AsciiRenderer {
     }
   }
 
+  #drawCombatHud(hud?: CombatHudSummaryInput | null) {
+    if (!hud) return;
+    const objective = formatObjectiveHud(hud.objective);
+    if (objective) {
+      this.#drawHudRow({
+        text: objective,
+        anchor: 'top-left',
+        row: 1,
+        color: hud.objective?.done ? HUD_OBJECTIVE_DONE : HUD_OBJECTIVE_TODO,
+        glowColor: hud.objective?.done ? HUD_OBJECTIVE_DONE : HUD_OBJECTIVE_TODO,
+        maxWidth: OBJECTIVE_MAX_WIDTH,
+      });
+    }
+    this.#drawHudRow({
+      text: formatIdentityHud(hud.identity),
+      anchor: 'top-right',
+      row: 0,
+      color: HUD_IDENTITY,
+      glowColor: HUD_IDENTITY,
+    });
+    const hpText = formatHpSegments(hud.hp);
+    this.#drawHudRow({
+      text: hpText,
+      anchor: 'top-right',
+      row: 1,
+      segments: hpSegments(hpText),
+    });
+    const apText = formatApPips(hud.ap);
+    this.#drawHudRow({
+      text: apText,
+      anchor: 'top-right',
+      row: 2,
+      segments: apSegments(apText),
+    });
+    const turnLabel = formatTurnLabel(hud.turn);
+    const isCorpTurn = hud.turn.currentFaction === FACTION.CORP;
+    this.#drawHudRow({
+      text: turnLabel,
+      anchor: 'bottom-left',
+      row: 0,
+      color: isCorpTurn ? HUD_TURN_CORP : HUD_TURN_PLAYER,
+      glowColor: isCorpTurn ? HUD_TURN_CORP : HUD_TURN_PLAYER,
+    });
+  }
+
   #drawHudRow(row: HudRow) {
     const ctx = this.ctx;
     if (!ctx || !row.text) return;
@@ -270,10 +344,34 @@ export class AsciiRenderer {
     ctx.fillStyle = row.accentColor ?? HUD_ACCENT;
     ctx.fillRect(boxX, boxY + boxH, boxW, 1);
     ctx.shadowBlur = this.glow;
-    ctx.shadowColor = row.glowColor ?? HUD_GLOW;
-    ctx.fillStyle = row.color ?? HUD_TEXT;
-    ctx.fillText(text, textX, boxY + HUD_PAD_Y);
+    if (row.segments && text === rawText) {
+      this.#drawHudSegments(row.segments, text, boxX, boxW, boxY);
+    } else {
+      ctx.shadowColor = row.glowColor ?? HUD_GLOW;
+      ctx.fillStyle = row.color ?? HUD_TEXT;
+      ctx.fillText(text, textX, boxY + HUD_PAD_Y);
+    }
     ctx.restore();
+  }
+
+  #drawHudSegments(
+    segments: readonly HudTextSegment[],
+    text: string,
+    boxX: number,
+    boxW: number,
+    boxY: number
+  ) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    let x = boxX + boxW - HUD_PAD_X - ctx.measureText(text).width;
+    ctx.textAlign = 'left';
+    for (const segment of segments) {
+      if (!segment.text) continue;
+      ctx.shadowColor = segment.glowColor ?? segment.color;
+      ctx.fillStyle = segment.color;
+      ctx.fillText(segment.text, x, boxY + HUD_PAD_Y);
+      x += ctx.measureText(segment.text).width;
+    }
   }
 
   #truncateHudText(text: string, maxTextWidth: number): string {
@@ -327,4 +425,32 @@ export class AsciiRenderer {
     }
     ctx!.shadowBlur = 0;
   }
+}
+
+function hpSegments(text: string): HudTextSegment[] {
+  const prefix = 'HP ';
+  const glyphs = text.startsWith(prefix) ? text.slice(prefix.length) : text;
+  const segments: HudTextSegment[] = text.startsWith(prefix)
+    ? [{ text: prefix, color: HUD_TEXT, glowColor: HUD_GLOW }]
+    : [];
+  for (const char of glyphs) {
+    if (char === COMBAT_HUD_GLYPHS.HP_EMPTY) {
+      segments.push({ text: char, color: HUD_HP_EMPTY });
+    } else if (char === COMBAT_HUD_GLYPHS.HP_FILLED) {
+      segments.push({ text: char, color: HUD_HP_FILLED });
+    } else {
+      segments.push({ text: char, color: HUD_TEXT, glowColor: HUD_GLOW });
+    }
+  }
+  return segments;
+}
+
+function apSegments(text: string): HudTextSegment[] {
+  return [...text].map(char => {
+    if (char === COMBAT_HUD_GLYPHS.AP_SPENT) return { text: char, color: HUD_AP_SPENT };
+    if (char === COMBAT_HUD_GLYPHS.AP_AVAILABLE) {
+      return { text: char, color: HUD_AP_AVAILABLE };
+    }
+    return { text: char, color: HUD_TEXT, glowColor: HUD_GLOW };
+  });
 }

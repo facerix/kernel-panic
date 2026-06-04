@@ -32,6 +32,7 @@ function makeCanvas() {
         px,
         py,
         fillStyle: ctx.fillStyle,
+        shadowColor: ctx.shadowColor,
         font: ctx.font,
         textAlign: ctx.textAlign,
       });
@@ -202,6 +203,94 @@ test('draw() truncates HUD rows to their max width before measuring the backing 
     c => c.op === 'rect' && c.x === 0 && c.y === 0 && c.fillStyle === 'rgba(6, 9, 10, 0.72)'
   );
   assert.equal(backing?.w, 82, 'backing width matches the configured row max');
+});
+
+test('draw() paints structured combat HUD rows in the planned canvas corners', () => {
+  const canvas = makeCanvas();
+  const r = new AsciiRenderer(canvas, { now: () => 0 });
+  const { world, player } = makeWorld();
+
+  r.draw(world, player, {
+    locationLabel: 'Vuong Holdings server farm',
+    combatHud: {
+      objective: { title: 'Sentinel window', done: false, turnsRemaining: 4 },
+      identity: { callsign: 'Patch', archetype: 'tech', stealthed: true },
+      hp: { hp: 2, maxHp: 3 },
+      ap: { ap: 2, maxAp: 4 },
+      turn: { currentFaction: FACTION.PLAYER, turnNumber: 12 },
+    },
+  });
+
+  const textOps = canvas._drawCalls.filter(c => c.op === 'text');
+  const objective = textOps.find(c => c.char === 'OBJ Sentinel window [TODO] [TURN:4]');
+  const identity = textOps.find(c => c.char === 'Patch [TECH] [CLOAKED]');
+  const hpPrefix = textOps.find(c => c.char === 'HP ');
+  const turn = textOps.find(c => c.char === 'TURN 12');
+
+  assert.equal(objective?.px, 6, 'objective row sits left');
+  assert.equal(objective?.py, 30, 'objective row sits below the location label');
+  assert.equal(identity?.px, canvas.width - 6, 'identity row sits right');
+  assert.equal(identity?.py, 5, 'identity row is the top-right first row');
+  assert.equal(identity?.textAlign, 'right');
+  assert.equal(hpPrefix?.py, 30, 'HP row shares top-right row 1');
+  assert.equal(turn?.px, 6, 'turn row sits bottom-left');
+  assert.equal(turn?.py, canvas.height - 18);
+});
+
+test('draw() paints combat HUD HP and AP glyphs with per-state colors', () => {
+  const canvas = makeCanvas();
+  const r = new AsciiRenderer(canvas, { now: () => 0 });
+  const { world, player } = makeWorld();
+
+  r.draw(world, player, {
+    combatHud: {
+      objective: { title: 'Sentinel window', done: false },
+      identity: { callsign: 'Patch', archetype: 'tech', stealthed: false },
+      hp: { hp: 1, maxHp: 3 },
+      ap: { ap: 2, maxAp: 4 },
+      turn: { currentFaction: FACTION.CORP, turnNumber: 12 },
+    },
+  });
+
+  const textOps = canvas._drawCalls.filter(c => c.op === 'text');
+  const hpGlyphs = textOps.filter(c => (c.char === '□' || c.char === '■') && c.py === 30);
+  assert.deepEqual(
+    hpGlyphs.map(c => [c.char, c.fillStyle]),
+    [
+      ['□', '#2a4a42'],
+      ['□', '#2a4a42'],
+      ['■', '#6ae8c8'],
+    ]
+  );
+
+  const apGlyphs = textOps.filter(c => (c.char === '○' || c.char === '●') && c.py === 55);
+  assert.deepEqual(
+    apGlyphs.map(c => [c.char, c.fillStyle]),
+    [
+      ['○', '#ff7a66'],
+      ['○', '#ff7a66'],
+      ['●', '#6ae8c8'],
+      ['●', '#6ae8c8'],
+    ]
+  );
+
+  const corpTurn = textOps.find(c => c.char === 'HOSTILES ACTIVE');
+  assert.equal(corpTurn?.fillStyle, '#ff7a66');
+});
+
+test('draw() omits combat HUD rows when combatHud is null', () => {
+  const canvas = makeCanvas();
+  const r = new AsciiRenderer(canvas, { now: () => 0 });
+  const { world, player } = makeWorld();
+
+  r.draw(world, player, { combatHud: null });
+
+  const hudText = canvas._drawCalls
+    .filter(c => c.op === 'text')
+    .filter(c =>
+      ['OBJ ', 'HP ', 'TURN', 'HOSTILES'].some(prefix => String(c.char).startsWith(prefix))
+    );
+  assert.equal(hudText.length, 0);
 });
 
 test('flashes outside the camera are silently skipped (but stay registered)', () => {
