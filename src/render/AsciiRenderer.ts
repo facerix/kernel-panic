@@ -31,6 +31,8 @@ type DrawOptions = BuildFrameOptions & {
    * to read the corner as "where am I". Omitted = no chip this frame.
    */
   locationLabel?: string;
+  /** Renderer-owned canvas chrome rows, painted after the map and flashes. */
+  hudRows?: readonly HudRow[];
 };
 type FlashCellOptions = {
   duration?: number;
@@ -47,6 +49,30 @@ type Flash = {
   color: string;
   fontScale: number;
 };
+
+type HudRowAnchor = 'top-left' | 'top-right' | 'bottom-left';
+type HudRow = {
+  text: string;
+  anchor: HudRowAnchor;
+  /** Zero-based row from the chosen edge. */
+  row?: number;
+  color?: string;
+  glowColor?: string;
+  accentColor?: string;
+  uppercase?: boolean;
+  /** Maximum backing-box width in CSS pixels. Text is truncated to fit. */
+  maxWidth?: number;
+};
+
+const HUD_FONT_PX = 12;
+const HUD_PAD_X = 6;
+const HUD_PAD_Y = 5;
+const HUD_ROW_GAP = 3;
+const HUD_BACKING = 'rgba(6, 9, 10, 0.72)';
+const HUD_ACCENT = 'rgba(0, 217, 165, 0.5)';
+const HUD_TEXT = '#9ff3da';
+const HUD_GLOW = '#6ae8c8';
+const TRUNCATION_MARK = '...';
 
 export class AsciiRenderer {
   canvas: HTMLCanvasElement;
@@ -114,14 +140,15 @@ export class AsciiRenderer {
    */
   draw(world: World, followTarget: Entity, options: DrawOptions = {}) {
     this.#syncViewport();
-    const { camera: cameraOverride, locationLabel, ...frameOpts } = options;
+    const { camera: cameraOverride, locationLabel, hudRows, ...frameOpts } = options;
     const camera = cameraOverride ?? cameraFor(followTarget, this.viewport!);
     const frame = buildFrame(world, camera, frameOpts);
     this.#drawFrame(frame);
     this.lastCamera = camera;
     this.#paintActiveFlashes();
-    // Painted last so the persistent chip is never occluded by glyphs/flashes.
+    // Painted last so persistent chrome is never occluded by glyphs/flashes.
     this.#drawLocationLabel(locationLabel);
+    this.#drawHudRows(hudRows);
   }
 
   /**
@@ -196,28 +223,70 @@ export class AsciiRenderer {
    * terminal aesthetic. No-op when no label is supplied.
    */
   #drawLocationLabel(label?: string) {
+    if (!label) return;
+    this.#drawHudRow({ text: label, anchor: 'top-left', uppercase: true });
+  }
+
+  #drawHudRows(rows?: readonly HudRow[]) {
+    if (!rows) return;
+    for (const row of rows) {
+      this.#drawHudRow(row);
+    }
+  }
+
+  #drawHudRow(row: HudRow) {
     const ctx = this.ctx;
-    if (!ctx || !label) return;
-    const text = label.toUpperCase();
-    const fontPx = 12;
-    const padX = 6;
-    const padY = 5;
+    if (!ctx || !row.text) return;
+    const rowIndex = row.row ?? 0;
+    if (!Number.isInteger(rowIndex) || rowIndex < 0) {
+      throw new RangeError(`HUD row index must be a non-negative integer, got ${rowIndex}`);
+    }
+    if (row.maxWidth !== undefined && (!Number.isFinite(row.maxWidth) || row.maxWidth < 0)) {
+      throw new RangeError(`HUD maxWidth must be non-negative, got ${row.maxWidth}`);
+    }
+
+    const rawText = row.uppercase ? row.text.toUpperCase() : row.text;
+    const boxH = HUD_FONT_PX + HUD_PAD_Y * 2;
+    const defaultMaxWidth =
+      row.anchor === 'top-right' ? this.canvas.width : Math.max(0, this.canvas.width);
+    const maxBoxW = Math.max(0, Math.min(row.maxWidth ?? defaultMaxWidth, this.canvas.width));
+
     ctx.save();
-    ctx.font = `${fontPx}px ${this.fontFamily}`;
-    ctx.textAlign = 'left';
+    ctx.font = `${HUD_FONT_PX}px ${this.fontFamily}`;
     ctx.textBaseline = 'top';
-    const boxW = Math.ceil(ctx.measureText(text).width) + padX * 2;
-    const boxH = fontPx + padY * 2;
+    const text = this.#truncateHudText(rawText, Math.max(0, maxBoxW - HUD_PAD_X * 2));
+    const boxW = Math.min(maxBoxW, Math.ceil(ctx.measureText(text).width) + HUD_PAD_X * 2);
+    const boxX = row.anchor === 'top-right' ? this.canvas.width - boxW : 0;
+    const boxY =
+      row.anchor === 'bottom-left'
+        ? this.canvas.height - 1 - boxH - rowIndex * (boxH + HUD_ROW_GAP)
+        : rowIndex * (boxH + HUD_ROW_GAP);
+    const textX = row.anchor === 'top-right' ? boxX + boxW - HUD_PAD_X : boxX + HUD_PAD_X;
+
+    ctx.textAlign = row.anchor === 'top-right' ? 'right' : 'left';
     ctx.shadowBlur = 0;
-    ctx.fillStyle = 'rgba(6, 9, 10, 0.72)';
-    ctx.fillRect(0, 0, boxW, boxH);
-    ctx.fillStyle = 'rgba(0, 217, 165, 0.5)';
-    ctx.fillRect(0, boxH, boxW, 1);
+    ctx.fillStyle = HUD_BACKING;
+    ctx.fillRect(boxX, boxY, boxW, boxH);
+    ctx.fillStyle = row.accentColor ?? HUD_ACCENT;
+    ctx.fillRect(boxX, boxY + boxH, boxW, 1);
     ctx.shadowBlur = this.glow;
-    ctx.shadowColor = '#6ae8c8';
-    ctx.fillStyle = '#9ff3da';
-    ctx.fillText(text, padX, padY);
+    ctx.shadowColor = row.glowColor ?? HUD_GLOW;
+    ctx.fillStyle = row.color ?? HUD_TEXT;
+    ctx.fillText(text, textX, boxY + HUD_PAD_Y);
     ctx.restore();
+  }
+
+  #truncateHudText(text: string, maxTextWidth: number): string {
+    const ctx = this.ctx;
+    if (!ctx || ctx.measureText(text).width <= maxTextWidth) return text;
+    if (maxTextWidth <= 0) return '';
+    const markerWidth = ctx.measureText(TRUNCATION_MARK).width;
+    if (markerWidth > maxTextWidth) return '';
+    let next = text;
+    while (next.length > 0 && ctx.measureText(`${next}${TRUNCATION_MARK}`).width > maxTextWidth) {
+      next = next.slice(0, -1);
+    }
+    return `${next}${TRUNCATION_MARK}`;
   }
 
   #drawFrame(frame: Frame) {

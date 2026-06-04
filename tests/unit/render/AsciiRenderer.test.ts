@@ -22,9 +22,19 @@ function makeCanvas() {
     font: '',
     textAlign: '',
     textBaseline: '',
-    fillRect: () => drawCalls.push({ op: 'rect' }),
+    fillRect(x, y, w, h) {
+      drawCalls.push({ op: 'rect', x, y, w, h, fillStyle: ctx.fillStyle });
+    },
     fillText(char, px, py) {
-      drawCalls.push({ op: 'text', char, px, py, fillStyle: ctx.fillStyle, font: ctx.font });
+      drawCalls.push({
+        op: 'text',
+        char,
+        px,
+        py,
+        fillStyle: ctx.fillStyle,
+        font: ctx.font,
+        textAlign: ctx.textAlign,
+      });
     },
     measureText: text => ({ width: String(text).length * 7 }),
     save: () => {},
@@ -129,6 +139,69 @@ test('draw() omits the location chip when no label is supplied', () => {
     .filter(c => c.op === 'text')
     .find(c => c.char === c.char?.toUpperCase?.() && c.char.length > 1);
   assert.equal(chip, undefined, 'no multi-char label text op without a locationLabel');
+});
+
+test('draw() paints generic HUD rows with left and right anchoring', () => {
+  const canvas = makeCanvas();
+  const r = new AsciiRenderer(canvas, { now: () => 0 });
+  const { world, player } = makeWorld();
+
+  r.draw(world, player, {
+    hudRows: [
+      { text: 'OBJ Sentinel [TODO]', anchor: 'top-left', row: 1 },
+      { text: 'Patch [TECH]', anchor: 'top-right', row: 0 },
+    ],
+  });
+
+  const textOps = canvas._drawCalls.filter(c => c.op === 'text');
+  const objective = textOps.find(c => c.char === 'OBJ Sentinel [TODO]');
+  const identity = textOps.find(c => c.char === 'Patch [TECH]');
+  assert.equal(objective?.px, 6, 'top-left row uses left padding');
+  assert.equal(objective?.py, 30, 'row 1 sits below the location row band');
+  assert.equal(objective?.textAlign, 'left');
+  assert.equal(identity?.px, canvas.width - 6, 'top-right row uses right padding');
+  assert.equal(identity?.py, 5, 'top-right row 0 starts at the top band');
+  assert.equal(identity?.textAlign, 'right');
+
+  const identityWidth = 'Patch [TECH]'.length * 7 + 12;
+  const identityBacking = canvas._drawCalls.find(
+    c => c.op === 'rect' && c.x === canvas.width - identityWidth && c.y === 0
+  );
+  assert.ok(identityBacking, 'right-anchored backing box should hug the canvas edge');
+});
+
+test('draw() anchors bottom HUD rows from the bottom edge', () => {
+  const canvas = makeCanvas();
+  const r = new AsciiRenderer(canvas, { now: () => 0 });
+  const { world, player } = makeWorld();
+
+  r.draw(world, player, {
+    hudRows: [{ text: 'HOSTILES ACTIVE', anchor: 'bottom-left', row: 0 }],
+  });
+
+  const phase = canvas._drawCalls
+    .filter(c => c.op === 'text')
+    .find(c => c.char === 'HOSTILES ACTIVE');
+  assert.equal(phase?.px, 6);
+  assert.equal(phase?.py, canvas.height - 18, 'bottom row text sits inside the bottom band');
+});
+
+test('draw() truncates HUD rows to their max width before measuring the backing box', () => {
+  const canvas = makeCanvas();
+  const r = new AsciiRenderer(canvas, { now: () => 0 });
+  const { world, player } = makeWorld();
+
+  r.draw(world, player, {
+    hudRows: [{ text: 'OBJECTIVE TITLE THAT WILL NOT FIT', anchor: 'top-left', maxWidth: 82 }],
+  });
+
+  const textOps = canvas._drawCalls.filter(c => c.op === 'text');
+  const row = textOps.find(c => String(c.char).startsWith('OBJECTI'));
+  assert.equal(row?.char, 'OBJECTI...');
+  const backing = canvas._drawCalls.find(
+    c => c.op === 'rect' && c.x === 0 && c.y === 0 && c.fillStyle === 'rgba(6, 9, 10, 0.72)'
+  );
+  assert.equal(backing?.w, 82, 'backing width matches the configured row max');
 });
 
 test('flashes outside the camera are silently skipped (but stay registered)', () => {
