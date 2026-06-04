@@ -81,6 +81,7 @@ import type { Run, RunResult, RunTelemetry, Outcome } from '/src/game/Run.js';
 import type { Item } from '/src/game/items.js';
 import type { Intent } from '/src/input/applyIntent.js';
 import type { AimKind, Mode } from '/src/input/keymap.js';
+import type { CombatHudSummaryInput } from '/src/render/combatHud.js';
 import type { KeyItem, Telemetry, TurnActionStep } from '/src/types.js';
 import { installErrorBoundary, type FaultSignal } from '/src/errorBoundary.js';
 import { h, isDevelopmentMode } from '/src/domUtils.js';
@@ -1939,6 +1940,44 @@ function currentLocationLabel(): string | undefined {
   return undefined;
 }
 
+function buildCombatHudSnapshot(scene: ShellScene | null): CombatHudSummaryInput | null {
+  if (!scene || scene.state !== RUN_STATE.COMBAT) return null;
+  if (!isRun(scene)) {
+    throw new Error('[shell] combat HUD requires an active run');
+  }
+  if (!scene.player || !scene.queue) {
+    throw new Error('[shell] combat HUD requires player and turn queue');
+  }
+  return {
+    objective:
+      scene.contract && scene.world
+        ? {
+            title: scene.contract.objective.title,
+            done: scene.isObjectiveSatisfied(),
+            turnsRemaining: scene.objectiveTurnsRemaining(),
+            progress: scene.objectiveProgress(),
+          }
+        : null,
+    identity: {
+      callsign: scene.player.callsign,
+      archetype: scene.archetype,
+      stealthed: scene.player.stealthed,
+    },
+    hp: {
+      hp: scene.player.hp,
+      maxHp: scene.player.maxHp,
+    },
+    ap: {
+      ap: scene.player.ap,
+      maxAp: scene.player.maxAp,
+    },
+    turn: {
+      currentFaction: scene.queue.currentFaction,
+      turnNumber: scene.queue.turnNumber,
+    },
+  };
+}
+
 function paint(stateHint: InputState = activeInputState()): void {
   const run = currentScene();
   if (canvas.hidden) {
@@ -1959,6 +1998,7 @@ function paint(stateHint: InputState = activeInputState()): void {
     blastOverlayKeys,
     lookCursor,
     locationLabel: currentLocationLabel(),
+    combatHud: buildCombatHudSnapshot(run),
   });
   crt.alertTint = run.state === RUN_STATE.COMBAT && run.world.alarmActive;
   crt.apply();

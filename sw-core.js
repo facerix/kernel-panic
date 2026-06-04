@@ -129,6 +129,7 @@ const CacheConfig = {
       '/src/input/touchpad.js',
       '/src/render/animations.js',
       '/src/render/AsciiRenderer.js',
+      '/src/render/combatHud.js',
       '/src/render/CrtFilter.js',
       '/src/render/frame.js',
       '/src/render/palette.js',
