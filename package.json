@@ -19,7 +19,9 @@
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "deploy": ". ./.env && rsync -avz --delete --exclude tests dist/ \"$DEPLOY_TARGET\"",
+    "deploy:dry-run": ". ./.env && rsync -avzn --delete --exclude tests dist/ \"$DEPLOY_TARGET\""
   },
   "author": "Rylee Corradini",
   "license": "GPL-3.0",
