@@ -15,3 +15,23 @@ test('alarmPayloadTriggersRepPenalty: lookout pings do not penalize', () => {
     false
   );
 });
+
+test('alarmPayloadTriggersRepPenalty: CorpCivilian facility raise penalizes', () => {
+  assert.equal(
+    alarmPayloadTriggersRepPenalty({
+      kind: ALARM_KIND.FACILITY,
+      repPenalty: true,
+    }),
+    true
+  );
+});
+
+test('alarmPayloadTriggersRepPenalty: repPenalty false skips penalty', () => {
+  assert.equal(
+    alarmPayloadTriggersRepPenalty({
+      kind: ALARM_KIND.FACILITY,
+      repPenalty: false,
+    }),
+    false
+  );
+});

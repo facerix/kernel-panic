@@ -10,9 +10,9 @@
  * window will not re-emit (no stacking Rep penalties).
  *
  * Does not extend `Hostile` — it never fires, never chases. The alarm is
- * the only combat-relevant action. Killing a CorpCivilian does NOT cost Rep
- * (they're corp-aligned, not neutral); the Rep penalty applies only to
- * NEUTRAL faction civilians.
+ * the only combat-relevant action. Killing a CorpCivilian does not cost Rep
+ * (they're corp-aligned, not neutral bystanders), but a facility raise from
+ * a desk clerk still applies `REP.ALARM_PENALTY`. Terminal slice alarms do not.
  *
  * Placed by `mapBuild` at authored spawn points inside prefabs (at least one
  * per `office` prefab).

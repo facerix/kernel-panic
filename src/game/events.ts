@@ -43,8 +43,9 @@ const KNOWN_TYPES = new Set<string>(Object.values(EVENT));
  * provenance and side effects:
  *
  *   - **`facility`** — the building noticed you. Emitted by `World.raiseAlarm()`
- *     (CorpCivilian / terminal). Latches the facility alarm cadence and carries
- *     the Rep penalty. Default kind for legacy emits that omit one.
+ *     (CorpCivilian / terminal). Latches the facility alarm cadence. Callers
+ *     set `repPenalty` on the payload (CorpCivilian default true; combat
+ *     terminals false). Default kind for legacy emits that omit one.
  *   - **`lookout`** — a `Lookout` is calling fire on you *right now*. Emitted
  *     directly on the bus, every corp turn it holds LOS. No facility latch, no
  *     Rep penalty — kill the lookout or break its sight to stop the pings.
@@ -57,14 +58,16 @@ export const ALARM_KIND = Object.freeze({
 export type AlarmKind = (typeof ALARM_KIND)[keyof typeof ALARM_KIND];
 
 /**
- * Whether an `ALARM` payload should apply `REP.ALARM_PENALTY`. Only facility
- * raises count; lookout pings coordinate hostiles without social fallout.
- * Legacy payloads that omit `kind` are treated as facility (raiseAlarm default).
+ * Whether an `ALARM` payload should apply `REP.ALARM_PENALTY`. Reads the
+ * explicit `repPenalty` flag set by `World.raiseAlarm()` callers. Lookout
+ * pings never adjust Rep. Legacy payloads that omit `repPenalty` penalize.
  */
 export function alarmPayloadTriggersRepPenalty(payload: unknown): boolean {
   if (payload == null || typeof payload !== 'object') return true;
-  const kind = (payload as { kind?: string }).kind;
-  return kind === undefined || kind === ALARM_KIND.FACILITY;
+  const record = payload as { kind?: string; repPenalty?: boolean };
+  if (record.kind === ALARM_KIND.LOOKOUT) return false;
+  if (record.repPenalty === false) return false;
+  return record.kind === undefined || record.kind === ALARM_KIND.FACILITY;
 }
 
 export type EventType = (typeof EVENT)[keyof typeof EVENT];

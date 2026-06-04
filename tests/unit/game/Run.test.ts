@@ -809,7 +809,7 @@ test('Run snapshot/restore preserves on-map consumable pickups', () => {
 
 // --- M5: civilian:harmed emission --------------------------------------------
 
-test('civilian:harmed emitted when player damages a NEUTRAL entity', () => {
+test('civilian:harmed emitted when player damages a NeutralCivilian', () => {
   const run = new Run({ crewMember: makeCrew('merc'), seed: 42 });
   run.enterBriefing(fakeContract());
   run.enterCombat();
@@ -839,13 +839,7 @@ test('civilian:harmed emitted when player damages a NEUTRAL entity', () => {
   }
   assert.ok(nx >= 0, 'need a passable neighbor to place neutral');
 
-  const neutral = new Entity({
-    id: 'test-neutral-civ',
-    x: nx,
-    y: ny,
-    faction: FACTION.NEUTRAL,
-    glyph: 'n',
-  });
+  const neutral = new NeutralCivilian({ id: 'test-neutral-civ', x: nx, y: ny });
   world.addEntity(neutral);
 
   const harmed: unknown[] = [];
@@ -861,7 +855,7 @@ test('civilian:harmed emitted when player damages a NEUTRAL entity', () => {
     source: 'melee',
   });
 
-  assert.equal(harmed.length, 1, 'civilian:harmed should fire on NEUTRAL hit');
+  assert.equal(harmed.length, 1, 'civilian:harmed should fire on NeutralCivilian hit');
   const payload = harmed[0] as Record<string, unknown>;
   assert.equal(payload.killed, false);
   assert.equal(payload.target, neutral);
@@ -1002,7 +996,7 @@ test('civilian:harmed does NOT fire when player-planted breaching charge kills C
   assert.equal(
     harmed.length,
     0,
-    'CorpCivilian is CORP faction — revisit in Phase 2.7 for breach attribution'
+    'CorpCivilian kills must not emit civilian:harmed or cost Rep'
   );
 });
 

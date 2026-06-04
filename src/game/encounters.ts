@@ -34,39 +34,11 @@ export type EncounterComposition = Readonly<{
   entries: readonly EncounterRoleEntry[];
 }>;
 
-/**
- * Allowlist of specialist/elite archetypes the resolver is permitted to roll.
- * Phase 2.7 ships role classes incrementally; the spawn site passes only the
- * archetypes that have a buildable class so the resolver never composes a
- * hostile we'd have to reskin or silently drop. Omitting a list (or passing
- * `undefined`) means "the full conceptual roster" — the default used by
- * composition unit tests that exercise the whole pool.
- */
-export type AvailableArchetypes = Readonly<{
-  specialists?: readonly EnemyArchetype[];
-  elites?: readonly EnemyArchetype[];
-}>;
-
 export type ComposeEncounterOptions = Readonly<{
   seed: number;
   difficulty: ContractDifficulty;
   fodderCount: number;
-  available?: AvailableArchetypes;
 }>;
-
-/** Allowlist passed from `Run.enterCombat` — briefing counts must use the same pool. */
-export const RUNTIME_ENCOUNTER_AVAILABLE = Object.freeze({
-  specialists: Object.freeze([
-    ENEMY_ARCHETYPE.LOOKOUT,
-    ENEMY_ARCHETYPE.SNIPER,
-    ENEMY_ARCHETYPE.MEDIC,
-  ]),
-  elites: Object.freeze([
-    ENEMY_ARCHETYPE.BRUISER,
-    ENEMY_ARCHETYPE.JUGGERNAUT,
-    ENEMY_ARCHETYPE.FLANKER,
-  ]),
-}) satisfies AvailableArchetypes;
 
 export type EncounterHostileCountInput = Readonly<{
   seed: number;
@@ -80,12 +52,7 @@ export function encounterHostileCount({
   difficulty,
   threatCount,
 }: EncounterHostileCountInput): number {
-  return composeEncounter({
-    seed,
-    difficulty,
-    fodderCount: threatCount,
-    available: RUNTIME_ENCOUNTER_AVAILABLE,
-  }).entries.length;
+  return composeEncounter({ seed, difficulty, fodderCount: threatCount }).entries.length;
 }
 
 const FODDER_ARCHETYPES = Object.freeze([ENEMY_ARCHETYPE.SKIRMISHER, ENEMY_ARCHETYPE.GUARD]);
@@ -109,7 +76,6 @@ export function composeEncounter({
   seed,
   difficulty,
   fodderCount,
-  available,
 }: ComposeEncounterOptions): EncounterComposition {
   if (!Number.isFinite(seed)) {
     throw new TypeError(`composeEncounter seed must be finite, got ${seed}`);
@@ -120,12 +86,6 @@ export function composeEncounter({
     );
   }
 
-  // Resolve the allowlists once. `resolvePool` keeps the canonical archetype
-  // order so the RNG pick index is independent of caller array ordering, and
-  // an omitted list defaults to the full roster.
-  const specialistPool = resolvePool(available?.specialists, SPECIALIST_ARCHETYPES);
-  const elitePool = resolvePool(available?.elites, ELITE_ARCHETYPES);
-
   const tier = enemyTierForDifficulty(difficulty);
   const rng = new Rng(seed).fork('encounter-composition');
   const entries: EncounterRoleEntry[] = rollFodder(rng, tier, fodderCount);
@@ -135,22 +95,19 @@ export function composeEncounter({
   }
 
   if (difficulty === CONTRACT_DIFFICULTY.ELEVATED) {
-    const specialist = rollSpecialist(rng, entries, specialistPool);
+    const specialist = rollSpecialist(rng, entries, SPECIALIST_ARCHETYPES);
     if (specialist) entries.push(makeEntry(specialist, ENEMY_ROLE.SPECIALIST, tier));
     return freezeComposition({ tier, difficulty, fodderCount, entries });
   }
 
   if (difficulty === CONTRACT_DIFFICULTY.CRITICAL) {
-    // Roll the elite first (draw order preserved from the original resolver so
-    // the full-roster default stays byte-deterministic) so the medic patient
-    // gate can see it. With no buildable elite available, the encounter simply
-    // carries no elite — never a reskin.
-    const elite = rollElite(rng, elitePool);
+    // Roll the elite first so the medic patient gate can see it.
+    const elite = rollElite(rng, ELITE_ARCHETYPES);
     const eliteEntry = elite ? makeEntry(elite, ENEMY_ROLE.ELITE, tier) : null;
     const specialist = rollSpecialist(
       rng,
       eliteEntry ? [...entries, eliteEntry] : entries,
-      specialistPool
+      SPECIALIST_ARCHETYPES
     );
     if (specialist) entries.push(makeEntry(specialist, ENEMY_ROLE.SPECIALIST, tier));
     if (eliteEntry) entries.push(eliteEntry);
@@ -170,20 +127,6 @@ function rollFodder(rng: Rng, tier: EnemyTier, count: number): EncounterRoleEntr
     entries.push(makeEntry(rng.pick(FODDER_ARCHETYPES), ENEMY_ROLE.FODDER, tier));
   }
   return entries;
-}
-
-/**
- * Filter `requested` down to the canonical pool, preserving canonical order so
- * the RNG pick index does not depend on the caller's array ordering. An
- * `undefined` request means "the whole canonical pool".
- */
-function resolvePool(
-  requested: readonly EnemyArchetype[] | undefined,
-  canonical: readonly EnemyArchetype[]
-): readonly EnemyArchetype[] {
-  if (!requested) return canonical;
-  const allowed = new Set(requested);
-  return canonical.filter(archetype => allowed.has(archetype));
 }
 
 /**

@@ -1,6 +1,6 @@
 # Phase 2.7 Plan — Enemy roles & tier doctrine (pre–Phase 3)
 
-Living plan for the post–Phase 2.6, pre–Phase 3 slice of Kernel Panic: turn the enemy roster from a single-verb stat block (skirmisher-only) into a **role taxonomy** with a **tier doctrine** that controls encounter composition and per-tier stat scaling. **Target release: `v0.2.7`.** See [phase-2.6-plan.md](phase-2.6-plan.md) for resilience/placement foundations this builds on,[phase-2.5-plan.md](phase-2.5-plan.md) for the completed Meatspace-depth slice, [phase-3-plan.md](phase-3-plan.md) for the campaign arc + Cyberspace this feeds into, [kernel-panic-v1-blueprint.md](kernel-panic-v1-blueprint.md) for the overall vision, and [cyberpunk-2077-enemy-list.md](cyberpunk-2077-enemy-list.md) for the source inspiration that seeded this work.
+Plan for the post–Phase 2.6, pre–Phase 3 slice of Kernel Panic: turn the enemy roster from a single-verb stat block (skirmisher-only) into a **role taxonomy** with a **tier doctrine** that controls encounter composition and per-tier stat scaling. **Released `v0.2.7`.** See [phase-2.6-plan.md](phase-2.6-plan.md) for resilience/placement foundations this builds on, [phase-2.5-plan.md](phase-2.5-plan.md) for the completed Meatspace-depth slice, [phase-3-plan.md](phase-3-plan.md) for the campaign arc + Cyberspace this feeds into, [kernel-panic-v1-blueprint.md](kernel-panic-v1-blueprint.md) for the overall vision, and [cyberpunk-2077-enemy-list.md](cyberpunk-2077-enemy-list.md) for the source inspiration that seeded this work.
 
 ## Why this phase exists
 
@@ -28,8 +28,8 @@ One verb each. Low HP, no armor, no force-multiplier behavior. Threat comes from
 
 | Archetype | Class | Verb | Defensive identity | Status |
 |-----------|-------|------|--------------------|--------|
-| **Skirmisher** | `Skirmisher` | ranged plink, **maintain distance** | none — must kite or die at melee range | exists; needs kiting (M2.1) |
-| **Guard** | `Guard` | close + melee strike | none — trades HP openly | new (M2.2) |
+| **Skirmisher** | `Skirmisher` | ranged plink, **maintain distance** | none — must kite or die at melee range | ✅ |
+| **Guard** | `Guard` | close + melee strike | none — trades HP openly | ✅ |
 
 Both archetypes share the patrol → investigate → engage state machine (`Skirmisher` is the reference). Guards are the melee counterpart to skirmishers: they close and swing, nothing more. They exist so T1 encounters can mix ranged and melee pressure without importing T3 defensive mechanics.
 
@@ -40,8 +40,8 @@ Each T2 encounter adds **exactly one force-multiplier** on top of fodder. The sp
 | Archetype | Class | Verb | Force-multiplier effect | Status |
 |-----------|-------|------|-------------------------|--------|
 | **Sniper** | `Sniper` | **telegraphed** long-range burst | punishes open LOS; aim → fire; range conceal while aiming; `SNIPER_SIGHT_RANGE` 12, `SNIPER_DAMAGE` 3 | new (M3.2) ✅ |
-| **Lookout** | `Lookout` | mobile LOS + **per-turn target share** | re-targets hostiles every turn; never attacks; `LOOKOUT_SIGHT_RANGE` 10 | new (M3.1) |
-| **Medic** | `Medic` | ally-seeking shield / heal | changes fight math for durable allies | new (M3.3) |
+| **Lookout** | `Lookout` | mobile LOS + **per-turn target share** | re-targets hostiles every turn; never attacks; `LOOKOUT_SIGHT_RANGE` 10 | ✅ |
+| **Medic** | `Medic` | ally-seeking shield / heal | changes fight math for durable allies | ✅ |
 
 Specialists are **killable** — they may have a defensive twist (sniper range conceal while aiming, lookout evasiveness) but are not mini-bosses. A medic is **never spawned alone**; composition rules require at least one durable ally (a T3 elite or a tier-scaled bruiser) in the same encounter.
 
@@ -56,7 +56,7 @@ Both can appear on the same map, but they are **not the same role**. `CorpCivili
 | **Movement** | Stationary (desk clerk) | Mobile — seeks vantage tiles with LOS |
 | **Alarm mechanism** | `world.raiseAlarm()` → `ALARM` with `kind: 'facility'` — **facility latch** (quiet → alert → cooldown) | Direct `ALARM` bus ping with `kind: 'lookout'` — **no facility state change** |
 | **Cadence** | Once per alert window; suppressed while `alarmActive` | **Every corp turn** while alive and holding LOS |
-| **Rep** | Triggers `REP.ALARM_PENALTY` on facility raise | No facility alarm; no Rep penalty from lookout pings alone |
+| **Rep** | `REP.ALARM_PENALTY` on facility raise (kills do not cost Rep) | No facility alarm; no Rep penalty from lookout pings alone |
 | **Smoke / cover** | **COVER tiles fully block LOS** — sneak past cubicles/desks; walls still block | Standard LOS — cover does not block sight (same as combat); can **reposition** to a new angle |
 | **Player puzzle** | Route behind cover to slip past desk clerks undetected | Kill the lookout or keep breaking its LOS while it hunts a new angle |
 
@@ -71,8 +71,8 @@ Durable and/or multi-verb. Mini-boss feel. **Per-tier stat scaling** (HP, AP, ar
 | Archetype | Class | Verbs | Defensive identity | Status |
 |-----------|-------|-------|--------------------|--------|
 | **Bruiser** | `Bruiser` | close + melee, **Merc-mirror knockback-on-hit** | light `damageReduction`; fast (T3 Guard) | exists (M4.1) ✅ |
-| **Juggernaut** | `Juggernaut` | **Tech-mirror suppress** + slow advance | high HP + armor, low AP; T3 Skirmisher band | new (M4.2) |
-| **Flanker** | `Flanker` | stalk from cover → **SLIDE** → melee ambush | cover-occluded from player + post-slide vanish | new (M4.3) |
+| **Juggernaut** | `Juggernaut` | **Tech-mirror suppress** + slow advance | high HP + armor, low AP; T3 Skirmisher band | ✅ |
+| **Flanker** | `Flanker` | stalk from cover → **SLIDE** → melee ambush | cover-occluded from player + post-slide vanish | ✅ |
 
 Elites are the canonical **durable patients** for medics and the **stat-scaling showcase** for the tier system.
 
@@ -130,12 +130,14 @@ All rolls derive from the contract seed (deterministic, save-compatible).
 
 > **Depends on [Phase 2.6](phase-2.6-plan.md):** placement consolidation (`nudgeIfOccupied`), `Entity.heal()`, and the error boundary land there. This phase assumes them.
 
+**Phase 2.7 is complete.** Tag `v0.2.7` and proceed to [Phase 2.8](phase-2.8-plan.md) / [Phase 2.9](phase-2.9-plan.md) reskin work as appetite allows.
+
 | Milestone | Status |
 |---|---|
 | M1 — Tier doctrine foundations | ✅ Complete |
 | M1.1 — `EnemyTier` model + per-tier stat scaling hook | ✅ Complete |
 | M1.2 — `damageReduction` (armor) stat on `Entity` | ✅ Complete |
-| M1.3 — Encounter composition by tier (roles, not just counts) | ✅ Complete — resolver landed; **fodder slice wired** (M2); **specialist slice wired** (M3.1–M3.3 + mapgen specialist anchors); **elite slice wired for Bruiser + Juggernaut + Flanker** (M4.1–M4.3: CRITICAL `available.elites` + elite anchor spawn) |
+| M1.3 — Encounter composition by tier (roles, not just counts) | ✅ Complete — `composeEncounter` rolls full roster from contract seed; fodder/specialist/elite spawn wired in `Run.enterCombat` + mapgen anchors |
 | M1.4 — CorpCivilian cover-occluded LOS | ✅ Complete |
 | M1.5 — Variable combat map dimensions (tier + seed) | ✅ Complete |
 | M2 — Tier 1 fodder roster | ✅ Complete |
@@ -156,14 +158,14 @@ All rolls derive from the contract seed (deterministic, save-compatible).
 | M6.1 — Shared `PatrolSnapshotBlock` + patrol (de)serialize consolidation | ✅ Complete |
 | M6.2 — Property-bag `extra` + per-entity snapshot ownership | ✅ Complete |
 
-**Phase 2.7** is complete when:
+**Exit criteria (all met):**
 
-1. Every milestone above is ✅ except M5 (deliberate Phase 3 on-ramp). M6 is a non-gating tech-debt refactor — it does not block `v0.2.7`, but should land before Phase 2.9 reskins add more entity shapes.
-2. T1/T2/T3 composition rules are live: STANDARD = fodder only, ELEVATED = fodder + 1 specialist, CRITICAL = fodder + specialist + elite (or fodder + elite).
+1. Every milestone above is ✅ except M5 (deliberate Phase 3 on-ramp). M6 landed before Phase 2.9 reskins add more entity shapes.
+2. T1/T2/T3 composition rules are live: STANDARD = fodder only, ELEVATED = fodder + 1 specialist, CRITICAL = fodder + specialist + elite.
 3. Combat map width/height vary by contract difficulty and seed (M1.5); revisits and run snapshots reproduce the same footprint.
 4. Each archetype in the roster table has a distinct tactical identity verified by tests and playtest — including sharp separation of `CorpCivilian` (ambient facility alarm, cover-occluded LOS) from `Lookout` (mobile T2 specialist, extended LOS).
 5. Full campaign loop from Phase 2.6 remains playable offline on iOS Safari + Chrome desktop.
-6. `v0.2.7` tagged in git.
+6. Incremental-rollout scaffolding removed from `composeEncounter` (the temporary `available` allowlist duplicated the internal roster pools once all eight roles shipped).
 
 ---
 
@@ -193,7 +195,7 @@ All rolls derive from the contract seed (deterministic, save-compatible).
 - Composition constraints: T2 always has exactly one specialist; T3 always has exactly one elite; medic never spawns without a durable patient in the encounter.
 - **TDD:** composition deterministic per seed; constraint violations impossible.
 
-**Implementation note:** `src/game/encounters.ts` now owns the deterministic role-composition resolver and enforces the medic patient gate. Full Run/map wiring is intentionally still pending until M3/M4 role classes exist, so the game does not silently reskin unimplemented specialists/elites as skirmishers/guards.
+**Implementation note:** `src/game/encounters.ts` owns the deterministic role-composition resolver: internal `FODDER_ARCHETYPES` / `SPECIALIST_ARCHETYPES` / `ELITE_ARCHETYPES` pools, seed-forked rolls, and the medic patient gate (`hasDurableMedicPatient`). `Run.enterCombat` maps composed entries to spawn anchors; `encounterHostileCount` uses the same resolver for briefing UI.
 
 #### M1.4 — CorpCivilian cover-occluded LOS
 
@@ -270,7 +272,7 @@ All rolls derive from the contract seed (deterministic, save-compatible).
 - Land full plumbing: types, persistence factory, snapshot/restore, loot, `corpTurnStatusCopy`, `kindFromId`.
 - **TDD:** guard closes and melees; dies in two player-phase swings at T1 stats; patrol/investigate transitions match skirmisher patterns.
 
-**Implementation note:** `Guard` (glyph `g`, `ENEMY_ROLE.FODDER`) extends `PatrolHostile`; melee `engageSteps` strikes when adjacent (`canMelee`/`resolveMelee`) else closes. Plumbing: `melee` turn-step in `types.ts` (shared by patrol hostiles) + `formatCorpTurnStep`/player-visibility in `corpTurnStatusCopy.ts`; `'guard'` archetype id + parallel `guard?` snapshot block in `Run.ts`; factory + waypoint/state restore (generalised over `drone`/`guard` persistence keys) and `bindToBus`/death-unbind broadened to `instanceof PatrolHostile` in `persistence.ts`/`Run.ts`; `kindFromId` → `Guard` for `guard-*` ids (skirmishers still label as `Drone` from `drone-*` ids until Phase 2.9 theming). **Mapgen:** prefab `anchors.fodder` (was `drones`) feed `map.fodder` spawn slots. **Spawn wiring (fodder slice of M1.3):** `Run.enterCombat` resolves `composeEncounter` from the contract seed and maps each fodder anchor to a skirmisher or guard; specialists/elites are deliberately *not* spawned until their class allowlist entries exist. **Objective:** new sweep contracts use `hostile-all`; legacy `drone-all` save payloads are accepted as an alias. The quota counts all live `Hostile` instances, so specialists and future elites gate a force-clear sweep. **UI copy:** contract briefing and KeyHelp use role-neutral "hostiles" / grouped glyph key (`c g k`).
+**Implementation note:** `Guard` (glyph `g`, `ENEMY_ROLE.FODDER`) extends `PatrolHostile`; melee `engageSteps` strikes when adjacent (`canMelee`/`resolveMelee`) else closes. Plumbing: `melee` turn-step in `types.ts` (shared by patrol hostiles) + `formatCorpTurnStep`/player-visibility in `corpTurnStatusCopy.ts`; `'guard'` archetype id + parallel `guard?` snapshot block in `Run.ts`; factory + waypoint/state restore (generalised over `drone`/`guard` persistence keys) and `bindToBus`/death-unbind broadened to `instanceof PatrolHostile` in `persistence.ts`/`Run.ts`; `kindFromId` → `Guard` for `guard-*` ids (skirmishers still label as `Drone` from `drone-*` ids until Phase 2.9 theming). **Mapgen:** prefab `anchors.fodder` (was `drones`) feed `map.fodder` spawn slots. **Spawn wiring (fodder slice of M1.3):** `Run.enterCombat` resolves `composeEncounter` from the contract seed and maps each fodder anchor to a skirmisher or guard. **Objective:** new sweep contracts use `hostile-all`; legacy `drone-all` save payloads are accepted as an alias. The quota counts all live `Hostile` instances, so specialists and elites gate a force-clear sweep. **UI copy:** contract briefing and KeyHelp use role-neutral "hostiles" / grouped glyph key (`c g k`).
 
 #### M2.3 — Combat damage tuning + skirmisher glyph
 
@@ -312,7 +314,7 @@ Playtest pass on T1 fodder pacing:
 - Land full plumbing: types, persistence, snapshot/restore, loot, `corpTurnStatusCopy`, `kindFromId`.
 - **TDD:** lookout with LOS emits `ALARM` `{ kind: 'lookout' }` every turn without calling `raiseAlarm`; allies re-engage on fresh target coords on both kinds; lookout without LOS moves toward max-distance vantage; killing lookout stops pings; lookout ignores incoming `ALARM`; civilian `raiseAlarm` emits `kind: 'facility'` and behaviour unchanged (regression guard); stealthed player beyond Chebyshev 1 not spotted.
 
-**Implementation note:** `ALARM_KIND` (`events.ts`) discriminates `facility` vs `lookout`; `World.raiseAlarm()` now stamps `kind: 'facility'` (back-compat default). `PatrolHostile` gained two overridable hooks: `listensForAlarm()` (default `true`; `Lookout` returns `false` so it never consumes pings) and `investigateStep()` (default `stepToward`; `Lookout` overrides to seek a distance-maximising LOS vantage, falling back to closing in). `src/game/ai/Lookout.ts` (glyph `s`, `LOOKOUT_SIGHT_RANGE = 10`, `ENEMY_ROLE.SPECIALIST` stats) emits the `lookout`-kind ping + a `spot` turn-step (`types.ts`) each engage turn, then evasively repositions. **Spawn wiring (specialist slice of M1.3):** `composeEncounter` gained an `available: { specialists, elites }` allowlist (defaults to the full roster) so it only composes *buildable* archetypes — never a reskin or silent drop. Allowlist grew with each shipped class (see `Run.enterCombat` for the live list). `buildMap` budgets one **specialist anchor** for ELEVATED/CRITICAL (fails loud if the footprint can't fit it). Full plumbing: `lookout` archetype/snapshot block + `PatrolHostile` restore (`persistence.ts`/`Run.ts`), `kindFromId → Lookout`, `formatCorpTurnStep`/visibility for `spot` (a mark on the player surfaces even when the lookout tile is unseen), precache + SW cache bump (`0.2.7b`). **M4.0 note:** `hostile-all` sweep now counts Lookout/Sniper and future elites; legacy `drone-all` aliases to the same quota.
+**Implementation note:** `ALARM_KIND` (`events.ts`) discriminates `facility` vs `lookout`; `World.raiseAlarm()` now stamps `kind: 'facility'` (back-compat default). `PatrolHostile` gained two overridable hooks: `listensForAlarm()` (default `true`; `Lookout` returns `false` so it never consumes pings) and `investigateStep()` (default `stepToward`; `Lookout` overrides to seek a distance-maximising LOS vantage, falling back to closing in). `src/game/ai/Lookout.ts` (glyph `s`, `LOOKOUT_SIGHT_RANGE = 10`, `ENEMY_ROLE.SPECIALIST` stats) emits the `lookout`-kind ping + a `spot` turn-step (`types.ts`) each engage turn, then evasively repositions. **Spawn wiring (specialist slice of M1.3):** ELEVATED/CRITICAL rolls include one specialist from `SPECIALIST_ARCHETYPES`; `buildMap` budgets one **specialist anchor** (fails loud if the footprint can't fit it). Full plumbing: `lookout` archetype/snapshot block + `PatrolHostile` restore (`persistence.ts`/`Run.ts`), `kindFromId → Lookout`, `formatCorpTurnStep`/visibility for `spot` (a mark on the player surfaces even when the lookout tile is unseen), precache + SW cache bump (`0.2.7b`). **M4.0 note:** `hostile-all` sweep counts all live hostiles; legacy `drone-all` aliases to the same quota.
 
 #### M3.2 — Sniper
 
@@ -345,7 +347,7 @@ Playtest pass on T1 fodder pacing:
 - Land full plumbing: types (`aim` / `aim-cancelled` turn-steps), persistence, snapshot/restore, loot, `corpTurnStatusCopy`, `kindFromId`, renderer crosshair + concealment omit.
 - **TDD:** corp N in range → `aim` step + `aimTargetId` set; corp N+1 intact LOS → guaranteed 3 damage; corp N+1 after player broke LOS → `aim-cancelled`, no damage; SLIDE/stealth breaks pending aim; sniper damage during aim window clears `aimTargetId`; move+kite then aim same corp turn; kiting inside `preferredMin`; snapshot round-trips `aimTargetId`; no aim NOISE; fire emits ranged NOISE as today; **concealed at aim + Chebyshev ≥ 6** (no glyph, not crew-targetable, anonymous aim log); **revealed at Chebyshev ≤ 5**; visible before aim; **turret cannot acquire sniper at typical aim distance** (range 4 vs conceal ≥ 6); **turret engages sniper inside turret range regardless of player conceal**; sniper pathing avoids turret threat zone when seeking aim vantage.
 
-**Implementation note:** `src/game/ai/Sniper.ts` (glyph `n`, cross-turn `aimTargetId` preamble, guaranteed fire via `resolveRanged` override, damage-breaks-aim via `ENTITY_DAMAGED`). `playerPerception.isConcealedFromPlayer` gates renderer omit + crew target resolution at Chebyshev ≥ `SNIPER_CONCEAL_MIN_RANGE` (6) while holding aim; `buildFrame` paints a red `+` crosshair on the marked target tile. Specialist allowlist `[LOOKOUT, SNIPER]` (elite list empty until M4.1); precache + SW `0.2.7c`. Turret pathing / threat-zone avoidance deferred (turrets already cannot reach typical aim distance). KeyHelp legend adds `n`/`s`.
+**Implementation note:** `src/game/ai/Sniper.ts` (glyph `n`, cross-turn `aimTargetId` preamble, guaranteed fire via `resolveRanged` override, damage-breaks-aim via `ENTITY_DAMAGED`). `playerPerception.isConcealedFromPlayer` gates renderer omit + crew target resolution at Chebyshev ≥ `SNIPER_CONCEAL_MIN_RANGE` (6) while holding aim; `buildFrame` paints a red `+` crosshair on the marked target tile. Precache + SW `0.2.7c`. Turret pathing / threat-zone avoidance deferred (turrets already cannot reach typical aim distance). KeyHelp legend adds `n`/`s`.
 
 #### M3.3 — Medic
 
@@ -353,7 +355,7 @@ Playtest pass on T1 fodder pacing:
 - **Spawn rule (M1.3):** never without a durable patient (bruiser or juggernaut) in the same encounter.
 - **TDD:** prefers shielding durable ally about to be focused; lone medic impossible; shield absorbs then expires.
 
-**Implementation note:** `src/game/ai/Medic.ts` (glyph `m`, `ENEMY_ROLE.SPECIALIST`) extends `PatrolHostile` but never attacks. It chooses same-faction `Hostile` patients, prioritising durable allies (`damageReduction > 0` or above-baseline HP) over wounded fodder; in range + LOS it heals wounded patients first (`MEDIC_HEAL_AMOUNT = 1`) or tops them up to a non-stacking temporary shield (`MEDIC_SHIELD_HP = 2`, `MEDIC_SUPPORT_AP = 2`, `MEDIC_SUPPORT_RANGE = 5`). `Entity` now owns `heal()` and `shieldHp`; shields absorb HP damage and expire on that entity's next `refreshAp`, so a corp shield survives the player's response window but drops before the next corp activation. Full plumbing: `medic` archetype/snapshot block, persistence factory + shield validation, `kindFromId`, `corpTurnStatusCopy` support lines, map-key row, CRITICAL specialist allowlist now includes Medic behind the existing durable-patient gate, precache + SW **`0.2.7h`**. Tests cover medic priority, heal vs shield ordering, movement toward patients, shield lifetime, and snapshot/restore.
+**Implementation note:** `src/game/ai/Medic.ts` (glyph `m`, `ENEMY_ROLE.SPECIALIST`) extends `PatrolHostile` but never attacks. It chooses same-faction `Hostile` patients, prioritising durable allies (`damageReduction > 0` or above-baseline HP) over wounded fodder; in range + LOS it heals wounded patients first (`MEDIC_HEAL_AMOUNT = 1`) or tops them up to a non-stacking temporary shield (`MEDIC_SHIELD_HP = 2`, `MEDIC_SUPPORT_AP = 2`, `MEDIC_SUPPORT_RANGE = 5`). `Entity` now owns `heal()` and `shieldHp`; shields absorb HP damage and expire on that entity's next `refreshAp`, so a corp shield survives the player's response window but drops before the next corp activation. Full plumbing: `medic` archetype/snapshot block, persistence factory + shield validation, `kindFromId`, `corpTurnStatusCopy` support lines, map-key row; `composeEncounter` rolls medic only when a durable patient is already in the encounter, precache + SW **`0.2.7h`**. Tests cover medic priority, heal vs shield ordering, movement toward patients, shield lifetime, and snapshot/restore.
 
 ### M4 — Tier 3 elites
 
@@ -385,7 +387,7 @@ Playtest pass on T1 fodder pacing:
 - **Loot:** killed elites yield **bio salvage** rather than scrap/chips, reflecting their augmentations.
 - **TDD:** connected melee deals 3 damage; knockback 1 tile away when lane clear; blocked lane → damage only; dodge/miss → no knockback; survives two 1-damage plinks that kill a T1 guard; 5 AP closes multiple tiles per corp turn; no ranged steps; guard/bruiser engage shape matches except knockback; hazard knockback (kaizen) deferred — default **allow** shove into hazard tiles.
 
-**Implementation note:** `src/game/ai/Bruiser.ts` (glyph `e`, `ENEMY_ROLE.ELITE`) extends `PatrolHostile`; ENGAGE mirrors Guard's close-and-melee loop, with `HEAVY_MELEE_DAMAGE` and post-hit shove through shared `src/game/knockback.ts` (`canKnockbackTo` / `knockbackByOffset`; COVER destinations allowed, blocked lanes preserve damage and omit movement). Merc Vault lane checks now call the shared helper. `Run.enterCombat` passes `available: { elites: [BRUISER] }` on CRITICAL and spawns composed elites at `map.elites` anchors. Plumbing: `melee.knockback` on turn-steps, `bruiser?` snapshot block, persistence factory, `kindFromId`, `corpTurnStatusCopy`, precache + SW **`0.2.7d`**. Loot: killed Bruisers drop bio salvage (`Run.#rollLoot` elite branch). **Deferred from design doc:** turret threat-zone pathing (unchanged sniper deferral).
+**Implementation note:** `src/game/ai/Bruiser.ts` (glyph `e`, `ENEMY_ROLE.ELITE`) extends `PatrolHostile`; ENGAGE mirrors Guard's close-and-melee loop, with `HEAVY_MELEE_DAMAGE` and post-hit shove through shared `src/game/knockback.ts` (`canKnockbackTo` / `knockbackByOffset`; COVER destinations allowed, blocked lanes preserve damage and omit movement). Merc Vault lane checks now call the shared helper. CRITICAL contracts spawn composed elites at `map.elites` anchors. Plumbing: `melee.knockback` on turn-steps, `bruiser?` snapshot block, persistence factory, `kindFromId`, `corpTurnStatusCopy`, precache + SW **`0.2.7d`**. Loot: killed Bruisers drop bio salvage (`Run.#rollLoot` elite branch). **Deferred from design doc:** turret threat-zone pathing (unchanged sniper deferral).
 
 #### M4.2 — Juggernaut
 
@@ -417,11 +419,11 @@ Playtest pass on T1 fodder pacing:
 - **Loot:** killed elites yield **bio salvage** rather than scrap/chips, reflecting their augmentations.
 - **TDD:** in suppress range + LOS → 1-AP suppress for 1 damage (hit roll applies); out of range → one step toward; `cheb < preferredMin` with legal band tile → reposition not panic flee; move + suppress in one low-AP corp turn; survives sustained 1-damage focus that kills skirmisher; armor floor ≥ 1; cornered point-blank → no-damage knockback that pushes the target 1 tile away; blocked knockback lane → hold ground (no damage, no AP spent); stealthed beyond Chebyshev 1 not suppressed; no deploy/spawn of `$`/`T`; bruiser unchanged; skirmisher kiting regression guard holds.
 
-**Implementation note:** `src/game/ai/Juggernaut.ts` (glyph `j`, `ENEMY_ROLE.ELITE`) extends `PatrolHostile`; acquisition/patrol use baseline `SIGHT_RANGE` (8) while fire validation uses `JUGGERNAUT_SUPPRESS_RANGE` (5) only. Constants in `constants.ts`: `JUGGERNAUT_SUPPRESS_RANGE` (5), `JUGGERNAUT_SUPPRESS_AP` (1), `JUGGERNAUT_SUPPRESS_DAMAGE` (1), `JUGGERNAUT_PREFERRED_MIN` (3), plus `JUGGERNAUT_BASE_AP` (3 → 4 at T3 via the elite `apBonus`). `engageSteps` priority: (1) band-kite (skirmisher `#stepAwayFrom` mirror scoped to suppress range so it *maintains gunner distance* rather than fleeing to sight range), (2) **cornered shove** — adjacent with no band-kite tile → **no-damage knockback** (1 AP) that pushes the target 1 tile away along the away-vector via the shared `knockback.ts` helper (`awayVector` extracted from `Bruiser`; `knockbackByOffset` relocates silently), reopening the band; a blocked lane spends no AP and ends the turn (hold ground), (3) suppress via `resolveRanged` with `freeShot: true` (bypasses the 2-AP ranged gate so we charge the 1-AP suppress cost ourselves; normal hit roll + cover penalties + ranged NOISE), (4) `stepToward`. New `suppress` + `shove` turn-steps in `types.ts` (suppress carries the `RangedAttackResult`; shove carries the landing `to`); `corpTurnStatusCopy` formats both and surfaces them as incoming on the player even when the juggernaut tile is unseen. Full plumbing: `juggernaut` archetype/snapshot block + `PatrolHostile` restore (`persistence.ts`/`Run.ts`), `kindFromId → Juggernaut`, `archetypeOf`, bio-salvage loot (shared elite branch with Bruiser), `Run.enterCombat` `available.elites` now `[Bruiser, Juggernaut]`, KeyHelp/`mapKeyRows` legend adds `j` (and the previously-missing Bruiser `e`), precache + SW cache bump **`0.2.7e`**.
+**Implementation note:** `src/game/ai/Juggernaut.ts` (glyph `j`, `ENEMY_ROLE.ELITE`) extends `PatrolHostile`; acquisition/patrol use baseline `SIGHT_RANGE` (8) while fire validation uses `JUGGERNAUT_SUPPRESS_RANGE` (5) only. Constants in `constants.ts`: `JUGGERNAUT_SUPPRESS_RANGE` (5), `JUGGERNAUT_SUPPRESS_AP` (1), `JUGGERNAUT_SUPPRESS_DAMAGE` (1), `JUGGERNAUT_PREFERRED_MIN` (3), plus `JUGGERNAUT_BASE_AP` (3 → 4 at T3 via the elite `apBonus`). `engageSteps` priority: (1) band-kite (skirmisher `#stepAwayFrom` mirror scoped to suppress range so it *maintains gunner distance* rather than fleeing to sight range), (2) **cornered shove** — adjacent with no band-kite tile → **no-damage knockback** (1 AP) that pushes the target 1 tile away along the away-vector via the shared `knockback.ts` helper (`awayVector` extracted from `Bruiser`; `knockbackByOffset` relocates silently), reopening the band; a blocked lane spends no AP and ends the turn (hold ground), (3) suppress via `resolveRanged` with `freeShot: true` (bypasses the 2-AP ranged gate so we charge the 1-AP suppress cost ourselves; normal hit roll + cover penalties + ranged NOISE), (4) `stepToward`. New `suppress` + `shove` turn-steps in `types.ts` (suppress carries the `RangedAttackResult`; shove carries the landing `to`); `corpTurnStatusCopy` formats both and surfaces them as incoming on the player even when the juggernaut tile is unseen. Full plumbing: `juggernaut` archetype/snapshot block + `PatrolHostile` restore (`persistence.ts`/`Run.ts`), `kindFromId → Juggernaut`, `archetypeOf`, bio-salvage loot (shared elite branch with Bruiser), KeyHelp/`mapKeyRows` legend adds `j` (and the previously-missing Bruiser `e`), precache + SW cache bump **`0.2.7e`**.
 
 **Design decision (point-blank, M4.2):** two locks were revised during implementation. **(a) Priority:** the spec listed suppress before shove, but at Chebyshev-1 a target is *always* in suppress range (5) and in LOS (no tile lies between adjacent cells), so suppress would always win and the shove branch was unreachable. Per the prose intent ("stand ground when cornered… shove instead of fleeing"), the shipped priority shoves when the target is **adjacent and no band-kite tile exists** (a dead-end), and suppresses from range ≥ 2 — point-blank suppress is never the chosen verb. **(b) Shove semantics:** the spec defined the shove as a 1-damage melee with *no* knockback (reserving knockback for the Bruiser). Playtest-review with Rylee revised this to a **no-damage knockback**: a 1-damage chip doesn't solve the cornered problem (the elite stays point-blank), whereas pushing the target out reopens the suppress band — the coherent loop for a "maintain gunner distance" elite. Kept distinct from the Bruiser: the Bruiser's knockback is an *offensive* tax on every connected heavy-melee hit; the Juggernaut's is a *defensive, cornered-only* spacing reset that deals no damage. `awayVector` is now shared in `knockback.ts`.
 
-**Test-seed note (M4.2):** widening `available.elites` to `[Bruiser, Juggernaut]` shifted the deterministic CRITICAL elite roll. Seed-pinned Bruiser tests moved to contract seed **5** (still a Bruiser); seed **7** now deterministically rolls a Juggernaut; the elite-anchor budget test is now class-agnostic. New `Juggernaut.test.ts` covers identity/stats, band suppress (1-AP/1-dmg), advance-when-out-of-range, band-kite-to-edge-then-suppress, move+suppress in one low-AP turn, cornered no-damage knockback (target pushed 1 tile), blocked-lane hold-ground, stealth gate, no-turret-spawn, and armor outlasting chip fire that kills a skirmisher.
+**Test-seed note (M4.2):** adding Juggernaut to `ELITE_ARCHETYPES` shifted the deterministic CRITICAL elite roll. Seed-pinned Bruiser tests moved to contract seed **5** (still a Bruiser); seed **7** now deterministically rolls a Juggernaut; the elite-anchor budget test is class-agnostic. New `Juggernaut.test.ts` covers identity/stats, band suppress (1-AP/1-dmg), advance-when-out-of-range, band-kite-to-edge-then-suppress, move+suppress in one low-AP turn, cornered no-damage knockback (target pushed 1 tile), blocked-lane hold-ground, stealth gate, no-turret-spawn, and armor outlasting chip fire that kills a skirmisher.
 
 **Kaizen (M4.2):** suppress is uncapped per corp turn — at 4 AP a juggernaut already in the band can fire up to 4× (4 chip damage). Locked numbers per spec; revisit a per-turn suppress cap if playtest finds the soak elite out-damages its "attrition + inevitability" brief.
 
@@ -462,7 +464,7 @@ So a flanker that SLIDEs on corp turn N vanishes for the player's entire turn N+
 - **Loot:** killed elites yield **bio salvage** rather than scrap/chips, reflecting their augmentations.
 - **TDD:** cover hides flanker; SLIDE sets `slideConcealed` and hides even on open LOS/adjacent; flag clears on corp `refreshAp`; no melee same turn as SLIDE; slide silent (no NOISE); guard/bruiser unchanged; civilian M1.4 regression guard holds.
 
-**Implementation note:** `src/game/ai/Flanker.ts` (glyph `f`, `ENEMY_ROLE.ELITE`) extends `PatrolHostile`; T3 uses `FLANKER_BASE_AP` 3 plus elite AP bonus for the locked 4-AP cadence. Razor and Flanker now share `src/game/slide.ts` for two-tile silent SLIDE validation/commit. Flanker `slideConcealed` hides from `playerPerception.isConcealedFromPlayer` even adjacent/open, clears on corp `refreshAp`, and blocks same-turn melee while set; passive cover conceal uses `hasConcealedLineOfSight(world.grid, player → flanker)`. Player ranged/melee targeting and `buildFrame` pass world context so cover-concealed flankers are omitted and untargetable; corp-turn log lines from concealed flankers are suppressed. Spawn wiring: CRITICAL `available.elites` now includes `[Bruiser, Juggernaut, Flanker]`, Flanker gets a normal elite anchor, `flanker` snapshot block persists `slideConcealed`, `kindFromId`, KeyHelp, bio-salvage loot, precache + SW cache bump **`0.2.7g`**. Test seeds shifted with the widened elite pool: Bruiser seed **0**, Juggernaut seed **1**, Flanker seed **2**.
+**Implementation note:** `src/game/ai/Flanker.ts` (glyph `f`, `ENEMY_ROLE.ELITE`) extends `PatrolHostile`; T3 uses `FLANKER_BASE_AP` 3 plus elite AP bonus for the locked 4-AP cadence. Razor and Flanker now share `src/game/slide.ts` for two-tile silent SLIDE validation/commit. Flanker `slideConcealed` hides from `playerPerception.isConcealedFromPlayer` even adjacent/open, clears on corp `refreshAp`, and blocks same-turn melee while set; passive cover conceal uses `hasConcealedLineOfSight(world.grid, player → flanker)`. Player ranged/melee targeting and `buildFrame` pass world context so cover-concealed flankers are omitted and untargetable; corp-turn log lines from concealed flankers are suppressed. Spawn wiring: CRITICAL rolls one elite from `ELITE_ARCHETYPES`; Flanker gets a normal elite anchor, `flanker` snapshot block persists `slideConcealed`, `kindFromId`, KeyHelp, bio-salvage loot, precache + SW cache bump **`0.2.7g`**. Test seeds shifted with the full elite pool: Bruiser seed **0**, Juggernaut seed **1**, Flanker seed **2**.
 
 ### M5 — Netrunner / disruption — Phase 3 on-ramp
 
@@ -492,7 +494,7 @@ So a flanker that SLIDEs on corp turn N vanishes for the player's entire turn N+
 | Back-compat | **Must** read legacy saves: normalize pre-refactor top-level sub-blocks (`rec.terminal`, `rec.drone`, …) into `extra` on restore. Covered by a back-compat round-trip test against a legacy-shaped fixture. (No silent fallback — a shape we can't normalize throws.) |
 | Tautological guards | The `instanceof X` post-construct checks stay vestigial under Data Mapper (only fail on a mis-wired registry `create`); keep one cheap guard or drop per entry. Full deletion was the sole Active-Record win and we declined that path. |
 
-**Status:** **M6.1 ✅ done** — `PatrolSnapshotBlock` extracted (`Run.ts`), the 6-way nested ternary + per-archetype waypoint `if` blocks in `persistence.ts` collapsed into `patrolSnapshotBlock()` + `isPatrolArchetype()`, and `snapshotEntity`'s 6-branch patrol cascade reduced to one shared block + a key router. Save format unchanged; full suite green. **M6.2 ✅ done** — see implementation note below; god-type dissolved into the `extra` bag + `ENTITY_RESTORE` registry, legacy saves normalised, full suite green (1402 tests).
+**Status:** **M6.1 ✅ done** — `PatrolSnapshotBlock` extracted (`Run.ts`), the 6-way nested ternary + per-archetype waypoint `if` blocks in `persistence.ts` collapsed into `patrolSnapshotBlock()` + `isPatrolArchetype()`, and `snapshotEntity`'s 6-branch patrol cascade reduced to one shared block + a key router. Save format unchanged; full suite green. **M6.2 ✅ done** — see implementation note below; god-type dissolved into the `extra` bag + `ENTITY_RESTORE` registry, legacy saves normalised, full suite green.
 
 **Next steps (M6.2 — its own clean turn) — ✅ all landed:**
 
@@ -511,6 +513,31 @@ So a flanker that SLIDEs on corp turn N vanishes for the player's entire turn N+
 
 ---
 
+## Release notes (`v0.2.7`)
+
+**Shipped:**
+
+- Eight hostile roles across three tiers: Skirmisher, Guard (T1); Sniper, Lookout, Medic (T2); Bruiser, Juggernaut, Flanker (T3).
+- Seed-driven encounter composition (`composeEncounter`) with medic patient gate and tier-mapped stat scaling + armor.
+- Variable combat map dimensions per difficulty band (M1.5) with connectivity guarantees.
+- CorpCivilian cover-occluded LOS (stealth past desk clerks) and Flanker cover conceal (inverse).
+- Snapshot schema slimming (M6): `extra` property bag + `ENTITY_RESTORE` registry; legacy saves normalised.
+- Service worker **`0.2.7`** / dev **`0.2.7-dev`**.
+
+**Post-ship cleanup:**
+
+- Removed incremental-rollout `available` allowlist from `composeEncounter` — internal roster pools are the single source of truth now that all roles exist.
+
+**Deferred to later phases:**
+
+- M5 Netrunner / status-effect system → Phase 3 on-ramp.
+- Sniper/juggernaut turret threat-zone pathing.
+- Faction reskins and role-specific UI copy → Phase 2.9.
+
+**Next:** tag `v0.2.7`, then [Phase 2.8](phase-2.8-plan.md) (balance pass) and/or [Phase 2.9](phase-2.9-plan.md) (reskins) as appetite allows.
+
+---
+
 ## Out of scope
 
 - Cyberspace-side enemies and the Decker (Phase 3).
@@ -520,7 +547,7 @@ So a flanker that SLIDEs on corp turn N vanishes for the player's entire turn N+
 
 ## Open questions / kaizen notes
 
-- **Corp civilian harm from player-placed breaching charges:** M5 Rep only tracks `FACTION.NEUTRAL` via `civilian:harmed`; killing a `CorpCivilian` (`c` glyph) in a breach blast does not cost Rep or block the clean-extraction bonus, even though the charge is player-planted and the log reads `Blast killed [Corp]Civilian.` Player-planted breach attribution now passes the deployed crew member as `attacker` on `entity:damaged` (so neutral bystanders count). Revisit whether corp-aligned non-combatants should also count toward civilian-casualty Rep / the "no civilian casualties" clean bonus, and whether the flash copy should distinguish corp staff vs neutral bystanders.
+- **Corp civilian harm / Rep (locked v0.2.7):** Only `NeutralCivilian` bystanders emit `civilian:harmed` and cost Rep on kill. `CorpCivilian` desk staff (`c` glyph) can be killed or breached without Rep loss or blocking the clean-extraction bonus, but facility raises from a clerk still apply `REP.ALARM_PENALTY`. Terminal slice/unlock alarms wake hostiles without Rep cost. Kill log labels them `[Corp]Staff` vs `[Neutral]Civilian`.
 - **Knockback into hazards:** bruiser shove **allows** hazard destinations in v0.2.7 (same as any `relocateEntity` tile); revisit if hazard + knockback feels unfair in playtest.
 - **`JUGGERNAUT_SUPPRESS_RANGE` tuning:** locked at 5; playtest band 4–6 vs `$` turret (4) and skirmisher sight (8).
 - **Armor vs. dodge interaction:** resolved in M1.2 — dodge/miss resolves first; `damageReduction` applies only on a connected hit, with a 1-damage floor. Documented in `Combat.ts`.

@@ -63,6 +63,8 @@ export type AlarmRaiseContext = {
   source?: Entity | null;
   target?: Entity | null;
   origin?: { x: number; y: number } | null;
+  /** Whether the shell applies `REP.ALARM_PENALTY`. Defaults to `true`. */
+  repPenalty?: boolean;
 };
 
 export class World {
@@ -102,13 +104,16 @@ export class World {
   raiseAlarm(context: AlarmRaiseContext = {}): boolean {
     if (this.alarm.phase === ALARM_PHASE.ALERT) return false;
     const previous = { ...this.alarm };
+    const repPenalty = context.repPenalty ?? true;
     this.alarm = alertAlarm(previous.triggers + 1);
     this.events?.emit(EVENT.ALARM, {
       // Facility-cadence alarm. The `kind` discriminator (M3.1) lets patrol
       // hostiles distinguish a building-wide raise from a Lookout's direct
-      // target-share ping; only `facility` latches the cadence / Rep penalty.
+      // target-share ping. `repPenalty` is set by the caller — CorpCivilian
+      // defaults true; combat terminals pass false (job noise, not social cost).
       kind: ALARM_KIND.FACILITY,
       ...context,
+      repPenalty,
       previous,
       alarm: this.snapshotAlarm(),
     });

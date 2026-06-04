@@ -56,7 +56,7 @@ import { Lookout } from './ai/Lookout.js';
 import { Sniper } from './ai/Sniper.js';
 import { Medic } from './ai/Medic.js';
 import { PatrolHostile } from './ai/PatrolHostile.js';
-import { composeEncounter, ENEMY_ARCHETYPE, RUNTIME_ENCOUNTER_AVAILABLE } from './encounters.js';
+import { composeEncounter, ENEMY_ARCHETYPE } from './encounters.js';
 import { CorpCivilian } from './entities/CorpCivilian.js';
 import { Interactable } from './entities/Interactable.js';
 import { Terminal } from './entities/Terminal.js';
@@ -465,18 +465,13 @@ export class Run {
       // anchors cannot consume every spawn-side interactable tile.
       this.#placeObjectiveInteractables();
     }
-    // Phase 2.7 M2/M3: resolve the role composition (fodder mix + specialist)
+    // Phase 2.7: resolve role composition (fodder mix + specialist + elite)
     // from the contract seed and difficulty. `composeEncounter` forks its own
-    // RNG so the mix is deterministic and independent of mapgen rolls. The
-    // `available` allowlist restricts the specialist/elite roll to archetypes
-    // with a buildable class so the resolver never composes a hostile we'd have
-    // to reskin or silently drop. Lookout, Sniper, and Medic ship as T2
-    // specialists; Bruiser, Juggernaut, and Flanker ship as T3 elites.
+    // RNG so the mix is deterministic and independent of mapgen rolls.
     const composition = composeEncounter({
       seed: this.contract.seed,
       difficulty: this.contract.difficulty,
       fodderCount: map.fodder.length,
-      available: RUNTIME_ENCOUNTER_AVAILABLE,
     });
     const fodder = composition.entries.filter(e => e.role === ENEMY_ROLE.FODDER);
     for (let i = 0; i < map.fodder.length; i++) {
@@ -858,13 +853,10 @@ export class Run {
     } else if (killed && attacker instanceof Turret && attacker.ownerId === this.player.id) {
       this.telemetry.kills = (this.telemetry.kills ?? 0) + 1;
     }
-    // M5: emit civilian:harmed when a NEUTRAL entity takes damage from the
-    // player (or the player's turret). The shell subscribes and adjusts Rep.
-    if (
-      target.faction === FACTION.NEUTRAL &&
-      target !== this.player &&
-      !(target instanceof Interactable)
-    ) {
+    // M5: emit civilian:harmed when a neutral *bystander* takes damage from the
+    // player (or the player's turret). Corp staff (CorpCivilian) are excluded —
+    // killing them is tactically valid and carries no Rep penalty.
+    if (target instanceof NeutralCivilian) {
       const isPlayerSource =
         attacker === this.player ||
         (attacker instanceof Turret && attacker.ownerId === this.player.id);

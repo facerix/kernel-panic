@@ -249,7 +249,7 @@ function kindFromId(id: string): string {
   if (id.startsWith('sniper')) return 'Sniper';
   if (id.startsWith('medic')) return 'Medic';
   if (id.startsWith('neutral-civ')) return 'Civilian';
-  if (id.startsWith('corp-civ')) return 'Civilian';
+  if (id.startsWith('corp-civ')) return 'Staff';
   if (id.startsWith('terminal')) return 'Terminal';
   if (id.startsWith('pickup')) return 'Pickup';
   if (id.startsWith('contact')) return 'Contact';

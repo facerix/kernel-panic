@@ -72,7 +72,12 @@ export class Terminal extends Interactable {
     this.secured = true;
     const alarmRaised =
       this.armed && this.raisesAlarm
-        ? world.raiseAlarm({ source: this, target: actor, origin: { x: this.x, y: this.y } })
+        ? world.raiseAlarm({
+            source: this,
+            target: actor,
+            origin: { x: this.x, y: this.y },
+            repPenalty: false,
+          })
         : false;
     this.armed = false;
     return {

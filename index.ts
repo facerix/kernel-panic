@@ -1818,9 +1818,10 @@ function attachAnimationListeners(): void {
 /**
  * Subscribe M5 Rep-affecting events to the active run's bus.
  *
- *   - `civilian:harmed` → -20 Rep per kill, track all harm for clean completion.
- *   - `alarm` with `kind: 'facility'` → -5 Rep per facility raise (complicity).
- *     Lookout `kind: 'lookout'` pings do not adjust Rep.
+ *   - `civilian:harmed` (NeutralCivilian only) → -20 Rep per kill; track harm
+ *     for clean completion. Corp staff kills are excluded.
+ *   - `alarm` with `kind: 'facility'` → -5 Rep per CorpCivilian raise. Terminal
+ *     slice/unlock alarms and lookout pings do not adjust Rep.
  *
  * Re-attached on every Run state transition (same posture as animations).
  */
