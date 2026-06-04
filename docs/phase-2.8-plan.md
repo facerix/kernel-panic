@@ -2,7 +2,7 @@
 
 Living plan for the post–Phase 2.7 slice: turn the **role taxonomy** from Phase 2.7 into a **principal-facing theming layer** — diegetic enemy names, grid presentation, and (at higher tiers) **mixed allegiance encounters** where site-aligned security and rival operators share a fight. **Target release: `v0.2.8`.** See [phase-2.7-plan.md](phase-2.7-plan.md) for the role classes and tier doctrine this builds on (must land first), [phase-2.6-plan.md](phase-2.6-plan.md) for placement/persistence foundations, [cyberpunk-2077-enemy-list.md](cyberpunk-2077-enemy-list.md) for naming inspiration, and [kernel-panic-v1-blueprint.md](kernel-panic-v1-blueprint.md) for the overall vision.
 
-> **Do not start implementation until Phase 2.7 is complete.** Alias tables, glyph policy, and mixed-encounter composition all assume the full hostile roster (skirmisher, bruiser, medic, sniper, spotter, juggernaut, flanker) and the `EnemyTier` composition roll from 2.7 M1.3. Revisit this doc once those classes merge.
+> **Do not start implementation until Phase 2.7 is complete.** Alias tables, glyph policy, and mixed-encounter composition all assume the full hostile roster (skirmisher, bruiser, medic, sniper, lookout, juggernaut, flanker) and the `EnemyTier` composition roll from 2.7 M1.3. Revisit this doc once those classes merge.
 
 ## Why this phase exists
 
@@ -63,7 +63,7 @@ Map each **behavior role** (from 2.7 taxonomy) to a **display alias** per Curato
 | Bruiser | Collections Agent | Armored Enforcer | Bouncer, Toro |
 | Medic | Forensic Tech | Trauma Tech | Street Doc |
 | Sniper | Marksman | Sniper | Francotirador |
-| Spotter | Compliance Officer | Tactician | Lookout |
+| Lookout | Compliance Officer | Tactician | Lookout |
 | Juggernaut | Senior Auditor | Juggernaut | Heavyweight |
 | Flanker | Process Server | Assassin | Blitzer, Sicario |
 
@@ -139,7 +139,7 @@ Class names (`Skirmisher`, `Guard`, `Sniper`, …) are stable implementation nam
 
 #### M1.1 — `EnemyRole` + principal alias table
 
-- Introduce a stable `EnemyRole` enum/union aligned with 2.7 taxonomy (skirmisher, bruiser, medic, sniper, spotter, juggernaut, flanker; netrunner deferred to Phase 3).
+- Introduce a stable `EnemyRole` enum/union aligned with 2.7 taxonomy (skirmisher, bruiser, medic, sniper, lookout, juggernaut, flanker; netrunner deferred to Phase 3).
 - Curated alias table keyed by `(principalId, role)` — start with all principals in `CONTRACT_LEXICON.principals`; document Kestrel as baseline, others domain-flavored (see design pillars table).
 - **TDD:** lookup is pure; unknown pair fails loud in dev (or falls back to role default with `console.warn` — pick one and record).
 
@@ -162,7 +162,7 @@ Class names (`Skirmisher`, `Guard`, `Sniper`, …) are stable implementation nam
 
 #### M2.1 — Role-keyed glyph constants (all 2.7 classes)
 
-- Centralize glyph per `EnemyRole` (extend existing skirmisher `k`, guard `g`, plus sniper/spotter/medic/bruiser/juggernaut/flanker).
+- Centralize glyph per `EnemyRole` (extend existing skirmisher `k`, guard `g`, plus sniper/lookout/medic/bruiser/juggernaut/flanker).
 - Spawn sets `entity.glyph` from role, not from principal.
 - **TDD:** each role class spawns with expected char; glyph persisted across save/load.
 
@@ -191,8 +191,8 @@ Class names (`Skirmisher`, `Guard`, `Sniper`, …) are stable implementation nam
 #### M3.3 — Cross-faction alarm/noise cooperation rules
 
 - Document and test: alarm/noise bus behavior when source and listener differ in faction but both are hostile to player.
-- **Default (lean):** rivals and site security share alarm targeting (spotter buffs everyone hostile to player); medics heal same faction only; no friendly fire between hostile factions unless explicitly added later.
-- **TDD:** spotter alarm causes patrol hostiles (skirmishers, guards) to engage; corp medic does not heal rival; rival medic does not heal corp.
+- **Default (lean):** rivals and site security share alarm targeting (lookout buffs everyone hostile to player); medics heal same faction only; no friendly fire between hostile factions unless explicitly added later.
+- **TDD:** lookout alarm causes patrol hostiles (skirmishers, guards) to engage; corp medic does not heal rival; rival medic does not heal corp.
 
 ---
 
@@ -218,7 +218,7 @@ Revisit after 2.7 hostile entities land and we have playtest surface for all rol
 
 ### Glyphs & palette
 
-- **Final role alphabet:** assign chars for sniper, spotter, juggernaut, flanker without colliding with map/objective glyphs.
+- **Final role alphabet:** assign chars for sniper, lookout, juggernaut, flanker without colliding with map/objective glyphs.
 - **Elite bruiser vs bruiser:** same `e` or distinct glyph for T3 armored Enforcer?
 - **Two corp principals on one map:** ever needed? If yes, hue-by-principal vs shared corp pink.
 
