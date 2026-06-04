@@ -12,6 +12,13 @@ export interface EscortNpcInit extends Omit<InteractableInit, 'glyph' | 'label' 
   activated?: boolean;
 }
 
+/** M6.2: EscortNpc snapshot `extra`. */
+export type EscortNpcSnapshot = {
+  label: string;
+  activated: boolean;
+  armed: boolean;
+};
+
 export class EscortNpc extends Interactable {
   activated: boolean;
 

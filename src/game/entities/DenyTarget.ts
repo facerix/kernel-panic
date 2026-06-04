@@ -15,6 +15,12 @@ export interface DenyTargetInit extends Omit<EntityInit, 'faction' | 'glyph' | '
   requiresBreach?: boolean;
 }
 
+/** M6.2: DenyTarget snapshot `extra`. */
+export type DenyTargetSnapshot = {
+  label: string;
+  requiresBreach: boolean;
+};
+
 export class DenyTarget extends Entity {
   label: string;
   requiresBreach: boolean;

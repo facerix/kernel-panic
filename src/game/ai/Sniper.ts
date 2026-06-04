@@ -32,7 +32,12 @@
  * log copy) is a renderer/targeting concern handled outside this class.
  */
 
-import { PatrolHostile, type PatrolHostileInit, type EngageSteps } from './PatrolHostile.js';
+import {
+  PatrolHostile,
+  type PatrolHostileInit,
+  type EngageSteps,
+  type PatrolSnapshot,
+} from './PatrolHostile.js';
 import {
   FACTION,
   AP_COST,
@@ -63,6 +68,9 @@ export interface SniperProps extends Omit<PatrolHostileInit, 'faction' | 'glyph'
   /** Kiting band override — reposition when a target closes within `preferredMin`. */
   preferredMin?: number;
 }
+
+/** M6.2: Sniper snapshot `extra` — the patrol block plus its held-aim target. */
+export type SniperSnapshot = PatrolSnapshot & { aimTargetId: string | null };
 
 type DamageEventPayload = { target?: Entity };
 

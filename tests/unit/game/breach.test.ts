@@ -178,10 +178,7 @@ test('mutation deltas and requiresBreach deny target state round-trip through ru
 
   const rec = snapshot(run);
   assert.equal(rec.mutationDeltas?.length, 1);
-  assert.equal(
-    rec.entities.find(entity => entity.id === target.id)?.denyTarget?.requiresBreach,
-    true
-  );
+  assert.equal(rec.entities.find(entity => entity.id === target.id)?.extra?.requiresBreach, true);
 
   const { world } = restore(rec);
   const restoredTarget = [...world.entities.values()].find(

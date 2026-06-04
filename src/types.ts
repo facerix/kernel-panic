@@ -14,6 +14,28 @@
 export type GridPoint = { x: number; y: number };
 
 /**
+ * M6.2: a JSON-safe value. The persistence layer's opaque entity property bag
+ * (`EntitySnapshotExtra`) is keyed to this so anything stashed in a snapshot
+ * survives `JSON.stringify` / `JSON.parse` byte-for-byte. `undefined` is
+ * deliberately excluded — it is not JSON, so bag fields use `null` instead.
+ */
+export type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
+/**
+ * M6.2: opaque per-entity property bag living at the centre of
+ * `RunEntitySnapshot`. Each archetype owns the strict shape of its own slice
+ * (exported as `XSnapshot` from the entity module); the centre type only knows
+ * it is a JSON object. This dissolves the former ~24-key god-union.
+ */
+export type EntitySnapshotExtra = { [key: string]: JsonValue };
+
+/**
  * M7.1 terrain-relevant mutations captured during a run. M7.2 location memory
  * consumes these deltas when it persists site changes across revisits.
  */

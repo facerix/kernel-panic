@@ -371,8 +371,8 @@ describe('escort runs', () => {
 
     const rec = snapshot(run);
     const escortRec = rec.entities.find(entity => entity.archetype === 'escort-npc');
-    assert.equal(escortRec?.escortNpc?.activated, true);
-    assert.equal(escortRec?.escortNpc?.label, escort.label);
+    assert.equal(escortRec?.extra?.activated, true);
+    assert.equal(escortRec?.extra?.label, escort.label);
 
     const { run: restored } = restore(rec);
     const restoredEscort = escortIn(restored);

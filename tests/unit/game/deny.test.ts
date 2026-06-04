@@ -236,7 +236,7 @@ describe('deny runs', () => {
     const rec = snapshot(run);
     const targetRec = rec.entities.find(entity => entity.id === target.id);
     assert.equal(targetRec?.archetype, 'deny-target');
-    assert.equal(targetRec?.denyTarget?.label, 'Shipment');
+    assert.equal(targetRec?.extra?.label, 'Shipment');
     assert.equal(targetRec?.alive, false);
     assert.equal(targetRec?.hp, 0);
 

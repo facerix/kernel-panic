@@ -14,6 +14,13 @@ export interface PickupInit extends Omit<InteractableInit, 'glyph' | 'label' | '
   label?: string;
 }
 
+/** M6.2: Pickup snapshot `extra`. */
+export type PickupSnapshot = {
+  label: string;
+  secured: boolean;
+  armed: boolean;
+};
+
 export class Pickup extends Interactable {
   constructor({ label = 'Objective pickup', ...props }: PickupInit) {
     super({

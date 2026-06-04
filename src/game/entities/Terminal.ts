@@ -10,6 +10,15 @@ export interface TerminalInit extends Omit<InteractableInit, 'glyph' | 'label'> 
   unlocksId?: string | null;
 }
 
+/** M6.2: Terminal snapshot `extra`. */
+export type TerminalSnapshot = {
+  label: string;
+  sliced: boolean;
+  armed: boolean;
+  raisesAlarm: boolean;
+  unlocksId: string | null;
+};
+
 export class Terminal extends Interactable {
   sliced: boolean;
   raisesAlarm: boolean;

@@ -209,7 +209,7 @@ test('a spawned Sniper round-trips aimTargetId through a run snapshot', () => {
 
   const rec = snapshot(run);
   assert.ok(
-    rec.entities.some(entity => entity.archetype === 'sniper' && entity.sniper?.aimTargetId),
+    rec.entities.some(entity => entity.archetype === 'sniper' && entity.extra?.aimTargetId),
     'sniper serialised with pending aim'
   );
   const { world } = restore(rec);
@@ -232,8 +232,8 @@ test('a spawned Bruiser round-trips through a run snapshot', () => {
   const rec = snapshot(run);
   const bruiserRec = rec.entities.find(e => e.id === before.id);
   assert.equal(bruiserRec?.archetype, 'bruiser');
-  assert.ok(bruiserRec?.bruiser, 'state machine lives in the bruiser block');
-  assert.equal(bruiserRec.guard, undefined, 'a bruiser does not write a guard record');
+  assert.ok(bruiserRec?.extra, 'state machine lives in the slim extra bag (M6.2)');
+  assert.equal(bruiserRec?.extra?.state, 'investigate');
 
   const { world } = restore(rec);
   const after = [...world.entities.values()].find(e => e.id === before.id);
@@ -256,8 +256,8 @@ test('a spawned Juggernaut round-trips through a run snapshot', () => {
   const rec = snapshot(run);
   const jugRec = rec.entities.find(e => e.id === before.id);
   assert.equal(jugRec?.archetype, 'juggernaut');
-  assert.ok(jugRec?.juggernaut, 'state machine lives in the juggernaut block');
-  assert.equal(jugRec.bruiser, undefined, 'a juggernaut does not write a bruiser record');
+  assert.ok(jugRec?.extra, 'state machine lives in the slim extra bag (M6.2)');
+  assert.equal(jugRec?.extra?.state, 'investigate');
 
   const { world } = restore(rec);
   const after = [...world.entities.values()].find(e => e.id === before.id);
@@ -281,9 +281,8 @@ test('a spawned Flanker round-trips slide conceal through a run snapshot', () =>
   const rec = snapshot(run);
   const flankerRec = rec.entities.find(e => e.id === before.id);
   assert.equal(flankerRec?.archetype, 'flanker');
-  assert.ok(flankerRec?.flanker, 'state machine lives in the flanker block');
-  assert.equal(flankerRec.flanker.slideConcealed, true);
-  assert.equal(flankerRec.bruiser, undefined, 'a flanker does not write a bruiser record');
+  assert.ok(flankerRec?.extra, 'state machine lives in the slim extra bag (M6.2)');
+  assert.equal(flankerRec?.extra?.slideConcealed, true);
 
   const { world } = restore(rec);
   const after = [...world.entities.values()].find(e => e.id === before.id);

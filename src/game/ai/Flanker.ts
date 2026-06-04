@@ -7,7 +7,12 @@
  * reposition, but it never melees on that same activation.
  */
 
-import { PatrolHostile, type PatrolHostileInit, type EngageSteps } from './PatrolHostile.js';
+import {
+  PatrolHostile,
+  type PatrolHostileInit,
+  type EngageSteps,
+  type PatrolSnapshot,
+} from './PatrolHostile.js';
 import {
   AP_COST,
   ENEMY_ROLE,
@@ -30,6 +35,9 @@ export interface FlankerProps extends Omit<PatrolHostileInit, 'faction' | 'glyph
   tier?: EnemyTier;
   slideConcealed?: boolean;
 }
+
+/** M6.2: Flanker snapshot `extra` — the patrol block plus its slide-vanish flag. */
+export type FlankerSnapshot = PatrolSnapshot & { slideConcealed: boolean };
 
 const SLIDE_OFFSETS: ReadonlyArray<readonly [number, number]> = Object.freeze([
   [-1, -1],

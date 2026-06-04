@@ -35,6 +35,17 @@ export type Gear = {
   rangedDamageBonus: number;
 };
 
+/**
+ * M6.2: shared crew snapshot `extra`. Merc/Razor carry exactly this; the Tech
+ * extends it with `turretReady`. Bag-hygienic — `null`, never `undefined`.
+ */
+export type CrewSnapshot = {
+  callsign: string | null;
+  flatlined: boolean;
+  inventory: Inventory | null;
+  gear: Gear | null;
+};
+
 const createDefaultInventory = (): Inventory => ({ salvage: emptySalvage(), consumables: [] });
 const createDefaultGear = (): Gear => ({
   maxHpBonus: 0,

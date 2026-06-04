@@ -34,6 +34,7 @@ import { EVENT } from '../events.js';
 import type { EventBus } from '../events.js';
 import type { Entity } from '../Entity.js';
 import type {
+  GridPoint,
   PatrolHostileMoveKind,
   PatrolHostileMoveStep,
   TurnActionStep,
@@ -53,6 +54,19 @@ export type PatrolState = (typeof PATROL_STATE)[keyof typeof PATROL_STATE];
 /** Outcome a subclass `engageSteps` reports back to the main loop. */
 export type EngageVerdict = 'continue' | 'break';
 export type EngageSteps = Generator<TurnActionStep, EngageVerdict, undefined>;
+
+/**
+ * M6.2: serialised patrol state machine. Every patrol hostile (Skirmisher,
+ * Guard, Bruiser, Juggernaut, Flanker, Lookout, Sniper, Medic) round-trips
+ * this identical block as its snapshot `extra`. Subclasses extend it: the
+ * Sniper adds `aimTargetId`, the Flanker adds `slideConcealed`.
+ */
+export type PatrolSnapshot = {
+  state: string;
+  lastKnownTarget: GridPoint | null;
+  patrolWaypoints: GridPoint[];
+  patrolIndex: number;
+};
 
 type NoiseEventPayload = {
   origin?: { x: number; y: number };

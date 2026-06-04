@@ -88,8 +88,24 @@ import { normalizeMapDimensions } from './procgen/mapDimensions.js';
 import { findPath } from './Pathfinding.js';
 import type { Contract } from './hub/Curator.js';
 import type { FactionId } from './constants.js';
-import type { GridPoint, KeyItem, TileDelta } from '../types.js';
-import type { Inventory, Gear } from './Crew.js';
+import type { GridPoint, KeyItem, TileDelta, EntitySnapshotExtra } from '../types.js';
+import type { CrewSnapshot } from './Crew.js';
+import type { TechSnapshot } from './archetypes/Tech.js';
+import type { PatrolSnapshot } from './ai/PatrolHostile.js';
+import type { SniperSnapshot } from './ai/Sniper.js';
+import type { FlankerSnapshot } from './ai/Flanker.js';
+import type { TurretSnapshot } from './Turret.js';
+import type { CorpTurretSnapshot } from './entities/CorpTurret.js';
+import type { TerminalSnapshot } from './entities/Terminal.js';
+import type { DoorSnapshot } from './entities/Door.js';
+import type { PickupSnapshot } from './entities/Pickup.js';
+import type { ContactSnapshot } from './entities/Contact.js';
+import type { DenyTargetSnapshot } from './entities/DenyTarget.js';
+import type { SyncPadSnapshot } from './entities/SyncPad.js';
+import type { RelayNodeSnapshot } from './entities/RelayNode.js';
+import type { ConsumablePickupSnapshot } from './entities/ConsumablePickup.js';
+import type { EscortNpcSnapshot } from './entities/EscortNpc.js';
+import type { KeyCardSnapshot } from './entities/KeyCard.js';
 import type { AlarmState } from './World.js';
 
 export const RUN_STATE = Object.freeze({
@@ -167,21 +183,7 @@ export type ObjectiveProgressSnapshot = {
   securedPickups: string[];
 };
 
-/**
- * Serialised `PatrolHostile` state machine. Every patrol hostile (Skirmisher,
- * Guard, Bruiser, Juggernaut, Flanker, Lookout, Sniper) round-trips this
- * identical block; each persists it under a key equal to its own archetype id
- * (`drone` for the Skirmisher, for save-compat). The Sniper extends it with
- * `aimTargetId`; the Flanker extends it with `slideConcealed`.
- */
-export type PatrolSnapshotBlock = {
-  state: string;
-  lastKnownTarget: GridPoint | null;
-  patrolWaypoints: GridPoint[];
-  patrolIndex: number;
-};
-
-/** Archetype ids whose snapshot carries a {@link PatrolSnapshotBlock}. */
+/** Archetype ids whose snapshot `extra` is a {@link PatrolSnapshot} block. */
 export const PATROL_ARCHETYPE_IDS = Object.freeze([
   'drone',
   'guard',
@@ -195,6 +197,17 @@ export const PATROL_ARCHETYPE_IDS = Object.freeze([
 
 export type PatrolArchetypeId = (typeof PATROL_ARCHETYPE_IDS)[number];
 
+/**
+ * M6.2: slimmed per-entity snapshot. Common fields every entity shares, plus a
+ * single opaque {@link EntitySnapshotExtra} property bag. Each archetype owns
+ * the strict shape of its own slice of `extra` (its exported `XSnapshot` type);
+ * the centre type stays ignorant of those shapes. This replaced the former
+ * ~24-key god-union — adding an archetype no longer edits this type.
+ *
+ * Legacy (pre-M6.2) saves stored those slices as named top-level sub-blocks
+ * (`drone`, `terminal`, …) and crew fields at the top level. `restoreEntity`
+ * normalises both shapes into `extra` on load (see `normalizeEntityExtra`).
+ */
 export type RunEntitySnapshot = {
   archetype: EntityArchetypeId;
   id: string;
@@ -210,78 +223,8 @@ export type RunEntitySnapshot = {
   maxAp: number;
   alive: boolean;
   stealthed: boolean;
-  // Patrol hostiles each serialise a shared {@link PatrolSnapshotBlock} under a
-  // key matching their archetype id (`drone` = Skirmisher) so older per-class
-  // saves stay byte-identical. The Sniper's block also carries `aimTargetId`.
-  drone?: PatrolSnapshotBlock;
-  guard?: PatrolSnapshotBlock;
-  bruiser?: PatrolSnapshotBlock;
-  juggernaut?: PatrolSnapshotBlock;
-  flanker?: PatrolSnapshotBlock & { slideConcealed: boolean };
-  lookout?: PatrolSnapshotBlock;
-  sniper?: PatrolSnapshotBlock & { aimTargetId: string | null };
-  medic?: PatrolSnapshotBlock;
-  tech?: { turretReady: boolean };
-  callsign?: string | null;
-  flatlined?: boolean;
-  inventory?: Inventory | null;
-  gear?: Gear | null;
-  turret?: {
-    range: number;
-    attackDamage: number;
-    ownerId: string | null;
-  };
-  terminal?: {
-    label: string;
-    sliced: boolean;
-    armed: boolean;
-    raisesAlarm: boolean;
-    unlocksId: string | null;
-  };
-  door?: {
-    doorId: string;
-    locked: boolean;
-  };
-  pickup?: {
-    label: string;
-    secured: boolean;
-    armed: boolean;
-  };
-  contact?: {
-    label: string;
-    handoffComplete: boolean;
-    armed: boolean;
-  };
-  denyTarget?: {
-    label: string;
-    requiresBreach?: boolean;
-  };
-  syncPad?: {
-    label: string;
-    synced: boolean;
-    armed: boolean;
-  };
-  corpTurret?: {
-    range: number;
-    attackDamage: number;
-  };
-  relayNode?: {
-    label: string;
-  };
-  consumablePickup?: {
-    consumableId: string;
-    label: string;
-  };
-  escortNpc?: {
-    label: string;
-    activated: boolean;
-    armed: boolean;
-  };
-  keycard?: {
-    doorId: string;
-    label: string;
-    siteId?: string;
-  };
+  /** Opaque per-archetype payload; strict shape owned by the entity module. */
+  extra?: EntitySnapshotExtra;
 };
 
 export type RunSnapshot = {
@@ -1636,6 +1579,132 @@ function allPassableCellKeys(world: World): Set<string> {
 // persistence module can stay symmetric (restore lives there, snapshot here).
 // ---------------------------------------------------------------------------
 
+/** Shared patrol state-machine slice (Skirmisher, Guard, Bruiser, …). */
+function patrolSnapshotExtra(e: PatrolHostile): PatrolSnapshot {
+  return {
+    state: e.state,
+    lastKnownTarget: e.lastKnownTarget ? { x: e.lastKnownTarget.x, y: e.lastKnownTarget.y } : null,
+    patrolWaypoints: e.patrolWaypoints.map(wp => ({ x: wp.x, y: wp.y })),
+    patrolIndex: e.patrolIndex,
+  };
+}
+
+/** Shared crew slice (Merc, Razor, Tech). Inventory/Gear are JSON-safe at runtime. */
+function crewSnapshotExtra(e: Crew): CrewSnapshot {
+  return {
+    callsign: e.callsign,
+    flatlined: !!e.flatlined,
+    inventory: e.inventory,
+    gear: e.gear,
+  };
+}
+
+/**
+ * M6.2: per-archetype `extra` producers. The symmetric counterpart of
+ * persistence's `ENTITY_RESTORE` registry — both keyed by archetype id, no
+ * `instanceof` cascade. Archetypes absent here (corp-civilian, neutral-civilian,
+ * breaching-charge, entity) carry no `extra`.
+ *
+ * Crew/Tech cast across the `EntitySnapshotExtra` boundary because `Inventory`/
+ * `Gear` aren't statically provable as `JsonValue` (they are JSON-safe at run
+ * time); every other slice is a clean primitive bag the compiler verifies.
+ */
+const SNAPSHOT_EXTRACTORS: Partial<Record<EntityArchetypeId, (e: Entity) => EntitySnapshotExtra>> =
+  {
+    merc: e => crewSnapshotExtra(e as Crew) as unknown as EntitySnapshotExtra,
+    razor: e => crewSnapshotExtra(e as Crew) as unknown as EntitySnapshotExtra,
+    tech: e =>
+      ({
+        ...crewSnapshotExtra(e as Crew),
+        turretReady: !!(e as Tech).turretReady,
+      }) satisfies TechSnapshot as unknown as EntitySnapshotExtra,
+    drone: e => patrolSnapshotExtra(e as PatrolHostile),
+    guard: e => patrolSnapshotExtra(e as PatrolHostile),
+    bruiser: e => patrolSnapshotExtra(e as PatrolHostile),
+    juggernaut: e => patrolSnapshotExtra(e as PatrolHostile),
+    lookout: e => patrolSnapshotExtra(e as PatrolHostile),
+    medic: e => patrolSnapshotExtra(e as PatrolHostile),
+    sniper: e =>
+      ({
+        ...patrolSnapshotExtra(e as PatrolHostile),
+        aimTargetId: (e as Sniper).aimTargetId,
+      }) satisfies SniperSnapshot,
+    flanker: e =>
+      ({
+        ...patrolSnapshotExtra(e as PatrolHostile),
+        slideConcealed: (e as Flanker).slideConcealed,
+      }) satisfies FlankerSnapshot,
+    turret: e => {
+      const t = e as Turret;
+      return {
+        range: t.range,
+        attackDamage: t.attackDamage,
+        ownerId: t.ownerId,
+      } satisfies TurretSnapshot;
+    },
+    'corp-turret': e => {
+      const t = e as CorpTurret;
+      return { range: t.range, attackDamage: t.attackDamage } satisfies CorpTurretSnapshot;
+    },
+    terminal: e => {
+      const t = e as Terminal;
+      return {
+        label: t.label,
+        sliced: t.sliced,
+        armed: t.armed,
+        raisesAlarm: t.raisesAlarm,
+        unlocksId: t.unlocksId,
+      } satisfies TerminalSnapshot;
+    },
+    door: e => {
+      const d = e as Door;
+      return { doorId: d.doorId, locked: d.locked } satisfies DoorSnapshot;
+    },
+    pickup: e => {
+      const p = e as Pickup;
+      return { label: p.label, secured: p.secured, armed: p.armed } satisfies PickupSnapshot;
+    },
+    contact: e => {
+      const c = e as Contact;
+      return {
+        label: c.label,
+        handoffComplete: c.handoffComplete,
+        armed: c.armed,
+      } satisfies ContactSnapshot;
+    },
+    'deny-target': e => {
+      const d = e as DenyTarget;
+      return { label: d.label, requiresBreach: d.requiresBreach } satisfies DenyTargetSnapshot;
+    },
+    'sync-pad': e => {
+      const s = e as SyncPad;
+      return { label: s.label, synced: s.synced, armed: s.armed } satisfies SyncPadSnapshot;
+    },
+    'relay-node': e => {
+      const r = e as RelayNode;
+      return { label: r.label } satisfies RelayNodeSnapshot;
+    },
+    'consumable-pickup': e => {
+      const c = e as ConsumablePickup;
+      return {
+        consumableId: c.consumableId,
+        label: c.label,
+      } satisfies ConsumablePickupSnapshot;
+    },
+    'escort-npc': e => {
+      const n = e as EscortNpc;
+      return { label: n.label, activated: n.activated, armed: n.armed } satisfies EscortNpcSnapshot;
+    },
+    keycard: e => {
+      const k = e as KeyCard;
+      return {
+        doorId: k.doorId,
+        label: k.label,
+        siteId: k.siteId ?? null,
+      } satisfies KeyCardSnapshot;
+    },
+  };
+
 function snapshotEntity(entity: Entity): RunEntitySnapshot {
   const archetype = archetypeOf(entity);
   const base: RunEntitySnapshot = {
@@ -1654,119 +1723,8 @@ function snapshotEntity(entity: Entity): RunEntitySnapshot {
     alive: entity.alive,
     stealthed: !!entity.stealthed,
   };
-  if (entity instanceof PatrolHostile) {
-    // Every patrol hostile serialises the same block under its own archetype
-    // key (`drone` for Skirmisher); the Sniper extends it with `aimTargetId`.
-    const block: PatrolSnapshotBlock = {
-      state: entity.state,
-      lastKnownTarget: entity.lastKnownTarget ? { ...entity.lastKnownTarget } : null,
-      patrolWaypoints: entity.patrolWaypoints.map(wp => ({ x: wp.x, y: wp.y })),
-      patrolIndex: entity.patrolIndex,
-    };
-    if (entity instanceof Sniper) {
-      base.sniper = { ...block, aimTargetId: entity.aimTargetId };
-    } else if (entity instanceof Flanker) {
-      base.flanker = { ...block, slideConcealed: entity.slideConcealed };
-    } else {
-      // archetype ∈ {drone, guard, bruiser, juggernaut, lookout, medic} here — all
-      // plain PatrolSnapshotBlock keys.
-      base[archetype as Exclude<PatrolArchetypeId, 'sniper' | 'flanker'>] = block;
-    }
-  }
-  if (entity instanceof Tech) {
-    // M1 design lock: the Tech's pre-built turret is a flag, not a count. M3
-    // will rework this into an inventory-based item once the salvage loop
-    // lands; for now snapshotting the bool is enough to round-trip a run
-    // where the player did or did not deploy mid-job.
-    base.tech = { turretReady: !!entity.turretReady };
-  }
-  if (entity instanceof Merc || entity instanceof Razor || entity instanceof Tech) {
-    base.callsign = entity.callsign;
-    base.flatlined = !!entity.flatlined;
-    base.inventory = entity.inventory;
-    base.gear = entity.gear;
-  }
-  if (entity instanceof Turret) {
-    base.turret = {
-      range: entity.range,
-      attackDamage: entity.attackDamage,
-      ownerId: entity.ownerId,
-    };
-  }
-  if (entity instanceof Terminal) {
-    base.terminal = {
-      label: entity.label,
-      sliced: entity.sliced,
-      armed: entity.armed,
-      raisesAlarm: entity.raisesAlarm,
-      unlocksId: entity.unlocksId,
-    };
-  }
-  if (entity instanceof Door) {
-    base.door = {
-      doorId: entity.doorId,
-      locked: entity.locked,
-    };
-  }
-  if (entity instanceof Pickup) {
-    base.pickup = {
-      label: entity.label,
-      secured: entity.secured,
-      armed: entity.armed,
-    };
-  }
-  if (entity instanceof Contact) {
-    base.contact = {
-      label: entity.label,
-      handoffComplete: entity.handoffComplete,
-      armed: entity.armed,
-    };
-  }
-  if (entity instanceof DenyTarget) {
-    base.denyTarget = {
-      label: entity.label,
-      requiresBreach: entity.requiresBreach,
-    };
-  }
-  if (entity instanceof SyncPad) {
-    base.syncPad = {
-      label: entity.label,
-      synced: entity.synced,
-      armed: entity.armed,
-    };
-  }
-  if (entity instanceof CorpTurret) {
-    base.corpTurret = {
-      range: entity.range,
-      attackDamage: entity.attackDamage,
-    };
-  }
-  if (entity instanceof RelayNode) {
-    base.relayNode = {
-      label: entity.label,
-    };
-  }
-  if (entity instanceof ConsumablePickup) {
-    base.consumablePickup = {
-      consumableId: entity.consumableId,
-      label: entity.label,
-    };
-  }
-  if (entity instanceof EscortNpc) {
-    base.escortNpc = {
-      label: entity.label,
-      activated: entity.activated,
-      armed: entity.armed,
-    };
-  }
-  if (entity instanceof KeyCard) {
-    const kcSnap: NonNullable<RunEntitySnapshot['keycard']> = {
-      doorId: entity.doorId,
-      label: entity.label,
-    };
-    if (entity.siteId) kcSnap.siteId = entity.siteId;
-    base.keycard = kcSnap;
-  }
+  const extract = SNAPSHOT_EXTRACTORS[archetype];
+  if (extract) base.extra = extract(entity);
   return base;
 }
 

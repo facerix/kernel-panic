@@ -152,9 +152,9 @@ All rolls derive from the contract seed (deterministic, save-compatible).
 | M4.2 — Juggernaut (armor soak + suppression) | ✅ Complete |
 | M4.3 — Flanker (cover concealment + Razor-mirror SLIDE) | ✅ Complete |
 | M5 — Netrunner / disruption (status-effect groundwork) | 🔲 Deferred-candidate (feeds Phase 3) |
-| M6 — Snapshot schema slimming (persistence refactor, no gameplay change) | 🟡 In progress |
+| M6 — Snapshot schema slimming (persistence refactor, no gameplay change) | ✅ Complete |
 | M6.1 — Shared `PatrolSnapshotBlock` + patrol (de)serialize consolidation | ✅ Complete |
-| M6.2 — Property-bag `extra` + per-entity snapshot ownership | 🔲 Not started |
+| M6.2 — Property-bag `extra` + per-entity snapshot ownership | ✅ Complete |
 
 **Phase 2.7** is complete when:
 
@@ -492,9 +492,9 @@ So a flanker that SLIDEs on corp turn N vanishes for the player's entire turn N+
 | Back-compat | **Must** read legacy saves: normalize pre-refactor top-level sub-blocks (`rec.terminal`, `rec.drone`, …) into `extra` on restore. Covered by a back-compat round-trip test against a legacy-shaped fixture. (No silent fallback — a shape we can't normalize throws.) |
 | Tautological guards | The `instanceof X` post-construct checks stay vestigial under Data Mapper (only fail on a mis-wired registry `create`); keep one cheap guard or drop per entry. Full deletion was the sole Active-Record win and we declined that path. |
 
-**Status:** **M6.1 ✅ done** — `PatrolSnapshotBlock` extracted (`Run.ts`), the 6-way nested ternary + per-archetype waypoint `if` blocks in `persistence.ts` collapsed into `patrolSnapshotBlock()` + `isPatrolArchetype()`, and `snapshotEntity`'s 6-branch patrol cascade reduced to one shared block + a key router. Save format unchanged; full suite green.
+**Status:** **M6.1 ✅ done** — `PatrolSnapshotBlock` extracted (`Run.ts`), the 6-way nested ternary + per-archetype waypoint `if` blocks in `persistence.ts` collapsed into `patrolSnapshotBlock()` + `isPatrolArchetype()`, and `snapshotEntity`'s 6-branch patrol cascade reduced to one shared block + a key router. Save format unchanged; full suite green. **M6.2 ✅ done** — see implementation note below; god-type dissolved into the `extra` bag + `ENTITY_RESTORE` registry, legacy saves normalised, full suite green (1402 tests).
 
-**Next steps (M6.2 — its own clean turn):**
+**Next steps (M6.2 — its own clean turn) — ✅ all landed:**
 
 1. **Safety net first (TDD).** Audit `persistence.test.ts` for throw-branch coverage; add **characterization tests** for every validation branch not already pinned (e.g. each `… requires state`, door glyph-mismatch, each `… did not restore as X`) *before* refactoring. This is the gate that makes the rewrite safe.
 2. Add `JsonValue` / `EntitySnapshotExtra` to `types.ts`.
@@ -504,6 +504,8 @@ So a flanker that SLIDEs on corp turn N vanishes for the player's entire turn N+
 6. Bump the service-worker cache version (`0.2.7e` → next) since precached module surface changes.
 
 **Out of scope for M6 (separate axis, deferred):** converting the `archetypeOf` instanceof-chain and the `kindFromId` id-prefix chain to a class-level `static archetypeId` / label registry. Real smell, but ~24-file blast radius and orthogonal to the schema work — revisit after M6.2 if the appetite's there.
+
+**Implementation note (M6.2):** `RunEntitySnapshot` slimmed to common fields + a single `extra?: EntitySnapshotExtra` bag; the ~24-key god-union is gone (adding an archetype no longer edits the centre type). `JsonValue` / `EntitySnapshotExtra` live import-free in `types.ts`. Each entity module exports its strict `XSnapshot` slice (`TerminalSnapshot`, `KeyCardSnapshot`, `CrewSnapshot`, `PatrolSnapshot` in `PatrolHostile.ts`, `SniperSnapshot`/`FlankerSnapshot` extending it, …) — persistence imports those types, entities import nothing new. The write path (`Run.snapshotEntity`) dispatches through a `SNAPSHOT_EXTRACTORS` map keyed by archetype; the read path (`persistence.restoreEntity`) is now a generic skeleton — `validateCommon → normalizeEntityExtra → base/crew/patrol props → ENTITY_RESTORE.buildProps → create → applyCommonState → restorePatrolState → ENTITY_RESTORE.apply` — backed by an `ENTITY_RESTORE` Data-Mapper registry (per-archetype `buildProps`/`apply` + cheap instanceof guard), replacing the former ~30 `if (rec.archetype === 'X')` blocks. Bag hygiene: fields are `null`, never `undefined` (e.g. keycard `siteId`). **Back-compat:** `normalizeEntityExtra` reconstructs `extra` from pre-M6.2 named sub-blocks (`rec.drone`, `rec.terminal`, top-level crew fields, `rec.tech.turretReady`, …) so legacy saves still load; a malformed `extra` throws (no silent fallback). The duplicated `deny-target` post-construct validation folded into one registry entry (kaizen). Characterization + legacy-shape round-trip tests added (`persistence.test.ts`); all per-entity round-trip tests across the suite migrated to the `extra` layout. SW cache bumped **`0.2.7h` → `0.2.7i`**. Deferred per scope: the `archetypeOf` / `kindFromId` instanceof/prefix chains (separate axis).
 
 **Kaizen note:** while reading `restoreEntity`, found the **`deny-target` post-construction validation is duplicated** (two near-identical blocks). The registry rollout naturally folds it into one entry; fix it then (or sooner if convenient).
 
