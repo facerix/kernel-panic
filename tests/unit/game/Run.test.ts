@@ -993,11 +993,7 @@ test('civilian:harmed does NOT fire when player-planted breaching charge kills C
     source: 'breach-blast',
   });
 
-  assert.equal(
-    harmed.length,
-    0,
-    'CorpCivilian kills must not emit civilian:harmed or cost Rep'
-  );
+  assert.equal(harmed.length, 0, 'CorpCivilian kills must not emit civilian:harmed or cost Rep');
 });
 
 test('Run constructor rejects bad inputs', () => {
