@@ -55,7 +55,7 @@ export const ARCHETYPES = Object.freeze({
     blurb: 'Long-range pressure. Vault repositions under fire.',
     perks: Object.freeze(['vault']),
     perkName: 'VAULT',
-    perkLabel: 'VAULT — hop cover & fire',
+    perkLabel: 'Mercs can VAULT: hop cover & knock enemies back',
   }),
   razor: Object.freeze({
     id: 'razor',
@@ -63,7 +63,7 @@ export const ARCHETYPES = Object.freeze({
     blurb: 'Close-quarters ghost. Slide in, cut out.',
     perks: Object.freeze(['slide']),
     perkName: 'SLIDE',
-    perkLabel: 'SLIDE — 2-tile silent dash',
+    perkLabel: 'Razors can SLIDE: dash 2 tiles and go silent for a turn',
   }),
   tech: Object.freeze({
     id: 'tech',
@@ -71,7 +71,7 @@ export const ARCHETYPES = Object.freeze({
     blurb: "Field engineer. Turrets hold what you can't.",
     perks: Object.freeze(['deploy']),
     perkName: 'DEPLOY',
-    perkLabel: 'DEPLOY — place a turret',
+    perkLabel: 'Techs can DEPLOY: place a turret that will fire on enemies',
   }),
 });
 

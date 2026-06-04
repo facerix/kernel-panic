@@ -157,8 +157,9 @@ const CSS = `
 
 .tile-hints-content {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
   column-gap: 1rem;
+  row-gap: 1rem;
   align-items: start;
   margin: 0.5rem 0 0;
   font-size: 0.85rem;
@@ -440,22 +441,27 @@ class KeyHelp extends HTMLElement {
         'In the hub, walk up to the Curator or the crew terminal (‡ glyph) and use Interact to hear rumors, pick contracts, or open the crew roster.',
     });
 
-    const perkHint = this.#archetypeInfo
-      ? `Your archetype special (${this.#archetypeInfo.perkName}) is a strong ability`
-      : 'Your archetype special (Vault, Slide, or Deploy) is a strong reposition';
     const combatExtra = h('p', {
-      textContent: `Opposing hostiles and defenses act after you wait (.) and pass the round. Walls and corners break line of sight for ranged shots; melee is usually cheaper AP than firing. ${perkHint} — pick it, aim a direction when prompted, then confirm.`,
+      textContent: `Opposing hostiles and defenses act after your turn -- if you see static, it's because something is happening elsewhere in the facility.
+      Walls and corners break line of sight for ranged shots; melee costs less AP than firing.`,
     });
 
     const moveHint = h('p', {
       textContent: 'Moving into a hostile attacks; into anything else, you interact.',
     });
 
+    const perkHint = this.#archetypeInfo
+      ? `${this.#archetypeInfo.perkLabel} — activate it, then pick a direction.`
+      : '';
+    const archetypeInfo = h('p', {
+      textContent: `Every player archetype has a special ability that can be used to move, attack, or both. ${perkHint}`,
+    });
+
     const turretHint =
       scope === 'combat' && this.#archetypeInfo?.id === 'tech'
         ? h('p', {
             textContent:
-              'Your deployed turret (T) inherits your max HP and fires twice each time you wait — before hostiles move.',
+              'Your deployed turret (T) inherits your max HP and fires up to twice at hostiles in range at the end of your turn.',
           })
         : null;
 
@@ -470,6 +476,7 @@ class KeyHelp extends HTMLElement {
       shared,
       scope === 'hub' ? hubExtra : combatExtra,
       moveHint,
+      archetypeInfo,
       turretHint,
       controlHint,
     ].filter(Boolean) as HTMLElement[];
