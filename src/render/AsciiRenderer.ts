@@ -86,6 +86,7 @@ const HUD_FONT_PX = 12;
 const HUD_PAD_X = 6;
 const HUD_PAD_Y = 5;
 const HUD_ROW_GAP = 3;
+const HUD_BOTTOM_LEFT_INSET = 24;
 const HUD_BACKING = 'rgba(6, 9, 10, 0.72)';
 const HUD_ACCENT = 'rgba(0, 217, 165, 0.5)';
 const HUD_TEXT = '#9ff3da';
@@ -321,16 +322,20 @@ export class AsciiRenderer {
 
     const rawText = row.uppercase ? row.text.toUpperCase() : row.text;
     const boxH = HUD_FONT_PX + HUD_PAD_Y * 2;
+    const insetX = row.anchor === 'bottom-left' ? HUD_BOTTOM_LEFT_INSET : 0;
     const defaultMaxWidth =
-      row.anchor === 'top-right' ? this.canvas.width : Math.max(0, this.canvas.width);
-    const maxBoxW = Math.max(0, Math.min(row.maxWidth ?? defaultMaxWidth, this.canvas.width));
+      row.anchor === 'top-right' ? this.canvas.width : Math.max(0, this.canvas.width - insetX);
+    const maxBoxW = Math.max(
+      0,
+      Math.min(row.maxWidth ?? defaultMaxWidth, this.canvas.width - insetX)
+    );
 
     ctx.save();
     ctx.font = `${HUD_FONT_PX}px ${this.fontFamily}`;
     ctx.textBaseline = 'top';
     const text = this.#truncateHudText(rawText, Math.max(0, maxBoxW - HUD_PAD_X * 2));
     const boxW = Math.min(maxBoxW, Math.ceil(ctx.measureText(text).width) + HUD_PAD_X * 2);
-    const boxX = row.anchor === 'top-right' ? this.canvas.width - boxW : 0;
+    const boxX = row.anchor === 'top-right' ? this.canvas.width - boxW : insetX;
     const boxY =
       row.anchor === 'bottom-left'
         ? this.canvas.height - 1 - boxH - rowIndex * (boxH + HUD_ROW_GAP)

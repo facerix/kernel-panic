@@ -1,5 +1,5 @@
 /**
- * Objective progress tallies and DOM formatting for combat HUD / status bar.
+ * Objective progress tallies for combat HUD objective chips.
  */
 
 import { FACTION } from './constants.js';
@@ -143,12 +143,6 @@ export function objectiveProgress(
     default:
       return null;
   }
-}
-
-/** HTML suffix for `objectiveStatusTag` — empty when there is no progress meter. */
-export function formatObjectiveProgressTag(progress: ObjectiveProgress | null): string {
-  if (!progress) return '';
-  return ` <span class="todo">[${progress.label}:${progress.current}/${progress.total}]</span>`;
 }
 
 function asKeySet(keys: ReadonlySet<string> | readonly string[]): ReadonlySet<string> {

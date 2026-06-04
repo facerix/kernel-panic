@@ -57,7 +57,6 @@ import {
   ANIMATION_DURATIONS,
   createAnimationLock,
   runMuzzleFlash,
-  setCorpStaticActive,
   triggerDamageFlash,
   triggerShake,
 } from '/src/render/animations.js';
@@ -67,7 +66,6 @@ import { applyIntent, PLAYER_ACTIONS } from '/src/input/applyIntent.js';
 import { recordStatusActionLine, statusActionRows } from '/src/statusActivityRows.js';
 
 import { placeSmoke, clearSmoke } from '/src/game/Smoke.js';
-import { formatObjectiveProgressTag } from '/src/game/objectiveProgress.js';
 import { placeHazardCluster } from '/src/game/Run.js';
 import { blastCells } from '/src/game/breachBlast.js';
 import { hasLineOfSight } from '/src/game/LineOfSight.js';
@@ -81,10 +79,11 @@ import type { Run, RunResult, RunTelemetry, Outcome } from '/src/game/Run.js';
 import type { Item } from '/src/game/items.js';
 import type { Intent } from '/src/input/applyIntent.js';
 import type { AimKind, Mode } from '/src/input/keymap.js';
+import { formatCombatHudA11ySummary } from '/src/render/combatHud.js';
 import type { CombatHudSummaryInput } from '/src/render/combatHud.js';
 import type { KeyItem, Telemetry, TurnActionStep } from '/src/types.js';
 import { installErrorBoundary, type FaultSignal } from '/src/errorBoundary.js';
-import { h, isDevelopmentMode } from '/src/domUtils.js';
+import { isDevelopmentMode } from '/src/domUtils.js';
 
 import '/components/ConfirmationModal.js';
 import '/components/UpdateNotification.js';
@@ -242,7 +241,6 @@ let statusEl: HTMLElement | null = null;
 let renderer: AsciiRenderer;
 let crt: CrtFilter;
 let stageEl: HTMLElement;
-let canvasStaticEl: HTMLElement;
 let briefingEl: RunBriefingElement;
 let contractSelectEl: ContractSelectElement;
 let crashEl: CrashDumpElement;
@@ -408,9 +406,6 @@ async function boot() {
     throw new Error('[shell] #game-canvas requires a parent stage element');
   }
   stageEl = canvas.parentElement;
-  canvasStaticEl = h('div', { className: 'game-canvas-static', ariaHidden: 'true' });
-  canvas.insertAdjacentElement('afterend', canvasStaticEl);
-  new ResizeObserver(() => syncCanvasStaticOverlay()).observe(canvas);
   statusEl = mustGetElement<HTMLElement>('game-status');
   contractSelectEl = mustGetElement<ContractSelectElement>('contract-select');
   briefingEl = mustGetElement<RunBriefingElement>('briefing');
@@ -521,7 +516,6 @@ async function boot() {
 
   logHeaderEl.addEventListener('click', () => {
     logEl.classList.toggle('collapsed');
-    syncCanvasStaticOverlay();
   });
 
   // Update-notification wiring kept from the original scaffold.
@@ -2002,30 +1996,7 @@ function paint(stateHint: InputState = activeInputState()): void {
   });
   crt.alertTint = run.state === RUN_STATE.COMBAT && run.world.alarmActive;
   crt.apply();
-  updateCorpWaitChrome(run);
   setStatus(statusLine(stateHint));
-}
-
-/** Static overlay when hostiles act off-screen during the corp turn. */
-function updateCorpWaitChrome(run: ReturnType<typeof currentScene>): void {
-  syncCanvasStaticOverlay();
-  const show =
-    run?.state === RUN_STATE.COMBAT &&
-    run.queue?.currentFaction === FACTION.CORP &&
-    run.world &&
-    countVisibleCorpEntities(run.world.entities.values(), (x, y) => vision.isVisible(x, y)) === 0;
-  setCorpStaticActive(canvasStaticEl, !!show);
-}
-
-/** Keep the static layer aligned with #game-canvas as the log sidebar expands/collapses. */
-function syncCanvasStaticOverlay(): void {
-  if (!canvasStaticEl || !stageEl || !canvas) return;
-  const stageRect = stageEl.getBoundingClientRect();
-  const canvasRect = canvas.getBoundingClientRect();
-  canvasStaticEl.style.left = `${canvasRect.left - stageRect.left}px`;
-  canvasStaticEl.style.top = `${canvasRect.top - stageRect.top}px`;
-  canvasStaticEl.style.width = `${canvasRect.width}px`;
-  canvasStaticEl.style.height = `${canvasRect.height}px`;
 }
 
 function statusLine(state: InputState): string {
@@ -2039,22 +2010,20 @@ function statusLine(state: InputState): string {
   const player = run.player;
   if (!player) return stateLabel();
   if (!run.queue) return stateLabel();
-  const stealthTag = player.stealthed ? ' [CLOAKED]' : '';
   let identity;
-  let aphp = '';
-  let turnInfo = '';
   let context = '';
+  let combatA11y = '';
   if (run.state === RUN_STATE.COMBAT) {
     if (!isRun(run)) {
       throw new Error('[shell] combat status requires an active run');
     }
-    // M4.2 (revised): salvage display moved out of the status bar and into
-    // the `<item-inventory>` overlay (full bucket names there). The status
-    // bar stayed too dense once typed salvage landed — `SAL S:0 C:0 B:0 D:0`
-    // crowded the line and the initials were hard to parse. Press `i` to
-    // see the wallet.
-    const salvageTag = '';
-    const objectiveTag = objectiveStatusTag(run);
+    const hudSnapshot = buildCombatHudSnapshot(run);
+    if (!hudSnapshot) {
+      throw new Error('[shell] combat status requires HUD summary data');
+    }
+    combatA11y = `<span class="u-sr-only">Combat status: ${escapeHtml(
+      formatCombatHudA11ySummary(hudSnapshot)
+    )}</span>`;
     const alarm = run.world?.alarm;
     const alertTag =
       alarm?.phase === 'alert'
@@ -2067,13 +2036,7 @@ function statusLine(state: InputState): string {
     const hazardTag = onHazard
       ? '<span class="hazard-tag">▓ HAZARD — move or take damage</span>'
       : '';
-    const lockTag =
-      run.queue.currentFaction === FACTION.CORP
-        ? '<span class="control-lock">CORP TURN - controls locked</span>'
-        : '';
-    identity = `${escapeHtml(run.player?.callsign ?? run.archetype)} ${escapeHtml(run.archetype.toUpperCase())}`;
-    aphp = `AP ${player.ap}/${player.maxAp} HP ${player.hp}/${player.maxHp}`;
-    context = joinStatusParts([lockTag, hazardTag, objectiveTag, salvageTag, alertTag]);
+    context = joinStatusParts([hazardTag, alertTag]);
   } else {
     if (!campaign) return stateLabel();
     const repLabel = REP_LABEL.find(b => campaign!.rep >= b.min)?.label ?? 'UNKNOWN';
@@ -2082,23 +2045,11 @@ function statusLine(state: InputState): string {
     // full bucket names. Total Cred / Rep / crew counts stay on this line.
     identity = `CREW ${campaign.crew.filter(member => !member.flatlined).length}/${campaign.crew.length} CREDS ${campaign.credits ?? 0} REP ${campaign.rep} (${escapeHtml(repLabel)})`;
   }
-  turnInfo =
-    run.state === RUN_STATE.COMBAT
-      ? joinStatusParts([
-          `TURN ${run.queue.turnNumber}`,
-          escapeHtml(run.queue.currentFaction.toUpperCase()),
-          aim,
-          look,
-        ])
-      : '';
   const modeTag = look && run.state !== RUN_STATE.COMBAT ? look : '';
-  const statsInner = joinStatusParts([
-    stateLabel(),
-    identity,
-    `${aphp}${stealthTag}`,
-    turnInfo,
-    modeTag,
-  ]);
+  const statsInner =
+    run.state === RUN_STATE.COMBAT
+      ? joinStatusParts([stateLabel(), aim, look])
+      : joinStatusParts([stateLabel(), identity, modeTag]);
   const stats = `<span class="game-shell__stats">${statsInner}</span>`;
   const contextRow = `<span class="game-shell__context">${context}</span>`;
   // Two activity rows below the stable status rows. A single fresh action can
@@ -2133,17 +2084,7 @@ function statusLine(state: InputState): string {
     if (row.source === 'ephemeral') return ephemeral;
     return `<span class="game-shell__activity">${escapeHtml(row.text)}</span>`;
   });
-  return stats + contextRow + upper + lower;
-}
-
-function objectiveStatusTag(run: Run): string {
-  if (!run.contract || !run.world) return '';
-  const done = run.isObjectiveSatisfied();
-  const remaining = run.objectiveTurnsRemaining();
-  const turnTag =
-    remaining === null || done ? '' : ` <span class="todo">[TURN:${remaining}]</span>`;
-  const progressTag = formatObjectiveProgressTag(run.objectiveProgress());
-  return `<span class="objective-tag">OBJ ${escapeHtml(run.contract.objective.title)} <span class="${done ? 'done' : 'todo'}">[${done ? 'DONE' : 'TODO'}]</span>${turnTag}${progressTag}</span>`;
+  return combatA11y + stats + contextRow + upper + lower;
 }
 
 function joinStatusParts(parts: Array<string | null | undefined>): string {

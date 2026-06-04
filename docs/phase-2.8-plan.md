@@ -48,7 +48,7 @@ All chrome is **combat-scoped** — Hub / briefing / debrief keep their existing
 | Element | Color | Notes |
 |---------|-------|-------|
 | Location / objective labels | `#9ff3da` / accent `#6ae8c8` | Match existing location chip |
-| Objective `[DONE]` | `#7dff9d` | Same as `.objective-tag .done` |
+| Objective `[DONE]` | `#7dff9d` | Same done hue formerly used by DOM objective tags |
 | Objective `[TODO]` / turn budget | `#ff7a66` or existing `.todo` hue | Match DOM tags |
 | Identity | `#6ae8c8` | Match `.game-shell__stats` |
 | HP filled segments | `#6ae8c8` | Player vitals green |
@@ -60,7 +60,7 @@ All chrome is **combat-scoped** — Hub / briefing / debrief keep their existing
 
 **Stealth:** append `[CLOAKED]` to the identity row (or a dim suffix on row 1) when `player.stealthed` — same signal today lives in the stats line.
 
-**Recon / turn-limit objective extras:** carry forward the optional suffixes already built in `objectiveStatusTag()` — `[TURN:n]` turn budget, `[MAP:x/y]` recon progress — on the objective row only.
+**Recon / turn-limit objective extras:** carry forward the optional suffixes through `formatObjectiveHud()` — `[TURN:n]` turn budget, `[MAP:x/y]` recon progress — on the objective row only.
 
 ---
 
@@ -68,22 +68,22 @@ All chrome is **combat-scoped** — Hub / briefing / debrief keep their existing
 
 | Milestone | Status |
 |---|---|
-| M1 — Canvas combat chrome (`AsciiRenderer`) | 🔲 Not started |
-| M1.1 — Objective chip (top-left, row 2) | 🔲 Not started |
-| M1.2 — Operative identity (top-right, row 1) | 🔲 Not started |
-| M1.3 — HP segment bar (top-right, row 2) | 🔲 Not started |
-| M1.4 — AP pip row (top-right, row 3) | 🔲 Not started |
-| M1.5 — Turn indicator + retire static overlay (bottom-left) | 🔲 Not started |
-| M2 — Shell integration & status bar slim-down | 🔲 Not started |
-| M2.1 — `CombatHud` draw options + `paint()` wiring | 🔲 Not started |
-| M2.2 — Strip moved fields from `statusLine()` | 🔲 Not started |
-| M2.3 — Accessibility: screen-reader summary preserved | 🔲 Not started |
+| M1 — Canvas combat chrome (`AsciiRenderer`) | ✅ Done |
+| M1.1 — Objective chip (top-left, row 2) | ✅ Done |
+| M1.2 — Operative identity (top-right, row 1) | ✅ Done |
+| M1.3 — HP segment bar (top-right, row 2) | ✅ Done |
+| M1.4 — AP pip row (top-right, row 3) | ✅ Done |
+| M1.5 — Turn indicator + retire static overlay (bottom-left) | ✅ Done |
+| M2 — Shell integration & status bar slim-down | ✅ Done |
+| M2.1 — `CombatHud` draw options + `paint()` wiring | ✅ Done |
+| M2.2 — Strip moved fields from `statusLine()` | ✅ Done |
+| M2.3 — Accessibility: screen-reader summary preserved | ✅ Done |
 
 **Phase 2.8** is complete when:
 
 1. Every milestone above is ✅.
 2. During combat, objective / identity / HP / AP / turn phase render on-canvas every frame; DOM status bar no longer duplicates those fields.
-3. Corp turn shows `HOSTILES ACTIVE` bottom-left; `.game-canvas-static` grain overlay and `updateCorpWaitChrome` static path removed (or reduced to a no-op shim until dead code is deleted).
+3. Corp turn shows `HOSTILES ACTIVE` bottom-left; the former `.game-canvas-static` grain overlay and `updateCorpWaitChrome` static path are removed.
 4. Hub → briefing → combat → debrief loop remains playable offline on iOS Safari + Chrome desktop.
 5. `v0.2.8` tagged in git.
 
@@ -99,7 +99,7 @@ All chrome is **combat-scoped** — Hub / briefing / debrief keep their existing
 
 - New draw helper (or generalised `#drawHudRow`) positioned below the location chip box.
 - Text: `OBJ {title} [{DONE|TODO}]` plus optional `[TURN:n]` / `[MAP:x/y]` suffixes.
-- Data source mirrors `objectiveStatusTag()` in `index.ts` — extract shared pure formatter (e.g. `formatObjectiveHud(run)`) so canvas and any remaining DOM fallback stay in sync.
+- Data source mirrors the former `objectiveStatusTag()` facts in `index.ts` through shared pure formatter coverage (e.g. `formatObjectiveHud()`) so canvas and accessibility text stay in sync.
 - **TDD:** formatter covers satisfied / unsatisfied, turn-limit, recon progress, empty contract guard.
 
 #### M1.2 — Operative identity (top-right, row 1)
@@ -163,9 +163,9 @@ Remove from DOM output (combat branch):
 |------|--------|
 | `src/render/AsciiRenderer.ts` | Generalise `#drawLocationLabel` → shared HUD row helper; add `#drawCombatHud`; extend `DrawOptions` |
 | `src/render/combatHud.ts` (new) | Pure formatters: objective line, identity line, HP segments, AP pips, turn label; types for snapshot |
-| `index.ts` | `buildCombatHudSnapshot(run)` in `paint()`; slim `statusLine()`; remove / simplify `updateCorpWaitChrome` |
-| `src/render/animations.ts` | Deprecate or delete `setCorpStaticActive` if unused |
-| `main.css` | Remove `.game-canvas-static` rules once overlay node is gone |
+| `index.ts` | `buildCombatHudSnapshot(run)` in `paint()`; slim `statusLine()`; removed static-overlay toggle path |
+| `src/render/animations.ts` | Static-overlay helper deleted |
+| `main.css` | Static-overlay rules deleted |
 | `tests/unit/render/AsciiRenderer.test.ts` | HUD row placement, colors, combat-only guard |
 | `tests/unit/render/combatHud.test.ts` (new) | Pure formatter coverage |
 
@@ -193,6 +193,6 @@ Remove from DOM output (combat branch):
 ## References
 
 - Location chip: `AsciiRenderer.#drawLocationLabel`, `paint()` → `currentLocationLabel()` in `index.ts`
-- Status assembly: `statusLine()`, `objectiveStatusTag()` in `index.ts`
-- Corp static overlay (to retire): `updateCorpWaitChrome`, `setCorpStaticActive` in `index.ts` / `src/render/animations.ts`
+- Status assembly: `statusLine()` in `index.ts`
+- Combat HUD formatters: `src/render/combatHud.ts`
 - DOM status styling: `.game-shell__status` in `main.css`

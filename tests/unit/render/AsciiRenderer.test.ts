@@ -183,7 +183,7 @@ test('draw() anchors bottom HUD rows from the bottom edge', () => {
   const phase = canvas._drawCalls
     .filter(c => c.op === 'text')
     .find(c => c.char === 'HOSTILES ACTIVE');
-  assert.equal(phase?.px, 6);
+  assert.equal(phase?.px, 30);
   assert.equal(phase?.py, canvas.height - 18, 'bottom row text sits inside the bottom band');
 });
 
@@ -233,7 +233,7 @@ test('draw() paints structured combat HUD rows in the planned canvas corners', (
   assert.equal(identity?.py, 5, 'identity row is the top-right first row');
   assert.equal(identity?.textAlign, 'right');
   assert.equal(hpPrefix?.py, 30, 'HP row shares top-right row 1');
-  assert.equal(turn?.px, 6, 'turn row sits bottom-left');
+  assert.equal(turn?.px, 30, 'turn row sits bottom-left clear of the canvas frame corner');
   assert.equal(turn?.py, canvas.height - 18);
 });
 
