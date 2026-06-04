@@ -134,6 +134,22 @@ export function isCorpTurnStepLogVisibleToPlayer(
 }
 
 /**
+ * Whether a corp-turn step should be painted and paced for the player.
+ * Matches log visibility for combat steps; facility alarm always repaints
+ * so the status bar picks up ALERT on the next frame.
+ */
+export function isCorpTurnStepVisibleToPlayer(
+  world: World,
+  playerId: string,
+  entityId: string,
+  step: TurnActionStep,
+  isTileVisible: IsVisibleFn
+): boolean {
+  if (step.type === 'alarm') return true;
+  return isCorpTurnStepLogVisibleToPlayer(world, playerId, entityId, step, isTileVisible);
+}
+
+/**
  * Format a single corp-turn step into a player-facing log line.
  * Returns `null` for steps that don't warrant a log entry (patrol noise, etc.).
  *

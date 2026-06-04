@@ -6,6 +6,7 @@ import {
   countVisibleCorpEntities,
   formatCorpTurnStep,
   isCorpTurnStepLogVisibleToPlayer,
+  isCorpTurnStepVisibleToPlayer,
   resetCorpTurnStatusCache,
 } from '../../../src/game/corpTurnStatusCopy.js';
 import { FACTION, TILE } from '../../../src/game/constants.js';
@@ -155,6 +156,24 @@ test('isCorpTurnStepLogVisibleToPlayer: hit on turret that survives still requir
   };
   assert.equal(
     isCorpTurnStepLogVisibleToPlayer(world, 'tech0', 'd1', step, () => false),
+    false
+  );
+});
+
+test('isCorpTurnStepVisibleToPlayer: facility alarm repaints even when actor tile is unseen', () => {
+  const { world } = makeDroneWorld();
+  const step = { type: 'alarm' as const };
+  assert.equal(
+    isCorpTurnStepVisibleToPlayer(world, 'p1', 'd1', step, () => false),
+    true
+  );
+});
+
+test('isCorpTurnStepVisibleToPlayer: off-screen patrol matches log visibility', () => {
+  const { world } = makeDroneWorld();
+  const step = { type: 'move-patrol' as const, to: { x: 0, y: 0 } };
+  assert.equal(
+    isCorpTurnStepVisibleToPlayer(world, 'p1', 'd1', step, () => false),
     false
   );
 });

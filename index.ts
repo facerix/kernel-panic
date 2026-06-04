@@ -46,6 +46,7 @@ import {
   countVisibleCorpEntities,
   formatCorpTurnStep,
   isCorpTurnStepLogVisibleToPlayer,
+  isCorpTurnStepVisibleToPlayer,
 } from '/src/game/corpTurnStatusCopy.js';
 import { EVENT } from '/src/game/events.js';
 import { VisionField } from '/src/game/Vision.js';
@@ -56,6 +57,7 @@ import {
   ANIMATION_DURATIONS,
   createAnimationLock,
   runMuzzleFlash,
+  setCorpStaticActive,
   triggerDamageFlash,
   triggerShake,
 } from '/src/render/animations.js';
@@ -80,7 +82,7 @@ import type { Intent } from '/src/input/applyIntent.js';
 import type { AimKind, Mode } from '/src/input/keymap.js';
 import type { KeyItem, Telemetry, TurnActionStep } from '/src/types.js';
 import { installErrorBoundary, type FaultSignal } from '/src/errorBoundary.js';
-import { isDevelopmentMode } from '/src/domUtils.js';
+import { h, isDevelopmentMode } from '/src/domUtils.js';
 
 import '/components/ConfirmationModal.js';
 import '/components/UpdateNotification.js';
@@ -238,6 +240,7 @@ let statusEl: HTMLElement | null = null;
 let renderer: AsciiRenderer;
 let crt: CrtFilter;
 let stageEl: HTMLElement;
+let canvasStaticEl: HTMLElement;
 let briefingEl: RunBriefingElement;
 let contractSelectEl: ContractSelectElement;
 let crashEl: CrashDumpElement;
@@ -403,6 +406,9 @@ async function boot() {
     throw new Error('[shell] #game-canvas requires a parent stage element');
   }
   stageEl = canvas.parentElement;
+  canvasStaticEl = h('div', { className: 'game-canvas-static', ariaHidden: 'true' });
+  canvas.insertAdjacentElement('afterend', canvasStaticEl);
+  new ResizeObserver(() => syncCanvasStaticOverlay()).observe(canvas);
   statusEl = mustGetElement<HTMLElement>('game-status');
   contractSelectEl = mustGetElement<ContractSelectElement>('contract-select');
   briefingEl = mustGetElement<RunBriefingElement>('briefing');
@@ -513,6 +519,7 @@ async function boot() {
 
   logHeaderEl.addEventListener('click', () => {
     logEl.classList.toggle('collapsed');
+    syncCanvasStaticOverlay();
   });
 
   // Update-notification wiring kept from the original scaffold.
@@ -1540,6 +1547,14 @@ function runCorpTurn(onFinish: () => void): void {
     lockMarginMs: ANIMATION_DURATIONS.MUZZLE_FLASH,
     onFinish,
     schedule: scheduleCombatPump,
+    shouldAnimateStep: (entityId: string, step: TurnActionStep) => {
+      if (degrading) return true;
+      const scene = currentScene();
+      if (!scene?.world || !scene.player) return true;
+      return isCorpTurnStepVisibleToPlayer(scene.world, scene.player.id, entityId, step, (x, y) =>
+        vision.isVisible(x, y)
+      );
+    },
     onStep: (entityId: string, step: TurnActionStep) => {
       if (degrading) return;
       const scene = currentScene();
@@ -1944,7 +1959,30 @@ function paint(stateHint: InputState = activeInputState()): void {
   });
   crt.alertTint = run.state === RUN_STATE.COMBAT && run.world.alarmActive;
   crt.apply();
+  updateCorpWaitChrome(run);
   setStatus(statusLine(stateHint));
+}
+
+/** Static overlay when hostiles act off-screen during the corp turn. */
+function updateCorpWaitChrome(run: ReturnType<typeof currentScene>): void {
+  syncCanvasStaticOverlay();
+  const show =
+    run?.state === RUN_STATE.COMBAT &&
+    run.queue?.currentFaction === FACTION.CORP &&
+    run.world &&
+    countVisibleCorpEntities(run.world.entities.values(), (x, y) => vision.isVisible(x, y)) === 0;
+  setCorpStaticActive(canvasStaticEl, !!show);
+}
+
+/** Keep the static layer aligned with #game-canvas as the log sidebar expands/collapses. */
+function syncCanvasStaticOverlay(): void {
+  if (!canvasStaticEl || !stageEl || !canvas) return;
+  const stageRect = stageEl.getBoundingClientRect();
+  const canvasRect = canvas.getBoundingClientRect();
+  canvasStaticEl.style.left = `${canvasRect.left - stageRect.left}px`;
+  canvasStaticEl.style.top = `${canvasRect.top - stageRect.top}px`;
+  canvasStaticEl.style.width = `${canvasRect.width}px`;
+  canvasStaticEl.style.height = `${canvasRect.height}px`;
 }
 
 function statusLine(state: InputState): string {

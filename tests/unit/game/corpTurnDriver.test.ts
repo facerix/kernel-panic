@@ -183,6 +183,36 @@ test('runCorpTurn ignores non-corp entities (e.g. Curator, Terminal in Hub)', ()
 // Pump semantics — one yield per scheduled tick, paint between each
 // ---------------------------------------------------------------------------
 
+test('runCorpTurn batches invisible steps without paint or schedule', () => {
+  const drone = makeDrone('d', [
+    { type: 'move-patrol' },
+    { type: 'move-patrol' },
+    { type: 'fire' },
+  ]);
+  const paints = [];
+  const lock = makeAnimLock();
+  const schedule = makeSchedule();
+  let finished = false;
+  runCorpTurn(
+    baseCtx({
+      run: makeRun({ state: 'COMBAT', entities: [drone] }),
+      paint: () => paints.push(drone.actionsTaken.length),
+      animLock: lock,
+      schedule,
+      shouldAnimateStep: (_id, step) => step.type === 'fire',
+      onFinish: () => (finished = true),
+    })
+  );
+
+  assert.equal(drone.actionsTaken.length, 3, 'all three yields ran synchronously');
+  assert.deepEqual(paints, [3], 'only the visible step triggered paint');
+  assert.equal(schedule.queue.length, 1, 'one paced tick after the visible step');
+  assert.deepEqual(lock.pushes, [150], 'lock only extended for the visible step');
+  assert.equal(finished, false);
+  schedule.step();
+  assert.equal(finished, true);
+});
+
 test('runCorpTurn pumps one yield per schedule tick, painting between each', () => {
   const drone = makeDrone('d', [{ type: 'fire' }, { type: 'move-engage' }]);
   const paints = [];

@@ -15,6 +15,8 @@ export type CorpTurnDriverCtx = {
   lockMarginMs: number;
   onFinish: () => void;
   onStep?: (entityId: string, step: TurnActionStep) => void;
+  /** When false, the step is applied but not painted or paced — batched sync. */
+  shouldAnimateStep?: (entityId: string, step: TurnActionStep) => boolean;
   schedule?: (fn: () => void, ms: number) => void;
 };
 
@@ -89,6 +91,9 @@ const defaultSchedule = (fn: () => void, ms: number) => setTimeout(fn, ms);
  * @param {(entityId: string, step: TurnActionStep) => void} [ctx.onStep]
  *   Called on every yielded step with the acting entity's id and the step
  *   payload. Optional — omit for headless/test contexts that don't need a log.
+ * @param {(entityId: string, step: TurnActionStep) => boolean} [ctx.shouldAnimateStep]
+ *   Return false to skip `paint` + delay for off-screen steps — the pump
+ *   drains them synchronously until the next visible step or turn end.
  * @param {(fn: () => void, ms: number) => void} [ctx.schedule]
  *   Defaults to `setTimeout`. Injectable for tests.
  */
@@ -130,6 +135,7 @@ function pump(
     lockMarginMs,
     onFinish,
     onStep,
+    shouldAnimateStep,
     schedule = defaultSchedule,
   } = ctx;
   if (TERMINAL_STATES.has(run.state)) return;
@@ -142,10 +148,13 @@ function pump(
       continue;
     }
     if (onStep) onStep(stepper.id, result.value);
-    paint();
-    animLock.push(actionDelayMs + lockMarginMs);
-    schedule(() => pump(ctx, steppers, idx), actionDelayMs);
-    return;
+    const animate = shouldAnimateStep ? shouldAnimateStep(stepper.id, result.value) : true;
+    if (animate) {
+      paint();
+      animLock.push(actionDelayMs + lockMarginMs);
+      schedule(() => pump(ctx, steppers, idx), actionDelayMs);
+      return;
+    }
   }
   onFinish();
 }
@@ -181,6 +190,9 @@ function validateCtx(ctx: unknown): void {
   }
   if (o.onStep !== undefined && typeof o.onStep !== 'function') {
     throw new TypeError('runCorpTurn: ctx.onStep must be a function when supplied');
+  }
+  if (o.shouldAnimateStep !== undefined && typeof o.shouldAnimateStep !== 'function') {
+    throw new TypeError('runCorpTurn: ctx.shouldAnimateStep must be a function when supplied');
   }
   if (o.schedule !== undefined && typeof o.schedule !== 'function') {
     throw new TypeError('runCorpTurn: ctx.schedule must be a function when supplied');

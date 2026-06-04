@@ -20,7 +20,9 @@
   /* Chrome-only for now but this will allow smooth size transitions */
   interpolate-size: allow-keywords;
 
+  --background-color: #0a100e;
   --accent-color: #00d9a5;
+  --text-color: #c5efdf;
   --font-heading: Silkscreen, ui-monospace, 'Courier New', monospace;
 }
 
@@ -39,8 +41,8 @@ body {
   flex-direction: column;
   padding: 0;
   margin: 0;
-  background-color: #0a100e;
-  color: #c5efdf;
+  background-color: var(--background-color);
+  color: var(--text-color);
 
   font-family: Futura, 'Trebuchet MS', Arial, sans-serif;
   font-style: normal;
@@ -445,6 +447,44 @@ main {
   .game-stage.kp-shake,
   .game-stage.kp-damage-flash::after {
     animation: none;
+  }
+}
+
+/* Off-screen corp activity — TV static over the canvas column only.
+   Pattern from https://codepen.io/t_afif/pen/oNdKYge */
+@keyframes kp-corp-static {
+  100% {
+    background-position:
+      50% 0,
+      60% 50%;
+  }
+}
+
+.game-canvas-static {
+  position: absolute;
+  z-index: 4;
+  pointer-events: none;
+  border-radius: 1rem 0.5rem 0.5rem 2rem;
+  opacity: 0;
+  visibility: hidden;
+}
+
+.game-canvas-static.kp-corp-static {
+  opacity: 0.25;
+  visibility: visible;
+  background:
+    repeating-radial-gradient(var(--background-color) 0 0.0001%, var(--text-color) 0 0.0002%) 50%
+      0 / 2500px 2500px,
+    repeating-conic-gradient(var(--background-color) 0 0.0001%, var(--text-color) 0 0.0002%) 60%
+      60% / 2500px 2500px;
+  background-blend-mode: difference;
+  /* animation: kp-corp-static 0.2s infinite alternate; */
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game-canvas-static.kp-corp-static {
+    animation: none;
+    opacity: 0.25;
   }
 }
 
