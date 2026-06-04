@@ -5,6 +5,7 @@
  */
 
 import { h } from '/src/domUtils.js';
+import { encounterHostileCount } from '/src/game/encounters.js';
 import { cloneObjective } from '/src/game/hub/Curator.js';
 import type { Contract } from '/src/game/hub/Curator.js';
 
@@ -341,7 +342,7 @@ function difficultyLabel(contract: Contract): string {
 
 function rewardCopy(contract: Contract): string {
   const recruit = contract.reward.recruit ? ' · recruit lead' : '';
-  return `${contract.threatCount} hostiles · Cr +${contract.reward.credits} · REP +${contract.reward.repDelta}${recruit}`;
+  return `${encounterHostileCount(contract)} hostiles · Cr +${contract.reward.credits} · REP +${contract.reward.repDelta}${recruit}`;
 }
 
 function jobTitleCopy(contract: Contract): string {

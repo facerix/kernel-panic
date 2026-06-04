@@ -19,7 +19,8 @@ import { Grid } from '../../../src/game/Grid.js';
 import { World } from '../../../src/game/World.js';
 import { EventBus } from '../../../src/game/events.js';
 import { Merc } from '../../../src/game/archetypes/Merc.js';
-import { Run, isObjectiveSatisfied, SWEEP_QUOTA } from '../../../src/game/Run.js';
+import { Run, isObjectiveSatisfied } from '../../../src/game/Run.js';
+import { objectiveProgress, SWEEP_QUOTA, sweepObjectiveProgress } from '../../../src/game/objectiveProgress.js';
 import { OBJECTIVES } from '../../../src/game/hub/Curator.js';
 import { restore } from '../../../src/game/persistence.js';
 import { FACTION, TILE, RELAY_NODE_HP } from '../../../src/game/constants.js';
@@ -288,6 +289,53 @@ describe('Sweep objective (turret)', () => {
     world.addEntity(turret);
     const contract = makeSweepContract('corp-turret');
     assert.equal(isObjectiveSatisfied(contract, world), false);
+  });
+});
+
+// --------------------------------------------------------------------------
+// Sweep progress tally
+// --------------------------------------------------------------------------
+
+describe('sweep progress', () => {
+  it('tracks hostile-all kills as cleared/total', () => {
+    const world = makeWorld();
+    const d0 = new Skirmisher({ id: 'drone-0', x: 3, y: 3 });
+    const d1 = new Skirmisher({ id: 'drone-1', x: 5, y: 5 });
+    world.addEntity(d0);
+    world.addEntity(d1);
+    const contract = makeSweepContract('hostile-all');
+
+    assert.deepEqual(sweepObjectiveProgress(contract, world), { cleared: 0, total: 2 });
+    d0.damage(d0.maxHp);
+    assert.deepEqual(sweepObjectiveProgress(contract, world), { cleared: 1, total: 2 });
+    d1.damage(d1.maxHp);
+    assert.deepEqual(sweepObjectiveProgress(contract, world), { cleared: 2, total: 2 });
+    assert.deepEqual(objectiveProgress(contract, world, []), {
+      label: 'SWEEP',
+      current: 2,
+      total: 2,
+    });
+  });
+
+  it('tracks relay-node destruction', () => {
+    const world = makeWorld();
+    const node0 = new RelayNode({ id: 'relay-node-0', x: 3, y: 3 });
+    const node1 = new RelayNode({ id: 'relay-node-1', x: 5, y: 5 });
+    world.addEntity(node0);
+    world.addEntity(node1);
+    const contract = makeSweepContract('relay-node');
+
+    assert.deepEqual(sweepObjectiveProgress(contract, world), { cleared: 0, total: 2 });
+    node0.damage(RELAY_NODE_HP);
+    assert.deepEqual(sweepObjectiveProgress(contract, world), { cleared: 1, total: 2 });
+  });
+
+  it('honours explicit relay count param for total', () => {
+    const world = makeWorld();
+    world.addEntity(new RelayNode({ id: 'relay-node-0', x: 3, y: 3 }));
+    const contract = makeSweepContract('relay-node', 2);
+
+    assert.deepEqual(sweepObjectiveProgress(contract, world), { cleared: 0, total: 2 });
   });
 });
 

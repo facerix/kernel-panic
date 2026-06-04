@@ -67,6 +67,7 @@ const CacheConfig = {
       '/src/game/corpTurnStatusCopy.js',
       '/src/game/Crew.js',
       '/src/game/describe.js',
+      '/src/game/encounters.js',
       '/src/game/entities/BreachingCharge.js',
       '/src/game/entities/ConsumablePickup.js',
       '/src/game/entities/Contact.js',
@@ -97,6 +98,7 @@ const CacheConfig = {
       '/src/game/locations.js',
       '/src/game/LineOfSight.js',
       '/src/game/mapConnectivity.js',
+      '/src/game/objectiveProgress.js',
       '/src/game/Pathfinding.js',
       '/src/game/persistence.js',
       '/src/game/playerPerception.js',
@@ -133,7 +135,6 @@ const CacheConfig = {
       '/src/rng.js',
       '/src/ServiceWorkerManager.js',
       '/src/statusActivityRows.js',
-      '/src/types.js',
     ];
   },
   

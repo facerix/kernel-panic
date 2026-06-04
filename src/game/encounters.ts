@@ -54,6 +54,40 @@ export type ComposeEncounterOptions = Readonly<{
   available?: AvailableArchetypes;
 }>;
 
+/** Allowlist passed from `Run.enterCombat` — briefing counts must use the same pool. */
+export const RUNTIME_ENCOUNTER_AVAILABLE = Object.freeze({
+  specialists: Object.freeze([
+    ENEMY_ARCHETYPE.LOOKOUT,
+    ENEMY_ARCHETYPE.SNIPER,
+    ENEMY_ARCHETYPE.MEDIC,
+  ]),
+  elites: Object.freeze([
+    ENEMY_ARCHETYPE.BRUISER,
+    ENEMY_ARCHETYPE.JUGGERNAUT,
+    ENEMY_ARCHETYPE.FLANKER,
+  ]),
+}) satisfies AvailableArchetypes;
+
+export type EncounterHostileCountInput = Readonly<{
+  seed: number;
+  difficulty: ContractDifficulty;
+  threatCount: number;
+}>;
+
+/** Rolled roster size (fodder + specialist + elite) for contract briefing UI. */
+export function encounterHostileCount({
+  seed,
+  difficulty,
+  threatCount,
+}: EncounterHostileCountInput): number {
+  return composeEncounter({
+    seed,
+    difficulty,
+    fodderCount: threatCount,
+    available: RUNTIME_ENCOUNTER_AVAILABLE,
+  }).entries.length;
+}
+
 const FODDER_ARCHETYPES = Object.freeze([ENEMY_ARCHETYPE.SKIRMISHER, ENEMY_ARCHETYPE.GUARD]);
 const SPECIALIST_ARCHETYPES = Object.freeze([
   ENEMY_ARCHETYPE.SNIPER,

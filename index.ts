@@ -67,6 +67,7 @@ import { applyIntent, PLAYER_ACTIONS } from '/src/input/applyIntent.js';
 import { recordStatusActionLine, statusActionRows } from '/src/statusActivityRows.js';
 
 import { placeSmoke, clearSmoke } from '/src/game/Smoke.js';
+import { formatObjectiveProgressTag } from '/src/game/objectiveProgress.js';
 import { placeHazardCluster } from '/src/game/Run.js';
 import { blastCells } from '/src/game/breachBlast.js';
 import { hasLineOfSight } from '/src/game/LineOfSight.js';
@@ -2100,11 +2101,8 @@ function objectiveStatusTag(run: Run): string {
   const remaining = run.objectiveTurnsRemaining();
   const turnTag =
     remaining === null || done ? '' : ` <span class="todo">[TURN:${remaining}]</span>`;
-  const reconProgress = run.contract.objective.kind === 'recon' ? run.reconProgress() : null;
-  const recon = reconProgress
-    ? ` <span class="todo">[MAP:${reconProgress.mapped}/${reconProgress.required}]</span>`
-    : '';
-  return `<span class="objective-tag">OBJ ${escapeHtml(run.contract.objective.title)} <span class="${done ? 'done' : 'todo'}">[${done ? 'DONE' : 'TODO'}]</span>${turnTag}${recon}</span>`;
+  const progressTag = formatObjectiveProgressTag(run.objectiveProgress());
+  return `<span class="objective-tag">OBJ ${escapeHtml(run.contract.objective.title)} <span class="${done ? 'done' : 'todo'}">[${done ? 'DONE' : 'TODO'}]</span>${turnTag}${progressTag}</span>`;
 }
 
 function joinStatusParts(parts: Array<string | null | undefined>): string {

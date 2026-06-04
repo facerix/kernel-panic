@@ -4,12 +4,40 @@ import assert from 'node:assert/strict';
 import {
   ENEMY_ARCHETYPE,
   composeEncounter,
+  encounterHostileCount,
   hasDurableMedicPatient,
 } from '../../../src/game/encounters.js';
 import { CONTRACT_DIFFICULTY, ENEMY_ROLE, ENEMY_TIER } from '../../../src/game/constants.js';
 
 const roles = composition => composition.entries.map(entry => entry.role);
 const archetypes = composition => composition.entries.map(entry => entry.archetype);
+
+test('encounterHostileCount matches composed roster size', () => {
+  assert.equal(
+    encounterHostileCount({
+      seed: 123,
+      difficulty: CONTRACT_DIFFICULTY.STANDARD,
+      threatCount: 3,
+    }),
+    3
+  );
+  assert.equal(
+    encounterHostileCount({
+      seed: 456,
+      difficulty: CONTRACT_DIFFICULTY.ELEVATED,
+      threatCount: 3,
+    }),
+    4
+  );
+  assert.equal(
+    encounterHostileCount({
+      seed: 789,
+      difficulty: CONTRACT_DIFFICULTY.CRITICAL,
+      threatCount: 4,
+    }),
+    6
+  );
+});
 
 test('STANDARD composition is fodder only and threatCount is the fodder count', () => {
   const composition = composeEncounter({

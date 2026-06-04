@@ -56,7 +56,7 @@ import { Lookout } from './ai/Lookout.js';
 import { Sniper } from './ai/Sniper.js';
 import { Medic } from './ai/Medic.js';
 import { PatrolHostile } from './ai/PatrolHostile.js';
-import { composeEncounter, ENEMY_ARCHETYPE } from './encounters.js';
+import { composeEncounter, ENEMY_ARCHETYPE, RUNTIME_ENCOUNTER_AVAILABLE } from './encounters.js';
 import { CorpCivilian } from './entities/CorpCivilian.js';
 import { Interactable } from './entities/Interactable.js';
 import { Terminal } from './entities/Terminal.js';
@@ -74,6 +74,12 @@ import { applyMutationDeltas } from './locations.js';
 import { BreachingCharge } from './entities/BreachingCharge.js';
 import { ITEM_ID, getItemById } from './items.js';
 import { resetCorpTurnStatusCache } from './corpTurnStatusCopy.js';
+import {
+  objectiveProgress as resolveObjectiveProgress,
+  reconObjectiveProgress,
+  sweepQuotaType,
+  SWEEP_QUOTA,
+} from './objectiveProgress.js';
 import { NeutralCivilian } from './entities/NeutralCivilian.js';
 import { VisionField } from './Vision.js';
 import {
@@ -470,10 +476,7 @@ export class Run {
       seed: this.contract.seed,
       difficulty: this.contract.difficulty,
       fodderCount: map.fodder.length,
-      available: {
-        specialists: [ENEMY_ARCHETYPE.LOOKOUT, ENEMY_ARCHETYPE.SNIPER, ENEMY_ARCHETYPE.MEDIC],
-        elites: [ENEMY_ARCHETYPE.BRUISER, ENEMY_ARCHETYPE.JUGGERNAUT, ENEMY_ARCHETYPE.FLANKER],
-      },
+      available: RUNTIME_ENCOUNTER_AVAILABLE,
     });
     const fodder = composition.entries.filter(e => e.role === ENEMY_ROLE.FODDER);
     for (let i = 0; i < map.fodder.length; i++) {
@@ -772,9 +775,9 @@ export class Run {
     this.recordMapSeen(keys);
   }
 
-  reconProgress(): ReconProgress {
-    if (!this.world) return { mapped: 0, required: 0 };
-    return reconObjectiveProgress(this.world, this.mapSeen);
+  objectiveProgress() {
+    if (!this.contract) return null;
+    return resolveObjectiveProgress(this.contract, this.world, this.mapSeen);
   }
 
   /**
@@ -1496,31 +1499,6 @@ export function objectiveTurnsRemaining(contract: Contract, turnNumber: number):
   return Math.max(0, limit - (turnNumber - 1));
 }
 
-export type ReconProgress = {
-  mapped: number;
-  required: number;
-};
-
-export function reconEligibleCellKeys(world: World | null | undefined): Set<string> {
-  if (!world) return new Set();
-  const player = playerInWorld(world);
-  if (!player) return allPassableCellKeys(world);
-  return explorationReachableKeys(world, { x: player.x, y: player.y });
-}
-
-export function reconObjectiveProgress(
-  world: World | null | undefined,
-  seen: ReadonlySet<string> | readonly string[] = []
-): ReconProgress {
-  const eligible = reconEligibleCellKeys(world);
-  const seenSet = asKeySet(seen);
-  let mapped = 0;
-  for (const key of eligible) {
-    if (seenSet.has(key)) mapped++;
-  }
-  return { mapped, required: eligible.size };
-}
-
 function isTurnLimitExpired(contract: Contract, turnNumber: number): boolean {
   const remaining = objectiveTurnsRemaining(contract, turnNumber);
   return remaining !== null && remaining <= 0;
@@ -1543,10 +1521,6 @@ function compareCoordKeys(a: string, b: string): number {
   return pa.y === pb.y ? pa.x - pb.x : pa.y - pb.y;
 }
 
-function asKeySet(keys: ReadonlySet<string> | readonly string[]): ReadonlySet<string> {
-  return keys instanceof Set ? keys : new Set(keys);
-}
-
 function playerInWorld(world: World): Entity | null {
   for (const entity of world.entities.values()) {
     if (entity instanceof EscortNpc) continue;
@@ -1562,16 +1536,6 @@ function exitTileInWorld(world: World): GridPoint | null {
     }
   }
   return null;
-}
-
-function allPassableCellKeys(world: World): Set<string> {
-  const keys = new Set<string>();
-  for (let y = 0; y < world.grid.height; y++) {
-    for (let x = 0; x < world.grid.width; x++) {
-      if (world.grid.isPassable(x, y)) keys.add(coordKey(x, y));
-    }
-  }
-  return keys;
 }
 
 // ---------------------------------------------------------------------------
@@ -1879,36 +1843,6 @@ function targetLabel(target: string): string {
     .filter(part => part.length > 0)
     .map(part => part[0]!.toUpperCase() + part.slice(1))
     .join(' ');
-}
-
-/**
- * Sweep quota types:
- *   - `hostile-all`: All live Hostile entities dead.
- *   - `drone-all`:   Legacy save alias for `hostile-all`.
- *   - `relay-node`:  All RelayNode entities dead (or a params.count subset).
- *   - `turret`:      All CorpTurret entities dead (or a params.count subset).
- *
- * The quota type is inferred from `params.sweepTarget` (explicit) or
- * `params.target` (label-driven default). If no recognizable target is set,
- * falls back to `hostile-all` — clear the opposing force.
- */
-export const SWEEP_QUOTA = Object.freeze({
-  HOSTILE_ALL: 'hostile-all',
-  /** @deprecated Legacy save alias for HOSTILE_ALL. New contracts emit hostile-all. */
-  DRONE_ALL: 'drone-all',
-  RELAY_NODE: 'relay-node',
-  TURRET: 'turret',
-});
-
-function sweepQuotaType(contract: Contract): string {
-  const target = (contract.objective.params?.sweepTarget ?? contract.objective.params?.target) as
-    | string
-    | undefined;
-  if (!target) return SWEEP_QUOTA.HOSTILE_ALL;
-  if (target === 'hostile-all' || target === 'drone-all') return SWEEP_QUOTA.HOSTILE_ALL;
-  if (target === 'relay-node' || target === 'skybridge-relay') return SWEEP_QUOTA.RELAY_NODE;
-  if (target === 'turret' || target === 'corp-turret') return SWEEP_QUOTA.TURRET;
-  return SWEEP_QUOTA.HOSTILE_ALL;
 }
 
 function isSweepSatisfied(contract: Contract, world?: World | null): boolean {
