@@ -155,6 +155,17 @@ export const PREFERRED_MIN = 3;
 export const LOOKOUT_SIGHT_RANGE = 10;
 
 /**
+ * Medic parameters (Phase 2.7 M3.3). The T2 support specialist changes fight
+ * math by preserving a durable patient before the player can burst it down.
+ * Shields are temporary HP stored on the patient and expire on that patient's
+ * next AP refresh; healing is intentionally modest so focus-fire still works.
+ */
+export const MEDIC_SUPPORT_RANGE = 5;
+export const MEDIC_SUPPORT_AP = 2;
+export const MEDIC_HEAL_AMOUNT = 1;
+export const MEDIC_SHIELD_HP = 2;
+
+/**
  * Sniper parameters (Phase 2.7 M3.2). The T2 long-range specialist out-reaches
  * fodder (`SIGHT_RANGE` 8) and the lookout (10): it acquires and fires from
  * `SNIPER_SIGHT_RANGE` so the player must break LOS or close to answer it.

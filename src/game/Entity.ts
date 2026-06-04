@@ -60,6 +60,7 @@ export class Entity {
   ap: number;
   maxHp: number;
   hp: number;
+  shieldHp: number;
   damageReduction: number;
   alive: boolean;
   stealthed: boolean;
@@ -107,6 +108,7 @@ export class Entity {
     this.ap = maxAp;
     this.maxHp = maxHp;
     this.hp = maxHp;
+    this.shieldHp = 0;
     this.damageReduction = damageReduction;
     this.alive = true;
     /**
@@ -161,6 +163,39 @@ export class Entity {
 
   refreshAp(): void {
     this.ap = this.maxAp;
+    this.shieldHp = 0;
+  }
+
+  /**
+   * Restore HP without exceeding maxHp. Healing a corpse is a state bug:
+   * revives need an explicit mechanic, not accidental negative damage.
+   */
+  heal(amount: number): number {
+    if (!Number.isInteger(amount) || amount < 0) {
+      throw new RangeError(`heal amount must be a non-negative integer, got ${amount}`);
+    }
+    if (!this.alive) {
+      throw new Error(`Cannot heal ${this.id}: already dead`);
+    }
+    const before = this.hp;
+    this.hp = Math.min(this.maxHp, this.hp + amount);
+    return this.hp - before;
+  }
+
+  /**
+   * Add temporary shield HP. Shields are intentionally short-lived; they are
+   * cleared by `refreshAp`, which for corp units means "survives the player's
+   * response window, expires before the next corp activation."
+   */
+  addShield(amount: number): number {
+    if (!Number.isInteger(amount) || amount <= 0) {
+      throw new RangeError(`shield amount must be a positive integer, got ${amount}`);
+    }
+    if (!this.alive) {
+      throw new Error(`Cannot shield ${this.id}: already dead`);
+    }
+    this.shieldHp += amount;
+    return amount;
   }
 
   /**
@@ -176,7 +211,10 @@ export class Entity {
       throw new Error(`Cannot damage ${this.id}: already dead`);
     }
     const before = this.hp;
-    this.hp -= amount;
+    const shieldAbsorbed = Math.min(this.shieldHp, amount);
+    this.shieldHp -= shieldAbsorbed;
+    const hpDamage = amount - shieldAbsorbed;
+    this.hp -= hpDamage;
     if (this.hp <= 0) {
       this.hp = 0;
       this.alive = false;
@@ -209,6 +247,7 @@ function kindFromId(id: string): string {
   if (id.startsWith('flanker')) return 'Flanker';
   if (id.startsWith('lookout')) return 'Lookout';
   if (id.startsWith('sniper')) return 'Sniper';
+  if (id.startsWith('medic')) return 'Medic';
   if (id.startsWith('neutral-civ')) return 'Civilian';
   if (id.startsWith('corp-civ')) return 'Civilian';
   if (id.startsWith('terminal')) return 'Terminal';

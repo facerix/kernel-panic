@@ -54,6 +54,7 @@ import { Juggernaut } from './ai/Juggernaut.js';
 import { Flanker } from './ai/Flanker.js';
 import { Lookout } from './ai/Lookout.js';
 import { Sniper } from './ai/Sniper.js';
+import { Medic } from './ai/Medic.js';
 import { PatrolHostile } from './ai/PatrolHostile.js';
 import { composeEncounter, ENEMY_ARCHETYPE } from './encounters.js';
 import { CorpCivilian } from './entities/CorpCivilian.js';
@@ -117,6 +118,7 @@ export type EntityArchetypeId =
   | 'flanker'
   | 'lookout'
   | 'sniper'
+  | 'medic'
   | 'corp-civilian'
   | 'neutral-civilian'
   | 'door'
@@ -188,6 +190,7 @@ export const PATROL_ARCHETYPE_IDS = Object.freeze([
   'flanker',
   'lookout',
   'sniper',
+  'medic',
 ] as const);
 
 export type PatrolArchetypeId = (typeof PATROL_ARCHETYPE_IDS)[number];
@@ -202,6 +205,7 @@ export type RunEntitySnapshot = {
   hp: number;
   maxHp: number;
   damageReduction?: number;
+  shieldHp?: number;
   ap: number;
   maxAp: number;
   alive: boolean;
@@ -216,6 +220,7 @@ export type RunEntitySnapshot = {
   flanker?: PatrolSnapshotBlock & { slideConcealed: boolean };
   lookout?: PatrolSnapshotBlock;
   sniper?: PatrolSnapshotBlock & { aimTargetId: string | null };
+  medic?: PatrolSnapshotBlock;
   tech?: { turretReady: boolean };
   callsign?: string | null;
   flatlined?: boolean;
@@ -516,14 +521,14 @@ export class Run {
     // RNG so the mix is deterministic and independent of mapgen rolls. The
     // `available` allowlist restricts the specialist/elite roll to archetypes
     // with a buildable class so the resolver never composes a hostile we'd have
-    // to reskin or silently drop. Lookout and Sniper (M3.1/M3.2) ship as T2
-    // specialists; Medic and elites join their lists as M3.3–M4 land.
+    // to reskin or silently drop. Lookout, Sniper, and Medic ship as T2
+    // specialists; Bruiser, Juggernaut, and Flanker ship as T3 elites.
     const composition = composeEncounter({
       seed: this.contract.seed,
       difficulty: this.contract.difficulty,
       fodderCount: map.fodder.length,
       available: {
-        specialists: [ENEMY_ARCHETYPE.LOOKOUT, ENEMY_ARCHETYPE.SNIPER],
+        specialists: [ENEMY_ARCHETYPE.LOOKOUT, ENEMY_ARCHETYPE.SNIPER, ENEMY_ARCHETYPE.MEDIC],
         elites: [ENEMY_ARCHETYPE.BRUISER, ENEMY_ARCHETYPE.JUGGERNAUT, ENEMY_ARCHETYPE.FLANKER],
       },
     });
@@ -581,6 +586,15 @@ export class Run {
           id: `sniper-${i}`,
           x: a.x,
           y: a.y,
+          patrolWaypoints: a.waypoints,
+          tier: entry.tier,
+        });
+      } else if (entry.archetype === ENEMY_ARCHETYPE.MEDIC) {
+        specialist = new Medic({
+          id: `medic-${i}`,
+          x: a.x,
+          y: a.y,
+          maxAp: 3,
           patrolWaypoints: a.waypoints,
           tier: entry.tier,
         });
@@ -1634,6 +1648,7 @@ function snapshotEntity(entity: Entity): RunEntitySnapshot {
     hp: entity.hp,
     maxHp: entity.maxHp,
     damageReduction: entity.damageReduction,
+    shieldHp: entity.shieldHp,
     ap: entity.ap,
     maxAp: entity.maxAp,
     alive: entity.alive,
@@ -1653,7 +1668,7 @@ function snapshotEntity(entity: Entity): RunEntitySnapshot {
     } else if (entity instanceof Flanker) {
       base.flanker = { ...block, slideConcealed: entity.slideConcealed };
     } else {
-      // archetype ∈ {drone, guard, bruiser, juggernaut, lookout} here — all
+      // archetype ∈ {drone, guard, bruiser, juggernaut, lookout, medic} here — all
       // plain PatrolSnapshotBlock keys.
       base[archetype as Exclude<PatrolArchetypeId, 'sniper' | 'flanker'>] = block;
     }
@@ -1764,6 +1779,7 @@ function archetypeOf(entity: Entity): EntityArchetypeId {
   if (entity instanceof Juggernaut) return 'juggernaut';
   if (entity instanceof Flanker) return 'flanker';
   if (entity instanceof Sniper) return 'sniper';
+  if (entity instanceof Medic) return 'medic';
   if (entity instanceof Lookout) return 'lookout';
   if (entity instanceof Guard) return 'guard';
   if (entity instanceof Skirmisher) return 'drone';

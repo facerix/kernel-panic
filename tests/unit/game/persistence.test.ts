@@ -9,6 +9,7 @@ import { Guard } from '../../../src/game/ai/Guard.js';
 import { Bruiser } from '../../../src/game/ai/Bruiser.js';
 import { Juggernaut } from '../../../src/game/ai/Juggernaut.js';
 import { Flanker } from '../../../src/game/ai/Flanker.js';
+import { Medic } from '../../../src/game/ai/Medic.js';
 import {
   restore,
   restoreCampaign,
@@ -74,6 +75,17 @@ function relocateAdjacentTo(run, entity) {
     }
   }
   throw new Error(`No adjacent passable tile for ${entity.id}`);
+}
+
+function freeCombatTile(run, after = { x: 0, y: 0 }) {
+  for (let y = after.y; y < run.world.grid.height; y++) {
+    for (let x = y === after.y ? after.x : 0; x < run.world.grid.width; x++) {
+      if (!run.world.grid.isPassable(x, y)) continue;
+      if (run.world.liveEntityAt(x, y)) continue;
+      return { x, y };
+    }
+  }
+  throw new Error('No free passable tile in fixture run');
 }
 
 function freshCombatRun(seed = 1, archetype = 'razor') {
@@ -276,6 +288,40 @@ test('Flanker round-trips through snapshot/restore as archetype "flanker"', () =
   assert.equal(restored.state, 'engage');
   assert.deepEqual(restored.lastKnownTarget, { x: 5, y: 4 });
   assert.equal(restored.slideConcealed, true);
+});
+
+test('Medic and temporary shield round-trip through snapshot/restore', () => {
+  const run = freshCombatRun(0x6d3d1c);
+  const medicAnchor = freeCombatTile(run);
+  const patientAnchor = freeCombatTile(run, { x: medicAnchor.x + 1, y: medicAnchor.y });
+  const medic = new Medic({ id: 'medic-0', x: medicAnchor.x, y: medicAnchor.y, maxAp: 1 });
+  medic.state = 'engage';
+  medic.lastKnownTarget = { x: run.player.x, y: run.player.y };
+  const patient = new Juggernaut({
+    id: 'juggernaut-fixture',
+    x: patientAnchor.x,
+    y: patientAnchor.y,
+  });
+  patient.addShield(2);
+  run.world.addEntity(medic);
+  run.world.addEntity(patient);
+
+  const rec = snapshot(run);
+  const medicRec = rec.entities.find(e => e.id === medic.id);
+  const patientRec = rec.entities.find(e => e.id === patient.id);
+  assert.equal(medicRec?.archetype, 'medic');
+  assert.ok(medicRec?.medic, 'state machine lives in the medic block');
+  assert.equal(patientRec?.shieldHp, 2, 'patient shield persists in the common snapshot');
+
+  const { world: restoredWorld } = restore(rec);
+  const restoredMedic = [...restoredWorld.entities.values()].find(e => e.id === medic.id);
+  const restoredPatient = [...restoredWorld.entities.values()].find(e => e.id === patient.id);
+  assert.ok(restoredMedic instanceof Medic, 'restored as a Medic');
+  assert.equal(restoredMedic.glyph, 'm');
+  assert.equal(restoredMedic.state, 'engage');
+  assert.deepEqual(restoredMedic.lastKnownTarget, { x: run.player.x, y: run.player.y });
+  assert.ok(restoredPatient instanceof Juggernaut);
+  assert.equal(restoredPatient.shieldHp, 2);
 });
 
 test('restore preserves turnNumber and currentFaction', () => {

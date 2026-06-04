@@ -34,6 +34,7 @@ export const MAP_KEY_COMBAT_HOSTILES: readonly MapKeyRow[] = Object.freeze([
   { glyph: 'k', label: 'skirmisher — ranged; backs off if you close in' },
   { glyph: 's', label: 'sniper — telegraphed long shot; get cover or get hit' },
   { glyph: 'l', label: 'lookout — marks you for the team; does not shoot' },
+  { glyph: 'm', label: 'medic — shields and patches durable allies' },
   { glyph: 'b', label: 'bruiser — armored melee; shoves you back on a hit' },
   { glyph: 'j', label: 'juggernaut — armored; suppressing fire from range' },
   { glyph: 'f', label: 'flanker — vanishes through cover; ambush melee' },

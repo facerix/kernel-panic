@@ -81,6 +81,15 @@ export type CorpCivilianTurnStep = { type: 'alarm'; target: string };
 export type LookoutTurnStep = { type: 'spot'; target: string };
 
 /**
+ * Medic support steps (Phase 2.7 M3.3). `heal` restores real HP; `shield`
+ * grants temporary shield HP that absorbs damage before health and expires on
+ * the patient's next AP refresh.
+ */
+export type MedicTurnStep =
+  | { type: 'heal'; target: string; amount: number }
+  | { type: 'shield'; target: string; amount: number };
+
+/**
  * Sniper telegraph steps (Phase 2.7 M3.2). `aim` is yielded the corp turn the
  * sniper commits a held shot (target marked, crosshair painted, no NOISE);
  * `aim-cancelled` when that shot is voided at fire time (target dead, out of
@@ -123,6 +132,7 @@ export type TurnActionStep =
   | PatrolHostileTurnStep
   | CorpCivilianTurnStep
   | LookoutTurnStep
+  | MedicTurnStep
   | SniperTurnStep
   | JuggernautTurnStep
   | FlankerTurnStep

@@ -55,6 +55,7 @@ import { Juggernaut, type JuggernautProps } from './ai/Juggernaut.js';
 import { Flanker, type FlankerProps } from './ai/Flanker.js';
 import { Lookout, type LookoutProps } from './ai/Lookout.js';
 import { Sniper, type SniperProps } from './ai/Sniper.js';
+import { Medic, type MedicProps } from './ai/Medic.js';
 import { PatrolHostile, PATROL_STATE } from './ai/PatrolHostile.js';
 import { CorpCivilian } from './entities/CorpCivilian.js';
 import { NeutralCivilian } from './entities/NeutralCivilian.js';
@@ -124,6 +125,7 @@ type RestoreEntityProps = Partial<
     FlankerProps &
     LookoutProps &
     SniperProps &
+    MedicProps &
     CorpCivilianInit &
     NeutralCivilianInit &
     DoorInit &
@@ -148,6 +150,7 @@ type RestoreEntityProps = Partial<
   maxAp?: number;
   maxHp?: number;
   damageReduction?: number;
+  shieldHp?: number;
 };
 
 const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) => Entity> =
@@ -163,6 +166,7 @@ const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) =
     flanker: (props: RestoreEntityProps) => new Flanker(props as FlankerProps),
     lookout: (props: RestoreEntityProps) => new Lookout(props as LookoutProps),
     sniper: (props: RestoreEntityProps) => new Sniper(props as SniperProps),
+    medic: (props: RestoreEntityProps) => new Medic(props as MedicProps),
     'corp-civilian': (props: RestoreEntityProps) => new CorpCivilian(props as CorpCivilianInit),
     'neutral-civilian': (props: RestoreEntityProps) =>
       new NeutralCivilian(props as NeutralCivilianInit),
@@ -223,6 +227,8 @@ function patrolSnapshotBlock(
       return rec.lookout ?? null;
     case 'sniper':
       return rec.sniper ?? null;
+    case 'medic':
+      return rec.medic ?? null;
     default:
       return null;
   }
@@ -589,6 +595,9 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
       `restore: entity ${rec.id} has invalid damageReduction=${rec.damageReduction}`
     );
   }
+  if (rec.shieldHp !== undefined && (!Number.isInteger(rec.shieldHp) || rec.shieldHp < 0)) {
+    throw new RangeError(`restore: entity ${rec.id} has invalid shieldHp=${rec.shieldHp}`);
+  }
   if (rec.faction && !KNOWN_FACTIONS.has(rec.faction)) {
     throw new Error(`restore: entity ${rec.id} has unknown faction "${rec.faction}"`);
   }
@@ -600,6 +609,7 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
     maxAp: rec.maxAp,
     maxHp: rec.maxHp,
     damageReduction: rec.damageReduction ?? 0,
+    shieldHp: rec.shieldHp ?? 0,
   };
   if (isCrewArchetype(rec.archetype)) {
     entityProps.callsign = rec.callsign ?? null;
@@ -711,8 +721,12 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
   if (rec.alive === true && rec.hp === 0) {
     throw new Error(`restore: entity ${rec.id} flagged alive with hp=0`);
   }
+  if (rec.alive === false && (rec.shieldHp ?? 0) > 0) {
+    throw new Error(`restore: entity ${rec.id} flagged dead with shieldHp=${rec.shieldHp}`);
+  }
   entity.hp = rec.hp;
   entity.alive = rec.alive ?? rec.hp > 0;
+  entity.shieldHp = rec.shieldHp ?? 0;
   if (Number.isInteger(rec.ap)) {
     if (rec.ap < 0 || rec.ap > entity.maxAp) {
       throw new RangeError(`restore: entity ${rec.id} ap=${rec.ap} out of [0, ${entity.maxAp}]`);

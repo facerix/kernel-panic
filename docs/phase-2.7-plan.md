@@ -132,21 +132,21 @@ All rolls derive from the contract seed (deterministic, save-compatible).
 
 | Milestone | Status |
 |---|---|
-| M1 — Tier doctrine foundations | 🟡 In progress |
+| M1 — Tier doctrine foundations | ✅ Complete |
 | M1.1 — `EnemyTier` model + per-tier stat scaling hook | ✅ Complete |
 | M1.2 — `damageReduction` (armor) stat on `Entity` | ✅ Complete |
-| M1.3 — Encounter composition by tier (roles, not just counts) | ✅ Complete — resolver landed; **fodder slice wired** (M2); **specialist slice wired** (M3.1/M3.2 + mapgen specialist anchors); **elite slice wired for Bruiser + Juggernaut + Flanker** (M4.1–M4.3: CRITICAL `available.elites` + elite anchor spawn) |
+| M1.3 — Encounter composition by tier (roles, not just counts) | ✅ Complete — resolver landed; **fodder slice wired** (M2); **specialist slice wired** (M3.1–M3.3 + mapgen specialist anchors); **elite slice wired for Bruiser + Juggernaut + Flanker** (M4.1–M4.3: CRITICAL `available.elites` + elite anchor spawn) |
 | M1.4 — CorpCivilian cover-occluded LOS | ✅ Complete |
 | M1.5 — Variable combat map dimensions (tier + seed) | ✅ Complete |
 | M2 — Tier 1 fodder roster | ✅ Complete |
 | M2.1 — Skirmisher kiting (preferred engagement band) | ✅ Complete |
 | M2.2 — Guard (melee fodder) | ✅ Complete |
 | M2.3 — Combat damage tuning + skirmisher glyph | ✅ Complete |
-| M3 — Tier 2 specialists | 🟡 In progress |
-| M3.1 — Spotter (mobile per-turn target share; not CorpCivilian) | ✅ Complete |
+| M3 — Tier 2 specialists | ✅ Complete |
+| M3.1 — Lookout (mobile per-turn target share; not CorpCivilian) | ✅ Complete |
 | M3.2 — Sniper (telegraphed long-range burst) | ✅ Complete |
-| M3.3 — Medic (proactive shield + heal; patient-gated spawn) | 🔲 Not started |
-| M4 — Tier 3 elites | 🟡 In progress |
+| M3.3 — Medic (proactive shield + heal; patient-gated spawn) | ✅ Complete |
+| M4 — Tier 3 elites | ✅ Complete |
 | M4.0 — Elite anchor budget + hostile sweep foundation | ✅ Complete |
 | M4.1 — Bruiser (armor + knockback-on-hit) | ✅ Complete |
 | M4.2 — Juggernaut (armor soak + suppression) | ✅ Complete |
@@ -352,6 +352,8 @@ Playtest pass on T1 fodder pacing:
 - **Ally-seeking shield/heal** using `Entity.heal()` (Phase 2.6). Proactive shielding (temp HP *before* damage) so the medic changes math *during* the fight.
 - **Spawn rule (M1.3):** never without a durable patient (bruiser or juggernaut) in the same encounter.
 - **TDD:** prefers shielding durable ally about to be focused; lone medic impossible; shield absorbs then expires.
+
+**Implementation note:** `src/game/ai/Medic.ts` (glyph `m`, `ENEMY_ROLE.SPECIALIST`) extends `PatrolHostile` but never attacks. It chooses same-faction `Hostile` patients, prioritising durable allies (`damageReduction > 0` or above-baseline HP) over wounded fodder; in range + LOS it heals wounded patients first (`MEDIC_HEAL_AMOUNT = 1`) or tops them up to a non-stacking temporary shield (`MEDIC_SHIELD_HP = 2`, `MEDIC_SUPPORT_AP = 2`, `MEDIC_SUPPORT_RANGE = 5`). `Entity` now owns `heal()` and `shieldHp`; shields absorb HP damage and expire on that entity's next `refreshAp`, so a corp shield survives the player's response window but drops before the next corp activation. Full plumbing: `medic` archetype/snapshot block, persistence factory + shield validation, `kindFromId`, `corpTurnStatusCopy` support lines, map-key row, CRITICAL specialist allowlist now includes Medic behind the existing durable-patient gate, precache + SW **`0.2.7h`**. Tests cover medic priority, heal vs shield ordering, movement toward patients, shield lifetime, and snapshot/restore.
 
 ### M4 — Tier 3 elites
 

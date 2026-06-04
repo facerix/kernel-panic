@@ -52,6 +52,7 @@ const CacheConfig = {
       '/src/game/ai/Flanker.js',
       '/src/game/ai/Lookout.js',
       '/src/game/ai/Sniper.js',
+      '/src/game/ai/Medic.js',
       '/src/game/ai/PatrolHostile.js',
       '/src/game/breachBlast.js',
       '/src/game/archetypes/index.js',

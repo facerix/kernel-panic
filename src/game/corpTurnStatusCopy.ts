@@ -200,6 +200,14 @@ export function formatCorpTurnStep(
       const targetLabel = resolve(step.target);
       return `${actorLabel} body-checks ${targetLabel} back to (${step.to.x}, ${step.to.y}) — making room to fire.`;
     }
+    case 'heal': {
+      const targetLabel = resolve(step.target);
+      return `${actorLabel} patches ${targetLabel} for ${step.amount} HP.`;
+    }
+    case 'shield': {
+      const targetLabel = resolve(step.target);
+      return `${actorLabel} throws a shield on ${targetLabel} (+${step.amount}).`;
+    }
     case 'slide':
       return null;
     case 'fire-blocked':
