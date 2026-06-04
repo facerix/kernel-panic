@@ -5,7 +5,6 @@ import { Run, RUN_STATE, OUTCOME, isObjectiveSatisfied } from '../../../src/game
 import { OBJECTIVES } from '../../../src/game/hub/Curator.js';
 import { FACTION, SALVAGE_DROP_MIN, SALVAGE_DROP_MAX } from '../../../src/game/constants.js';
 import { totalSalvage, emptySalvage } from '../../../src/game/salvage.js';
-import { Entity } from '../../../src/game/Entity.js';
 import { Terminal } from '../../../src/game/entities/Terminal.js';
 import { EVENT } from '../../../src/game/events.js';
 import { Turret } from '../../../src/game/Turret.js';

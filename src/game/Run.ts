@@ -58,7 +58,6 @@ import { Medic } from './ai/Medic.js';
 import { PatrolHostile } from './ai/PatrolHostile.js';
 import { composeEncounter, ENEMY_ARCHETYPE } from './encounters.js';
 import { CorpCivilian } from './entities/CorpCivilian.js';
-import { Interactable } from './entities/Interactable.js';
 import { Terminal } from './entities/Terminal.js';
 import { Door } from './entities/Door.js';
 import { Pickup } from './entities/Pickup.js';
