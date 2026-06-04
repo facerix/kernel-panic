@@ -4,7 +4,7 @@ Turn-based cyberpunk roguelike as a Progressive Web App — tactical grid combat
 
 **Vision and roadmap:** [docs/kernel-panic-v1-blueprint.md](docs/kernel-panic-v1-blueprint.md)  
 **Short overview:** [docs/game-overview.md](docs/game-overview.md)  
-**Current phase:** [docs/phase-2.5-plan.md](docs/phase-2.5-plan.md) (`v0.2.5`)
+**Current phase:** [docs/phase-2.9-plan.md](docs/phase-2.9-plan.md) (`v0.2.9`)
 
 ## Architecture
 
