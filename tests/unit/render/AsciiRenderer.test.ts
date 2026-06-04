@@ -205,6 +205,31 @@ test('draw() truncates HUD rows to their max width before measuring the backing 
   assert.equal(backing?.w, 82, 'backing width matches the configured row max');
 });
 
+test('draw() preserves recon progress tags when the objective title is long', () => {
+  const canvas = makeCanvas();
+  const r = new AsciiRenderer(canvas, { now: () => 0 });
+  const { world, player } = makeWorld();
+
+  r.draw(world, player, {
+    combatHud: {
+      objective: {
+        title: 'Map the full district water board facility layout',
+        done: true,
+        progress: { label: 'MAP', current: 42, total: 120 },
+      },
+      identity: { callsign: 'Patch', archetype: 'tech', stealthed: false },
+      hp: { hp: 2, maxHp: 3 },
+      ap: { ap: 2, maxAp: 4 },
+      turn: { currentFaction: FACTION.PLAYER, turnNumber: 12 },
+    },
+  });
+
+  const textOps = canvas._drawCalls.filter(c => c.op === 'text');
+  const objective = textOps.find(c => String(c.char).includes('[MAP:42/120]'));
+  assert.ok(objective, 'MAP progress stays visible instead of truncating to [MAP...');
+  assert.match(String(objective?.char), /\[DONE\] \[MAP:42\/120\]$/);
+});
+
 test('draw() paints structured combat HUD rows in the planned canvas corners', () => {
   const canvas = makeCanvas();
   const r = new AsciiRenderer(canvas, { now: () => 0 });

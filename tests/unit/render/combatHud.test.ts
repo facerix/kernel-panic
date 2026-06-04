@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import { FACTION } from '../../../src/game/constants.js';
 import {
+  fitObjectiveHudLine,
   formatApPips,
   formatCombatHudA11ySummary,
   formatHpSegments,
@@ -10,6 +11,8 @@ import {
   formatObjectiveHud,
   formatTurnLabel,
 } from '../../../src/render/combatHud.js';
+
+const charWidth = (text: string) => text.length * 7;
 
 test('formatObjectiveHud returns an empty row when no contract objective is available', () => {
   assert.equal(formatObjectiveHud(null), '');
@@ -37,6 +40,25 @@ test('formatObjectiveHud carries active turn limits and progress suffixes', () =
     }),
     'OBJ Map the floor [TODO] [TURN:4] [MAP:7/12]'
   );
+});
+
+test('fitObjectiveHudLine keeps MAP and SWEEP tags when the title must shrink', () => {
+  const line = 'OBJ Map site layout [DONE] [MAP:42/120]';
+  const fitted = fitObjectiveHudLine(line.toUpperCase(), charWidth, 248);
+  assert.match(fitted, /\[MAP:42\/120\]$/);
+  assert.match(fitted, /\.\.\./);
+  assert.doesNotMatch(fitted, /\[MAP\.\.\.$/);
+});
+
+test('fitObjectiveHudLine keeps turn budget and progress tags together', () => {
+  const line = formatObjectiveHud({
+    title: 'Sweep the relay cluster for salvage tags',
+    done: false,
+    turnsRemaining: 3,
+    progress: { label: 'SWEEP', current: 2, total: 5 },
+  });
+  const fitted = fitObjectiveHudLine(line.toUpperCase(), charWidth, 300);
+  assert.match(fitted, /\[TODO\] \[TURN:3\] \[SWEEP:2\/5\]$/);
 });
 
 test('formatObjectiveHud omits turn limits after completion but keeps progress context', () => {

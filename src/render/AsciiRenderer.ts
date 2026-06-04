@@ -3,6 +3,7 @@ import {
   formatApPips,
   formatHpSegments,
   formatIdentityHud,
+  fitObjectiveHudLine,
   formatObjectiveHud,
   formatTurnLabel,
 } from './combatHud.js';
@@ -79,6 +80,8 @@ type HudRow = {
   uppercase?: boolean;
   /** Maximum backing-box width in CSS pixels. Text is truncated to fit. */
   maxWidth?: number;
+  /** When set, objective tags stay visible and only the title ellipsizes. */
+  preserveObjectiveTags?: boolean;
   segments?: readonly HudTextSegment[];
 };
 
@@ -101,7 +104,8 @@ const HUD_AP_SPENT = '#ff7a66';
 const HUD_AP_AVAILABLE = '#6ae8c8';
 const HUD_TURN_PLAYER = '#b8f5e2';
 const HUD_TURN_CORP = '#ff7a66';
-const OBJECTIVE_MAX_WIDTH = 260;
+/** Reserve top-right chrome so the objective row does not sit under identity/vitals. */
+const OBJECTIVE_RIGHT_GUTTER = 200;
 
 export class AsciiRenderer {
   canvas: HTMLCanvasElement;
@@ -274,7 +278,8 @@ export class AsciiRenderer {
         row: 1,
         color: hud.objective?.done ? HUD_OBJECTIVE_DONE : HUD_OBJECTIVE_TODO,
         glowColor: hud.objective?.done ? HUD_OBJECTIVE_DONE : HUD_OBJECTIVE_TODO,
-        maxWidth: OBJECTIVE_MAX_WIDTH,
+        maxWidth: Math.max(0, this.canvas.width - OBJECTIVE_RIGHT_GUTTER),
+        preserveObjectiveTags: true,
       });
     }
     this.#drawHudRow({
@@ -333,7 +338,10 @@ export class AsciiRenderer {
     ctx.save();
     ctx.font = `${HUD_FONT_PX}px ${this.fontFamily}`;
     ctx.textBaseline = 'top';
-    const text = this.#truncateHudText(rawText, Math.max(0, maxBoxW - HUD_PAD_X * 2));
+    const maxTextWidth = Math.max(0, maxBoxW - HUD_PAD_X * 2);
+    const text = row.preserveObjectiveTags
+      ? fitObjectiveHudLine(rawText, t => ctx.measureText(t).width, maxTextWidth)
+      : this.#truncateHudText(rawText, maxTextWidth);
     const boxW = Math.min(maxBoxW, Math.ceil(ctx.measureText(text).width) + HUD_PAD_X * 2);
     const boxX = row.anchor === 'top-right' ? this.canvas.width - boxW : insetX;
     const boxY =

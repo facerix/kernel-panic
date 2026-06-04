@@ -66,6 +66,47 @@ export function formatObjectiveHud(objective: CombatHudObjectiveInput | null | u
   return parts.join(' ');
 }
 
+export const HUD_TRUNCATION_MARK = '...';
+
+export type MeasureTextWidth = (text: string) => number;
+
+/**
+ * Shrinks an objective HUD line to fit while keeping bracketed tags (status,
+ * turn budget, MAP/SWEEP meters). Truncates the title only; falls back to
+ * end-truncation when even tags do not fit.
+ */
+export function fitObjectiveHudLine(
+  line: string,
+  measure: MeasureTextWidth,
+  maxTextWidth: number
+): string {
+  if (!line) return '';
+  if (maxTextWidth <= 0) return '';
+  if (measure(line) <= maxTextWidth) return line;
+
+  const tagsStart = line.indexOf(' [');
+  if (tagsStart < 0) {
+    return truncateHudLineEnd(line, measure, maxTextWidth);
+  }
+
+  const head = line.slice(0, tagsStart);
+  const suffix = line.slice(tagsStart);
+  const headPrefix = head.startsWith('OBJ ') ? 'OBJ ' : '';
+  let title = headPrefix ? head.slice(4) : head;
+  const marker = HUD_TRUNCATION_MARK;
+
+  while (title.length > 0) {
+    const candidate = `${headPrefix}${title}${marker}${suffix}`;
+    if (measure(candidate) <= maxTextWidth) return candidate;
+    title = title.slice(0, -1);
+  }
+
+  const minimal = `${headPrefix}${marker}${suffix}`;
+  if (measure(minimal) <= maxTextWidth) return minimal;
+
+  return truncateHudLineEnd(line, measure, maxTextWidth);
+}
+
 export function formatIdentityHud(identity: CombatHudIdentityInput): string {
   const archetype = requireNonEmptyString(identity.archetype, 'identity.archetype').toUpperCase();
   const callsign = identity.callsign?.trim();
@@ -166,6 +207,16 @@ function objectiveA11yText(objective: CombatHudObjectiveInput | null | undefined
     parts.push(`${label.toLowerCase()} ${current} of ${total}`);
   }
   return parts.join(', ');
+}
+
+function truncateHudLineEnd(line: string, measure: MeasureTextWidth, maxTextWidth: number): string {
+  const marker = HUD_TRUNCATION_MARK;
+  if (measure(marker) > maxTextWidth) return '';
+  let next = line;
+  while (next.length > 0 && measure(`${next}${marker}`) > maxTextWidth) {
+    next = next.slice(0, -1);
+  }
+  return `${next}${marker}`;
 }
 
 function turnA11yText(turn: CombatHudTurnInput): string {
