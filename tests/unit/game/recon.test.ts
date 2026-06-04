@@ -9,7 +9,10 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { Run, RUN_STATE, OUTCOME, isObjectiveSatisfied } from '../../../src/game/Run.js';
-import { reconEligibleCellKeys, reconObjectiveProgress } from '../../../src/game/objectiveProgress.js';
+import {
+  reconEligibleCellKeys,
+  reconObjectiveProgress,
+} from '../../../src/game/objectiveProgress.js';
 import { Merc } from '../../../src/game/archetypes/Merc.js';
 import { Grid } from '../../../src/game/Grid.js';
 import { World } from '../../../src/game/World.js';

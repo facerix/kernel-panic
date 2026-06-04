@@ -20,7 +20,11 @@ import { World } from '../../../src/game/World.js';
 import { EventBus } from '../../../src/game/events.js';
 import { Merc } from '../../../src/game/archetypes/Merc.js';
 import { Run, isObjectiveSatisfied } from '../../../src/game/Run.js';
-import { objectiveProgress, SWEEP_QUOTA, sweepObjectiveProgress } from '../../../src/game/objectiveProgress.js';
+import {
+  objectiveProgress,
+  SWEEP_QUOTA,
+  sweepObjectiveProgress,
+} from '../../../src/game/objectiveProgress.js';
 import { OBJECTIVES } from '../../../src/game/hub/Curator.js';
 import { restore } from '../../../src/game/persistence.js';
 import { FACTION, TILE, RELAY_NODE_HP } from '../../../src/game/constants.js';

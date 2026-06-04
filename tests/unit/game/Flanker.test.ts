@@ -76,7 +76,7 @@ test('cover between player and Flanker hides it and blocks player ranged targeti
   assert.equal(canFireRanged(world, player, flanker).ok, true);
 });
 
-test('Flanker SLIDE is silent and hides it even on open adjacent LOS', () => {
+test('Flanker SLIDE is silent and hides it at range but not when player is adjacent', () => {
   const bus = new EventBus();
   let moves = 0;
   let noises = 0;
@@ -98,9 +98,29 @@ test('Flanker SLIDE is silent and hides it even on open adjacent LOS', () => {
   assert.equal(moves, 1, 'slide still emits entity:moved for vision recompute');
   assert.equal(noises, 0, 'slide emits no NOISE tell');
   assert.equal(flanker.slideConcealed, true);
-  assert.equal(isConcealedFromPlayer(flanker, player), true);
+  assert.equal(isConcealedFromPlayer(flanker, player), false, 'adjacent after slide');
+  assert.equal(isConcealedFromPlayer(flanker, player, world), false);
+  assert.equal(canMelee(world, player, flanker).ok, true);
+
+  const distantPlayer = makePlayer(0, 1);
+  assert.equal(isConcealedFromPlayer(flanker, distantPlayer, world), true);
+});
+
+test('Flanker slide conceal stays active at Chebyshev distance 2', () => {
+  const world = new World(new Grid(8, 3));
+  const player = makePlayer(1, 1);
+  const flanker = new Flanker({
+    id: 'flanker-0',
+    x: 3,
+    y: 1,
+    tier: ENEMY_TIER.T1,
+    slideConcealed: true,
+  });
+  world.addEntity(player);
+  world.addEntity(flanker);
+
   assert.equal(isConcealedFromPlayer(flanker, player, world), true);
-  assert.deepEqual(canMelee(world, player, flanker), {
+  assert.deepEqual(canFireRanged(world, player, flanker), {
     ok: false,
     reason: 'concealed-target',
   });

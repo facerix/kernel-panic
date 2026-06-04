@@ -9,6 +9,7 @@ import { SNIPER_CONCEAL_MIN_RANGE } from './constants.js';
 import { Flanker } from './ai/Flanker.js';
 import { Sniper } from './ai/Sniper.js';
 import { hasConcealedLineOfSight } from './LineOfSight.js';
+import { chebyshev } from './Pathfinding.js';
 import type { Entity } from './Entity.js';
 import type { World } from './World.js';
 
@@ -19,7 +20,9 @@ import type { World } from './World.js';
  */
 export function isConcealedFromPlayer(entity: Entity, player: Entity, world?: World): boolean {
   if (entity instanceof Flanker) {
-    if (entity.slideConcealed) return true;
+    if (entity.slideConcealed) {
+      return chebyshev(entity.x, entity.y, player.x, player.y) > 1;
+    }
     if (!world) return false;
     return !hasConcealedLineOfSight(world.grid, player.x, player.y, entity.x, entity.y, {
       blockers: world.blockerKeys(),
@@ -28,8 +31,7 @@ export function isConcealedFromPlayer(entity: Entity, player: Entity, world?: Wo
 
   if (entity instanceof Sniper) {
     if (!entity.aimTargetId) return false;
-    const cheb = Math.max(Math.abs(entity.x - player.x), Math.abs(entity.y - player.y));
-    return cheb >= SNIPER_CONCEAL_MIN_RANGE;
+    return chebyshev(entity.x, entity.y, player.x, player.y) >= SNIPER_CONCEAL_MIN_RANGE;
   }
 
   return false;

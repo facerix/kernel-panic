@@ -3,8 +3,8 @@
  *
  * Its identity is player-perception asymmetry: cover hides it from rendering
  * and direct targeting, and its silent SLIDE sets `slideConcealed` so it stays
- * vanished through the player's whole next turn. While vanished it may
- * reposition, but it never melees on that same activation.
+ * vanished through the player's whole next turn unless they are adjacent.
+ * While vanished it may reposition, but it never melees on that same activation.
  */
 
 import {
