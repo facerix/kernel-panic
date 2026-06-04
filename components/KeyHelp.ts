@@ -165,6 +165,47 @@ const CSS = `
   font-size: 0.85rem;
 }
 
+/* Combat: stack universal/terrain/allies; hostiles use paired columns on the right */
+.tile-hints-content--combat {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  column-gap: 1.25rem;
+  row-gap: 0.65rem;
+}
+
+.map-key-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.map-key-group h4 {
+  margin: 0 0 0.2rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.14em;
+  color: var(--help-dim);
+  font-weight: 600;
+}
+
+.map-key-col--hostiles h4 {
+  margin-bottom: 0.25rem;
+}
+
+dl.rows--paired {
+  grid-template-columns: max-content 1fr max-content 1fr;
+  column-gap: 1rem;
+}
+
+@media (max-width: 520px) {
+  .tile-hints-content--combat {
+    grid-template-columns: 1fr;
+  }
+
+  dl.rows--paired {
+    grid-template-columns: max-content 1fr;
+  }
+}
+
 .controls-note {
   font-size: 0.78rem !important;
   color: var(--help-dim) !important;
@@ -245,13 +286,20 @@ function joinKeys(keys: string[]) {
   return keys.map(labelForKey).join(' ');
 }
 
-function rowsFromMapKey(entries: readonly MapKeyRow[]) {
-  const dl = h('dl', { className: 'rows' });
+function rowsFromMapKey(entries: readonly MapKeyRow[], paired = false) {
+  const dl = h('dl', { className: paired ? 'rows rows--paired' : 'rows' });
   for (const row of entries) {
     dl.appendChild(h('dt', { textContent: row.glyph }));
     dl.appendChild(h('dd', { textContent: row.label }));
   }
   return dl;
+}
+
+function mapKeyGroup(title: string, entries: readonly MapKeyRow[], paired = false) {
+  return h('div', { className: 'map-key-group' }, [
+    h('h4', { textContent: title }),
+    rowsFromMapKey(entries, paired),
+  ]);
 }
 
 /** Keys routed to tab switching while the overlay is open (see index.ts). */
@@ -486,24 +534,29 @@ class KeyHelp extends HTMLElement {
 
   #buildMapKey() {
     const scope = this.#scope;
-    const sections: HTMLElement[] = [rowsFromMapKey(MAP_KEY_UNIVERSAL)];
 
     if (scope === 'hub') {
-      sections.push(rowsFromMapKey(MAP_KEY_HUB));
-    } else {
-      sections.push(
-        rowsFromMapKey(MAP_KEY_COMBAT_TERRAIN),
-        rowsFromMapKey(MAP_KEY_COMBAT_HOSTILES),
-        rowsFromMapKey(MAP_KEY_COMBAT_ALLIES)
-      );
+      return h('section', { className: 'tile-hints' }, [
+        h('p', { className: 'section-label', textContent: 'HUB & UNIVERSAL' }),
+        h('div', { className: 'tile-hints-content' }, [
+          rowsFromMapKey(MAP_KEY_UNIVERSAL),
+          rowsFromMapKey(MAP_KEY_HUB),
+        ]),
+      ]);
     }
 
-    return h('section', { className: 'tile-hints' }, [
-      h('p', {
-        className: 'section-label',
-        textContent: scope === 'hub' ? 'HUB & UNIVERSAL' : 'COMBAT MAP',
-      }),
-      h('div', { className: 'tile-hints-content' }, sections),
+    return h('section', { className: 'tile-hints tile-hints--combat' }, [
+      h('p', { className: 'section-label', textContent: 'COMBAT MAP' }),
+      h('div', { className: 'tile-hints-content tile-hints-content--combat' }, [
+        h('div', { className: 'map-key-col map-key-col--basics' }, [
+          mapKeyGroup('UNIVERSAL', MAP_KEY_UNIVERSAL),
+          mapKeyGroup('TERRAIN', MAP_KEY_COMBAT_TERRAIN),
+          mapKeyGroup('ALLIES & LOOT', MAP_KEY_COMBAT_ALLIES),
+        ]),
+        h('div', { className: 'map-key-col map-key-col--hostiles' }, [
+          mapKeyGroup('HOSTILES', MAP_KEY_COMBAT_HOSTILES, true),
+        ]),
+      ]),
     ]);
   }
 
