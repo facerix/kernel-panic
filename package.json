@@ -5,6 +5,7 @@
   "main": "index.html",
   "type": "module",
   "scripts": {
+    "prepare": "git config core.hooksPath .githooks",
     "start": "npm run dev",
     "dev": "concurrently -k -n ts,assets,serve -c blue,magenta,green \"npm:dev:ts\" \"npm:dev:assets\" \"npm:dev:serve\"",
     "dev:ts": "tsc -p tsconfig.json --watch --preserveWatchOutput",
