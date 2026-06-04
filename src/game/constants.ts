@@ -57,7 +57,7 @@ export const AP_COST = Object.freeze({
   MELEE_ATTACK: 1,
   INTERACT: 1,
   // Archetype perks (proposed; tunable):
-  VAULT: 3, // Merc — hop a cover tile while firing
+  VAULT: 2, // Merc — hop a cover tile while firing
   SLIDE: 2, // Razor — 2-tile reposition with stealth bonus
   DEPLOY: 2, // Tech — place a turret on an adjacent tile
 });
@@ -104,14 +104,20 @@ export const BASE_HIT_CHANCE = 0.75;
 export const COVER_HIT_PENALTY = 0.3;
 export const RANGED_DAMAGE = 1;
 
+/** Merc sidearm and player/corp turrets — overrides {@link RANGED_DAMAGE}. */
+export const MERC_RANGED_DAMAGE = 2;
+
 /**
  * Melee combat. M7 adds a defender dodge roll so point-blank attacks keep
- * tension without becoming mushy. Damage is bumped above the old V1 value to
- * compensate for misses: when the blade connects, it should matter.
+ * tension without becoming mushy. Default crew melee is {@link MELEE_DAMAGE};
+ * Razor and elite corp melee override with {@link HEAVY_MELEE_DAMAGE}.
  */
 export const DODGE_CHANCE = 0.2;
 export const COVER_DODGE_BONUS = 0.1;
-export const MELEE_DAMAGE = 3;
+export const MELEE_DAMAGE = 2;
+
+/** Razor blade and elite corp strike — overrides {@link MELEE_DAMAGE}. */
+export const HEAVY_MELEE_DAMAGE = 3;
 
 /**
  * Vault (Merc perk). Breach-and-clear slam: hop over cover, body-check a
@@ -128,6 +134,89 @@ export const VAULT_DAMAGE = 2;
  * `withinRange` helper in `LineOfSight.js` so this geometry is one place.
  */
 export const SIGHT_RANGE = 8;
+
+/**
+ * Skirmisher kiting band (Phase 2.7 M2.1). A ranged fodder unit (`Skirmisher`)
+ * retreats instead of firing when a target closes inside this Chebyshev
+ * distance — i.e. `cheb(target) < PREFERRED_MIN` triggers a kite step if a
+ * legal retreat tile that keeps LOS exists. At `3`, the skirmisher refuses to
+ * fight within 2 tiles, opening real spacing pressure without backpedaling
+ * across the whole map. Per-instance override via the constructor.
+ */
+export const PREFERRED_MIN = 3;
+
+/**
+ * Lookout vision range (Phase 2.7 M3.1). The mobile T2 specialist marks the
+ * player for the fireteam at a longer reach than baseline `SIGHT_RANGE` (8) so
+ * it can coordinate fire from a vantage the player hasn't closed on yet. `12`
+ * is the playtest ceiling if `10` proves too short. The Sniper (`12`) reaches
+ * further still; the lookout sits between fodder and sniper.
+ */
+export const LOOKOUT_SIGHT_RANGE = 10;
+
+/**
+ * Medic parameters (Phase 2.7 M3.3). The T2 support specialist changes fight
+ * math by preserving a durable patient before the player can burst it down.
+ * Shields are temporary HP stored on the patient and expire on that patient's
+ * next AP refresh; healing is intentionally modest so focus-fire still works.
+ */
+export const MEDIC_SUPPORT_RANGE = 5;
+export const MEDIC_SUPPORT_AP = 2;
+export const MEDIC_HEAL_AMOUNT = 1;
+export const MEDIC_SHIELD_HP = 2;
+
+/**
+ * Sniper parameters (Phase 2.7 M3.2). The T2 long-range specialist out-reaches
+ * fodder (`SIGHT_RANGE` 8) and the lookout (10): it acquires and fires from
+ * `SNIPER_SIGHT_RANGE` so the player must break LOS or close to answer it.
+ *
+ * It is **telegraphed** — aim on corp turn N, fire on N+1 — leaving a full
+ * player turn of counterplay. `SNIPER_DAMAGE` (a guaranteed 3) is the heaviest
+ * single hit on the board, so eating a held shot genuinely hurts.
+ *
+ * `SNIPER_CONCEAL_MIN_RANGE` is the Chebyshev distance at/above which a sniper
+ * *holding aim* is hidden from the player (glyph + direct targeting); inside it
+ * (≤ 5) the sniper is revealed and answerable. Player-perception only; turrets
+ * and corp AI ignore it. Playtest ceiling 5–7.
+ */
+export const SNIPER_SIGHT_RANGE = 12;
+export const SNIPER_DAMAGE = 3;
+export const SNIPER_CONCEAL_MIN_RANGE = 6;
+
+/**
+ * Juggernaut parameters (Phase 2.7 M4.2). The T3 elite is the **Tech mirror** —
+ * a walking suppression platform: high HP + armor, low AP, controlling a tighter
+ * band than fodder. It acquires/patrols at the baseline `SIGHT_RANGE` (8) but
+ * only *fires* inside `JUGGERNAUT_SUPPRESS_RANGE` (5) — tighter than a skirmisher,
+ * wider than the player/corp turret bubble (4).
+ *
+ * Suppression is a cheap attrition chip: `JUGGERNAUT_SUPPRESS_AP` (1) per shot
+ * for `JUGGERNAUT_SUPPRESS_DAMAGE` (1) damage. Lethal only over many turns —
+ * dangerous while fodder/medics work, never a burst threat (no second verb).
+ *
+ * `JUGGERNAUT_PREFERRED_MIN` (3) is the band floor: the juggernaut band-kites
+ * to maintain gunner distance (the skirmisher kite, scoped to suppress range)
+ * rather than panic-fleeing. Cornered at point-blank (adjacent, no band-kite
+ * tile) it body-checks the target one tile away — a **no-damage knockback** that
+ * reopens the band so it can resume suppressing. This is a defensive spacing
+ * reset, distinct from the Bruiser's offensive knockback-on-hit; a blocked lane
+ * makes the juggernaut hold its ground instead.
+ */
+export const JUGGERNAUT_SUPPRESS_RANGE = 5;
+export const JUGGERNAUT_SUPPRESS_AP = 1;
+export const JUGGERNAUT_SUPPRESS_DAMAGE = 1;
+export const JUGGERNAUT_PREFERRED_MIN = 3;
+/** Base AP before the T3 elite `apBonus` (+1) — yields 4 AP at T3. */
+export const JUGGERNAUT_BASE_AP = 3;
+
+/**
+ * Flanker parameters (Phase 2.7 M4.3). The T3 elite mirrors Razor's SLIDE:
+ * a silent two-tile reposition that vanishes from player perception through
+ * the entire following player turn. Base AP 3 plus the T3 elite bonus yields
+ * the locked 4 AP cadence: slide (2) + optional stalk step (1), then strike on
+ * the next corp turn after `slideConcealed` clears.
+ */
+export const FLANKER_BASE_AP = 3;
 
 /**
  * Salvage parameters. Phase 2 salvage is generic units (no typed components).
@@ -158,12 +247,12 @@ export function moveStepApCost(destTile: TileId): number {
 /**
  * Corp turret parameters. Stationary CORP-faction hostile that fires at
  * PLAYER entities during the corp turn. Range matches the player turret
- * (TURRET_RANGE) so the threat is symmetric; damage is flat 1 to match
- * drone/turret convention. HP is lower than a drone — they're infrastructure,
+ * (TURRET_RANGE) so the threat is symmetric; damage matches {@link TURRET_DAMAGE}.
+ * HP is lower than a drone — they're infrastructure,
  * not combatants, and the player needs a fast way to neutralize a firing lane.
  */
 export const CORP_TURRET_RANGE = 4;
-export const CORP_TURRET_DAMAGE = 1;
+export const CORP_TURRET_DAMAGE = 2;
 export const CORP_TURRET_HP = 2;
 
 /**
@@ -192,7 +281,7 @@ export const SMOKE_DURATION_TURNS = 1;
  * LOS from thrower → target must be clear (no lobbing through walls). The
  * hazard cluster shape and size come from `placeHazardCluster` (M2.3 — a
  * 5–9 tile diamond/cross of `TILE.HAZARD`), so we don't need a separate
- * radius constant. Damage per tile is `HAZARD_DAMAGE` (M2.3).
+ * radius constant. Damage per tile is `HAZARD_DAMAGE`.
  */
 export const INCENDIARY_THROW_DIST = 3;
 /** Breaching charges are placed against an adjacent tile/entity. */
@@ -247,6 +336,111 @@ export const CONTRACT_DIFFICULTY = Object.freeze({
 });
 
 export type ContractDifficulty = (typeof CONTRACT_DIFFICULTY)[keyof typeof CONTRACT_DIFFICULTY];
+
+/**
+ * Enemy tier doctrine (Phase 2.7). Contract difficulty maps directly to the
+ * roster tier used by encounter composition and role-specific stat scaling.
+ */
+export const ENEMY_TIER = Object.freeze({
+  T1: 't1',
+  T2: 't2',
+  T3: 't3',
+});
+
+export type EnemyTier = (typeof ENEMY_TIER)[keyof typeof ENEMY_TIER];
+
+export const ENEMY_ROLE = Object.freeze({
+  FODDER: 'fodder',
+  SPECIALIST: 'specialist',
+  ELITE: 'elite',
+});
+
+export type EnemyRole = (typeof ENEMY_ROLE)[keyof typeof ENEMY_ROLE];
+
+export type EnemyStatProfile = Readonly<{
+  hpMultiplier: number;
+  apBonus: number;
+  armorFloor: number;
+}>;
+
+export type EnemyBaseStats = Readonly<{
+  maxHp?: number;
+  maxAp?: number;
+  damageReduction?: number;
+}>;
+
+export type ResolvedEnemyStats = Readonly<{
+  maxHp: number;
+  maxAp: number;
+  damageReduction: number;
+}>;
+
+const ENEMY_TIER_BY_DIFFICULTY: Record<ContractDifficulty, EnemyTier> = Object.freeze({
+  [CONTRACT_DIFFICULTY.STANDARD]: ENEMY_TIER.T1,
+  [CONTRACT_DIFFICULTY.ELEVATED]: ENEMY_TIER.T2,
+  [CONTRACT_DIFFICULTY.CRITICAL]: ENEMY_TIER.T3,
+});
+
+const ENEMY_STAT_PROFILES: Record<EnemyRole, Record<EnemyTier, EnemyStatProfile>> = Object.freeze({
+  [ENEMY_ROLE.FODDER]: Object.freeze({
+    [ENEMY_TIER.T1]: Object.freeze({ hpMultiplier: 1, apBonus: 0, armorFloor: 0 }),
+    [ENEMY_TIER.T2]: Object.freeze({ hpMultiplier: 1, apBonus: 0, armorFloor: 0 }),
+    [ENEMY_TIER.T3]: Object.freeze({ hpMultiplier: 1, apBonus: 0, armorFloor: 0 }),
+  }),
+  [ENEMY_ROLE.SPECIALIST]: Object.freeze({
+    [ENEMY_TIER.T1]: Object.freeze({ hpMultiplier: 1, apBonus: 0, armorFloor: 0 }),
+    [ENEMY_TIER.T2]: Object.freeze({ hpMultiplier: 1, apBonus: 0, armorFloor: 0 }),
+    [ENEMY_TIER.T3]: Object.freeze({ hpMultiplier: 1.25, apBonus: 0, armorFloor: 0 }),
+  }),
+  [ENEMY_ROLE.ELITE]: Object.freeze({
+    [ENEMY_TIER.T1]: Object.freeze({ hpMultiplier: 1, apBonus: 0, armorFloor: 0 }),
+    [ENEMY_TIER.T2]: Object.freeze({ hpMultiplier: 1.25, apBonus: 0, armorFloor: 0 }),
+    [ENEMY_TIER.T3]: Object.freeze({ hpMultiplier: 1.5, apBonus: 1, armorFloor: 1 }),
+  }),
+});
+
+export function enemyTierForDifficulty(difficulty: ContractDifficulty): EnemyTier {
+  const tier = ENEMY_TIER_BY_DIFFICULTY[difficulty];
+  if (!tier) {
+    throw new Error(`Unknown contract difficulty "${difficulty}"`);
+  }
+  return tier;
+}
+
+export function enemyStatProfileFor(role: EnemyRole, tier: EnemyTier): EnemyStatProfile {
+  const profile = ENEMY_STAT_PROFILES[role]?.[tier];
+  if (!profile) {
+    throw new Error(`Unknown enemy stat profile for role="${role}" tier="${tier}"`);
+  }
+  return profile;
+}
+
+export function resolveEnemyStats(
+  base: EnemyBaseStats,
+  role: EnemyRole,
+  tier: EnemyTier
+): ResolvedEnemyStats {
+  const maxHp = base.maxHp ?? DEFAULT_HP;
+  const maxAp = base.maxAp ?? DEFAULT_AP;
+  const damageReduction = base.damageReduction ?? 0;
+  if (!Number.isInteger(maxHp) || maxHp <= 0) {
+    throw new RangeError(`resolveEnemyStats maxHp must be positive integer, got ${maxHp}`);
+  }
+  if (!Number.isInteger(maxAp) || maxAp < 0) {
+    throw new RangeError(`resolveEnemyStats maxAp must be non-negative integer, got ${maxAp}`);
+  }
+  if (!Number.isInteger(damageReduction) || damageReduction < 0) {
+    throw new RangeError(
+      `resolveEnemyStats damageReduction must be non-negative integer, got ${damageReduction}`
+    );
+  }
+  const profile = enemyStatProfileFor(role, tier);
+  return Object.freeze({
+    maxHp: Math.ceil(maxHp * profile.hpMultiplier),
+    maxAp: maxAp + profile.apBonus,
+    damageReduction: Math.max(damageReduction, profile.armorFloor),
+  });
+}
 
 /**
  * Noise radii (Euclidean tiles) for actions that emit `noise` events. The

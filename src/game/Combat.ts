@@ -31,6 +31,7 @@ import {
   COVER_HIT_PENALTY,
   COVER_DODGE_BONUS,
   DODGE_CHANCE,
+  FACTION,
   RANGED_DAMAGE,
   MELEE_DAMAGE,
   NOISE_RADIUS,
@@ -38,6 +39,7 @@ import {
   TILE,
 } from './constants.js';
 import { hasLineOfSight, hasCoverBetween, withinRange } from './LineOfSight.js';
+import { isConcealedFromPlayer } from './playerPerception.js';
 import { EVENT } from './events.js';
 
 export type CanFireRangedOptions = {
@@ -57,6 +59,23 @@ export type ResolveMeleeOptions = {
   coverDodgeBonus?: number;
 };
 
+function attackerRangedDamage(attacker: Entity, override?: number): number {
+  if (override !== undefined) return override;
+  const rangedAttackDamage = (attacker as { rangedAttackDamage?: () => number }).rangedAttackDamage;
+  if (typeof rangedAttackDamage === 'function') {
+    return rangedAttackDamage.call(attacker);
+  }
+  return RANGED_DAMAGE;
+}
+
+function attackerMeleeDamage(attacker: Entity, override?: number): number {
+  if (override !== undefined) return override;
+  if ('meleeDamage' in attacker) {
+    return (attacker as { meleeDamage: number }).meleeDamage;
+  }
+  return MELEE_DAMAGE;
+}
+
 /**
  * Pure pre-flight check. Doesn't mutate, doesn't roll.
  */
@@ -75,6 +94,9 @@ export function canFireRanged(
   if (target.faction === attacker.faction) return { ok: false, reason: 'same-faction' };
   if (!options.freeShot && !attacker.canAfford(AP_COST.RANGED_ATTACK)) {
     return { ok: false, reason: 'insufficient-ap' };
+  }
+  if (attacker.faction === FACTION.PLAYER && isConcealedFromPlayer(target, attacker, world)) {
+    return { ok: false, reason: 'concealed-target' };
   }
 
   const range = options.range ?? SIGHT_RANGE;
@@ -150,11 +172,10 @@ export function resolveRanged(
   let damage = 0;
   let killed = false;
   if (hit) {
-    const gearDamageBonus =
-      (attacker as Entity & { gear?: { rangedDamageBonus?: number } }).gear?.rangedDamageBonus ?? 0;
-    const intendedDamage = options.damage ?? RANGED_DAMAGE + gearDamageBonus;
-    const appliedDamage = target.damage(intendedDamage);
-    damage = appliedDamage === 0 ? 0 : intendedDamage;
+    const intendedDamage = attackerRangedDamage(attacker, options.damage);
+    const mitigatedDamage = applyDamageReduction(intendedDamage, target);
+    const appliedDamage = target.damage(mitigatedDamage);
+    damage = appliedDamage === 0 ? 0 : mitigatedDamage;
     killed = !target.alive;
     // Emit only on a connected hit. Misses still tick the noise model below
     // (a shot is loud regardless) — that's a separate `noise` event.
@@ -189,6 +210,9 @@ export function canMelee(world: World, attacker: Entity, target: Entity) {
   if (!target || !target.alive) return { ok: false, reason: 'invalid-target' };
   if (target === attacker) return { ok: false, reason: 'self-target' };
   if (target.faction === attacker.faction) return { ok: false, reason: 'same-faction' };
+  if (attacker.faction === FACTION.PLAYER && isConcealedFromPlayer(target, attacker, world)) {
+    return { ok: false, reason: 'concealed-target' };
+  }
   if (!attacker.canAfford(AP_COST.MELEE_ATTACK)) {
     return { ok: false, reason: 'insufficient-ap' };
   }
@@ -210,6 +234,9 @@ export function canMelee(world: World, attacker: Entity, target: Entity) {
  * loss. Throws on illegal pre-conditions (so a buggy caller can't silently
  * steal AP with no swing) and emits both `entity:damaged` and a `noise` event
  * so the world reacts the same way it does for ranged.
+ *
+ * Armor ordering: dodge/miss resolves first; on a connected hit,
+ * `damageReduction` mitigates incoming damage with a minimum of 1 damage.
  *
  * Diagonal corner cover counts as `inCover`: the line between two diagonal
  * neighbours passes through the corner shared by two cells, so either COVER
@@ -264,9 +291,10 @@ export function resolveMelee(
   let damage = 0;
   let killed = false;
   if (hit) {
-    const intendedDamage = options.damage ?? MELEE_DAMAGE;
-    const appliedDamage = target.damage(intendedDamage);
-    damage = appliedDamage === 0 ? 0 : intendedDamage;
+    const intendedDamage = attackerMeleeDamage(attacker, options.damage);
+    const mitigatedDamage = applyDamageReduction(intendedDamage, target);
+    const appliedDamage = target.damage(mitigatedDamage);
+    damage = appliedDamage === 0 ? 0 : mitigatedDamage;
     killed = !target.alive;
   }
   world.events?.emit(EVENT.ENTITY_DAMAGED, {
@@ -287,6 +315,18 @@ export function resolveMelee(
     kind: 'melee',
   });
   return { hit, dodged, roll, dodgeThreshold, inCover, damage, killed };
+}
+
+function applyDamageReduction(intendedDamage: number, target: Entity): number {
+  if (!Number.isInteger(intendedDamage) || intendedDamage < 0) {
+    throw new RangeError(`damage must be a non-negative integer, got ${intendedDamage}`);
+  }
+  if (intendedDamage === 0) return 0;
+  const armor = target.damageReduction;
+  if (!Number.isInteger(armor) || armor < 0) {
+    throw new RangeError(`target ${target.id} has invalid damageReduction=${armor}`);
+  }
+  return Math.max(1, intendedDamage - armor);
 }
 
 function hasMeleeCoverBetween(world: World, attacker: Entity, target: Entity): boolean {

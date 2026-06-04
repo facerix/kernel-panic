@@ -8,6 +8,13 @@ export interface SyncPadInit extends Omit<InteractableInit, 'glyph' | 'label' | 
   synced?: boolean;
 }
 
+/** M6.2: SyncPad snapshot `extra`. */
+export type SyncPadSnapshot = {
+  label: string;
+  synced: boolean;
+  armed: boolean;
+};
+
 export class SyncPad extends Interactable {
   synced: boolean;
 

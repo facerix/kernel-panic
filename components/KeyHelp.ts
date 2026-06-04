@@ -157,11 +157,53 @@ const CSS = `
 
 .tile-hints-content {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
   column-gap: 1rem;
+  row-gap: 1rem;
   align-items: start;
   margin: 0.5rem 0 0;
   font-size: 0.85rem;
+}
+
+/* Combat: stack universal/terrain/allies; hostiles use paired columns on the right */
+.tile-hints-content--combat {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  column-gap: 1.25rem;
+  row-gap: 0.65rem;
+}
+
+.map-key-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.map-key-group h4 {
+  margin: 0 0 0.2rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.14em;
+  color: var(--help-dim);
+  font-weight: 600;
+}
+
+.map-key-col--hostiles h4 {
+  margin-bottom: 0.25rem;
+}
+
+dl.rows--paired {
+  grid-template-columns: max-content 1fr max-content 1fr;
+  column-gap: 1rem;
+}
+
+@media (max-width: 520px) {
+  .tile-hints-content--combat {
+    grid-template-columns: 1fr;
+  }
+
+  dl.rows--paired {
+    grid-template-columns: max-content 1fr;
+  }
 }
 
 .controls-note {
@@ -244,13 +286,20 @@ function joinKeys(keys: string[]) {
   return keys.map(labelForKey).join(' ');
 }
 
-function rowsFromMapKey(entries: readonly MapKeyRow[]) {
-  const dl = h('dl', { className: 'rows' });
+function rowsFromMapKey(entries: readonly MapKeyRow[], paired = false) {
+  const dl = h('dl', { className: paired ? 'rows rows--paired' : 'rows' });
   for (const row of entries) {
     dl.appendChild(h('dt', { textContent: row.glyph }));
     dl.appendChild(h('dd', { textContent: row.label }));
   }
   return dl;
+}
+
+function mapKeyGroup(title: string, entries: readonly MapKeyRow[], paired = false) {
+  return h('div', { className: 'map-key-group' }, [
+    h('h4', { textContent: title }),
+    rowsFromMapKey(entries, paired),
+  ]);
 }
 
 /** Keys routed to tab switching while the overlay is open (see index.ts). */
@@ -440,22 +489,27 @@ class KeyHelp extends HTMLElement {
         'In the hub, walk up to the Curator or the crew terminal (‡ glyph) and use Interact to hear rumors, pick contracts, or open the crew roster.',
     });
 
-    const perkHint = this.#archetypeInfo
-      ? `Your archetype special (${this.#archetypeInfo.perkName}) is a strong ability`
-      : 'Your archetype special (Vault, Slide, or Deploy) is a strong reposition';
     const combatExtra = h('p', {
-      textContent: `Opposing hostiles act after you wait (.) and pass the round. Walls and corners break line of sight for ranged shots; melee is usually cheaper AP than firing. ${perkHint} — pick it, aim a direction when prompted, then confirm.`,
+      textContent: `Opposing hostiles and defenses act after your turn -- if you see static, it's because something is happening elsewhere in the facility.
+      Walls and corners break line of sight for ranged shots; melee costs less AP than firing.`,
     });
 
     const moveHint = h('p', {
       textContent: 'Moving into a hostile attacks; into anything else, you interact.',
     });
 
+    const perkHint = this.#archetypeInfo
+      ? `${this.#archetypeInfo.perkLabel} — activate it, then pick a direction.`
+      : '';
+    const archetypeInfo = h('p', {
+      textContent: `Every player archetype has a special ability that can be used to move, attack, or both. ${perkHint}`,
+    });
+
     const turretHint =
       scope === 'combat' && this.#archetypeInfo?.id === 'tech'
         ? h('p', {
             textContent:
-              'Your deployed turret (T) inherits your max HP and fires twice each time you wait — before hostiles move.',
+              'Your deployed turret (T) inherits your max HP and fires up to twice at hostiles in range at the end of your turn.',
           })
         : null;
 
@@ -470,6 +524,7 @@ class KeyHelp extends HTMLElement {
       shared,
       scope === 'hub' ? hubExtra : combatExtra,
       moveHint,
+      archetypeInfo,
       turretHint,
       controlHint,
     ].filter(Boolean) as HTMLElement[];
@@ -479,24 +534,29 @@ class KeyHelp extends HTMLElement {
 
   #buildMapKey() {
     const scope = this.#scope;
-    const sections: HTMLElement[] = [rowsFromMapKey(MAP_KEY_UNIVERSAL)];
 
     if (scope === 'hub') {
-      sections.push(rowsFromMapKey(MAP_KEY_HUB));
-    } else {
-      sections.push(
-        rowsFromMapKey(MAP_KEY_COMBAT_TERRAIN),
-        rowsFromMapKey(MAP_KEY_COMBAT_HOSTILES),
-        rowsFromMapKey(MAP_KEY_COMBAT_ALLIES)
-      );
+      return h('section', { className: 'tile-hints' }, [
+        h('p', { className: 'section-label', textContent: 'HUB & UNIVERSAL' }),
+        h('div', { className: 'tile-hints-content' }, [
+          rowsFromMapKey(MAP_KEY_UNIVERSAL),
+          rowsFromMapKey(MAP_KEY_HUB),
+        ]),
+      ]);
     }
 
-    return h('section', { className: 'tile-hints' }, [
-      h('p', {
-        className: 'section-label',
-        textContent: scope === 'hub' ? 'HUB & UNIVERSAL' : 'COMBAT MAP',
-      }),
-      h('div', { className: 'tile-hints-content' }, sections),
+    return h('section', { className: 'tile-hints tile-hints--combat' }, [
+      h('p', { className: 'section-label', textContent: 'COMBAT MAP' }),
+      h('div', { className: 'tile-hints-content tile-hints-content--combat' }, [
+        h('div', { className: 'map-key-col map-key-col--basics' }, [
+          mapKeyGroup('UNIVERSAL', MAP_KEY_UNIVERSAL),
+          mapKeyGroup('TERRAIN', MAP_KEY_COMBAT_TERRAIN),
+          mapKeyGroup('ALLIES & LOOT', MAP_KEY_COMBAT_ALLIES),
+        ]),
+        h('div', { className: 'map-key-col map-key-col--hostiles' }, [
+          mapKeyGroup('HOSTILES', MAP_KEY_COMBAT_HOSTILES, true),
+        ]),
+      ]),
     ]);
   }
 

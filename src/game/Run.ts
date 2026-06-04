@@ -36,7 +36,7 @@ import { Rng } from '../rng.js';
 import { World } from './World.js';
 import { TurnQueue } from './TurnQueue.js';
 import { EventBus, EVENT } from './events.js';
-import { FACTION, TILE, SALVAGE_DROP_MIN, SALVAGE_DROP_MAX } from './constants.js';
+import { FACTION, TILE, SALVAGE_DROP_MIN, SALVAGE_DROP_MAX, ENEMY_ROLE } from './constants.js';
 import { coordKey, explorationReachableKeys } from './mapConnectivity.js';
 import { isValidBlockingPlacement, checkPlacementIntegrity } from './placement.js';
 import { makeSalvage, type TypedSalvage } from './salvage.js';
@@ -47,9 +47,17 @@ import { Merc } from './archetypes/Merc.js';
 import { Razor } from './archetypes/Razor.js';
 import { Tech } from './archetypes/Tech.js';
 import { Turret } from './Turret.js';
-import { CorpDrone } from './ai/CorpDrone.js';
+import { Skirmisher } from './ai/Skirmisher.js';
+import { Guard } from './ai/Guard.js';
+import { Bruiser } from './ai/Bruiser.js';
+import { Juggernaut } from './ai/Juggernaut.js';
+import { Flanker } from './ai/Flanker.js';
+import { Lookout } from './ai/Lookout.js';
+import { Sniper } from './ai/Sniper.js';
+import { Medic } from './ai/Medic.js';
+import { PatrolHostile } from './ai/PatrolHostile.js';
+import { composeEncounter, ENEMY_ARCHETYPE } from './encounters.js';
 import { CorpCivilian } from './entities/CorpCivilian.js';
-import { Interactable } from './entities/Interactable.js';
 import { Terminal } from './entities/Terminal.js';
 import { Door } from './entities/Door.js';
 import { Pickup } from './entities/Pickup.js';
@@ -65,6 +73,12 @@ import { applyMutationDeltas } from './locations.js';
 import { BreachingCharge } from './entities/BreachingCharge.js';
 import { ITEM_ID, getItemById } from './items.js';
 import { resetCorpTurnStatusCache } from './corpTurnStatusCopy.js';
+import {
+  objectiveProgress as resolveObjectiveProgress,
+  reconObjectiveProgress,
+  sweepQuotaType,
+  SWEEP_QUOTA,
+} from './objectiveProgress.js';
 import { NeutralCivilian } from './entities/NeutralCivilian.js';
 import { VisionField } from './Vision.js';
 import {
@@ -75,11 +89,28 @@ import {
   normalizeObjective,
 } from './hub/Curator.js';
 import { buildMap } from './procgen/mapBuild.js';
+import { normalizeMapDimensions } from './procgen/mapDimensions.js';
 import { findPath } from './Pathfinding.js';
 import type { Contract } from './hub/Curator.js';
 import type { FactionId } from './constants.js';
-import type { GridPoint, KeyItem, TileDelta } from '../types.js';
-import type { Inventory, Gear } from './Crew.js';
+import type { GridPoint, KeyItem, TileDelta, EntitySnapshotExtra } from '../types.js';
+import type { CrewSnapshot } from './Crew.js';
+import type { TechSnapshot } from './archetypes/Tech.js';
+import type { PatrolSnapshot } from './ai/PatrolHostile.js';
+import type { SniperSnapshot } from './ai/Sniper.js';
+import type { FlankerSnapshot } from './ai/Flanker.js';
+import type { TurretSnapshot } from './Turret.js';
+import type { CorpTurretSnapshot } from './entities/CorpTurret.js';
+import type { TerminalSnapshot } from './entities/Terminal.js';
+import type { DoorSnapshot } from './entities/Door.js';
+import type { PickupSnapshot } from './entities/Pickup.js';
+import type { ContactSnapshot } from './entities/Contact.js';
+import type { DenyTargetSnapshot } from './entities/DenyTarget.js';
+import type { SyncPadSnapshot } from './entities/SyncPad.js';
+import type { RelayNodeSnapshot } from './entities/RelayNode.js';
+import type { ConsumablePickupSnapshot } from './entities/ConsumablePickup.js';
+import type { EscortNpcSnapshot } from './entities/EscortNpc.js';
+import type { KeyCardSnapshot } from './entities/KeyCard.js';
 import type { AlarmState } from './World.js';
 
 export const RUN_STATE = Object.freeze({
@@ -95,9 +126,6 @@ export const OUTCOME = Object.freeze({
 
 const KNOWN_OUTCOMES = new Set(Object.values(OUTCOME));
 
-const COMBAT_MAP_WIDTH = 24;
-const COMBAT_MAP_HEIGHT = 16;
-
 export type RunState = (typeof RUN_STATE)[keyof typeof RUN_STATE];
 export type Outcome = (typeof OUTCOME)[keyof typeof OUTCOME];
 export type CrewArchetypeId = 'merc' | 'razor' | 'tech';
@@ -105,6 +133,13 @@ export type EntityArchetypeId =
   | CrewArchetypeId
   | 'turret'
   | 'drone'
+  | 'guard'
+  | 'bruiser'
+  | 'juggernaut'
+  | 'flanker'
+  | 'lookout'
+  | 'sniper'
+  | 'medic'
   | 'corp-civilian'
   | 'neutral-civilian'
   | 'door'
@@ -153,6 +188,31 @@ export type ObjectiveProgressSnapshot = {
   securedPickups: string[];
 };
 
+/** Archetype ids whose snapshot `extra` is a {@link PatrolSnapshot} block. */
+export const PATROL_ARCHETYPE_IDS = Object.freeze([
+  'drone',
+  'guard',
+  'bruiser',
+  'juggernaut',
+  'flanker',
+  'lookout',
+  'sniper',
+  'medic',
+] as const);
+
+export type PatrolArchetypeId = (typeof PATROL_ARCHETYPE_IDS)[number];
+
+/**
+ * M6.2: slimmed per-entity snapshot. Common fields every entity shares, plus a
+ * single opaque {@link EntitySnapshotExtra} property bag. Each archetype owns
+ * the strict shape of its own slice of `extra` (its exported `XSnapshot` type);
+ * the centre type stays ignorant of those shapes. This replaced the former
+ * ~24-key god-union — adding an archetype no longer edits this type.
+ *
+ * Legacy (pre-M6.2) saves stored those slices as named top-level sub-blocks
+ * (`drone`, `terminal`, …) and crew fields at the top level. `restoreEntity`
+ * normalises both shapes into `extra` on load (see `normalizeEntityExtra`).
+ */
 export type RunEntitySnapshot = {
   archetype: EntityArchetypeId;
   id: string;
@@ -162,77 +222,14 @@ export type RunEntitySnapshot = {
   glyph: string;
   hp: number;
   maxHp: number;
+  damageReduction?: number;
+  shieldHp?: number;
   ap: number;
   maxAp: number;
   alive: boolean;
   stealthed: boolean;
-  drone?: {
-    state: string;
-    lastKnownTarget: GridPoint | null;
-    patrolWaypoints: GridPoint[];
-    patrolIndex: number;
-  };
-  tech?: { turretReady: boolean };
-  callsign?: string | null;
-  flatlined?: boolean;
-  inventory?: Inventory | null;
-  gear?: Gear | null;
-  turret?: {
-    range: number;
-    attackDamage: number;
-    ownerId: string | null;
-  };
-  terminal?: {
-    label: string;
-    sliced: boolean;
-    armed: boolean;
-    raisesAlarm: boolean;
-    unlocksId: string | null;
-  };
-  door?: {
-    doorId: string;
-    locked: boolean;
-  };
-  pickup?: {
-    label: string;
-    secured: boolean;
-    armed: boolean;
-  };
-  contact?: {
-    label: string;
-    handoffComplete: boolean;
-    armed: boolean;
-  };
-  denyTarget?: {
-    label: string;
-    requiresBreach?: boolean;
-  };
-  syncPad?: {
-    label: string;
-    synced: boolean;
-    armed: boolean;
-  };
-  corpTurret?: {
-    range: number;
-    attackDamage: number;
-  };
-  relayNode?: {
-    label: string;
-  };
-  consumablePickup?: {
-    consumableId: string;
-    label: string;
-  };
-  escortNpc?: {
-    label: string;
-    activated: boolean;
-    armed: boolean;
-  };
-  keycard?: {
-    doorId: string;
-    label: string;
-    siteId?: string;
-  };
+  /** Opaque per-archetype payload; strict shape owned by the entity module. */
+  extra?: EntitySnapshotExtra;
 };
 
 export type RunSnapshot = {
@@ -434,8 +431,8 @@ export class Run {
     this.bus = new EventBus();
     const map = buildMap({
       rng: this.rng,
-      width: COMBAT_MAP_WIDTH,
-      height: COMBAT_MAP_HEIGHT,
+      width: this.contract.mapWidth,
+      height: this.contract.mapHeight,
       threatCount: this.contract.threatCount,
       difficulty: this.contract.difficulty,
       includePrefabDoors: contractRequiresDoor(this.contract),
@@ -463,21 +460,136 @@ export class Run {
     this.exitTile = { ...map.exitTile };
     const doorLinkedContract = contractRequiresDoor(this.contract);
     if (doorLinkedContract) {
-      // Place unlock terminals and door-gated props before drones so patrol
+      // Place unlock terminals and door-gated props before fodder so patrol
       // anchors cannot consume every spawn-side interactable tile.
       this.#placeObjectiveInteractables();
     }
-    for (let i = 0; i < map.drones.length; i++) {
-      const a = map.drones[i]!;
-      const drone = new CorpDrone({
-        id: `drone-${i}`,
-        x: a.x,
-        y: a.y,
-        maxAp: 3,
-        patrolWaypoints: a.waypoints,
-      });
-      this.world.addEntity(drone);
-      drone.bindToBus(this.bus);
+    // Phase 2.7: resolve role composition (fodder mix + specialist + elite)
+    // from the contract seed and difficulty. `composeEncounter` forks its own
+    // RNG so the mix is deterministic and independent of mapgen rolls.
+    const composition = composeEncounter({
+      seed: this.contract.seed,
+      difficulty: this.contract.difficulty,
+      fodderCount: map.fodder.length,
+    });
+    const fodder = composition.entries.filter(e => e.role === ENEMY_ROLE.FODDER);
+    for (let i = 0; i < map.fodder.length; i++) {
+      const a = map.fodder[i]!;
+      const entry = fodder[i];
+      const hostile =
+        entry?.archetype === ENEMY_ARCHETYPE.GUARD
+          ? new Guard({
+              id: `guard-${i}`,
+              x: a.x,
+              y: a.y,
+              maxAp: 3,
+              patrolWaypoints: a.waypoints,
+              tier: entry.tier,
+            })
+          : new Skirmisher({
+              id: `drone-${i}`,
+              x: a.x,
+              y: a.y,
+              maxAp: 3,
+              patrolWaypoints: a.waypoints,
+              tier: entry?.tier,
+            });
+      this.world.addEntity(hostile);
+      hostile.bindToBus(this.bus);
+    }
+    // Specialists map 1:1 onto the specialist anchors mapgen budgeted for this
+    // tier. Composition + anchor count agree by construction (both keyed to
+    // difficulty), so a mismatch is a bug — fail loud rather than drop a threat.
+    const specialists = composition.entries.filter(e => e.role === ENEMY_ROLE.SPECIALIST);
+    if (specialists.length > map.specialists.length) {
+      throw new Error(
+        `Run.enterCombat: ${specialists.length} specialist(s) composed but only ` +
+          `${map.specialists.length} anchor(s) for a ${this.contract.difficulty} map`
+      );
+    }
+    for (let i = 0; i < specialists.length; i++) {
+      const entry = specialists[i]!;
+      const a = map.specialists[i]!;
+      let specialist: PatrolHostile;
+      if (entry.archetype === ENEMY_ARCHETYPE.LOOKOUT) {
+        specialist = new Lookout({
+          id: `lookout-${i}`,
+          x: a.x,
+          y: a.y,
+          maxAp: 3,
+          patrolWaypoints: a.waypoints,
+          tier: entry.tier,
+        });
+      } else if (entry.archetype === ENEMY_ARCHETYPE.SNIPER) {
+        // Sniper keeps the default 4 AP so it can move-then-aim in one corp turn.
+        specialist = new Sniper({
+          id: `sniper-${i}`,
+          x: a.x,
+          y: a.y,
+          patrolWaypoints: a.waypoints,
+          tier: entry.tier,
+        });
+      } else if (entry.archetype === ENEMY_ARCHETYPE.MEDIC) {
+        specialist = new Medic({
+          id: `medic-${i}`,
+          x: a.x,
+          y: a.y,
+          maxAp: 3,
+          patrolWaypoints: a.waypoints,
+          tier: entry.tier,
+        });
+      } else {
+        // Guards the day a new specialist joins `available` before its spawn
+        // case lands here — fail loud rather than drop a composed threat.
+        throw new Error(`Run.enterCombat: no spawn case for specialist "${entry.archetype}"`);
+      }
+      this.world.addEntity(specialist);
+      specialist.bindToBus(this.bus);
+    }
+    // Elites map 1:1 onto elite anchors. CRITICAL maps currently reserve one
+    // anchor; a mismatch means composition and map budget drifted apart.
+    const elites = composition.entries.filter(e => e.role === ENEMY_ROLE.ELITE);
+    if (elites.length > map.elites.length) {
+      throw new Error(
+        `Run.enterCombat: ${elites.length} elite(s) composed but only ` +
+          `${map.elites.length} anchor(s) for a ${this.contract.difficulty} map`
+      );
+    }
+    for (let i = 0; i < elites.length; i++) {
+      const entry = elites[i]!;
+      const a = map.elites[i]!;
+      let elite: PatrolHostile;
+      if (entry.archetype === ENEMY_ARCHETYPE.BRUISER) {
+        elite = new Bruiser({
+          id: `bruiser-${i}`,
+          x: a.x,
+          y: a.y,
+          patrolWaypoints: a.waypoints,
+          tier: entry.tier,
+        });
+      } else if (entry.archetype === ENEMY_ARCHETYPE.JUGGERNAUT) {
+        // Juggernaut keeps its low base AP (lifted to 4 by the T3 elite bonus)
+        // so it cannot match the skirmisher's 4-AP dance.
+        elite = new Juggernaut({
+          id: `juggernaut-${i}`,
+          x: a.x,
+          y: a.y,
+          patrolWaypoints: a.waypoints,
+          tier: entry.tier,
+        });
+      } else if (entry.archetype === ENEMY_ARCHETYPE.FLANKER) {
+        elite = new Flanker({
+          id: `flanker-${i}`,
+          x: a.x,
+          y: a.y,
+          patrolWaypoints: a.waypoints,
+          tier: entry.tier,
+        });
+      } else {
+        throw new Error(`Run.enterCombat: no spawn case for elite "${entry.archetype}"`);
+      }
+      this.world.addEntity(elite);
+      elite.bindToBus(this.bus);
     }
     for (let i = 0; i < map.corpCivilians.length; i++) {
       const a = map.corpCivilians[i]!;
@@ -657,9 +769,9 @@ export class Run {
     this.recordMapSeen(keys);
   }
 
-  reconProgress(): ReconProgress {
-    if (!this.world) return { mapped: 0, required: 0 };
-    return reconObjectiveProgress(this.world, this.mapSeen);
+  objectiveProgress() {
+    if (!this.contract) return null;
+    return resolveObjectiveProgress(this.contract, this.world, this.mapSeen);
   }
 
   /**
@@ -740,13 +852,10 @@ export class Run {
     } else if (killed && attacker instanceof Turret && attacker.ownerId === this.player.id) {
       this.telemetry.kills = (this.telemetry.kills ?? 0) + 1;
     }
-    // M5: emit civilian:harmed when a NEUTRAL entity takes damage from the
-    // player (or the player's turret). The shell subscribes and adjusts Rep.
-    if (
-      target.faction === FACTION.NEUTRAL &&
-      target !== this.player &&
-      !(target instanceof Interactable)
-    ) {
+    // M5: emit civilian:harmed when a neutral *bystander* takes damage from the
+    // player (or the player's turret). Corp staff (CorpCivilian) are excluded —
+    // killing them is tactically valid and carries no Rep penalty.
+    if (target instanceof NeutralCivilian) {
       const isPlayerSource =
         attacker === this.player ||
         (attacker instanceof Turret && attacker.ownerId === this.player.id);
@@ -761,17 +870,17 @@ export class Run {
         });
       }
     }
-    // Unbind dead drones from the event bus immediately so their NOISE/ALARM
-    // handlers stop firing for the rest of the run. (#6 adversarial review)
-    if (killed && target instanceof CorpDrone) {
+    // Unbind dead patrol hostiles (drones, guards) from the event bus
+    // immediately so their NOISE/ALARM handlers stop firing for the rest of the
+    // run. (#6 adversarial review)
+    if (killed && target instanceof PatrolHostile) {
       target.unbind();
     }
 
     // M3: assign loot to killed hostiles. The loot roll uses the Run's own
     // Rng so it's deterministic on the contract seed.
-    // M4.2: loot is now typed — drones drop scrap (mechanical), corp turrets
-    // drop chips (electronics). Other future Hostiles fall through to the
-    // scrap default so adding a new enemy class doesn't break the loot loop.
+    // M4.2: loot is now typed — fodder drops scrap (mechanical), corp turrets
+    // drop chips (electronics), elites drop bio (augmentations).
     const lootTarget = target as Partial<LootableEntity>;
     if (killed && target instanceof Hostile && !lootTarget.loot) {
       lootTarget.loot = { salvage: this.#rollLoot(target) };
@@ -780,13 +889,16 @@ export class Run {
 
   /**
    * Roll typed loot for a freshly-killed hostile. Drone = scrap, turret = chips,
-   * everything else = scrap (safe default).
+   * elites = bio, everything else = scrap (safe default).
    */
   #rollLoot(target: Hostile): TypedSalvage {
     if (target instanceof CorpTurret) {
       // Pure electronics — chips only. Slightly tighter range than drones
       // since turrets are infrastructure rather than mobile threats.
       return makeSalvage({ chips: this.rng.intRange(SALVAGE_DROP_MIN, SALVAGE_DROP_MAX + 1) });
+    }
+    if (target instanceof Bruiser || target instanceof Juggernaut || target instanceof Flanker) {
+      return makeSalvage({ bio: this.rng.intRange(SALVAGE_DROP_MIN, SALVAGE_DROP_MAX + 1) });
     }
     return makeSalvage({
       scrap: this.rng.intRange(SALVAGE_DROP_MIN, SALVAGE_DROP_MAX + 1),
@@ -1080,7 +1192,7 @@ export class Run {
    * Place sweep-objective entities based on the sweep quota type:
    *   - relay-node: 3 RelayNode entities spread across the map.
    *   - turret: 2 CorpTurret entities at defensible positions.
-   *   - drone-all: 1 CorpTurret for ambient pressure (drones are already placed).
+   *   - hostile-all: 1 CorpTurret for ambient pressure (hostiles are already placed).
    */
   #placeSweepTargets(): void {
     if (!this.world || !this.player || !this.contract || !this.exitTile) return;
@@ -1110,9 +1222,10 @@ export class Run {
         }
         break;
       }
+      case SWEEP_QUOTA.HOSTILE_ALL:
       case SWEEP_QUOTA.DRONE_ALL:
       default: {
-        // Drones are already placed by enterCombat; add one corp turret
+        // Hostiles are already placed by enterCombat; add one corp turret
         // for ambient pressure.
         this.#placeCorpTurret(0);
         break;
@@ -1377,31 +1490,6 @@ export function objectiveTurnsRemaining(contract: Contract, turnNumber: number):
   return Math.max(0, limit - (turnNumber - 1));
 }
 
-export type ReconProgress = {
-  mapped: number;
-  required: number;
-};
-
-export function reconEligibleCellKeys(world: World | null | undefined): Set<string> {
-  if (!world) return new Set();
-  const player = playerInWorld(world);
-  if (!player) return allPassableCellKeys(world);
-  return explorationReachableKeys(world, { x: player.x, y: player.y });
-}
-
-export function reconObjectiveProgress(
-  world: World | null | undefined,
-  seen: ReadonlySet<string> | readonly string[] = []
-): ReconProgress {
-  const eligible = reconEligibleCellKeys(world);
-  const seenSet = asKeySet(seen);
-  let mapped = 0;
-  for (const key of eligible) {
-    if (seenSet.has(key)) mapped++;
-  }
-  return { mapped, required: eligible.size };
-}
-
 function isTurnLimitExpired(contract: Contract, turnNumber: number): boolean {
   const remaining = objectiveTurnsRemaining(contract, turnNumber);
   return remaining !== null && remaining <= 0;
@@ -1424,10 +1512,6 @@ function compareCoordKeys(a: string, b: string): number {
   return pa.y === pb.y ? pa.x - pb.x : pa.y - pb.y;
 }
 
-function asKeySet(keys: ReadonlySet<string> | readonly string[]): ReadonlySet<string> {
-  return keys instanceof Set ? keys : new Set(keys);
-}
-
 function playerInWorld(world: World): Entity | null {
   for (const entity of world.entities.values()) {
     if (entity instanceof EscortNpc) continue;
@@ -1445,20 +1529,136 @@ function exitTileInWorld(world: World): GridPoint | null {
   return null;
 }
 
-function allPassableCellKeys(world: World): Set<string> {
-  const keys = new Set<string>();
-  for (let y = 0; y < world.grid.height; y++) {
-    for (let x = 0; x < world.grid.width; x++) {
-      if (world.grid.isPassable(x, y)) keys.add(coordKey(x, y));
-    }
-  }
-  return keys;
-}
-
 // ---------------------------------------------------------------------------
 // Module-private serialisation helpers — kept outside the class so the
 // persistence module can stay symmetric (restore lives there, snapshot here).
 // ---------------------------------------------------------------------------
+
+/** Shared patrol state-machine slice (Skirmisher, Guard, Bruiser, …). */
+function patrolSnapshotExtra(e: PatrolHostile): PatrolSnapshot {
+  return {
+    state: e.state,
+    lastKnownTarget: e.lastKnownTarget ? { x: e.lastKnownTarget.x, y: e.lastKnownTarget.y } : null,
+    patrolWaypoints: e.patrolWaypoints.map(wp => ({ x: wp.x, y: wp.y })),
+    patrolIndex: e.patrolIndex,
+  };
+}
+
+/** Shared crew slice (Merc, Razor, Tech). Inventory/Gear are JSON-safe at runtime. */
+function crewSnapshotExtra(e: Crew): CrewSnapshot {
+  return {
+    callsign: e.callsign,
+    flatlined: !!e.flatlined,
+    inventory: e.inventory,
+    gear: e.gear,
+  };
+}
+
+/**
+ * M6.2: per-archetype `extra` producers. The symmetric counterpart of
+ * persistence's `ENTITY_RESTORE` registry — both keyed by archetype id, no
+ * `instanceof` cascade. Archetypes absent here (corp-civilian, neutral-civilian,
+ * breaching-charge, entity) carry no `extra`.
+ *
+ * Crew/Tech cast across the `EntitySnapshotExtra` boundary because `Inventory`/
+ * `Gear` aren't statically provable as `JsonValue` (they are JSON-safe at run
+ * time); every other slice is a clean primitive bag the compiler verifies.
+ */
+const SNAPSHOT_EXTRACTORS: Partial<Record<EntityArchetypeId, (e: Entity) => EntitySnapshotExtra>> =
+  {
+    merc: e => crewSnapshotExtra(e as Crew) as unknown as EntitySnapshotExtra,
+    razor: e => crewSnapshotExtra(e as Crew) as unknown as EntitySnapshotExtra,
+    tech: e =>
+      ({
+        ...crewSnapshotExtra(e as Crew),
+        turretReady: !!(e as Tech).turretReady,
+      }) satisfies TechSnapshot as unknown as EntitySnapshotExtra,
+    drone: e => patrolSnapshotExtra(e as PatrolHostile),
+    guard: e => patrolSnapshotExtra(e as PatrolHostile),
+    bruiser: e => patrolSnapshotExtra(e as PatrolHostile),
+    juggernaut: e => patrolSnapshotExtra(e as PatrolHostile),
+    lookout: e => patrolSnapshotExtra(e as PatrolHostile),
+    medic: e => patrolSnapshotExtra(e as PatrolHostile),
+    sniper: e =>
+      ({
+        ...patrolSnapshotExtra(e as PatrolHostile),
+        aimTargetId: (e as Sniper).aimTargetId,
+      }) satisfies SniperSnapshot,
+    flanker: e =>
+      ({
+        ...patrolSnapshotExtra(e as PatrolHostile),
+        slideConcealed: (e as Flanker).slideConcealed,
+      }) satisfies FlankerSnapshot,
+    turret: e => {
+      const t = e as Turret;
+      return {
+        range: t.range,
+        attackDamage: t.attackDamage,
+        ownerId: t.ownerId,
+      } satisfies TurretSnapshot;
+    },
+    'corp-turret': e => {
+      const t = e as CorpTurret;
+      return { range: t.range, attackDamage: t.attackDamage } satisfies CorpTurretSnapshot;
+    },
+    terminal: e => {
+      const t = e as Terminal;
+      return {
+        label: t.label,
+        sliced: t.sliced,
+        armed: t.armed,
+        raisesAlarm: t.raisesAlarm,
+        unlocksId: t.unlocksId,
+      } satisfies TerminalSnapshot;
+    },
+    door: e => {
+      const d = e as Door;
+      return { doorId: d.doorId, locked: d.locked } satisfies DoorSnapshot;
+    },
+    pickup: e => {
+      const p = e as Pickup;
+      return { label: p.label, secured: p.secured, armed: p.armed } satisfies PickupSnapshot;
+    },
+    contact: e => {
+      const c = e as Contact;
+      return {
+        label: c.label,
+        handoffComplete: c.handoffComplete,
+        armed: c.armed,
+      } satisfies ContactSnapshot;
+    },
+    'deny-target': e => {
+      const d = e as DenyTarget;
+      return { label: d.label, requiresBreach: d.requiresBreach } satisfies DenyTargetSnapshot;
+    },
+    'sync-pad': e => {
+      const s = e as SyncPad;
+      return { label: s.label, synced: s.synced, armed: s.armed } satisfies SyncPadSnapshot;
+    },
+    'relay-node': e => {
+      const r = e as RelayNode;
+      return { label: r.label } satisfies RelayNodeSnapshot;
+    },
+    'consumable-pickup': e => {
+      const c = e as ConsumablePickup;
+      return {
+        consumableId: c.consumableId,
+        label: c.label,
+      } satisfies ConsumablePickupSnapshot;
+    },
+    'escort-npc': e => {
+      const n = e as EscortNpc;
+      return { label: n.label, activated: n.activated, armed: n.armed } satisfies EscortNpcSnapshot;
+    },
+    keycard: e => {
+      const k = e as KeyCard;
+      return {
+        doorId: k.doorId,
+        label: k.label,
+        siteId: k.siteId ?? null,
+      } satisfies KeyCardSnapshot;
+    },
+  };
 
 function snapshotEntity(entity: Entity): RunEntitySnapshot {
   const archetype = archetypeOf(entity);
@@ -1471,113 +1671,15 @@ function snapshotEntity(entity: Entity): RunEntitySnapshot {
     glyph: entity.glyph,
     hp: entity.hp,
     maxHp: entity.maxHp,
+    damageReduction: entity.damageReduction,
+    shieldHp: entity.shieldHp,
     ap: entity.ap,
     maxAp: entity.maxAp,
     alive: entity.alive,
     stealthed: !!entity.stealthed,
   };
-  if (entity instanceof CorpDrone) {
-    base.drone = {
-      state: entity.state,
-      lastKnownTarget: entity.lastKnownTarget ? { ...entity.lastKnownTarget } : null,
-      patrolWaypoints: entity.patrolWaypoints.map(wp => ({ x: wp.x, y: wp.y })),
-      patrolIndex: entity.patrolIndex,
-    };
-  }
-  if (entity instanceof Tech) {
-    // M1 design lock: the Tech's pre-built turret is a flag, not a count. M3
-    // will rework this into an inventory-based item once the salvage loop
-    // lands; for now snapshotting the bool is enough to round-trip a run
-    // where the player did or did not deploy mid-job.
-    base.tech = { turretReady: !!entity.turretReady };
-  }
-  if (entity instanceof Merc || entity instanceof Razor || entity instanceof Tech) {
-    base.callsign = entity.callsign;
-    base.flatlined = !!entity.flatlined;
-    base.inventory = entity.inventory;
-    base.gear = entity.gear;
-  }
-  if (entity instanceof Turret) {
-    base.turret = {
-      range: entity.range,
-      attackDamage: entity.attackDamage,
-      ownerId: entity.ownerId,
-    };
-  }
-  if (entity instanceof Terminal) {
-    base.terminal = {
-      label: entity.label,
-      sliced: entity.sliced,
-      armed: entity.armed,
-      raisesAlarm: entity.raisesAlarm,
-      unlocksId: entity.unlocksId,
-    };
-  }
-  if (entity instanceof Door) {
-    base.door = {
-      doorId: entity.doorId,
-      locked: entity.locked,
-    };
-  }
-  if (entity instanceof Pickup) {
-    base.pickup = {
-      label: entity.label,
-      secured: entity.secured,
-      armed: entity.armed,
-    };
-  }
-  if (entity instanceof Contact) {
-    base.contact = {
-      label: entity.label,
-      handoffComplete: entity.handoffComplete,
-      armed: entity.armed,
-    };
-  }
-  if (entity instanceof DenyTarget) {
-    base.denyTarget = {
-      label: entity.label,
-      requiresBreach: entity.requiresBreach,
-    };
-  }
-  if (entity instanceof SyncPad) {
-    base.syncPad = {
-      label: entity.label,
-      synced: entity.synced,
-      armed: entity.armed,
-    };
-  }
-  if (entity instanceof CorpTurret) {
-    base.corpTurret = {
-      range: entity.range,
-      attackDamage: entity.attackDamage,
-    };
-  }
-  if (entity instanceof RelayNode) {
-    base.relayNode = {
-      label: entity.label,
-    };
-  }
-  if (entity instanceof ConsumablePickup) {
-    base.consumablePickup = {
-      consumableId: entity.consumableId,
-      label: entity.label,
-    };
-  }
-  if (entity instanceof EscortNpc) {
-    base.escortNpc = {
-      label: entity.label,
-      activated: entity.activated,
-      armed: entity.armed,
-    };
-  }
-  if (entity instanceof KeyCard) {
-    const kcSnap: NonNullable<RunEntitySnapshot['keycard']> = {
-      doorId: entity.doorId,
-      label: entity.label,
-    };
-    if (entity.siteId) kcSnap.siteId = entity.siteId;
-    base.keycard = kcSnap;
-  }
+  const extract = SNAPSHOT_EXTRACTORS[archetype];
+  if (extract) base.extra = extract(entity);
   return base;
 }
 
@@ -1586,7 +1688,14 @@ function archetypeOf(entity: Entity): EntityArchetypeId {
   if (entity instanceof Razor) return 'razor';
   if (entity instanceof Tech) return 'tech';
   if (entity instanceof Turret) return 'turret';
-  if (entity instanceof CorpDrone) return 'drone';
+  if (entity instanceof Bruiser) return 'bruiser';
+  if (entity instanceof Juggernaut) return 'juggernaut';
+  if (entity instanceof Flanker) return 'flanker';
+  if (entity instanceof Sniper) return 'sniper';
+  if (entity instanceof Medic) return 'medic';
+  if (entity instanceof Lookout) return 'lookout';
+  if (entity instanceof Guard) return 'guard';
+  if (entity instanceof Skirmisher) return 'drone';
   if (entity instanceof CorpCivilian) return 'corp-civilian';
   if (entity instanceof NeutralCivilian) return 'neutral-civilian';
   if (entity instanceof Door) return 'door';
@@ -1727,39 +1836,16 @@ function targetLabel(target: string): string {
     .join(' ');
 }
 
-/**
- * Sweep quota types:
- *   - `drone-all`:   All CorpDrone entities dead.
- *   - `relay-node`:  All RelayNode entities dead (or a params.count subset).
- *   - `turret`:      All CorpTurret entities dead (or a params.count subset).
- *
- * The quota type is inferred from `params.sweepTarget` (explicit) or
- * `params.target` (label-driven default). If no recognizable target is set,
- * falls back to `drone-all` — kill every drone on the map.
- */
-export const SWEEP_QUOTA = Object.freeze({
-  DRONE_ALL: 'drone-all',
-  RELAY_NODE: 'relay-node',
-  TURRET: 'turret',
-});
-
-function sweepQuotaType(contract: Contract): string {
-  const target = (contract.objective.params?.sweepTarget ?? contract.objective.params?.target) as
-    | string
-    | undefined;
-  if (!target) return SWEEP_QUOTA.DRONE_ALL;
-  if (target === 'relay-node' || target === 'skybridge-relay') return SWEEP_QUOTA.RELAY_NODE;
-  if (target === 'turret' || target === 'corp-turret') return SWEEP_QUOTA.TURRET;
-  return SWEEP_QUOTA.DRONE_ALL;
-}
-
 function isSweepSatisfied(contract: Contract, world?: World | null): boolean {
   if (!world) return false;
   const quota = sweepQuotaType(contract);
   switch (quota) {
+    case SWEEP_QUOTA.HOSTILE_ALL:
     case SWEEP_QUOTA.DRONE_ALL: {
       for (const entity of world.entities.values()) {
-        if (entity instanceof CorpDrone && entity.alive) return false;
+        if (entity instanceof Hostile && entity.alive) {
+          return false;
+        }
       }
       return true;
     }
@@ -2166,8 +2252,11 @@ function normalizeContractForRun(contract: unknown): Contract {
     throw new TypeError('contract.label must be a non-empty string');
   }
   const context = normalizeContractContext(candidate.context);
+  const dimensions = normalizeMapDimensions(candidate.mapWidth, candidate.mapHeight, 'contract');
   return {
     seed,
+    mapWidth: dimensions.width,
+    mapHeight: dimensions.height,
     objective,
     difficulty,
     threatCount,

@@ -1,0 +1,15 @@
+#!/bin/sh
+# Mirrors the CI "format:check" gate so unformatted code never reaches a PR.
+# Bypass in a pinch with: git push --no-verify
+echo "→ pre-push: checking Prettier formatting (npm run format:check)…"
+
+if ! npm run --silent format:check; then
+	echo ""
+	echo "✗ Prettier found unformatted files (this is what CI fails on)."
+	echo "  Fix with:  npm run format"
+	echo "  Then re-commit and push again."
+	exit 1
+fi
+
+echo "✓ Formatting OK."
+exit 0

@@ -8,14 +8,11 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
+import { Run, RUN_STATE, OUTCOME, isObjectiveSatisfied } from '../../../src/game/Run.js';
 import {
-  Run,
-  RUN_STATE,
-  OUTCOME,
-  isObjectiveSatisfied,
   reconEligibleCellKeys,
   reconObjectiveProgress,
-} from '../../../src/game/Run.js';
+} from '../../../src/game/objectiveProgress.js';
 import { Merc } from '../../../src/game/archetypes/Merc.js';
 import { Grid } from '../../../src/game/Grid.js';
 import { World } from '../../../src/game/World.js';
@@ -139,10 +136,11 @@ describe('recon runs', () => {
     run.enterBriefing(makeReconContract());
     run.enterCombat();
 
-    const startProgress = run.reconProgress();
-    assert.ok(startProgress.required > 0);
-    assert.ok(startProgress.mapped > 0);
-    assert.ok(startProgress.mapped < startProgress.required);
+    const startProgress = run.objectiveProgress()!;
+    assert.equal(startProgress.label, 'MAP');
+    assert.ok(startProgress.total > 0);
+    assert.ok(startProgress.current > 0);
+    assert.ok(startProgress.current < startProgress.total);
     assert.equal(run.isObjectiveSatisfied(), false);
 
     // Reaching exit before recon is complete is an abort extraction.
@@ -196,15 +194,15 @@ describe('recon runs', () => {
     const eligible = reconEligibleCellKeys(run.world!);
     const seen = new Set([...eligible].slice(0, 3));
     run.recordReconSeen(seen);
-    const before = run.reconProgress();
+    const before = run.objectiveProgress()!;
     const beforeSeen = new Set(run.mapSeenKeys());
 
     const rec = snapshot(run);
     const { run: restored } = restore(rec);
 
-    assert.deepEqual(restored.reconProgress(), before);
+    assert.deepEqual(restored.objectiveProgress(), before);
     assert.deepEqual(new Set(restored.mapSeenKeys()), beforeSeen);
-    assert.equal(restored.isObjectiveSatisfied(), before.mapped === before.required);
+    assert.equal(restored.isObjectiveSatisfied(), before.current === before.total);
 
     const vision = new VisionField();
     vision.restoreSeen(restored.mapSeenKeys());

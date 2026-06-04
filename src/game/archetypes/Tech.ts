@@ -1,8 +1,11 @@
 import { Crew } from '../Crew.js';
 import { FACTION, AP_COST, SALVAGE_PER_IMPROVISED_TURRET } from '../constants.js';
 import { Turret } from '../Turret.js';
-import type { CrewInit } from '../Crew.js';
+import type { CrewInit, CrewSnapshot } from '../Crew.js';
 import type { World } from '../World.js';
+
+/** M6.2: Tech snapshot `extra` — crew fields plus the pre-built turret flag. */
+export type TechSnapshot = CrewSnapshot & { turretReady: boolean };
 
 /**
  * Curated callsign pool for the Tech archetype. See `Merc.js` CALLSIGNS for

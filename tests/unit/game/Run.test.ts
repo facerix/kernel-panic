@@ -5,15 +5,19 @@ import { Run, RUN_STATE, OUTCOME, isObjectiveSatisfied } from '../../../src/game
 import { OBJECTIVES } from '../../../src/game/hub/Curator.js';
 import { FACTION, SALVAGE_DROP_MIN, SALVAGE_DROP_MAX } from '../../../src/game/constants.js';
 import { totalSalvage, emptySalvage } from '../../../src/game/salvage.js';
-import { Entity } from '../../../src/game/Entity.js';
 import { Terminal } from '../../../src/game/entities/Terminal.js';
 import { EVENT } from '../../../src/game/events.js';
 import { Turret } from '../../../src/game/Turret.js';
+import { resolveMelee } from '../../../src/game/Combat.js';
 import { CorpTurret } from '../../../src/game/entities/CorpTurret.js';
 import { CorpCivilian } from '../../../src/game/entities/CorpCivilian.js';
 import { NeutralCivilian } from '../../../src/game/entities/NeutralCivilian.js';
 import { ConsumablePickup } from '../../../src/game/entities/ConsumablePickup.js';
 import { restore, snapshot } from '../../../src/game/persistence.js';
+import { Bruiser } from '../../../src/game/ai/Bruiser.js';
+import { Juggernaut } from '../../../src/game/ai/Juggernaut.js';
+import { Flanker } from '../../../src/game/ai/Flanker.js';
+import { Sniper } from '../../../src/game/ai/Sniper.js';
 import { buildCrewMember } from '../../../src/game/archetypes/index.js';
 import { findPath } from '../../../src/game/Pathfinding.js';
 import { Rng } from '../../../src/rng.js';
@@ -90,6 +94,32 @@ test('legal transition chain: BRIEFING → COMBAT → RESULT', () => {
   assert.equal(run.state, RUN_STATE.RESULT);
 });
 
+test('enterCombat uses persisted contract map dimensions', () => {
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 42 });
+  run.enterBriefing(fakeContract({ mapWidth: 28, mapHeight: 18, threatCount: 2 }));
+
+  run.enterCombat();
+
+  assert.equal(run.world!.grid.width, 28);
+  assert.equal(run.world!.grid.height, 18);
+});
+
+test('legacy contracts without map dimensions default to 24x16', () => {
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 42 });
+  run.enterBriefing(fakeContract({ threatCount: 2 }));
+
+  run.enterCombat();
+
+  assert.equal(run.world!.grid.width, 24);
+  assert.equal(run.world!.grid.height, 16);
+});
+
+test('partial contract map dimensions fail loud', () => {
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 42 });
+
+  assert.throws(() => run.enterBriefing(fakeContract({ mapWidth: 28 })), /mapWidth and mapHeight/);
+});
+
 test('enterCombat passes contract threat and difficulty into map generation', () => {
   const run = new Run({ crewMember: makeCrew('razor'), seed: 42 });
   run.enterBriefing(
@@ -100,8 +130,216 @@ test('enterCombat passes contract threat and difficulty into map generation', ()
     })
   );
   run.enterCombat();
-  const drones = [...run.world.entities.values()].filter(entity => entity.id.startsWith('drone-'));
-  assert.equal(drones.length, 4);
+  // Phase 2.7 M2: threatCount sizes the *fodder* count, and the seed-driven
+  // composition fills each anchor with a skirmisher (`drone-`) or a guard
+  // (`guard-`). Count both so the assertion tracks the threat budget rather
+  // than a single class.
+  const fodder = [...run.world.entities.values()].filter(
+    entity => entity.id.startsWith('drone-') || entity.id.startsWith('guard-')
+  );
+  assert.equal(fodder.length, 4);
+  const elites = [...run.world.entities.values()].filter(
+    entity => entity instanceof Bruiser || entity instanceof Juggernaut || entity instanceof Flanker
+  );
+  assert.equal(elites.length, 1, 'CRITICAL contracts spawn one T3 elite anchor');
+});
+
+test('STANDARD encounter fills fodder anchors with a deterministic skirmisher/guard mix', () => {
+  // seed 42 / STANDARD / fodderCount 3 → composeEncounter rolls [guard, guard,
+  // skirmisher], mapped 1:1 onto the three drone anchors. Deterministic on the
+  // contract seed, independent of mapgen.
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 1 });
+  run.enterBriefing(fakeContract({ seed: 42, difficulty: 'standard', threatCount: 3 }));
+  run.enterCombat();
+  const ids = [...run.world.entities.values()].map(e => e.id);
+  assert.equal(ids.filter(id => id.startsWith('guard-')).length, 2);
+  assert.equal(ids.filter(id => id.startsWith('drone-')).length, 1);
+  assert.equal(ids.filter(id => id.startsWith('lookout-')).length, 0, 'STANDARD has no specialist');
+});
+
+test('ELEVATED encounter spawns fodder plus exactly one specialist', () => {
+  // Phase 2.7 M3: ELEVATED (T2) rolls one specialist from the buildable pool
+  // ([sniper, lookout] in canonical order). Seed 7 → sniper on this roster.
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 1 });
+  run.enterBriefing(fakeContract({ seed: 7, difficulty: 'elevated', threatCount: 3 }));
+  run.enterCombat();
+  const specialists = [...run.world.entities.values()].filter(
+    e => e.id.startsWith('lookout-') || e.id.startsWith('sniper-')
+  );
+  assert.equal(specialists.length, 1, 'exactly one T2 specialist');
+  assert.equal(specialists[0].constructor.name, 'Sniper');
+  const fodder = [...run.world.entities.values()].filter(
+    e => e.id.startsWith('drone-') || e.id.startsWith('guard-')
+  );
+  assert.equal(fodder.length, 3, 'fodder count still tracks threatCount');
+});
+
+test('a spawned Lookout round-trips through a run snapshot', () => {
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 1 });
+  run.enterBriefing(fakeContract({ seed: 3, difficulty: 'elevated', threatCount: 3 }));
+  run.enterCombat();
+  const before = [...run.world.entities.values()].find(e => e.id.startsWith('lookout-'));
+  assert.ok(before, 'lookout present pre-snapshot');
+  before.state = 'investigate';
+  before.lastKnownTarget = { x: before.x, y: before.y };
+
+  const rec = snapshot(run);
+  assert.ok(
+    rec.entities.some(entity => entity.archetype === 'lookout'),
+    'lookout serialised under its own archetype'
+  );
+  const { world } = restore(rec);
+  const after = [...world.entities.values()].find(e => e.id.startsWith('lookout-'));
+  assert.ok(after, 'lookout survives the round-trip');
+  assert.equal(after.constructor.name, 'Lookout');
+  assert.equal(after.x, before.x);
+  assert.equal(after.y, before.y);
+  assert.equal(after.state, 'investigate');
+  assert.deepEqual(after.lastKnownTarget, before.lastKnownTarget);
+});
+
+test('a spawned Sniper round-trips aimTargetId through a run snapshot', () => {
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 1 });
+  run.enterBriefing(fakeContract({ seed: 7, difficulty: 'elevated', threatCount: 3 }));
+  run.enterCombat();
+  const before = [...run.world.entities.values()].find(e => e.id.startsWith('sniper-'));
+  assert.ok(before instanceof Sniper, 'sniper present pre-snapshot');
+  before.aimTargetId = run.player!.id;
+
+  const rec = snapshot(run);
+  assert.ok(
+    rec.entities.some(entity => entity.archetype === 'sniper' && entity.extra?.aimTargetId),
+    'sniper serialised with pending aim'
+  );
+  const { world } = restore(rec);
+  const after = [...world.entities.values()].find(e => e.id.startsWith('sniper-'));
+  assert.ok(after instanceof Sniper, 'sniper survives the round-trip');
+  assert.equal(after.aimTargetId, run.player!.id);
+});
+
+test('a spawned Bruiser round-trips through a run snapshot', () => {
+  // contract seed 0 / CRITICAL / fodder 4 deterministically rolls a Bruiser
+  // after M4.3 widened the elite pool to include Flanker.
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 1 });
+  run.enterBriefing(fakeContract({ seed: 0, difficulty: 'critical', threatCount: 4 }));
+  run.enterCombat();
+  const before = [...run.world.entities.values()].find(e => e instanceof Bruiser);
+  assert.ok(before instanceof Bruiser, 'bruiser present pre-snapshot');
+  before.state = 'investigate';
+  before.lastKnownTarget = { x: before.x, y: before.y };
+
+  const rec = snapshot(run);
+  const bruiserRec = rec.entities.find(e => e.id === before.id);
+  assert.equal(bruiserRec?.archetype, 'bruiser');
+  assert.ok(bruiserRec?.extra, 'state machine lives in the slim extra bag (M6.2)');
+  assert.equal(bruiserRec?.extra?.state, 'investigate');
+
+  const { world } = restore(rec);
+  const after = [...world.entities.values()].find(e => e.id === before.id);
+  assert.ok(after instanceof Bruiser, 'bruiser survives the round-trip');
+  assert.equal(after.glyph, 'b');
+  assert.equal(after.state, 'investigate');
+  assert.deepEqual(after.lastKnownTarget, before.lastKnownTarget);
+});
+
+test('a spawned Juggernaut round-trips through a run snapshot', () => {
+  // contract seed 1 / CRITICAL / fodder 4 deterministically rolls a Juggernaut.
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 1 });
+  run.enterBriefing(fakeContract({ seed: 1, difficulty: 'critical', threatCount: 4 }));
+  run.enterCombat();
+  const before = [...run.world.entities.values()].find(e => e instanceof Juggernaut);
+  assert.ok(before instanceof Juggernaut, 'juggernaut present pre-snapshot');
+  before.state = 'investigate';
+  before.lastKnownTarget = { x: before.x, y: before.y };
+
+  const rec = snapshot(run);
+  const jugRec = rec.entities.find(e => e.id === before.id);
+  assert.equal(jugRec?.archetype, 'juggernaut');
+  assert.ok(jugRec?.extra, 'state machine lives in the slim extra bag (M6.2)');
+  assert.equal(jugRec?.extra?.state, 'investigate');
+
+  const { world } = restore(rec);
+  const after = [...world.entities.values()].find(e => e.id === before.id);
+  assert.ok(after instanceof Juggernaut, 'juggernaut survives the round-trip');
+  assert.equal(after.glyph, 'j');
+  assert.equal(after.state, 'investigate');
+  assert.deepEqual(after.lastKnownTarget, before.lastKnownTarget);
+});
+
+test('a spawned Flanker round-trips slide conceal through a run snapshot', () => {
+  // contract seed 2 / CRITICAL / fodder 4 deterministically rolls a Flanker.
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 1 });
+  run.enterBriefing(fakeContract({ seed: 2, difficulty: 'critical', threatCount: 4 }));
+  run.enterCombat();
+  const before = [...run.world.entities.values()].find(e => e instanceof Flanker);
+  assert.ok(before instanceof Flanker, 'flanker present pre-snapshot');
+  before.state = 'investigate';
+  before.lastKnownTarget = { x: before.x, y: before.y };
+  before.slideConcealed = true;
+
+  const rec = snapshot(run);
+  const flankerRec = rec.entities.find(e => e.id === before.id);
+  assert.equal(flankerRec?.archetype, 'flanker');
+  assert.ok(flankerRec?.extra, 'state machine lives in the slim extra bag (M6.2)');
+  assert.equal(flankerRec?.extra?.slideConcealed, true);
+
+  const { world } = restore(rec);
+  const after = [...world.entities.values()].find(e => e.id === before.id);
+  assert.ok(after instanceof Flanker, 'flanker survives the round-trip');
+  assert.equal(after.glyph, 'f');
+  assert.equal(after.state, 'investigate');
+  assert.deepEqual(after.lastKnownTarget, before.lastKnownTarget);
+  assert.equal(after.slideConcealed, true);
+});
+
+test('hostile-all sweep is not satisfied while a guard remains alive', () => {
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 1 });
+  run.enterBriefing(
+    fakeContract({
+      seed: 42, // → 2 guards + 1 skirmisher
+      difficulty: 'standard',
+      threatCount: 3,
+      objective: {
+        kind: OBJECTIVES.SWEEP,
+        title: 'Sweep',
+        briefing: 'Clear all hostiles.',
+        params: { sweepTarget: 'hostile-all' },
+      },
+      context: testContractContext(OBJECTIVES.SWEEP),
+    })
+  );
+  run.enterCombat();
+  const fodder = [...run.world.entities.values()].filter(
+    e => e.id.startsWith('drone-') || e.id.startsWith('guard-')
+  );
+  const turret = [...run.world.entities.values()].find(e => e instanceof CorpTurret);
+  assert.ok(turret, 'hostile-all sweep places an ambient turret that counts as hostile');
+  // Kill only the skirmishers — guards still hold the room.
+  for (const e of fodder) if (e.id.startsWith('drone-')) e.damage(e.hp);
+  assert.equal(run.isObjectiveSatisfied(), false, 'sweep incomplete while guards live');
+  // Drop the guards too, but the ambient turret is still a live hostile.
+  for (const e of fodder) if (e.id.startsWith('guard-')) e.damage(e.hp);
+  assert.equal(run.isObjectiveSatisfied(), false, 'sweep incomplete while turret lives');
+  turret.damage(turret.hp);
+  assert.equal(run.isObjectiveSatisfied(), true, 'all live hostiles down — sweep complete');
+});
+
+test('a killed guard drops scrap salvage', () => {
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 1 });
+  run.enterBriefing(fakeContract({ seed: 42, difficulty: 'standard', threatCount: 3 }));
+  run.enterCombat();
+  const guard = [...run.world.entities.values()].find(e => e.id.startsWith('guard-'));
+  assert.ok(guard, 'seed 42 rolls at least one guard');
+  // Teleport the player adjacent and swing; the run's combat listener assigns
+  // loot on a kill. dodgeChance 0 forces a connect.
+  run.player.x = guard.x + 1;
+  run.player.y = guard.y;
+  guard.hp = 1; // one swing kills regardless of melee tuning
+  resolveMelee(run.world, run.player, guard, new Rng(1), { dodgeChance: 0 });
+  assert.ok(!guard.alive, 'guard down');
+  assert.ok(guard.loot, 'killed guard received loot');
+  assert.ok(totalSalvage(guard.loot.salvage) > 0);
+  assert.ok(guard.loot.salvage.scrap > 0, 'fodder drops scrap');
 });
 
 test('terminal-slice contract spawns a terminal and gates objective satisfaction', () => {
@@ -394,6 +632,79 @@ test('killing a CorpTurret drops chips, not scrap (M4.2)', () => {
   );
 });
 
+test('killing a Bruiser drops bio salvage, not scrap or chips', () => {
+  const run = new Run({ crewMember: makeCrew('merc'), seed: 1 });
+  run.enterBriefing(fakeContract({ seed: 0, difficulty: 'critical', threatCount: 4 }));
+  run.enterCombat();
+  const bruiser = [...run.world.entities.values()].find(e => e instanceof Bruiser);
+  assert.ok(bruiser instanceof Bruiser, 'critical job should spawn a bruiser');
+  bruiser.damage(bruiser.maxHp);
+  run.bus.emit('entity:damaged', {
+    attacker: run.player,
+    target: bruiser,
+    damage: bruiser.maxHp,
+    killed: true,
+    source: 'ranged',
+  });
+  assert.ok(bruiser.loot, 'killed bruiser should have loot assigned');
+  assert.equal(bruiser.loot.salvage.scrap, 0, 'bruiser loot has no scrap');
+  assert.equal(bruiser.loot.salvage.chips, 0, 'bruiser loot has no chips');
+  assert.equal(bruiser.loot.salvage.data, 0, 'bruiser loot has no data');
+  assert.ok(
+    bruiser.loot.salvage.bio >= SALVAGE_DROP_MIN && bruiser.loot.salvage.bio <= SALVAGE_DROP_MAX,
+    `bio ${bruiser.loot.salvage.bio} outside [${SALVAGE_DROP_MIN}, ${SALVAGE_DROP_MAX}]`
+  );
+});
+
+test('killing a Juggernaut drops bio salvage, not scrap or chips', () => {
+  const run = new Run({ crewMember: makeCrew('merc'), seed: 1 });
+  run.enterBriefing(fakeContract({ seed: 1, difficulty: 'critical', threatCount: 4 }));
+  run.enterCombat();
+  const juggernaut = [...run.world.entities.values()].find(e => e instanceof Juggernaut);
+  assert.ok(juggernaut instanceof Juggernaut, 'critical job should spawn a juggernaut');
+  juggernaut.damage(juggernaut.maxHp);
+  run.bus.emit('entity:damaged', {
+    attacker: run.player,
+    target: juggernaut,
+    damage: juggernaut.maxHp,
+    killed: true,
+    source: 'ranged',
+  });
+  assert.ok(juggernaut.loot, 'killed juggernaut should have loot assigned');
+  assert.equal(juggernaut.loot.salvage.scrap, 0, 'juggernaut loot has no scrap');
+  assert.equal(juggernaut.loot.salvage.chips, 0, 'juggernaut loot has no chips');
+  assert.equal(juggernaut.loot.salvage.data, 0, 'juggernaut loot has no data');
+  assert.ok(
+    juggernaut.loot.salvage.bio >= SALVAGE_DROP_MIN &&
+      juggernaut.loot.salvage.bio <= SALVAGE_DROP_MAX,
+    `bio ${juggernaut.loot.salvage.bio} outside [${SALVAGE_DROP_MIN}, ${SALVAGE_DROP_MAX}]`
+  );
+});
+
+test('killing a Flanker drops bio salvage, not scrap or chips', () => {
+  const run = new Run({ crewMember: makeCrew('merc'), seed: 1 });
+  run.enterBriefing(fakeContract({ seed: 2, difficulty: 'critical', threatCount: 4 }));
+  run.enterCombat();
+  const flanker = [...run.world.entities.values()].find(e => e instanceof Flanker);
+  assert.ok(flanker instanceof Flanker, 'critical job should spawn a flanker');
+  flanker.damage(flanker.maxHp);
+  run.bus.emit('entity:damaged', {
+    attacker: run.player,
+    target: flanker,
+    damage: flanker.maxHp,
+    killed: true,
+    source: 'ranged',
+  });
+  assert.ok(flanker.loot, 'killed flanker should have loot assigned');
+  assert.equal(flanker.loot.salvage.scrap, 0, 'flanker loot has no scrap');
+  assert.equal(flanker.loot.salvage.chips, 0, 'flanker loot has no chips');
+  assert.equal(flanker.loot.salvage.data, 0, 'flanker loot has no data');
+  assert.ok(
+    flanker.loot.salvage.bio >= SALVAGE_DROP_MIN && flanker.loot.salvage.bio <= SALVAGE_DROP_MAX,
+    `bio ${flanker.loot.salvage.bio} outside [${SALVAGE_DROP_MIN}, ${SALVAGE_DROP_MAX}]`
+  );
+});
+
 test('non-lethal damage does not assign loot', () => {
   const run = new Run({ crewMember: makeCrew('razor'), seed: 1 });
   run.enterBriefing(fakeContract());
@@ -497,7 +808,7 @@ test('Run snapshot/restore preserves on-map consumable pickups', () => {
 
 // --- M5: civilian:harmed emission --------------------------------------------
 
-test('civilian:harmed emitted when player damages a NEUTRAL entity', () => {
+test('civilian:harmed emitted when player damages a NeutralCivilian', () => {
   const run = new Run({ crewMember: makeCrew('merc'), seed: 42 });
   run.enterBriefing(fakeContract());
   run.enterCombat();
@@ -527,13 +838,7 @@ test('civilian:harmed emitted when player damages a NEUTRAL entity', () => {
   }
   assert.ok(nx >= 0, 'need a passable neighbor to place neutral');
 
-  const neutral = new Entity({
-    id: 'test-neutral-civ',
-    x: nx,
-    y: ny,
-    faction: FACTION.NEUTRAL,
-    glyph: 'n',
-  });
+  const neutral = new NeutralCivilian({ id: 'test-neutral-civ', x: nx, y: ny });
   world.addEntity(neutral);
 
   const harmed: unknown[] = [];
@@ -549,7 +854,7 @@ test('civilian:harmed emitted when player damages a NEUTRAL entity', () => {
     source: 'melee',
   });
 
-  assert.equal(harmed.length, 1, 'civilian:harmed should fire on NEUTRAL hit');
+  assert.equal(harmed.length, 1, 'civilian:harmed should fire on NeutralCivilian hit');
   const payload = harmed[0] as Record<string, unknown>;
   assert.equal(payload.killed, false);
   assert.equal(payload.target, neutral);
@@ -687,11 +992,7 @@ test('civilian:harmed does NOT fire when player-planted breaching charge kills C
     source: 'breach-blast',
   });
 
-  assert.equal(
-    harmed.length,
-    0,
-    'CorpCivilian is CORP faction — revisit in Phase 2.7 for breach attribution'
-  );
+  assert.equal(harmed.length, 0, 'CorpCivilian kills must not emit civilian:harmed or cost Rep');
 });
 
 test('Run constructor rejects bad inputs', () => {

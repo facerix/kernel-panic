@@ -1,11 +1,11 @@
 /**
  * M8 map builder debug harness — full procgen map in one view (no camera follow,
- * no fog). Matches Run.enterCombat placement: player + corp drones on the grid.
+ * no fog). Matches Run.enterCombat placement: player + corp fodder on the grid.
  */
 import { Grid } from '/src/game/Grid.js';
 import { World } from '/src/game/World.js';
 import { Merc } from '/src/game/archetypes/Merc.js';
-import { CorpDrone } from '/src/game/ai/CorpDrone.js';
+import { Skirmisher } from '/src/game/ai/Skirmisher.js';
 import { EventBus } from '/src/game/events.js';
 import { buildMap } from '/src/game/procgen/mapBuild.js';
 import { Rng } from '/src/rng.js';
@@ -54,9 +54,9 @@ function buildScenario(width: number, height: number, seed: number, threatCount:
   });
   w.addEntity(player);
 
-  for (let i = 0; i < map.drones.length; i++) {
-    const a = map.drones[i];
-    const drone = new CorpDrone({
+  for (let i = 0; i < map.fodder.length; i++) {
+    const a = map.fodder[i];
+    const drone = new Skirmisher({
       id: `drone-${i}`,
       x: a.x,
       y: a.y,

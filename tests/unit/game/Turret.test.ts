@@ -14,7 +14,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { Turret, runTurretAutoFire } from '../../../src/game/Turret.js';
-import { CorpDrone } from '../../../src/game/ai/CorpDrone.js';
+import { Skirmisher } from '../../../src/game/ai/Skirmisher.js';
 import { CorpCivilian } from '../../../src/game/entities/CorpCivilian.js';
 import { Entity } from '../../../src/game/Entity.js';
 import { Grid } from '../../../src/game/Grid.js';
@@ -36,8 +36,8 @@ function makeWorld({ grid, withBus = false } = {}) {
   return { world, bus };
 }
 
-function makeDrone(overrides: ConstructorParameters<typeof CorpDrone>[0]) {
-  return new CorpDrone(overrides);
+function makeDrone(overrides: ConstructorParameters<typeof Skirmisher>[0]) {
+  return new Skirmisher(overrides);
 }
 
 test('Turret constructor defaults to PLAYER faction, glyph "T", maxAp 0', () => {
@@ -237,7 +237,7 @@ test('turret does not target CorpCivilian (corp non-combatant)', () => {
   assert.equal(result.reason, 'no-target');
 });
 
-test('turret prefers CorpDrone over nearby CorpCivilian', () => {
+test('turret prefers Skirmisher over nearby CorpCivilian', () => {
   const { world } = makeWorld();
   const turret = new Turret({ id: 'sentry', x: 3, y: 3 });
   const civilian = new CorpCivilian({ id: 'desk-clerk', x: 3, y: 4 });

@@ -12,12 +12,11 @@ import {
   BREACHING_CHARGE_RANGE,
   TARGETING_BONUS,
   DODGE_BONUS,
-  RANGED_DAMAGE,
   RANGED_DAMAGE_BONUS,
   DEFAULT_HP,
 } from '../../../src/game/constants.js';
 import { Merc } from '../../../src/game/archetypes/Merc.js';
-import { CorpDrone } from '../../../src/game/ai/CorpDrone.js';
+import { Skirmisher } from '../../../src/game/ai/Skirmisher.js';
 import { Rng } from '../../../src/rng.js';
 import { ITEM_ID } from '../../../src/game/items.js';
 import { placeSmoke, clearSmoke } from '../../../src/game/Smoke.js';
@@ -89,7 +88,7 @@ test('resolveRanged incorporates gear hitBonus into threshold', () => {
   const world = new World(grid, { events: bus });
   const attacker = new Merc({ id: 'merc', x: 2, y: 2, maxAp: 4 });
   attacker.applyGear(ITEM_ID.TARGETING_CHIP);
-  const target = new CorpDrone({ id: 'drone', x: 5, y: 2 });
+  const target = new Skirmisher({ id: 'drone', x: 5, y: 2 });
   world.addEntity(attacker);
   world.addEntity(target);
   const rng = new Rng(42);
@@ -104,12 +103,12 @@ test('resolveRanged incorporates gear rangedDamageBonus into damage', () => {
   const world = new World(grid, { events: bus });
   const attacker = new Merc({ id: 'merc', x: 2, y: 2, maxAp: 4 });
   attacker.applyGear(ITEM_ID.BALLISTICS_COIL);
-  const target = new CorpDrone({ id: 'drone', x: 5, y: 2 });
+  const target = new Skirmisher({ id: 'drone', x: 5, y: 2 });
   world.addEntity(attacker);
   world.addEntity(target);
   const rng = new Rng(0); // guaranteed hit
   const result = resolveRanged(world, attacker, target, rng);
-  assert.equal(result.damage, RANGED_DAMAGE + RANGED_DAMAGE_BONUS);
+  assert.equal(result.damage, attacker.rangedAttackDamage());
 });
 
 // ---------------------------------------------------------------------------

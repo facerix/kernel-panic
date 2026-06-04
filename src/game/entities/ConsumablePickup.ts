@@ -40,6 +40,12 @@ export interface ConsumablePickupInit extends Omit<
   label: string;
 }
 
+/** M6.2: ConsumablePickup snapshot `extra`. */
+export type ConsumablePickupSnapshot = {
+  consumableId: string;
+  label: string;
+};
+
 export class ConsumablePickup extends Entity {
   consumableId: string;
   label: string;

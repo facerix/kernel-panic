@@ -5,6 +5,12 @@ import { Campaign, CAMPAIGN_STATE } from '../../../src/game/Campaign.js';
 import { Run, RUN_STATE } from '../../../src/game/Run.js';
 import { buildContractRecipeFixture, OBJECTIVES } from '../../../src/game/hub/Curator.js';
 import { Terminal } from '../../../src/game/entities/Terminal.js';
+import { Door } from '../../../src/game/entities/Door.js';
+import { Guard } from '../../../src/game/ai/Guard.js';
+import { Bruiser } from '../../../src/game/ai/Bruiser.js';
+import { Juggernaut } from '../../../src/game/ai/Juggernaut.js';
+import { Flanker } from '../../../src/game/ai/Flanker.js';
+import { Medic } from '../../../src/game/ai/Medic.js';
 import {
   restore,
   restoreCampaign,
@@ -72,6 +78,17 @@ function relocateAdjacentTo(run, entity) {
   throw new Error(`No adjacent passable tile for ${entity.id}`);
 }
 
+function freeCombatTile(run, after = { x: 0, y: 0 }) {
+  for (let y = after.y; y < run.world.grid.height; y++) {
+    for (let x = y === after.y ? after.x : 0; x < run.world.grid.width; x++) {
+      if (!run.world.grid.isPassable(x, y)) continue;
+      if (run.world.liveEntityAt(x, y)) continue;
+      return { x, y };
+    }
+  }
+  throw new Error('No free passable tile in fixture run');
+}
+
 function freshCombatRun(seed = 1, archetype = 'razor') {
   const run = new Run({ crewMember: makeCrew(archetype), seed });
   run.enterBriefing(fakeContract());
@@ -133,11 +150,13 @@ test('restore reconstructs world entities with their HP / AP / stealth state and
   run.player.hp = 1;
   run.player.ap = 2;
   run.player.stealthed = true;
+  run.player.damageReduction = 1;
   const rec = snapshot(run);
   const { player } = restore(rec);
   assert.equal(player.hp, 1);
   assert.equal(player.ap, 2);
   assert.equal(player.stealthed, true);
+  assert.equal(player.damageReduction, 1);
   assert.equal(player.callsign, run.player.callsign);
 });
 
@@ -161,13 +180,147 @@ test('restore throws on a drone patrolIndex past the waypoint list', () => {
   // without a guard. A corrupt / stale index must fail loudly at restore,
   // not crash mid-turn.
   const run = freshCombatRun(0xbad1);
-  const drone = [...run.world.entities.values()].find(e => e.faction === FACTION.CORP);
-  assert.ok(drone, 'expected at least one drone for threatCount=1');
+  const fodder = [...run.world.entities.values()].find(e => e.faction === FACTION.CORP);
+  assert.ok(fodder, 'expected at least one fodder hostile for threatCount=1');
   const rec = snapshot(run);
-  const droneRec = rec.entities.find(e => e.id === drone.id);
-  assert.ok(droneRec?.drone, 'expected drone record');
-  droneRec.drone.patrolIndex = droneRec.drone.patrolWaypoints.length + 5;
+  const fodderRec = rec.entities.find(e => e.id === fodder.id);
+  // The composition resolver may roll a skirmisher or a guard; both serialise
+  // the shared PatrolHostile state machine into the slim `extra` bag (M6.2).
+  // The patrolIndex bounds-check is identical for either.
+  const patrolRec = fodderRec?.extra as { patrolIndex: number; patrolWaypoints: unknown[] };
+  assert.ok(patrolRec, 'expected a patrol-hostile state-machine record');
+  patrolRec.patrolIndex = patrolRec.patrolWaypoints.length + 5;
   assert.throws(() => restore(rec), /patrolIndex/);
+});
+
+test('Guard round-trips through snapshot/restore as archetype "guard"', () => {
+  // fakeContract seed 12345 / fodderCount 1 deterministically rolls a guard.
+  const run = freshCombatRun(7);
+  const guard = [...run.world.entities.values()].find(e => e instanceof Guard);
+  assert.ok(guard, 'expected a Guard from this contract seed');
+  guard.state = 'engage';
+  guard.lastKnownTarget = { x: 4, y: 9 };
+
+  const rec = snapshot(run);
+  const guardRec = rec.entities.find(e => e.id === guard.id);
+  assert.equal(guardRec?.archetype, 'guard', 'serialises under its own archetype tag');
+  assert.ok(guardRec?.extra, 'state machine lives in the slim extra bag (M6.2)');
+  assert.equal(guardRec?.extra?.state, 'engage');
+
+  const { world: restoredWorld } = restore(rec);
+  const restored = [...restoredWorld.entities.values()].find(e => e.id === guard.id);
+  assert.ok(restored instanceof Guard, 'restored as a Guard');
+  assert.equal(restored.glyph, 'g');
+  assert.equal(restored.state, 'engage');
+  assert.deepEqual(restored.lastKnownTarget, { x: 4, y: 9 });
+});
+
+test('Bruiser round-trips through snapshot/restore as archetype "bruiser"', () => {
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 7 });
+  // contract seed 0 deterministically rolls a Bruiser after M4.3 widened the
+  // CRITICAL elite pool to include Flanker.
+  run.enterBriefing(fakeContract({ seed: 0, difficulty: 'critical', threatCount: 4 }));
+  run.enterCombat();
+  const bruiser = [...run.world.entities.values()].find(e => e instanceof Bruiser);
+  assert.ok(bruiser instanceof Bruiser, 'expected a Bruiser from this critical contract');
+  bruiser.state = 'engage';
+  bruiser.lastKnownTarget = { x: 3, y: 8 };
+
+  const rec = snapshot(run);
+  const bruiserRec = rec.entities.find(e => e.id === bruiser.id);
+  assert.equal(bruiserRec?.archetype, 'bruiser');
+  assert.ok(bruiserRec?.extra, 'state machine lives in the slim extra bag (M6.2)');
+
+  const { world: restoredWorld } = restore(rec);
+  const restored = [...restoredWorld.entities.values()].find(e => e.id === bruiser.id);
+  assert.ok(restored instanceof Bruiser, 'restored as a Bruiser');
+  assert.equal(restored.glyph, 'b');
+  assert.equal(restored.state, 'engage');
+  assert.deepEqual(restored.lastKnownTarget, { x: 3, y: 8 });
+});
+
+test('Juggernaut round-trips through snapshot/restore as archetype "juggernaut"', () => {
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 7 });
+  // contract seed 1 deterministically rolls a Juggernaut elite.
+  run.enterBriefing(fakeContract({ seed: 1, difficulty: 'critical', threatCount: 4 }));
+  run.enterCombat();
+  const juggernaut = [...run.world.entities.values()].find(e => e instanceof Juggernaut);
+  assert.ok(juggernaut instanceof Juggernaut, 'expected a Juggernaut from this critical contract');
+  juggernaut.state = 'engage';
+  juggernaut.lastKnownTarget = { x: 5, y: 4 };
+
+  const rec = snapshot(run);
+  const jugRec = rec.entities.find(e => e.id === juggernaut.id);
+  assert.equal(jugRec?.archetype, 'juggernaut');
+  assert.ok(jugRec?.extra, 'state machine lives in the slim extra bag (M6.2)');
+  assert.equal(jugRec?.extra?.state, 'engage');
+
+  const { world: restoredWorld } = restore(rec);
+  const restored = [...restoredWorld.entities.values()].find(e => e.id === juggernaut.id);
+  assert.ok(restored instanceof Juggernaut, 'restored as a Juggernaut');
+  assert.equal(restored.glyph, 'j');
+  assert.equal(restored.state, 'engage');
+  assert.deepEqual(restored.lastKnownTarget, { x: 5, y: 4 });
+});
+
+test('Flanker round-trips through snapshot/restore as archetype "flanker"', () => {
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 7 });
+  // contract seed 2 deterministically rolls a Flanker elite.
+  run.enterBriefing(fakeContract({ seed: 2, difficulty: 'critical', threatCount: 4 }));
+  run.enterCombat();
+  const flanker = [...run.world.entities.values()].find(e => e instanceof Flanker);
+  assert.ok(flanker instanceof Flanker, 'expected a Flanker from this critical contract');
+  flanker.state = 'engage';
+  flanker.lastKnownTarget = { x: 5, y: 4 };
+  flanker.slideConcealed = true;
+
+  const rec = snapshot(run);
+  const flankerRec = rec.entities.find(e => e.id === flanker.id);
+  assert.equal(flankerRec?.archetype, 'flanker');
+  assert.ok(flankerRec?.extra, 'state machine lives in the slim extra bag (M6.2)');
+  assert.equal(flankerRec?.extra?.slideConcealed, true);
+
+  const { world: restoredWorld } = restore(rec);
+  const restored = [...restoredWorld.entities.values()].find(e => e.id === flanker.id);
+  assert.ok(restored instanceof Flanker, 'restored as a Flanker');
+  assert.equal(restored.glyph, 'f');
+  assert.equal(restored.state, 'engage');
+  assert.deepEqual(restored.lastKnownTarget, { x: 5, y: 4 });
+  assert.equal(restored.slideConcealed, true);
+});
+
+test('Medic and temporary shield round-trip through snapshot/restore', () => {
+  const run = freshCombatRun(0x6d3d1c);
+  const medicAnchor = freeCombatTile(run);
+  const patientAnchor = freeCombatTile(run, { x: medicAnchor.x + 1, y: medicAnchor.y });
+  const medic = new Medic({ id: 'medic-0', x: medicAnchor.x, y: medicAnchor.y, maxAp: 1 });
+  medic.state = 'engage';
+  medic.lastKnownTarget = { x: run.player.x, y: run.player.y };
+  const patient = new Juggernaut({
+    id: 'juggernaut-fixture',
+    x: patientAnchor.x,
+    y: patientAnchor.y,
+  });
+  patient.addShield(2);
+  run.world.addEntity(medic);
+  run.world.addEntity(patient);
+
+  const rec = snapshot(run);
+  const medicRec = rec.entities.find(e => e.id === medic.id);
+  const patientRec = rec.entities.find(e => e.id === patient.id);
+  assert.equal(medicRec?.archetype, 'medic');
+  assert.ok(medicRec?.extra, 'state machine lives in the slim extra bag (M6.2)');
+  assert.equal(patientRec?.shieldHp, 2, 'patient shield persists in the common snapshot');
+
+  const { world: restoredWorld } = restore(rec);
+  const restoredMedic = [...restoredWorld.entities.values()].find(e => e.id === medic.id);
+  const restoredPatient = [...restoredWorld.entities.values()].find(e => e.id === patient.id);
+  assert.ok(restoredMedic instanceof Medic, 'restored as a Medic');
+  assert.equal(restoredMedic.glyph, 'm');
+  assert.equal(restoredMedic.state, 'engage');
+  assert.deepEqual(restoredMedic.lastKnownTarget, { x: run.player.x, y: run.player.y });
+  assert.ok(restoredPatient instanceof Juggernaut);
+  assert.equal(restoredPatient.shieldHp, 2);
 });
 
 test('restore preserves turnNumber and currentFaction', () => {
@@ -192,8 +345,8 @@ test('snapshot/restore round-trips terminal interactable state', () => {
 
   const rec = snapshot(run);
   const terminalRec = rec.entities.find(e => e.id === terminal.id);
-  assert.equal(terminalRec.terminal?.sliced, true);
-  assert.equal(terminalRec.terminal?.armed, false);
+  assert.equal(terminalRec?.extra?.sliced, true);
+  assert.equal(terminalRec?.extra?.armed, false);
 
   const { world: restoredWorld } = restore(rec);
   const restoredTerminal = [...restoredWorld.entities.values()].find(e => e instanceof Terminal);
@@ -358,7 +511,7 @@ test('campaign snapshot preserves generated contract context metadata', () => {
   const restored = restoreCampaign(rec);
 
   assert.deepEqual(restored.activeRun!.contract!.context, contract.context);
-  assert.equal(restored.activeRun!.contract!.label, '// Matsuda payroll mirror');
+  assert.equal(restored.activeRun!.contract!.label, '// Matsuda contractor annex - payroll mirror');
 });
 
 test('restoreCampaign restores legacy snapshots without credits as zero', () => {
@@ -530,4 +683,112 @@ test('restore throws when tile is occupied and no free neighbour exists', () => 
 
   // Should throw — tier-1; no silent drop into a save with a missing entity.
   assert.throws(() => restore(rec), /occupied/i);
+});
+
+// ---------------------------------------------------------------------------
+// M6.2: property-bag `extra` + per-entity snapshot ownership
+// ---------------------------------------------------------------------------
+
+test('M6.2: a fodder snapshot uses the slim extra bag, not a named sub-block', () => {
+  const run = freshCombatRun(0xa5a5);
+  const fodder = [...run.world.entities.values()].find(e => e.faction === FACTION.CORP);
+  assert.ok(fodder, 'expected a corp fodder hostile');
+  const rec = snapshot(run);
+  const fodderRec = rec.entities.find(e => e.id === fodder.id);
+  assert.ok(fodderRec?.extra, 'patrol state lives in the extra bag');
+  assert.ok(typeof fodderRec.extra.state === 'string', 'extra carries the patrol state machine');
+  const legacy = fodderRec as Record<string, unknown>;
+  assert.equal(legacy.drone, undefined, 'no legacy drone sub-block');
+  assert.equal(legacy.guard, undefined, 'no legacy guard sub-block');
+});
+
+test('M6.2: restore throws on a non-object extra bag', () => {
+  const run = freshCombatRun(0xbad2);
+  const rec = snapshot(run);
+  const fodderRec = rec.entities.find(e => e.faction === FACTION.CORP);
+  assert.ok(fodderRec);
+  (fodderRec as Record<string, unknown>).extra = 42;
+  assert.throws(() => restore(rec), /extra must be an object/);
+});
+
+test('M6.2: restore throws when a terminal record carries no state', () => {
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 0x51ced });
+  run.enterBriefing(terminalSliceContract());
+  run.enterCombat();
+  const terminal = [...run.world.entities.values()].find(e => e instanceof Terminal);
+  assert.ok(terminal, 'expected a terminal');
+  const rec = snapshot(run);
+  const tRec = rec.entities.find(e => e.id === terminal.id);
+  assert.ok(tRec);
+  tRec.extra = {};
+  assert.throws(() => restore(rec), /requires terminal state/);
+});
+
+test('M6.2: restore throws on a door glyph that disagrees with locked', () => {
+  const run = freshCombatRun(0xd00d);
+  const tile = freeCombatTile(run);
+  const door = new Door({ id: 'door-0', x: tile.x, y: tile.y, doorId: 'd-1', locked: true });
+  run.world.addEntity(door);
+  const rec = snapshot(run);
+  const doorRec = rec.entities.find(e => e.id === 'door-0');
+  assert.ok(doorRec?.extra, 'door state lives in the extra bag');
+  doorRec.glyph = '.'; // neither the locked nor open door glyph
+  assert.throws(() => restore(rec), /glyph/);
+});
+
+test('M6.2: restore normalizes a legacy patrol sub-block into extra', () => {
+  // Back-compat: pre-M6.2 saves keyed the patrol block under the archetype id
+  // (`drone` = Skirmisher) at the top level instead of `extra`.
+  const run = freshCombatRun(0xfeed);
+  const fodder = [...run.world.entities.values()].find(e => e.faction === FACTION.CORP);
+  assert.ok(fodder);
+  fodder.state = 'investigate';
+  fodder.lastKnownTarget = { x: 3, y: 4 };
+  const rec = snapshot(run);
+  const fodderRec = rec.entities.find(e => e.id === fodder.id);
+  assert.ok(fodderRec);
+  const legacy = fodderRec as Record<string, unknown>;
+  legacy[fodderRec.archetype] = legacy.extra;
+  delete legacy.extra;
+
+  const { world } = restore(rec);
+  const restored = world.entities.get(fodder.id);
+  assert.ok(restored, 'legacy-shaped fodder still restores');
+  assert.equal(restored.state, 'investigate');
+  assert.deepEqual(restored.lastKnownTarget, { x: 3, y: 4 });
+});
+
+test('M6.2: restore normalizes a legacy terminal sub-block into extra', () => {
+  const run = new Run({ crewMember: makeCrew('razor'), seed: 0x51ced });
+  run.enterBriefing(terminalSliceContract());
+  run.enterCombat();
+  const terminal = [...run.world.entities.values()].find(e => e instanceof Terminal);
+  assert.ok(terminal);
+  const rec = snapshot(run);
+  const tRec = rec.entities.find(e => e.id === terminal.id);
+  assert.ok(tRec);
+  const legacy = tRec as Record<string, unknown>;
+  legacy.terminal = legacy.extra;
+  delete legacy.extra;
+
+  const { world } = restore(rec);
+  const restored = [...world.entities.values()].find(e => e instanceof Terminal);
+  assert.ok(restored, 'legacy-shaped terminal still restores');
+  assert.equal(restored.label, terminal.label);
+  assert.equal(restored.raisesAlarm, terminal.raisesAlarm);
+});
+
+test('M6.2: restore normalizes legacy top-level crew fields into extra', () => {
+  // Pre-M6.2 saves stored callsign/flatlined/inventory/gear at the top level.
+  const run = freshCombatRun(0xc0b0, 'razor');
+  run.player.callsign = 'Ghost';
+  const rec = snapshot(run);
+  const playerRec = rec.entities.find(e => e.id === run.player.id);
+  assert.ok(playerRec);
+  const legacy = playerRec as Record<string, unknown>;
+  Object.assign(legacy, legacy.extra);
+  delete legacy.extra;
+
+  const { player } = restore(rec);
+  assert.equal(player.callsign, 'Ghost');
 });

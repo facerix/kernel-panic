@@ -46,8 +46,9 @@ import {
   countVisibleCorpEntities,
   formatCorpTurnStep,
   isCorpTurnStepLogVisibleToPlayer,
+  isCorpTurnStepVisibleToPlayer,
 } from '/src/game/corpTurnStatusCopy.js';
-import { EVENT } from '/src/game/events.js';
+import { EVENT, alarmPayloadTriggersRepPenalty } from '/src/game/events.js';
 import { VisionField } from '/src/game/Vision.js';
 import { describeTileAt } from '/src/game/describe.js';
 import { AsciiRenderer } from '/src/render/AsciiRenderer.js';
@@ -56,6 +57,7 @@ import {
   ANIMATION_DURATIONS,
   createAnimationLock,
   runMuzzleFlash,
+  setCorpStaticActive,
   triggerDamageFlash,
   triggerShake,
 } from '/src/render/animations.js';
@@ -65,6 +67,7 @@ import { applyIntent, PLAYER_ACTIONS } from '/src/input/applyIntent.js';
 import { recordStatusActionLine, statusActionRows } from '/src/statusActivityRows.js';
 
 import { placeSmoke, clearSmoke } from '/src/game/Smoke.js';
+import { formatObjectiveProgressTag } from '/src/game/objectiveProgress.js';
 import { placeHazardCluster } from '/src/game/Run.js';
 import { blastCells } from '/src/game/breachBlast.js';
 import { hasLineOfSight } from '/src/game/LineOfSight.js';
@@ -80,7 +83,7 @@ import type { Intent } from '/src/input/applyIntent.js';
 import type { AimKind, Mode } from '/src/input/keymap.js';
 import type { KeyItem, Telemetry, TurnActionStep } from '/src/types.js';
 import { installErrorBoundary, type FaultSignal } from '/src/errorBoundary.js';
-import { isDevelopmentMode } from '/src/domUtils.js';
+import { h, isDevelopmentMode } from '/src/domUtils.js';
 
 import '/components/ConfirmationModal.js';
 import '/components/UpdateNotification.js';
@@ -238,6 +241,7 @@ let statusEl: HTMLElement | null = null;
 let renderer: AsciiRenderer;
 let crt: CrtFilter;
 let stageEl: HTMLElement;
+let canvasStaticEl: HTMLElement;
 let briefingEl: RunBriefingElement;
 let contractSelectEl: ContractSelectElement;
 let crashEl: CrashDumpElement;
@@ -403,6 +407,9 @@ async function boot() {
     throw new Error('[shell] #game-canvas requires a parent stage element');
   }
   stageEl = canvas.parentElement;
+  canvasStaticEl = h('div', { className: 'game-canvas-static', ariaHidden: 'true' });
+  canvas.insertAdjacentElement('afterend', canvasStaticEl);
+  new ResizeObserver(() => syncCanvasStaticOverlay()).observe(canvas);
   statusEl = mustGetElement<HTMLElement>('game-status');
   contractSelectEl = mustGetElement<ContractSelectElement>('contract-select');
   briefingEl = mustGetElement<RunBriefingElement>('briefing');
@@ -513,6 +520,7 @@ async function boot() {
 
   logHeaderEl.addEventListener('click', () => {
     logEl.classList.toggle('collapsed');
+    syncCanvasStaticOverlay();
   });
 
   // Update-notification wiring kept from the original scaffold.
@@ -803,7 +811,7 @@ function onBriefingDeploy(evt: Event) {
   attachAnimationListeners();
   attachRepListeners();
   recomputeVision();
-  flash('JACKED IN. Reach the exit tile (¤) before the drones drop you.');
+  flash('JACKED IN. Reach the exit tile (¤) before the corpos drop you.');
   renderShell();
 }
 
@@ -1474,6 +1482,7 @@ function driveCombatTurnPipeline(run: Run, options: { resumeFromCorpSlice?: bool
 }
 
 function advanceTurn(): void {
+  if (degrading) return;
   const scene = currentScene();
   if (!scene) return;
   if (!scene.world || !scene.queue) {
@@ -1539,6 +1548,14 @@ function runCorpTurn(onFinish: () => void): void {
     lockMarginMs: ANIMATION_DURATIONS.MUZZLE_FLASH,
     onFinish,
     schedule: scheduleCombatPump,
+    shouldAnimateStep: (entityId: string, step: TurnActionStep) => {
+      if (degrading) return true;
+      const scene = currentScene();
+      if (!scene?.world || !scene.player) return true;
+      return isCorpTurnStepVisibleToPlayer(scene.world, scene.player.id, entityId, step, (x, y) =>
+        vision.isVisible(x, y)
+      );
+    },
     onStep: (entityId: string, step: TurnActionStep) => {
       if (degrading) return;
       const scene = currentScene();
@@ -1801,8 +1818,10 @@ function attachAnimationListeners(): void {
 /**
  * Subscribe M5 Rep-affecting events to the active run's bus.
  *
- *   - `civilian:harmed` → -20 Rep per kill, track all harm for clean completion.
- *   - `alarm` → -5 Rep per alarm trigger (complicity).
+ *   - `civilian:harmed` (NeutralCivilian only) → -20 Rep per kill; track harm
+ *     for clean completion. Corp staff kills are excluded.
+ *   - `alarm` with `kind: 'facility'` → -5 Rep per CorpCivilian raise. Terminal
+ *     slice/unlock alarms and lookout pings do not adjust Rep.
  *
  * Re-attached on every Run state transition (same posture as animations).
  */
@@ -1822,8 +1841,8 @@ function attachRepListeners(): void {
         flash(`REP ${actual >= 0 ? '+' : ''}${actual}: civilian killed.`);
       }
     }),
-    run.bus.on(EVENT.ALARM, () => {
-      if (!campaign) return;
+    run.bus.on(EVENT.ALARM, payload => {
+      if (!campaign || !alarmPayloadTriggersRepPenalty(payload)) return;
       const actual = campaign.adjustRep(REP.ALARM_PENALTY);
       flash(`REP ${actual >= 0 ? '+' : ''}${actual}: facility alarm triggered.`);
     }),
@@ -1936,13 +1955,37 @@ function paint(stateHint: InputState = activeInputState()): void {
       : undefined;
   renderer.draw(run.world, run.player, {
     vision: activeVision,
+    player: run.player,
     blastOverlayKeys,
     lookCursor,
     locationLabel: currentLocationLabel(),
   });
   crt.alertTint = run.state === RUN_STATE.COMBAT && run.world.alarmActive;
   crt.apply();
+  updateCorpWaitChrome(run);
   setStatus(statusLine(stateHint));
+}
+
+/** Static overlay when hostiles act off-screen during the corp turn. */
+function updateCorpWaitChrome(run: ReturnType<typeof currentScene>): void {
+  syncCanvasStaticOverlay();
+  const show =
+    run?.state === RUN_STATE.COMBAT &&
+    run.queue?.currentFaction === FACTION.CORP &&
+    run.world &&
+    countVisibleCorpEntities(run.world.entities.values(), (x, y) => vision.isVisible(x, y)) === 0;
+  setCorpStaticActive(canvasStaticEl, !!show);
+}
+
+/** Keep the static layer aligned with #game-canvas as the log sidebar expands/collapses. */
+function syncCanvasStaticOverlay(): void {
+  if (!canvasStaticEl || !stageEl || !canvas) return;
+  const stageRect = stageEl.getBoundingClientRect();
+  const canvasRect = canvas.getBoundingClientRect();
+  canvasStaticEl.style.left = `${canvasRect.left - stageRect.left}px`;
+  canvasStaticEl.style.top = `${canvasRect.top - stageRect.top}px`;
+  canvasStaticEl.style.width = `${canvasRect.width}px`;
+  canvasStaticEl.style.height = `${canvasRect.height}px`;
 }
 
 function statusLine(state: InputState): string {
@@ -2059,11 +2102,8 @@ function objectiveStatusTag(run: Run): string {
   const remaining = run.objectiveTurnsRemaining();
   const turnTag =
     remaining === null || done ? '' : ` <span class="todo">[TURN:${remaining}]</span>`;
-  const reconProgress = run.contract.objective.kind === 'recon' ? run.reconProgress() : null;
-  const recon = reconProgress
-    ? ` <span class="todo">[MAP:${reconProgress.mapped}/${reconProgress.required}]</span>`
-    : '';
-  return `<span class="objective-tag">OBJ ${escapeHtml(run.contract.objective.title)} <span class="${done ? 'done' : 'todo'}">[${done ? 'DONE' : 'TODO'}]</span>${turnTag}${recon}</span>`;
+  const progressTag = formatObjectiveProgressTag(run.objectiveProgress());
+  return `<span class="objective-tag">OBJ ${escapeHtml(run.contract.objective.title)} <span class="${done ? 'done' : 'todo'}">[${done ? 'DONE' : 'TODO'}]</span>${turnTag}${progressTag}</span>`;
 }
 
 function joinStatusParts(parts: Array<string | null | undefined>): string {

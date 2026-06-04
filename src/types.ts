@@ -14,6 +14,28 @@
 export type GridPoint = { x: number; y: number };
 
 /**
+ * M6.2: a JSON-safe value. The persistence layer's opaque entity property bag
+ * (`EntitySnapshotExtra`) is keyed to this so anything stashed in a snapshot
+ * survives `JSON.stringify` / `JSON.parse` byte-for-byte. `undefined` is
+ * deliberately excluded — it is not JSON, so bag fields use `null` instead.
+ */
+export type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
+/**
+ * M6.2: opaque per-entity property bag living at the centre of
+ * `RunEntitySnapshot`. Each archetype owns the strict shape of its own slice
+ * (exported as `XSnapshot` from the entity module); the centre type only knows
+ * it is a JSON object. This dissolves the former ~24-key god-union.
+ */
+export type EntitySnapshotExtra = { [key: string]: JsonValue };
+
+/**
  * M7.1 terrain-relevant mutations captured during a run. M7.2 location memory
  * consumes these deltas when it persists site changes across revisits.
  */
@@ -45,29 +67,76 @@ export type MeleeAttackResult = {
   killed: boolean;
 };
 
-/** Movement yields from `CorpDrone` pathing (`#stepToward`). */
-export type CorpDroneMoveKind = 'engage' | 'investigate' | 'patrol';
+/** Movement yields from `PatrolHostile` pathing (`stepToward`). */
+export type PatrolHostileMoveKind = 'engage' | 'investigate' | 'patrol';
 
-export type CorpDroneMoveStep = {
-  type: `move-${CorpDroneMoveKind}`;
+export type PatrolHostileMoveStep = {
+  type: `move-${PatrolHostileMoveKind}`;
   to: GridPoint;
 };
 
 /**
- * One yield from `CorpDrone#takeTurnSteps` — a discrete committed mutation or
+ * One yield from `PatrolHostile#takeTurnSteps` — a discrete committed mutation or
  * a no-AP status line the shell can still pace (patrol-arrived, etc.).
  */
-export type CorpDroneTurnStep =
+export type PatrolHostileTurnStep =
   | { type: 'fire'; target: string; result: RangedAttackResult }
+  // `melee` is shared by all PatrolHostiles — Guard's close-and-strike
+  // counterpart to the skirmisher's `fire`. Lives in this union so the corp-turn
+  // driver, status copy, and tests treat every patrol-hostile yield uniformly.
+  | { type: 'melee'; target: string; result: MeleeAttackResult; knockback?: GridPoint | null }
   | { type: 'fire-blocked'; reason: string }
   | { type: 'investigate-cleared' }
   | { type: 'investigate-abandoned' }
   | { type: 'patrol-arrived'; waypoint: GridPoint }
   | { type: 'patrol-skipped'; waypoint: GridPoint }
-  | CorpDroneMoveStep;
+  | PatrolHostileMoveStep;
 
 /** CorpCivilian alarm step — yielded when a corp non-combatant spots the player. */
 export type CorpCivilianTurnStep = { type: 'alarm'; target: string };
+
+/**
+ * Lookout target-share step (Phase 2.7 M3.1) — yielded each corp turn the
+ * lookout holds LOS and pings the fireteam with the target's fresh coords. The
+ * lookout never attacks, so this is its only combat-relevant yield.
+ */
+export type LookoutTurnStep = { type: 'spot'; target: string };
+
+/**
+ * Medic support steps (Phase 2.7 M3.3). `heal` restores real HP; `shield`
+ * grants temporary shield HP that absorbs damage before health and expires on
+ * the patient's next AP refresh.
+ */
+export type MedicTurnStep =
+  | { type: 'heal'; target: string; amount: number }
+  | { type: 'shield'; target: string; amount: number };
+
+/**
+ * Sniper telegraph steps (Phase 2.7 M3.2). `aim` is yielded the corp turn the
+ * sniper commits a held shot (target marked, crosshair painted, no NOISE);
+ * `aim-cancelled` when that shot is voided at fire time (target dead, out of
+ * range, LOS broken, or re-stealthed). The shot itself reuses the shared `fire`
+ * step so combat logging/visibility stay uniform.
+ */
+export type SniperTurnStep =
+  | { type: 'aim'; target: string }
+  | { type: 'aim-cancelled'; reason: string };
+
+/**
+ * Juggernaut steps (Phase 2.7 M4.2). `suppress` is the 1-AP / 1-damage chip from
+ * the suppress band (carries the `RangedAttackResult` so logging/visibility treat
+ * it like any incoming fire). `shove` is the cornered, point-blank **body-check**:
+ * a no-damage knockback that pushes the target one tile away (to `to`) to reopen
+ * the band so the elite can resume suppressing — distinct from the Bruiser's
+ * offensive knockback-on-hit. Only emitted when the lane is clear; a blocked lane
+ * makes the juggernaut hold its ground (no step).
+ */
+export type JuggernautTurnStep =
+  | { type: 'suppress'; target: string; result: RangedAttackResult }
+  | { type: 'shove'; target: string; to: GridPoint };
+
+/** Flanker SLIDE — a silent two-tile reposition that vanishes from player view. */
+export type FlankerTurnStep = { type: 'slide'; to: GridPoint };
 
 /** NeutralCivilian aftermath steps — yielded during the player aftermath phase. */
 export type NeutralCivilianTurnStep =
@@ -81,7 +150,15 @@ export type NeutralCivilianTurnStep =
  * AIs should extend this union so `corpTurnDriver` and tests can treat
  * generators uniformly.
  */
-export type TurnActionStep = CorpDroneTurnStep | CorpCivilianTurnStep | NeutralCivilianTurnStep;
+export type TurnActionStep =
+  | PatrolHostileTurnStep
+  | CorpCivilianTurnStep
+  | LookoutTurnStep
+  | MedicTurnStep
+  | SniperTurnStep
+  | JuggernautTurnStep
+  | FlankerTurnStep
+  | NeutralCivilianTurnStep;
 
 /**
  * Generator contract for entities the corp turn driver paces one yield at a
@@ -133,6 +210,10 @@ export type LocationSite = {
   id: string;
   /** Deterministic map seed (stringified contract seed). */
   seed: string;
+  /** Persisted combat map width. Missing in legacy saves normalizes to 24. */
+  mapWidth: number;
+  /** Persisted combat map height. Missing in legacy saves normalizes to 16. */
+  mapHeight: number;
   /** Flavor label carried over from the contract that first visited. */
   label: string;
   /** Roster tier — `'score'` is reserved for Phase 3 and never evicted. */

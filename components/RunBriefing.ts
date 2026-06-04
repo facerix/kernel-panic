@@ -19,6 +19,7 @@
 
 import { h } from '/src/domUtils.js';
 import CrewList from '/components/CrewList.js';
+import { encounterHostileCount } from '/src/game/encounters.js';
 import { cloneObjective } from '/src/game/hub/Curator.js';
 import type { Crew as CrewMember } from '/src/game/Crew.js';
 import type { Contract } from '/src/game/hub/Curator.js';
@@ -190,7 +191,7 @@ function hexSeed(seed: number) {
 function threatCopy(count: number) {
   if (!Number.isInteger(count)) return '?';
   if (count === 0) return 'No hostiles detected';
-  return `${count} ${count === 1 ? 'drone' : 'drones'}`;
+  return `${count} ${count === 1 ? 'hostile' : 'hostiles'}`;
 }
 
 function rewardCopy(contract: Partial<Contract>) {
@@ -346,7 +347,7 @@ class RunBriefing extends HTMLElement {
     this.#cells.target.textContent = c.label ?? '?';
     this.#cells.difficulty.textContent = c.difficulty?.toUpperCase?.() ?? '?';
     this.#cells.seed.textContent = hexSeed(c.seed);
-    this.#cells.threat.textContent = threatCopy(c.threatCount);
+    this.#cells.threat.textContent = threatCopy(encounterHostileCount(c));
     this.#cells.reward.textContent = rewardCopy(c);
     const turnLimit = c.objective?.params?.turnLimit;
     const window =

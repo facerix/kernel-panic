@@ -6,7 +6,7 @@ import { EscortNpc } from '../../../src/game/entities/EscortNpc.js';
 import { Entity } from '../../../src/game/Entity.js';
 import { Grid } from '../../../src/game/Grid.js';
 import { World } from '../../../src/game/World.js';
-import { EventBus, EVENT } from '../../../src/game/events.js';
+import { EventBus, EVENT, ALARM_KIND } from '../../../src/game/events.js';
 import { FACTION, TILE } from '../../../src/game/constants.js';
 import { Rng } from '../../../src/rng.js';
 
@@ -48,6 +48,10 @@ test('CorpCivilian emits alarm when player is in LOS', () => {
   const payload = alarms[0] as Record<string, unknown>;
   assert.equal(payload.source, civ);
   assert.equal(payload.target, player);
+  // M3.1: facility raises carry the `facility` kind so patrol hostiles can tell
+  // a building-wide alert from a lookout's direct ping. Civilian behaviour is
+  // otherwise unchanged (regression guard).
+  assert.equal(payload.kind, ALARM_KIND.FACILITY);
   assert.equal(world.alarmActive, true, 'alarm should latch on the world');
 });
 
@@ -68,6 +72,40 @@ test('CorpCivilian does NOT alarm when player is out of LOS (wall between)', () 
   assert.equal(steps.length, 0, 'no alarm when LOS is blocked');
   assert.equal(alarms.length, 0);
   assert.equal(world.alarmActive, false);
+});
+
+test('CorpCivilian does NOT alarm when COVER lies between civilian and player', () => {
+  const { world, grid, bus } = makeWorld();
+  const civ = new CorpCivilian({ id: 'civ-0', x: 2, y: 2 });
+  const player = makePlayer(5, 2);
+  grid.setTile(3, 2, TILE.COVER);
+  world.addEntity(civ);
+  world.addEntity(player);
+
+  const alarms: unknown[] = [];
+  bus.on(EVENT.ALARM, (p: unknown) => alarms.push(p));
+
+  const steps = civ.takeTurn(world, new Rng(1));
+  assert.equal(steps.length, 0, 'cover should conceal the crew member from ambient staff');
+  assert.equal(alarms.length, 0);
+  assert.equal(world.alarmActive, false);
+});
+
+test('CorpCivilian still alarms when COVER is off the sightline', () => {
+  const { world, grid, bus } = makeWorld();
+  const civ = new CorpCivilian({ id: 'civ-0', x: 2, y: 2 });
+  const player = makePlayer(5, 2);
+  grid.setTile(3, 3, TILE.COVER);
+  world.addEntity(civ);
+  world.addEntity(player);
+
+  const alarms: unknown[] = [];
+  bus.on(EVENT.ALARM, (p: unknown) => alarms.push(p));
+
+  const steps = civ.takeTurn(world, new Rng(1));
+  assert.equal(steps.length, 1);
+  assert.equal(alarms.length, 1);
+  assert.equal(world.alarmActive, true);
 });
 
 test('CorpCivilian does NOT alarm when player is out of range', () => {

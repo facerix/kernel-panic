@@ -2,7 +2,7 @@
  * Corp-aligned non-combatant — office workers, desk security. CORP faction,
  * no weapons, no movement. On each corp turn, checks LOS to the deployed
  * crew member; if visible, emits an `alarm` event that transitions all
- * subscribed CorpDrones to ENGAGE.
+ * subscribed patrol hostiles (skirmishers, guards, …) to ENGAGE.
  *
  * The alarm is a **map-wide cadence** stored on `world.alarm`. Once any
  * CorpCivilian triggers it, the facility stays alert for a short hold window,
@@ -10,9 +10,9 @@
  * window will not re-emit (no stacking Rep penalties).
  *
  * Does not extend `Hostile` — it never fires, never chases. The alarm is
- * the only combat-relevant action. Killing a CorpCivilian does NOT cost Rep
- * (they're corp-aligned, not neutral); the Rep penalty applies only to
- * NEUTRAL faction civilians.
+ * the only combat-relevant action. Killing a CorpCivilian does not cost Rep
+ * (they're corp-aligned, not neutral bystanders), but a facility raise from
+ * a desk clerk still applies `REP.ALARM_PENALTY`. Terminal slice alarms do not.
  *
  * Placed by `mapBuild` at authored spawn points inside prefabs (at least one
  * per `office` prefab).
@@ -21,7 +21,7 @@
 import { Entity, type EntityInit } from '../Entity.js';
 import { EscortNpc } from './EscortNpc.js';
 import { FACTION, SIGHT_RANGE } from '../constants.js';
-import { hasLineOfSight, withinRange } from '../LineOfSight.js';
+import { hasConcealedLineOfSight, withinRange } from '../LineOfSight.js';
 import type { TurnActionStep, TurnActionSteps } from '../../types.js';
 import type { World } from '../World.js';
 import type { Rng } from '../../rng.js';
@@ -84,7 +84,9 @@ export class CorpCivilian extends Entity {
       if (entity instanceof EscortNpc) continue;
       if (!withinRange(this.x, this.y, entity.x, entity.y, this.sightRange)) continue;
       const blockers = world.blockerKeys();
-      if (!hasLineOfSight(world.grid, this.x, this.y, entity.x, entity.y, { blockers })) continue;
+      if (!hasConcealedLineOfSight(world.grid, this.x, this.y, entity.x, entity.y, { blockers })) {
+        continue;
+      }
       return entity;
     }
     return null;

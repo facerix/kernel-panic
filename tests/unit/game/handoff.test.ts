@@ -287,8 +287,8 @@ describe('handoff runs', () => {
     const rec = snapshot(run);
     const contactRec = rec.entities.find(entity => entity.id === contact.id);
     assert.equal(contactRec?.archetype, 'contact');
-    assert.equal(contactRec?.contact?.handoffComplete, true);
-    assert.equal(contactRec?.contact?.armed, false);
+    assert.equal(contactRec?.extra?.handoffComplete, true);
+    assert.equal(contactRec?.extra?.armed, false);
 
     const { world: restoredWorld } = restore(rec);
     const restoredContact = [...restoredWorld.entities.values()].find(

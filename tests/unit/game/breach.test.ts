@@ -14,7 +14,7 @@ import { buildCrewMember } from '../../../src/game/archetypes/index.js';
 import { getShopCatalog, ITEM_ID } from '../../../src/game/items.js';
 import { OBJECTIVES } from '../../../src/game/hub/Curator.js';
 import { BreachingCharge } from '../../../src/game/entities/BreachingCharge.js';
-import { CorpDrone } from '../../../src/game/ai/CorpDrone.js';
+import { Skirmisher } from '../../../src/game/ai/Skirmisher.js';
 import { detonateBreachingCharge } from '../../../src/game/breachBlast.js';
 import { runPlayerAftermathSteps } from '../../../src/game/combatTurnPipeline.js';
 import { EVENT } from '../../../src/game/events.js';
@@ -178,10 +178,7 @@ test('mutation deltas and requiresBreach deny target state round-trip through ru
 
   const rec = snapshot(run);
   assert.equal(rec.mutationDeltas?.length, 1);
-  assert.equal(
-    rec.entities.find(entity => entity.id === target.id)?.denyTarget?.requiresBreach,
-    true
-  );
+  assert.equal(rec.entities.find(entity => entity.id === target.id)?.extra?.requiresBreach, true);
 
   const { world } = restore(rec);
   const restoredTarget = [...world.entities.values()].find(
@@ -274,7 +271,7 @@ test('detonation damages blast-vulnerable entities and emits breach-blast events
   const bus = new EventBus();
   world.events = bus;
   const player = new Merc({ id: 'crew-merc', x: 3, y: 3, maxHp: 5 });
-  const drone = new CorpDrone({
+  const drone = new Skirmisher({
     id: 'drone-0',
     x: 4,
     y: 3,

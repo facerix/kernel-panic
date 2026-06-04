@@ -10,6 +10,15 @@ export interface TerminalInit extends Omit<InteractableInit, 'glyph' | 'label'> 
   unlocksId?: string | null;
 }
 
+/** M6.2: Terminal snapshot `extra`. */
+export type TerminalSnapshot = {
+  label: string;
+  sliced: boolean;
+  armed: boolean;
+  raisesAlarm: boolean;
+  unlocksId: string | null;
+};
+
 export class Terminal extends Interactable {
   sliced: boolean;
   raisesAlarm: boolean;
@@ -63,7 +72,12 @@ export class Terminal extends Interactable {
     this.secured = true;
     const alarmRaised =
       this.armed && this.raisesAlarm
-        ? world.raiseAlarm({ source: this, target: actor, origin: { x: this.x, y: this.y } })
+        ? world.raiseAlarm({
+            source: this,
+            target: actor,
+            origin: { x: this.x, y: this.y },
+            repPenalty: false,
+          })
         : false;
     this.armed = false;
     return {

@@ -9,6 +9,8 @@
  * The blueprint says walls block sight; cover does not (cover gives a
  * defender hit-modifier instead). This module enforces that:
  *   - `hasLineOfSight` ignores cover.
+ *   - `hasConcealedLineOfSight` treats cover like a full occluder for
+ *     civilian/flanker perception only.
  *   - `hasCoverBetween` reports whether the line crosses any cover so that
  *     `Combat` can apply the penalty.
  *
@@ -102,6 +104,27 @@ export function hasLineOfSight(
 }
 
 /**
+ * Civilian/flanker sight test: walls, smoke, entity blockers, and COVER
+ * occlude. Combat deliberately does NOT use this; cover still permits fire
+ * with a hit penalty there.
+ */
+export function hasConcealedLineOfSight(
+  grid: Grid,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  options: { blockers?: Set<string> | null } = {}
+): boolean {
+  if (x0 === x1 && y0 === y1) return true;
+  const blockers = options.blockers ?? null;
+  return (
+    clearsTrace(grid, tilesBetween(x0, y0, x1, y1), blockers, { coverBlocks: true }) &&
+    clearsTrace(grid, tilesBetween(x1, y1, x0, y0), blockers, { coverBlocks: true })
+  );
+}
+
+/**
  * True if any tile strictly between origin and target is COVER. Used by
  * Combat to apply the cover hit-penalty. Independent of LOS — cover doesn't
  * block sightlines, only modifies fire resolution.
@@ -121,9 +144,17 @@ export function hasCoverBetween(
   return false;
 }
 
-function clearsTrace(grid: Grid, tiles: GridPoint[], blockers: Set<string> | null): boolean {
+function clearsTrace(
+  grid: Grid,
+  tiles: GridPoint[],
+  blockers: Set<string> | null,
+  options: { coverBlocks?: boolean } = {}
+): boolean {
   for (const { x, y } of tiles) {
     if (grid.blocksLineOfSight(x, y)) return false;
+    if (options.coverBlocks && grid.inBounds(x, y) && grid.tileAt(x, y) === TILE.COVER) {
+      return false;
+    }
     if (blockers && blockers.has(`${x},${y}`)) return false;
   }
   return true;

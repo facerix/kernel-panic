@@ -4,13 +4,15 @@ import assert from 'node:assert/strict';
 import {
   corpTurnStatusBody,
   countVisibleCorpEntities,
+  formatCorpTurnStep,
   isCorpTurnStepLogVisibleToPlayer,
+  isCorpTurnStepVisibleToPlayer,
   resetCorpTurnStatusCache,
 } from '../../../src/game/corpTurnStatusCopy.js';
 import { FACTION, TILE } from '../../../src/game/constants.js';
 import { Grid } from '../../../src/game/Grid.js';
 import { World } from '../../../src/game/World.js';
-import { CorpDrone } from '../../../src/game/ai/CorpDrone.js';
+import { Skirmisher } from '../../../src/game/ai/Skirmisher.js';
 import { Turret } from '../../../src/game/Turret.js';
 
 test('countVisibleCorpEntities counts only alive corp on visible tiles', () => {
@@ -76,7 +78,7 @@ function makeDroneWorld() {
     }
   }
   const world = new World(grid);
-  const drone = new CorpDrone({
+  const drone = new Skirmisher({
     id: 'd1',
     x: 2,
     y: 2,
@@ -154,6 +156,70 @@ test('isCorpTurnStepLogVisibleToPlayer: hit on turret that survives still requir
   };
   assert.equal(
     isCorpTurnStepLogVisibleToPlayer(world, 'tech0', 'd1', step, () => false),
+    false
+  );
+});
+
+test('isCorpTurnStepVisibleToPlayer: facility alarm repaints even when actor tile is unseen', () => {
+  const { world } = makeDroneWorld();
+  const step = { type: 'alarm' as const };
+  assert.equal(
+    isCorpTurnStepVisibleToPlayer(world, 'p1', 'd1', step, () => false),
+    true
+  );
+});
+
+test('isCorpTurnStepVisibleToPlayer: off-screen patrol matches log visibility', () => {
+  const { world } = makeDroneWorld();
+  const step = { type: 'move-patrol' as const, to: { x: 0, y: 0 } };
+  assert.equal(
+    isCorpTurnStepVisibleToPlayer(world, 'p1', 'd1', step, () => false),
+    false
+  );
+});
+
+test('formatCorpTurnStep narrates a lookout mark with the target label', () => {
+  const line = formatCorpTurnStep('[Corp]Lookout', { type: 'spot', target: 'p1' }, () => 'you');
+  assert.match(line, /\[Corp\]Lookout marks you/);
+  assert.match(line, /converging/i);
+});
+
+test('formatCorpTurnStep narrates melee knockback when present', () => {
+  const line = formatCorpTurnStep(
+    '[Corp]Bruiser',
+    {
+      type: 'melee',
+      target: 'crew-merc',
+      knockback: { x: 4, y: 2 },
+      result: {
+        hit: true,
+        dodged: false,
+        roll: 0.99,
+        dodgeThreshold: 0.2,
+        inCover: false,
+        damage: 3,
+        killed: false,
+      },
+    },
+    id => (id === 'crew-merc' ? 'Patch' : id)
+  );
+  assert.match(line, /Patch is shoved to \(4, 2\)/);
+});
+
+test('isCorpTurnStepLogVisibleToPlayer: a lookout mark on the player is felt even when unseen', () => {
+  const { world } = makeDroneWorld();
+  const step = { type: 'spot' as const, target: 'p1' };
+  assert.equal(
+    isCorpTurnStepLogVisibleToPlayer(world, 'p1', 'd1', step, () => false),
+    true
+  );
+});
+
+test('isCorpTurnStepLogVisibleToPlayer: a lookout mark on another target requires a visible lookout', () => {
+  const { world } = makeDroneWorld();
+  const step = { type: 'spot' as const, target: 'other' };
+  assert.equal(
+    isCorpTurnStepLogVisibleToPlayer(world, 'p1', 'd1', step, () => false),
     false
   );
 });

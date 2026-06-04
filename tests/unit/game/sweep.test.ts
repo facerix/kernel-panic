@@ -12,13 +12,19 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { RelayNode } from '../../../src/game/entities/RelayNode.js';
 import { CorpTurret } from '../../../src/game/entities/CorpTurret.js';
-import { CorpDrone } from '../../../src/game/ai/CorpDrone.js';
+import { Skirmisher } from '../../../src/game/ai/Skirmisher.js';
+import { Lookout } from '../../../src/game/ai/Lookout.js';
 import { entityLabel } from '../../../src/game/Entity.js';
 import { Grid } from '../../../src/game/Grid.js';
 import { World } from '../../../src/game/World.js';
 import { EventBus } from '../../../src/game/events.js';
 import { Merc } from '../../../src/game/archetypes/Merc.js';
-import { Run, isObjectiveSatisfied, SWEEP_QUOTA } from '../../../src/game/Run.js';
+import { Run, isObjectiveSatisfied } from '../../../src/game/Run.js';
+import {
+  objectiveProgress,
+  SWEEP_QUOTA,
+  sweepObjectiveProgress,
+} from '../../../src/game/objectiveProgress.js';
 import { OBJECTIVES } from '../../../src/game/hub/Curator.js';
 import { restore } from '../../../src/game/persistence.js';
 import { FACTION, TILE, RELAY_NODE_HP } from '../../../src/game/constants.js';
@@ -105,44 +111,78 @@ describe('RelayNode', () => {
 });
 
 // --------------------------------------------------------------------------
-// Sweep objective — drone-all quota
+// Sweep objective — hostile-all quota
 // --------------------------------------------------------------------------
 
-describe('Sweep objective (drone-all)', () => {
-  it('is NOT satisfied when live drones remain', () => {
+describe('Sweep objective (hostile-all)', () => {
+  it('is NOT satisfied when live hostiles remain', () => {
     const world = makeWorld();
-    const drone = new CorpDrone({ id: 'drone-0', x: 3, y: 3 });
+    const drone = new Skirmisher({ id: 'drone-0', x: 3, y: 3 });
     world.addEntity(drone);
-    const contract = makeSweepContract('drone-all');
+    const contract = makeSweepContract('hostile-all');
     assert.equal(isObjectiveSatisfied(contract, world), false);
   });
 
-  it('is satisfied when all drones are dead', () => {
+  it('is satisfied when all hostiles are dead', () => {
     const world = makeWorld();
-    const drone = new CorpDrone({ id: 'drone-0', x: 3, y: 3 });
+    const drone = new Skirmisher({ id: 'drone-0', x: 3, y: 3 });
     world.addEntity(drone);
     drone.damage(drone.maxHp);
-    const contract = makeSweepContract('drone-all');
+    const contract = makeSweepContract('hostile-all');
     assert.equal(isObjectiveSatisfied(contract, world), true);
   });
 
-  it('is satisfied when no drones exist', () => {
+  it('includes specialists in the hostile quota', () => {
     const world = makeWorld();
-    const contract = makeSweepContract('drone-all');
+    const drone = new Skirmisher({ id: 'drone-0', x: 3, y: 3 });
+    const lookout = new Lookout({ id: 'lookout-0', x: 5, y: 5 });
+    world.addEntity(drone);
+    world.addEntity(lookout);
+    const contract = makeSweepContract('hostile-all');
+
+    drone.damage(drone.maxHp);
+    assert.equal(isObjectiveSatisfied(contract, world), false, 'lookout still holds the site');
+    lookout.damage(lookout.maxHp);
     assert.equal(isObjectiveSatisfied(contract, world), true);
   });
 
-  it('falls back to drone-all for unrecognized target', () => {
+  it('accepts legacy drone-all as a hostile-all alias for old saves', () => {
     const world = makeWorld();
-    const drone = new CorpDrone({ id: 'drone-0', x: 3, y: 3 });
+    const drone = new Skirmisher({ id: 'drone-0', x: 3, y: 3 });
+    const lookout = new Lookout({ id: 'lookout-0', x: 5, y: 5 });
+    world.addEntity(drone);
+    world.addEntity(lookout);
+    const contract = makeSweepContract('drone-all');
+
+    drone.damage(drone.maxHp);
+    assert.equal(
+      isObjectiveSatisfied(contract, world),
+      false,
+      'legacy alias still counts specialists'
+    );
+    lookout.damage(lookout.maxHp);
+    assert.equal(isObjectiveSatisfied(contract, world), true);
+  });
+
+  it('is satisfied when no hostiles exist', () => {
+    const world = makeWorld();
+    const contract = makeSweepContract('hostile-all');
+    assert.equal(isObjectiveSatisfied(contract, world), true);
+  });
+
+  it('falls back to hostile-all for unrecognized target', () => {
+    const world = makeWorld();
+    const drone = new Skirmisher({ id: 'drone-0', x: 3, y: 3 });
     world.addEntity(drone);
     const contract = makeSweepContract('unknown-target');
     assert.equal(isObjectiveSatisfied(contract, world), false);
   });
 
-  it('falls back to drone-all when no target param', () => {
+  it('falls back to hostile-all when no target param', () => {
     const contract: Contract = {
       seed: 42,
+      mapWidth: 24,
+      mapHeight: 16,
       objective: {
         kind: OBJECTIVES.SWEEP,
         title: 'Sweep',
@@ -155,7 +195,7 @@ describe('Sweep objective (drone-all)', () => {
       reward: { credits: 50, repDelta: 5 },
     };
     const world = makeWorld();
-    const drone = new CorpDrone({ id: 'drone-0', x: 3, y: 3 });
+    const drone = new Skirmisher({ id: 'drone-0', x: 3, y: 3 });
     world.addEntity(drone);
     assert.equal(isObjectiveSatisfied(contract, world), false);
     drone.damage(drone.maxHp);
@@ -257,6 +297,53 @@ describe('Sweep objective (turret)', () => {
 });
 
 // --------------------------------------------------------------------------
+// Sweep progress tally
+// --------------------------------------------------------------------------
+
+describe('sweep progress', () => {
+  it('tracks hostile-all kills as cleared/total', () => {
+    const world = makeWorld();
+    const d0 = new Skirmisher({ id: 'drone-0', x: 3, y: 3 });
+    const d1 = new Skirmisher({ id: 'drone-1', x: 5, y: 5 });
+    world.addEntity(d0);
+    world.addEntity(d1);
+    const contract = makeSweepContract('hostile-all');
+
+    assert.deepEqual(sweepObjectiveProgress(contract, world), { cleared: 0, total: 2 });
+    d0.damage(d0.maxHp);
+    assert.deepEqual(sweepObjectiveProgress(contract, world), { cleared: 1, total: 2 });
+    d1.damage(d1.maxHp);
+    assert.deepEqual(sweepObjectiveProgress(contract, world), { cleared: 2, total: 2 });
+    assert.deepEqual(objectiveProgress(contract, world, []), {
+      label: 'SWEEP',
+      current: 2,
+      total: 2,
+    });
+  });
+
+  it('tracks relay-node destruction', () => {
+    const world = makeWorld();
+    const node0 = new RelayNode({ id: 'relay-node-0', x: 3, y: 3 });
+    const node1 = new RelayNode({ id: 'relay-node-1', x: 5, y: 5 });
+    world.addEntity(node0);
+    world.addEntity(node1);
+    const contract = makeSweepContract('relay-node');
+
+    assert.deepEqual(sweepObjectiveProgress(contract, world), { cleared: 0, total: 2 });
+    node0.damage(RELAY_NODE_HP);
+    assert.deepEqual(sweepObjectiveProgress(contract, world), { cleared: 1, total: 2 });
+  });
+
+  it('honours explicit relay count param for total', () => {
+    const world = makeWorld();
+    world.addEntity(new RelayNode({ id: 'relay-node-0', x: 3, y: 3 }));
+    const contract = makeSweepContract('relay-node', 2);
+
+    assert.deepEqual(sweepObjectiveProgress(contract, world), { cleared: 0, total: 2 });
+  });
+});
+
+// --------------------------------------------------------------------------
 // Sweep: extract blocked until quota met (golden path)
 // --------------------------------------------------------------------------
 
@@ -281,13 +368,13 @@ describe('Sweep golden path (extract gating)', () => {
     assert.equal(isObjectiveSatisfied(contract, world), true);
   });
 
-  it('blocks extraction until all drones killed (drone-all)', () => {
+  it('blocks extraction until all hostiles are killed (hostile-all)', () => {
     const world = makeWorld();
-    const d0 = new CorpDrone({ id: 'drone-0', x: 3, y: 3 });
-    const d1 = new CorpDrone({ id: 'drone-1', x: 5, y: 5 });
+    const d0 = new Skirmisher({ id: 'drone-0', x: 3, y: 3 });
+    const d1 = new Skirmisher({ id: 'drone-1', x: 5, y: 5 });
     world.addEntity(d0);
     world.addEntity(d1);
-    const contract = makeSweepContract('drone-all');
+    const contract = makeSweepContract('hostile-all');
 
     assert.equal(isObjectiveSatisfied(contract, world), false);
     d0.damage(d0.maxHp);
@@ -423,6 +510,7 @@ describe('Entity labels for M2.4 entities', () => {
 
 describe('SWEEP_QUOTA constants', () => {
   it('exports expected quota values', () => {
+    assert.equal(SWEEP_QUOTA.HOSTILE_ALL, 'hostile-all');
     assert.equal(SWEEP_QUOTA.DRONE_ALL, 'drone-all');
     assert.equal(SWEEP_QUOTA.RELAY_NODE, 'relay-node');
     assert.equal(SWEEP_QUOTA.TURRET, 'turret');

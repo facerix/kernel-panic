@@ -10,6 +10,12 @@ export interface DoorInit extends Omit<InteractableInit, 'glyph' | 'maxAp' | 'la
   label?: string;
 }
 
+/** M6.2: Door snapshot `extra` — glyph reflects `locked` (validated on restore). */
+export type DoorSnapshot = {
+  doorId: string;
+  locked: boolean;
+};
+
 export class Door extends Interactable {
   doorId: string;
   locked: boolean;

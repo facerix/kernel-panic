@@ -1,6 +1,6 @@
 /**
  * Procedural map builder. Pure over an `Rng` — same seed + dimensions +
- * threat count produces an identical grid, drone roster, and exit tile.
+ * threat count produces an identical grid, fodder roster, and exit tile.
  *
  * Pipeline:
  *   1. Fork the caller's rng with label `'mapgen'` so future procgen tweaks
@@ -9,17 +9,22 @@
  *   3. BSP-split the map until every leaf is between MIN_LEAF and MAX_LEAF.
  *   4. Plan a prefab per leaf (random offset inside the leaf) and translate
  *      anchors into world coordinates.
- *   5. Carve L-shaped corridors between subtree leaf-region centres so the
- *      map is one connected component on FLOOR tiles. Corridors only
- *      overwrite WALL.
+ *   5. Carve L-shaped corridors between subtree leaf-region centres.
+ *      Corridors only overwrite WALL.
  *   6. Paint prefabs over the carved grid so authored divider walls (e.g.
  *      checkpoint `|`) are not punched through by corridor geometry.
+ *   6b. Connect each prefab to the corridor floors carved in its leaf (step 5)
+ *       when random prefab offset leaves a wall band between room and spine.
+ *       Door-gated contracts still retry on a forked substream when the linked-
+ *       contract probe fails.
  *   7. Place the player spawn at the first leaf's prefab center; the exit
  *      tile at the last leaf's first declared exit anchor (or its center).
- *   8. Pick `threatCount` drone anchors from leaves *other than* the spawn
+ *   8. Pick `threatCount` fodder anchors from leaves *other than* the spawn
  *      leaf — first-come-first-served in DFS order. If we can't satisfy the
- *      threat budget, throw — silently dropping a drone is data corruption
+ *      threat budget, throw — silently dropping a spawn slot is data corruption
  *      that would mask a content bug.
+ *   9. Reserve specialist/elite anchors from remaining FLOOR tiles by
+ *      difficulty so role composition can fail loud before spawning.
  *
  * The exit cell is stamped as `TILE.EXIT` (passable like FLOOR) so the
  * renderer shows a door glyph. `exitTile` remains the sidecar coordinate
@@ -80,7 +85,19 @@ export type DynamicDoorAnchor = {
 export type Map = {
   grid: Grid;
   spawns: { player: GridPoint };
-  drones: EntityAnchor[];
+  fodder: EntityAnchor[];
+  /**
+   * T2+ specialist spawn slots (Phase 2.7 M3). Sized by difficulty: STANDARD
+   * gets none, ELEVATED/CRITICAL each get one (the single rolled specialist).
+   * Run maps the composed specialist entry onto these anchors.
+   */
+  specialists: EntityAnchor[];
+  /**
+   * T3 elite spawn slots (Phase 2.7 M4). Sized by difficulty: CRITICAL gets
+   * one reserved slot even while `Run` keeps the buildable elite allowlist
+   * empty. This lets map legality fail loud before elite classes land.
+   */
+  elites: EntityAnchor[];
   corpCivilians: CivilianAnchor[];
   neutralCivilians: CivilianAnchor[];
   /** Prefab/authored door anchors only. Dynamic doors are in `dynamicDoors`. */
@@ -96,7 +113,7 @@ type StampedLeaf = {
   originX: number;
   originY: number;
   center: GridPoint;
-  droneWorld: EntityAnchor[];
+  fodderWorld: EntityAnchor[];
   patrolPathsWorld: GridPoint[][];
   exitWorld: GridPoint[];
   doorWorld: GridPoint[];
@@ -120,7 +137,7 @@ type BuildMapOptions = {
  * @param {{ rng: import('../../rng.js').Rng, width: number, height: number,
  *           threatCount?: number }} options
  * @returns {{ grid: Grid, spawns: { player: {x:number,y:number} },
- *             drones: Array<{x:number,y:number,waypoints:{x:number,y:number}[]}>,
+ *             fodder: Array<{x:number,y:number,waypoints:{x:number,y:number}[]}>,
  *             exitTile: { x: number, y: number } }}
  */
 export function buildMap(options: BuildMapOptions): Map {
@@ -148,6 +165,22 @@ export function buildMap(options: BuildMapOptions): Map {
     `buildMap: no door-gated layout after ${MAX_DOOR_LAYOUT_ATTEMPTS} attempts ` +
       `(includePrefabDoors)`
   );
+}
+
+/** True when spawn can path to exit and every passable tile on the grid. */
+export function mapIsFullyConnectedFromSpawn(map: Map): boolean {
+  const world = new World(map.grid);
+  const spawn = map.spawns.player;
+  if (findPath(world, spawn, map.exitTile) === null) return false;
+  for (let y = 0; y < map.grid.height; y++) {
+    for (let x = 0; x < map.grid.width; x++) {
+      const tile = map.grid.tileAt(x, y);
+      if (tile !== TILE.FLOOR && tile !== TILE.EXIT) continue;
+      if (x === spawn.x && y === spawn.y) continue;
+      if (findPath(world, spawn, { x, y }) === null) return false;
+    }
+  }
+  return true;
 }
 
 function validateBuildMapOptions({
@@ -262,8 +295,16 @@ function buildMapOnce(mapRng: Rng, options: BuildMapOptions): Map {
     carveCorridor(grid, a, b);
   }
 
+  const corridorFloorsByLeaf = stamped.map(stamp =>
+    collectLeafCorridorFloors(grid, stamp.leaf.region)
+  );
+
   for (const stamp of stamped) {
     writePrefabToGrid(grid, stamp);
+  }
+
+  for (let i = 0; i < stamped.length; i++) {
+    connectPrefabToLeafCorridors(grid, stamped[i]!, corridorFloorsByLeaf[i]!);
   }
 
   if (stamped.length === 0) {
@@ -319,15 +360,17 @@ function buildMapOnce(mapRng: Rng, options: BuildMapOptions): Map {
     exitTile,
   });
 
-  // Drones — two passes:
-  //   1) Use authored drone anchors from non-spawn leaves first; each anchor
+  // Fodder — two passes:
+  //   1) Use authored fodder anchors from non-spawn leaves first; each anchor
   //      carries the nearest authored patrol path for its prefab.
-  //   2) If the threat budget isn't met (some prefabs declare no drone
+  //   2) If the threat budget isn't met (some prefabs declare no fodder
   //      anchors — `hallway` is intentionally one), fall back to picking
   //      FLOOR tiles inside non-spawn leaves and synthesise a two-point
   //      cardinal patrol. Better than refusing to spawn the run, and more
   //      alive than the old stand-still fallback.
-  const droneAnchors: EntityAnchor[] = [];
+  const fodderAnchors: EntityAnchor[] = [];
+  const specialistAnchors: EntityAnchor[] = [];
+  const eliteAnchors: EntityAnchor[] = [];
   const corpCivilians: CivilianAnchor[] = [];
   const neutralCivilians: CivilianAnchor[] = [];
   const isAlreadyTaken = (x: number, y: number): boolean =>
@@ -336,16 +379,18 @@ function buildMapOnce(mapRng: Rng, options: BuildMapOptions): Map {
     doorAnchors.some(a => a.x === x && a.y === y) ||
     dynamicDoors.some(a => a.door.x === x && a.door.y === y) ||
     dynamicDoors.some(a => a.terminal.x === x && a.terminal.y === y) ||
-    droneAnchors.some(a => a.x === x && a.y === y) ||
+    fodderAnchors.some(a => a.x === x && a.y === y) ||
+    specialistAnchors.some(a => a.x === x && a.y === y) ||
+    eliteAnchors.some(a => a.x === x && a.y === y) ||
     corpCivilians.some(a => a.x === x && a.y === y) ||
     neutralCivilians.some(a => a.x === x && a.y === y);
 
-  for (let i = 1; i < stamped.length && droneAnchors.length < threatCount; i++) {
-    for (const anchor of stamped[i].droneWorld) {
-      if (droneAnchors.length >= threatCount) break;
+  for (let i = 1; i < stamped.length && fodderAnchors.length < threatCount; i++) {
+    for (const anchor of stamped[i].fodderWorld) {
+      if (fodderAnchors.length >= threatCount) break;
       if (isAlreadyTaken(anchor.x, anchor.y)) continue;
       if (grid.tileAt(anchor.x, anchor.y) !== TILE.FLOOR) continue;
-      droneAnchors.push({
+      fodderAnchors.push({
         x: anchor.x,
         y: anchor.y,
         waypoints:
@@ -355,15 +400,15 @@ function buildMapOnce(mapRng: Rng, options: BuildMapOptions): Map {
       });
     }
   }
-  for (let i = 1; i < stamped.length && droneAnchors.length < threatCount; i++) {
+  for (let i = 1; i < stamped.length && fodderAnchors.length < threatCount; i++) {
     const region = stamped[i].leaf.region;
     for (let yy = region.y; yy < region.y + region.height; yy++) {
-      if (droneAnchors.length >= threatCount) break;
+      if (fodderAnchors.length >= threatCount) break;
       for (let xx = region.x; xx < region.x + region.width; xx++) {
-        if (droneAnchors.length >= threatCount) break;
+        if (fodderAnchors.length >= threatCount) break;
         if (grid.tileAt(xx, yy) !== TILE.FLOOR) continue;
         if (isAlreadyTaken(xx, yy)) continue;
-        droneAnchors.push({
+        fodderAnchors.push({
           x: xx,
           y: yy,
           waypoints: synthesizeFallbackPatrol(grid, { x: xx, y: yy }),
@@ -371,15 +416,72 @@ function buildMapOnce(mapRng: Rng, options: BuildMapOptions): Map {
       }
     }
   }
-  if (droneAnchors.length < threatCount) {
+  if (fodderAnchors.length < threatCount) {
     throw new Error(
-      `buildMap: only ${droneAnchors.length}/${threatCount} drone anchors available for a ${width}x${height} map`
+      `buildMap: only ${fodderAnchors.length}/${threatCount} fodder anchors available for a ${width}x${height} map`
+    );
+  }
+
+  // Specialist anchors (Phase 2.7 M3) — one per rolled specialist on
+  // ELEVATED/CRITICAL. Picked from FLOOR tiles in non-spawn leaves *after*
+  // fodder so they never collide; each gets a synthesised patrol so a lookout
+  // sweeps for vantage rather than standing still. Fail loud if the map can't
+  // budget them (M1.5 anchor budget) — that footprint is illegal for the tier.
+  const specialistCount = specialistAnchorCount(difficulty);
+  for (let i = 1; i < stamped.length && specialistAnchors.length < specialistCount; i++) {
+    const region = stamped[i].leaf.region;
+    for (let yy = region.y; yy < region.y + region.height; yy++) {
+      if (specialistAnchors.length >= specialistCount) break;
+      for (let xx = region.x; xx < region.x + region.width; xx++) {
+        if (specialistAnchors.length >= specialistCount) break;
+        if (grid.tileAt(xx, yy) !== TILE.FLOOR) continue;
+        if (isAlreadyTaken(xx, yy)) continue;
+        specialistAnchors.push({
+          x: xx,
+          y: yy,
+          waypoints: synthesizeFallbackPatrol(grid, { x: xx, y: yy }),
+        });
+      }
+    }
+  }
+  if (specialistAnchors.length < specialistCount) {
+    throw new Error(
+      `buildMap: only ${specialistAnchors.length}/${specialistCount} specialist anchors ` +
+        `available for a ${width}x${height} ${difficulty} map`
+    );
+  }
+
+  // Elite anchors (Phase 2.7 M4 foundation) — CRITICAL maps reserve exactly
+  // one elite slot after fodder/specialists. Classes spawn later via
+  // Run.enterCombat's buildable elite allowlist, but map legality is already
+  // enforced here so M4 cannot silently degrade a T3 composition.
+  const eliteCount = eliteAnchorCount(difficulty);
+  for (let i = 1; i < stamped.length && eliteAnchors.length < eliteCount; i++) {
+    const region = stamped[i].leaf.region;
+    for (let yy = region.y; yy < region.y + region.height; yy++) {
+      if (eliteAnchors.length >= eliteCount) break;
+      for (let xx = region.x; xx < region.x + region.width; xx++) {
+        if (eliteAnchors.length >= eliteCount) break;
+        if (grid.tileAt(xx, yy) !== TILE.FLOOR) continue;
+        if (isAlreadyTaken(xx, yy)) continue;
+        eliteAnchors.push({
+          x: xx,
+          y: yy,
+          waypoints: synthesizeFallbackPatrol(grid, { x: xx, y: yy }),
+        });
+      }
+    }
+  }
+  if (eliteAnchors.length < eliteCount) {
+    throw new Error(
+      `buildMap: only ${eliteAnchors.length}/${eliteCount} elite anchors ` +
+        `available for a ${width}x${height} ${difficulty} map`
     );
   }
 
   // Civilians — collect authored spawn points from non-spawn leaves, capped
   // by maxCorpCivilians / maxNeutralCivilians. No fallback generation (unlike
-  // drones) — civilians are optional content. Only place civilians on
+  // fodder) — civilians are optional content. Only place civilians on
   // passable, unoccupied tiles.
   for (let i = 1; i < stamped.length; i++) {
     if (
@@ -401,16 +503,30 @@ function buildMapOnce(mapRng: Rng, options: BuildMapOptions): Map {
     }
   }
 
-  return {
+  const map: Map = {
     grid,
     spawns: { player: playerSpawn },
-    drones:
+    fodder:
       difficulty === CONTRACT_DIFFICULTY.CRITICAL
-        ? droneAnchors.map(anchor => ({
+        ? fodderAnchors.map(anchor => ({
             ...anchor,
             waypoints: tightenPatrol(grid, anchor.waypoints),
           }))
-        : droneAnchors,
+        : fodderAnchors,
+    specialists:
+      difficulty === CONTRACT_DIFFICULTY.CRITICAL
+        ? specialistAnchors.map(anchor => ({
+            ...anchor,
+            waypoints: tightenPatrol(grid, anchor.waypoints),
+          }))
+        : specialistAnchors,
+    elites:
+      difficulty === CONTRACT_DIFFICULTY.CRITICAL
+        ? eliteAnchors.map(anchor => ({
+            ...anchor,
+            waypoints: tightenPatrol(grid, anchor.waypoints),
+          }))
+        : eliteAnchors,
     corpCivilians,
     neutralCivilians,
     doors: doorAnchors.filter(
@@ -423,6 +539,13 @@ function buildMapOnce(mapRng: Rng, options: BuildMapOptions): Map {
     dynamicDoorCount: dynamicDoors.length,
     exitTile,
   };
+  if (!mapIsFullyConnectedFromSpawn(map)) {
+    throw new Error(
+      'buildMap: prefab-corridor connectors failed to join layout ' +
+        `(spawn ${playerSpawn.x},${playerSpawn.y} exit ${exitTile.x},${exitTile.y})`
+    );
+  }
+  return map;
 }
 
 export type PlaceDoorsOptions = {
@@ -799,6 +922,34 @@ function civilianCapsForDifficulty(difficulty: ContractDifficulty): {
   }
 }
 
+/**
+ * How many specialist spawn slots a tier needs (Phase 2.7 M3). Mirrors the
+ * encounter composition rules: ELEVATED and CRITICAL each carry exactly one
+ * specialist; STANDARD carries none.
+ */
+function specialistAnchorCount(difficulty: ContractDifficulty): number {
+  switch (difficulty) {
+    case CONTRACT_DIFFICULTY.ELEVATED:
+    case CONTRACT_DIFFICULTY.CRITICAL:
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+/**
+ * How many elite spawn slots a tier needs (Phase 2.7 M4). CRITICAL carries
+ * exactly one elite; lower tiers carry none.
+ */
+function eliteAnchorCount(difficulty: ContractDifficulty): number {
+  switch (difficulty) {
+    case CONTRACT_DIFFICULTY.CRITICAL:
+      return 1;
+    default:
+      return 0;
+  }
+}
+
 function tightenPatrol(grid: Grid, path: GridPoint[]): GridPoint[] {
   if (path.length < 2) return path.map(wp => ({ ...wp }));
   const tightened: GridPoint[] = [];
@@ -871,7 +1022,7 @@ function planPrefabStamp(
       y: originY + wp.y,
     }))
   );
-  const droneWorld = prefab.anchors.drones.map(a => {
+  const fodderWorld = prefab.anchors.fodder.map(a => {
     const spawn = { x: originX + a.x, y: originY + a.y };
     const assignedPath = assignNearestPatrolPath(spawn, patrolPathsWorld);
     return {
@@ -907,7 +1058,7 @@ function planPrefabStamp(
     originX,
     originY,
     center,
-    droneWorld,
+    fodderWorld,
     patrolPathsWorld,
     exitWorld,
     doorWorld,
@@ -923,6 +1074,102 @@ function writePrefabToGrid(grid: Grid, stamp: StampedLeaf): void {
       grid.setTile(originX + x, originY + y, prefab.tiles[y * prefab.w + x]);
     }
   }
+}
+
+/** FLOOR tiles carved in step 5 inside `region`, before prefab paint. */
+function collectLeafCorridorFloors(
+  grid: Grid,
+  region: { x: number; y: number; width: number; height: number }
+): GridPoint[] {
+  const floors: GridPoint[] = [];
+  for (let y = region.y; y < region.y + region.height; y++) {
+    for (let x = region.x; x < region.x + region.width; x++) {
+      if (grid.tileAt(x, y) === TILE.FLOOR) floors.push({ x, y });
+    }
+  }
+  return floors;
+}
+
+function isPrefabPassableTile(grid: Grid, x: number, y: number): boolean {
+  if (!grid.inBounds(x, y)) return false;
+  const tile = grid.tileAt(x, y);
+  return tile === TILE.FLOOR || tile === TILE.EXIT || tile === TILE.COVER;
+}
+
+function prefabPassableTiles(grid: Grid, stamp: StampedLeaf): GridPoint[] {
+  const tiles: GridPoint[] = [];
+  for (let y = 0; y < stamp.prefab.h; y++) {
+    for (let x = 0; x < stamp.prefab.w; x++) {
+      const wx = stamp.originX + x;
+      const wy = stamp.originY + y;
+      if (isPrefabPassableTile(grid, wx, wy)) tiles.push({ x: wx, y: wy });
+    }
+  }
+  return tiles;
+}
+
+function prefabReachableCorridorFloors(
+  grid: Grid,
+  stamp: StampedLeaf,
+  corridorFloors: GridPoint[]
+): boolean {
+  const passable = prefabPassableTiles(grid, stamp);
+  if (passable.length === 0) return corridorFloors.length === 0;
+  if (corridorFloors.length === 0) return true;
+
+  const corridorKeys = new Set(corridorFloors.map(point => coordKey(point.x, point.y)));
+  const queue = passable.map(point => ({ ...point }));
+  const seen = new Set(passable.map(point => coordKey(point.x, point.y)));
+  for (let i = 0; i < queue.length; i++) {
+    const point = queue[i]!;
+    if (corridorKeys.has(coordKey(point.x, point.y))) return true;
+    for (const [dx, dy] of CARDINAL_OFFSETS) {
+      const nx = point.x + dx;
+      const ny = point.y + dy;
+      const key = coordKey(nx, ny);
+      if (seen.has(key)) continue;
+      if (!isPrefabPassableTile(grid, nx, ny)) continue;
+      seen.add(key);
+      queue.push({ x: nx, y: ny });
+    }
+  }
+  return false;
+}
+
+/**
+ * When prefab offset leaves a wall band between the room and the corridor
+ * spine carved at step 5, punch a 1-tile L-connector (WALL only) to the
+ * nearest corridor anchor in the same leaf.
+ */
+function connectPrefabToLeafCorridors(
+  grid: Grid,
+  stamp: StampedLeaf,
+  corridorFloors: GridPoint[]
+): void {
+  if (corridorFloors.length === 0) return;
+  if (prefabReachableCorridorFloors(grid, stamp, corridorFloors)) return;
+
+  const passable = prefabPassableTiles(grid, stamp);
+  if (passable.length === 0) {
+    throw new Error(
+      `buildMap: leaf at (${stamp.leaf.region.x},${stamp.leaf.region.y}) has no passable prefab tiles`
+    );
+  }
+
+  let bestPrefab = passable[0]!;
+  let bestCorridor = corridorFloors[0]!;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const prefabTile of passable) {
+    for (const corridorTile of corridorFloors) {
+      const distance = manhattan(prefabTile, corridorTile);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestPrefab = prefabTile;
+        bestCorridor = corridorTile;
+      }
+    }
+  }
+  carveCorridor(grid, bestPrefab, bestCorridor);
 }
 
 function assignNearestPatrolPath(spawn: GridPoint, paths: GridPoint[][]): GridPoint[] | null {

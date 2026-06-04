@@ -12,6 +12,13 @@ export interface EscortNpcInit extends Omit<InteractableInit, 'glyph' | 'label' 
   activated?: boolean;
 }
 
+/** M6.2: EscortNpc snapshot `extra`. */
+export type EscortNpcSnapshot = {
+  label: string;
+  activated: boolean;
+  armed: boolean;
+};
+
 export class EscortNpc extends Interactable {
   activated: boolean;
 
@@ -26,6 +33,10 @@ export class EscortNpc extends Interactable {
     });
     this.faction = FACTION.PLAYER;
     this.activated = !!activated;
+  }
+
+  override isHazardImmune(): boolean {
+    return false;
   }
 
   override interact(world: World, actor: Entity): InteractResult {

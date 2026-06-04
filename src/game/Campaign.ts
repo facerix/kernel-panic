@@ -325,26 +325,27 @@ export class Campaign {
     if (member.flatlined) {
       throw new Error(`Campaign.deployCrewMember: ${member.callsign ?? member.id} is flatlined`);
     }
+    const deployedContract = this.#contractWithRememberedDimensions(contract);
     this.#tearDownHubWorld();
     this.deployedMemberId = member.id;
     this.activeRun = new Run({
       crewMember: member,
-      seed: contract.seed,
+      seed: deployedContract.seed,
       // M7.2: replay prior-visit terrain on revisits ([] for first visits).
-      priorMutationDeltas: this.priorDeltasForContract(contract),
-      priorKeyItems: this.priorKeyItemsForContract(contract),
+      priorMutationDeltas: this.priorDeltasForContract(deployedContract),
+      priorKeyItems: this.priorKeyItemsForContract(deployedContract),
       onPersist: () => this.#persist(),
       onResult: (result: RunResult) => {
         this.onResult?.(result);
       },
     });
-    this.activeRun.enterBriefing(contract);
+    this.activeRun.enterBriefing(deployedContract);
     // M7.2: remember this location (or refresh its visit marker) on deploy.
-    this.#rememberLocation(contract);
+    this.#rememberLocation(deployedContract);
     // Breach contracts auto-grant a breaching charge so the objective is always
     // completable, even before Finn's shop is unlocked.
     if (
-      contract.objective.params?.requiresBreach &&
+      deployedContract.objective.params?.requiresBreach &&
       !member.inventory?.consumables.some(c => c.id === 'breaching-charge')
     ) {
       member.addConsumable('breaching-charge');
@@ -864,6 +865,8 @@ export class Campaign {
     this.addSiteToRoster({
       id: siteId,
       seed: String(contract.seed),
+      mapWidth: existing?.mapWidth ?? contract.mapWidth,
+      mapHeight: existing?.mapHeight ?? contract.mapHeight,
       label: contract.label,
       tier: existing?.tier ?? 'roster',
       scoreTarget: existing?.scoreTarget ?? false,
@@ -874,6 +877,12 @@ export class Campaign {
       principal: contract.context.principal,
       ...(contract.context.site ? { site: contract.context.site } : {}),
     });
+  }
+
+  #contractWithRememberedDimensions(contract: Contract): Contract {
+    const site = this.findRosterSite(this.locationSiteIdForContract(contract));
+    if (!site) return contract;
+    return { ...contract, mapWidth: site.mapWidth, mapHeight: site.mapHeight };
   }
 
   /**

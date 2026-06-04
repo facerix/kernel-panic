@@ -25,7 +25,7 @@ import {
   advanceFromPlayerTurn,
   formatPlayerAftermathStepLogLines,
 } from '/src/game/combatTurnPipeline.js';
-import { CorpDrone } from '/src/game/ai/CorpDrone.js';
+import { Skirmisher } from '/src/game/ai/Skirmisher.js';
 import { EventBus, EVENT } from '/src/game/events.js';
 import { TILE, FACTION } from '/src/game/constants.js';
 import { AsciiRenderer } from '/src/render/AsciiRenderer.js';
@@ -51,7 +51,7 @@ const GRID_H = 16;
 let world: World;
 let queue: TurnQueue;
 let player: Crew;
-let drone: CorpDrone;
+let drone: Skirmisher;
 let renderer: AsciiRenderer;
 let crt: CrtFilter;
 let input: KeyboardController;
@@ -104,7 +104,7 @@ function buildScenario() {
         : new Merc({ id: 'merc', x: 3, y: 3, maxAp: 4 });
   // Patrol the right-hand room; the drone spends most of its time visible to
   // a player who pushes east, so M5 behaviour is observable from spawn.
-  drone = new CorpDrone({
+  drone = new Skirmisher({
     id: 'drone-1',
     x: 19,
     y: 12,

@@ -13,8 +13,9 @@
  *     contract:   { seed, objective, difficulty, threatCount, label, context, reward } | null,
  *     exitTile:   { x, y } | null,
  *     grid:       { w, h, tiles: number[] },          // plain array of u8 bytes
- *     entities:   [{ archetype, id, x, y, faction, hp, maxHp, ap, maxAp,
- *                    stealthed, drone?: { state, lastKnownTarget,
+ *     entities:   [{ archetype, id, x, y, faction, hp, maxHp,
+ *                    damageReduction, ap, maxAp, stealthed,
+ *                    drone?: { state, lastKnownTarget,
  *                    patrolWaypoints, patrolIndex } }, …],
  *     telemetry:  { turn, kills, archetype, seed, … },
  *   }
@@ -47,7 +48,15 @@ import { Merc } from './archetypes/Merc.js';
 import { Razor } from './archetypes/Razor.js';
 import { Tech } from './archetypes/Tech.js';
 import { Turret } from './Turret.js';
-import { CorpDrone, DRONE_STATE } from './ai/CorpDrone.js';
+import { Skirmisher, type SkirmisherProps } from './ai/Skirmisher.js';
+import { Guard, type GuardProps } from './ai/Guard.js';
+import { Bruiser, type BruiserProps } from './ai/Bruiser.js';
+import { Juggernaut, type JuggernautProps } from './ai/Juggernaut.js';
+import { Flanker, type FlankerProps } from './ai/Flanker.js';
+import { Lookout, type LookoutProps } from './ai/Lookout.js';
+import { Sniper, type SniperProps } from './ai/Sniper.js';
+import { Medic, type MedicProps } from './ai/Medic.js';
+import { PatrolHostile, PATROL_STATE, type PatrolSnapshot } from './ai/PatrolHostile.js';
 import { CorpCivilian } from './entities/CorpCivilian.js';
 import { NeutralCivilian } from './entities/NeutralCivilian.js';
 import { Door } from './entities/Door.js';
@@ -63,14 +72,13 @@ import { EscortNpc } from './entities/EscortNpc.js';
 import { KeyCard } from './entities/KeyCard.js';
 import { BreachingCharge } from './entities/BreachingCharge.js';
 import type { BreachingChargeInit } from './entities/BreachingCharge.js';
-import { Run, RUN_STATE } from './Run.js';
+import { Run, RUN_STATE, PATROL_ARCHETYPE_IDS } from './Run.js';
 import { Campaign, CAMPAIGN_STATE } from './Campaign.js';
 import { normalizeContractContext, normalizeObjective } from './hub/Curator.js';
 import { normalizeHubReveals } from './hub/hubReveals.js';
 import type { CrewInit } from './Crew.js';
 import type { Inventory, Gear } from './Crew.js';
 import type { TurretInit } from './Turret.js';
-import type { CorpDroneProps } from './ai/CorpDrone.js';
 import type { CorpCivilianInit } from './entities/CorpCivilian.js';
 import type { NeutralCivilianInit } from './entities/NeutralCivilian.js';
 import type { DoorInit } from './entities/Door.js';
@@ -89,6 +97,7 @@ import type { FactionId } from './constants.js';
 import type {
   CrewArchetypeId,
   EntityArchetypeId,
+  PatrolArchetypeId,
   RunEntitySnapshot,
   RunResult,
   RunSnapshot,
@@ -98,8 +107,26 @@ import type {
   MapMemorySnapshot,
   ObjectiveProgressSnapshot,
 } from './Run.js';
+import type { CrewSnapshot } from './Crew.js';
+import type { TechSnapshot } from './archetypes/Tech.js';
+import type { SniperSnapshot } from './ai/Sniper.js';
+import type { FlankerSnapshot } from './ai/Flanker.js';
+import type { TurretSnapshot } from './Turret.js';
+import type { CorpTurretSnapshot } from './entities/CorpTurret.js';
+import type { TerminalSnapshot } from './entities/Terminal.js';
+import type { DoorSnapshot } from './entities/Door.js';
+import type { PickupSnapshot } from './entities/Pickup.js';
+import type { ContactSnapshot } from './entities/Contact.js';
+import type { DenyTargetSnapshot } from './entities/DenyTarget.js';
+import type { SyncPadSnapshot } from './entities/SyncPad.js';
+import type { RelayNodeSnapshot } from './entities/RelayNode.js';
+import type { ConsumablePickupSnapshot } from './entities/ConsumablePickup.js';
+import type { EscortNpcSnapshot } from './entities/EscortNpc.js';
+import type { KeyCardSnapshot } from './entities/KeyCard.js';
+import type { EntitySnapshotExtra } from '../types.js';
 import type { CampaignMeta, CampaignState } from './Campaign.js';
 import { normalizeLocationSite } from './locations.js';
+import { normalizeMapDimensions } from './procgen/mapDimensions.js';
 import type { KeyItem, LocationSite, TileDelta } from '../types.js';
 
 const ARCHETYPE_KEY = Symbol.for('kernel-panic.archetype');
@@ -107,7 +134,14 @@ const ARCHETYPE_KEY = Symbol.for('kernel-panic.archetype');
 type RestoreEntityProps = Partial<
   CrewInit &
     TurretInit &
-    CorpDroneProps &
+    SkirmisherProps &
+    GuardProps &
+    BruiserProps &
+    JuggernautProps &
+    FlankerProps &
+    LookoutProps &
+    SniperProps &
+    MedicProps &
     CorpCivilianInit &
     NeutralCivilianInit &
     DoorInit &
@@ -131,6 +165,8 @@ type RestoreEntityProps = Partial<
   glyph?: string;
   maxAp?: number;
   maxHp?: number;
+  damageReduction?: number;
+  shieldHp?: number;
 };
 
 const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) => Entity> =
@@ -139,7 +175,14 @@ const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) =
     razor: (props: RestoreEntityProps) => new Razor(props as CrewInit),
     tech: (props: RestoreEntityProps) => new Tech(props as CrewInit),
     turret: (props: RestoreEntityProps) => new Turret(props as TurretInit),
-    drone: (props: RestoreEntityProps) => new CorpDrone(props as CorpDroneProps),
+    drone: (props: RestoreEntityProps) => new Skirmisher(props as SkirmisherProps),
+    guard: (props: RestoreEntityProps) => new Guard(props as GuardProps),
+    bruiser: (props: RestoreEntityProps) => new Bruiser(props as BruiserProps),
+    juggernaut: (props: RestoreEntityProps) => new Juggernaut(props as JuggernautProps),
+    flanker: (props: RestoreEntityProps) => new Flanker(props as FlankerProps),
+    lookout: (props: RestoreEntityProps) => new Lookout(props as LookoutProps),
+    sniper: (props: RestoreEntityProps) => new Sniper(props as SniperProps),
+    medic: (props: RestoreEntityProps) => new Medic(props as MedicProps),
     'corp-civilian': (props: RestoreEntityProps) => new CorpCivilian(props as CorpCivilianInit),
     'neutral-civilian': (props: RestoreEntityProps) =>
       new NeutralCivilian(props as NeutralCivilianInit),
@@ -169,7 +212,445 @@ const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) =
 
 const KNOWN_FACTIONS = new Set(Object.values(FACTION));
 const KNOWN_RUN_STATES = new Set(Object.values(RUN_STATE));
-const KNOWN_DRONE_STATES = new Set(Object.values(DRONE_STATE));
+const KNOWN_PATROL_STATES = new Set(Object.values(PATROL_STATE));
+const PATROL_ARCHETYPE_SET = new Set<EntityArchetypeId>(PATROL_ARCHETYPE_IDS);
+
+function isPatrolArchetype(archetype: EntityArchetypeId): archetype is PatrolArchetypeId {
+  return PATROL_ARCHETYPE_SET.has(archetype);
+}
+
+// ---------------------------------------------------------------------------
+// M6.2: Data-Mapper entity restore registry.
+//
+// The on-disk entity layout is a slim common record plus a single opaque
+// `extra` property bag (see `RunEntitySnapshot`). `normalizeEntityExtra`
+// produces that bag from new *or* legacy saves; `ENTITY_RESTORE` then owns the
+// per-archetype `buildProps`/`apply` logic, replacing the former ~30-block
+// `if (rec.archetype === 'X')` cascade. `Run.snapshotEntity`'s
+// `SNAPSHOT_EXTRACTORS` is the symmetric write path.
+// ---------------------------------------------------------------------------
+
+/** Pre-M6.2 named sub-block key for each non-crew/non-patrol archetype. */
+const LEGACY_EXTRA_KEY: Partial<Record<EntityArchetypeId, string>> = Object.freeze({
+  turret: 'turret',
+  'corp-turret': 'corpTurret',
+  terminal: 'terminal',
+  door: 'door',
+  pickup: 'pickup',
+  contact: 'contact',
+  'deny-target': 'denyTarget',
+  'sync-pad': 'syncPad',
+  'relay-node': 'relayNode',
+  'consumable-pickup': 'consumablePickup',
+  'escort-npc': 'escortNpc',
+  keycard: 'keycard',
+});
+
+function asObjectBag(value: unknown): EntitySnapshotExtra | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as EntitySnapshotExtra)
+    : null;
+}
+
+/**
+ * Reconstruct the `extra` bag from a *legacy* (pre-M6.2) record that still
+ * stores per-archetype slices as named top-level sub-blocks (`drone`,
+ * `terminal`, …) and crew fields at the top level. New saves carry `extra`
+ * directly and never reach here.
+ */
+function legacyEntityExtra(rec: RunEntitySnapshot): EntitySnapshotExtra {
+  const legacy = rec as unknown as Record<string, unknown>;
+  const archetype = rec.archetype;
+  if (isPatrolArchetype(archetype)) {
+    return asObjectBag(legacy[archetype]) ?? {};
+  }
+  if (isCrewArchetype(archetype)) {
+    const extra: Record<string, unknown> = {
+      callsign: (legacy.callsign as string | null | undefined) ?? null,
+      flatlined: !!legacy.flatlined,
+      inventory: legacy.inventory ?? null,
+      gear: legacy.gear ?? null,
+    };
+    const tech = asObjectBag(legacy.tech);
+    if (tech && 'turretReady' in tech) extra.turretReady = !!tech.turretReady;
+    return extra as EntitySnapshotExtra;
+  }
+  const key = LEGACY_EXTRA_KEY[archetype];
+  if (key) return asObjectBag(legacy[key]) ?? {};
+  return {};
+}
+
+/**
+ * Produce the opaque per-entity property bag for a record. New saves carry it
+ * under `extra`; legacy saves normalise from their named sub-blocks. A
+ * malformed `extra` crashes — silent fallback would resurrect a corrupt entity.
+ */
+function normalizeEntityExtra(rec: RunEntitySnapshot): EntitySnapshotExtra {
+  if (rec.extra !== undefined && rec.extra !== null) {
+    const obj = asObjectBag(rec.extra);
+    if (!obj) throw new TypeError(`restore: entity ${rec.id} extra must be an object`);
+    return obj;
+  }
+  return legacyEntityExtra(rec);
+}
+
+function hasNoState(extra: EntitySnapshotExtra): boolean {
+  return Object.keys(extra).length === 0;
+}
+
+function requireString(value: unknown, message: string): string {
+  if (typeof value !== 'string' || value.length === 0) throw new TypeError(message);
+  return value;
+}
+
+function requireBoolean(value: unknown, message: string): boolean {
+  if (typeof value !== 'boolean') throw new TypeError(message);
+  return value;
+}
+
+// --- Per-entity strict readers (validate the bag → typed snapshot) ----------
+
+function readTerminal(extra: EntitySnapshotExtra, id: string): TerminalSnapshot {
+  if (hasNoState(extra))
+    throw new TypeError(`restore: terminal entity ${id} requires terminal state`);
+  const t = extra as Partial<TerminalSnapshot>;
+  if (
+    t.unlocksId !== undefined &&
+    t.unlocksId !== null &&
+    (typeof t.unlocksId !== 'string' || t.unlocksId.length === 0)
+  ) {
+    throw new TypeError(`restore: terminal ${id} unlocksId must be null or a non-empty string`);
+  }
+  return {
+    label: requireString(t.label, `restore: terminal ${id} label must be a non-empty string`),
+    sliced: requireBoolean(t.sliced, `restore: terminal ${id} sliced must be boolean`),
+    armed: requireBoolean(t.armed, `restore: terminal ${id} armed must be boolean`),
+    raisesAlarm: requireBoolean(
+      t.raisesAlarm,
+      `restore: terminal ${id} raisesAlarm must be boolean`
+    ),
+    unlocksId: (t.unlocksId as string | null | undefined) ?? null,
+  };
+}
+
+function readDoor(extra: EntitySnapshotExtra, id: string): DoorSnapshot {
+  if (hasNoState(extra)) throw new TypeError(`restore: door entity ${id} requires door state`);
+  const d = extra as Partial<DoorSnapshot>;
+  return {
+    doorId: requireString(d.doorId, `restore: door ${id} doorId must be a non-empty string`),
+    locked: requireBoolean(d.locked, `restore: door ${id} locked must be boolean`),
+  };
+}
+
+function readPickup(extra: EntitySnapshotExtra, id: string): PickupSnapshot {
+  if (hasNoState(extra)) throw new TypeError(`restore: pickup entity ${id} requires pickup state`);
+  const p = extra as Partial<PickupSnapshot>;
+  return {
+    label: requireString(p.label, `restore: pickup ${id} label must be a non-empty string`),
+    secured: requireBoolean(p.secured, `restore: pickup ${id} secured must be boolean`),
+    armed: requireBoolean(p.armed, `restore: pickup ${id} armed must be boolean`),
+  };
+}
+
+function readContact(extra: EntitySnapshotExtra, id: string): ContactSnapshot {
+  if (hasNoState(extra))
+    throw new TypeError(`restore: contact entity ${id} requires contact state`);
+  const c = extra as Partial<ContactSnapshot>;
+  return {
+    label: requireString(c.label, `restore: contact ${id} label must be a non-empty string`),
+    handoffComplete: requireBoolean(
+      c.handoffComplete,
+      `restore: contact ${id} handoffComplete must be boolean`
+    ),
+    armed: requireBoolean(c.armed, `restore: contact ${id} armed must be boolean`),
+  };
+}
+
+function readDenyTarget(extra: EntitySnapshotExtra, id: string): DenyTargetSnapshot {
+  if (hasNoState(extra)) {
+    throw new TypeError(`restore: deny target entity ${id} requires deny target state`);
+  }
+  const d = extra as Partial<DenyTargetSnapshot>;
+  if (d.requiresBreach !== undefined && typeof d.requiresBreach !== 'boolean') {
+    throw new TypeError(`restore: deny target ${id} requiresBreach must be boolean`);
+  }
+  return {
+    label: requireString(d.label, `restore: deny target ${id} label must be a non-empty string`),
+    requiresBreach: d.requiresBreach ?? false,
+  };
+}
+
+function readSyncPad(extra: EntitySnapshotExtra, id: string): SyncPadSnapshot {
+  if (hasNoState(extra))
+    throw new TypeError(`restore: sync pad entity ${id} requires sync pad state`);
+  const s = extra as Partial<SyncPadSnapshot>;
+  return {
+    label: requireString(s.label, `restore: sync pad ${id} label must be a non-empty string`),
+    synced: requireBoolean(s.synced, `restore: sync pad ${id} synced must be boolean`),
+    armed: requireBoolean(s.armed, `restore: sync pad ${id} armed must be boolean`),
+  };
+}
+
+function readConsumablePickup(extra: EntitySnapshotExtra, id: string): ConsumablePickupSnapshot {
+  if (hasNoState(extra)) {
+    throw new TypeError(`restore: consumable pickup entity ${id} requires consumable state`);
+  }
+  const c = extra as Partial<ConsumablePickupSnapshot>;
+  return {
+    consumableId: requireString(
+      c.consumableId,
+      `restore: consumable pickup ${id} consumableId must be a non-empty string`
+    ),
+    label: requireString(
+      c.label,
+      `restore: consumable pickup ${id} label must be a non-empty string`
+    ),
+  };
+}
+
+function readEscortNpc(extra: EntitySnapshotExtra, id: string): EscortNpcSnapshot {
+  if (hasNoState(extra))
+    throw new TypeError(`restore: escort NPC entity ${id} requires escort state`);
+  const n = extra as Partial<EscortNpcSnapshot>;
+  return {
+    label: requireString(n.label, `restore: escort NPC ${id} label must be a non-empty string`),
+    activated: requireBoolean(n.activated, `restore: escort NPC ${id} activated must be boolean`),
+    armed: requireBoolean(n.armed, `restore: escort NPC ${id} armed must be boolean`),
+  };
+}
+
+function readKeyCard(extra: EntitySnapshotExtra, id: string): KeyCardSnapshot {
+  if (hasNoState(extra))
+    throw new TypeError(`restore: keycard entity ${id} requires keycard state`);
+  const k = extra as Partial<KeyCardSnapshot>;
+  if (k.siteId !== undefined && k.siteId !== null && typeof k.siteId !== 'string') {
+    throw new TypeError(`restore: keycard ${id} siteId must be a string`);
+  }
+  return {
+    doorId: requireString(k.doorId, `restore: keycard ${id} doorId must be a non-empty string`),
+    label: requireString(k.label, `restore: keycard ${id} label must be a non-empty string`),
+    siteId: (k.siteId as string | null | undefined) ?? null,
+  };
+}
+
+/**
+ * Re-apply the shared {@link PatrolSnapshot} state machine. Every patrol
+ * hostile round-trips this identically; subclass extras (Sniper `aimTargetId`,
+ * Flanker `slideConcealed`) are applied by their registry `apply` hooks.
+ */
+function restorePatrolState(
+  entity: PatrolHostile,
+  extra: EntitySnapshotExtra,
+  rec: RunEntitySnapshot
+): void {
+  const patrol = extra as Partial<PatrolSnapshot>;
+  if (patrol.state && !KNOWN_PATROL_STATES.has(patrol.state as PatrolHostile['state'])) {
+    throw new Error(`restore: ${rec.archetype} ${rec.id} has unknown state "${patrol.state}"`);
+  }
+  if (patrol.state) entity.state = patrol.state as PatrolHostile['state'];
+  if (patrol.lastKnownTarget) {
+    const lk = patrol.lastKnownTarget;
+    if (!Number.isInteger(lk.x) || !Number.isInteger(lk.y)) {
+      throw new TypeError(
+        `restore: ${rec.archetype} ${rec.id} lastKnownTarget must have integer coords`
+      );
+    }
+    entity.lastKnownTarget = { x: lk.x, y: lk.y };
+  }
+  if (Number.isInteger(patrol.patrolIndex)) {
+    const idx = patrol.patrolIndex as number;
+    const len = entity.patrolWaypoints.length;
+    // Bounds-check against the restored waypoint list — `takeTurnSteps`
+    // dereferences `patrolWaypoints[patrolIndex]` without a guard, so a stale
+    // or corrupt index would crash mid-turn. Fail loudly here instead.
+    if (idx < 0 || (len > 0 && idx >= len)) {
+      throw new RangeError(
+        `restore: ${rec.archetype} ${rec.id} patrolIndex=${idx} out of [0, ${len})`
+      );
+    }
+    entity.patrolIndex = len > 0 ? idx : 0;
+  }
+}
+
+type RestoreEntry = {
+  /** Build constructor props from the bag (throws on missing/malformed state). */
+  buildProps?: (extra: EntitySnapshotExtra, rec: RunEntitySnapshot) => Partial<RestoreEntityProps>;
+  /** Post-construct state + cheap instanceof guard (throws on a mis-wired create). */
+  apply?: (entity: Entity, extra: EntitySnapshotExtra, rec: RunEntitySnapshot) => void;
+};
+
+const ENTITY_RESTORE: Partial<Record<EntityArchetypeId, RestoreEntry>> = Object.freeze({
+  tech: {
+    // Re-apply the pre-built turret flag (default `true` from the Tech ctor when
+    // a legacy record omits it — preserve that by only assigning when present).
+    apply(entity, extra) {
+      if (!(entity instanceof Tech)) return;
+      const t = extra as Partial<TechSnapshot>;
+      if (t.turretReady !== undefined) entity.turretReady = !!t.turretReady;
+    },
+  },
+  sniper: {
+    // Resume the pending held shot so a save during the aim telegraph resolves
+    // fire-or-cancel on the next corp turn.
+    apply(entity, extra) {
+      if (!(entity instanceof Sniper)) return;
+      const s = extra as Partial<SniperSnapshot>;
+      entity.aimTargetId = typeof s.aimTargetId === 'string' ? s.aimTargetId : null;
+    },
+  },
+  flanker: {
+    apply(entity, extra, rec) {
+      if (!(entity instanceof Flanker)) return;
+      const f = extra as Partial<FlankerSnapshot>;
+      if (typeof f.slideConcealed !== 'boolean') {
+        throw new TypeError(`restore: flanker ${rec.id} slideConcealed must be boolean`);
+      }
+      entity.slideConcealed = f.slideConcealed;
+    },
+  },
+  turret: {
+    // range/attackDamage are tunables that survive a round-trip; passing them
+    // through the ctor keeps a custom-tuned improvised turret behaving identically.
+    buildProps(extra) {
+      const t = extra as Partial<TurretSnapshot>;
+      const props: Partial<RestoreEntityProps> = {};
+      if (Number.isInteger(t.range)) props.range = t.range as number;
+      if (Number.isInteger(t.attackDamage)) props.attackDamage = t.attackDamage as number;
+      if (t.ownerId !== undefined) props.ownerId = (t.ownerId as string | null) ?? null;
+      return props;
+    },
+  },
+  'corp-turret': {
+    buildProps(extra) {
+      const t = extra as Partial<CorpTurretSnapshot>;
+      const props: Partial<RestoreEntityProps> = {};
+      if (Number.isInteger(t.range)) props.range = t.range as number;
+      if (Number.isInteger(t.attackDamage)) props.attackDamage = t.attackDamage as number;
+      return props;
+    },
+  },
+  'relay-node': {
+    buildProps(extra) {
+      const r = extra as Partial<RelayNodeSnapshot>;
+      return { label: typeof r.label === 'string' && r.label.length > 0 ? r.label : 'Relay node' };
+    },
+  },
+  terminal: {
+    buildProps(extra, rec) {
+      const t = readTerminal(extra, rec.id);
+      return {
+        label: t.label,
+        sliced: t.sliced,
+        armed: t.armed,
+        raisesAlarm: t.raisesAlarm,
+        unlocksId: t.unlocksId,
+      };
+    },
+    apply(entity, _extra, rec) {
+      if (!(entity instanceof Terminal)) {
+        throw new Error(`restore: terminal entity ${rec.id} did not restore as Terminal`);
+      }
+    },
+  },
+  door: {
+    buildProps(extra, rec) {
+      const d = readDoor(extra, rec.id);
+      return { doorId: d.doorId, locked: d.locked };
+    },
+    apply(entity, _extra, rec) {
+      if (!(entity instanceof Door)) {
+        throw new Error(`restore: door entity ${rec.id} did not restore as Door`);
+      }
+      const expectedGlyph = entity.locked ? DOOR_LOCKED_GLYPH : DOOR_OPEN_GLYPH;
+      if (rec.glyph !== expectedGlyph) {
+        throw new Error(
+          `restore: door ${rec.id} glyph "${rec.glyph}" disagrees with locked=${entity.locked}`
+        );
+      }
+    },
+  },
+  pickup: {
+    buildProps(extra, rec) {
+      const p = readPickup(extra, rec.id);
+      return { label: p.label, secured: p.secured, armed: p.armed };
+    },
+    apply(entity, _extra, rec) {
+      if (!(entity instanceof Pickup)) {
+        throw new Error(`restore: pickup entity ${rec.id} did not restore as Pickup`);
+      }
+    },
+  },
+  contact: {
+    buildProps(extra, rec) {
+      const c = readContact(extra, rec.id);
+      return { label: c.label, handoffComplete: c.handoffComplete, armed: c.armed };
+    },
+    apply(entity, _extra, rec) {
+      if (!(entity instanceof Contact)) {
+        throw new Error(`restore: contact entity ${rec.id} did not restore as Contact`);
+      }
+    },
+  },
+  'deny-target': {
+    buildProps(extra, rec) {
+      const d = readDenyTarget(extra, rec.id);
+      return { label: d.label, requiresBreach: d.requiresBreach };
+    },
+    apply(entity, _extra, rec) {
+      if (!(entity instanceof DenyTarget)) {
+        throw new Error(`restore: deny target entity ${rec.id} did not restore as DenyTarget`);
+      }
+    },
+  },
+  'sync-pad': {
+    buildProps(extra, rec) {
+      const s = readSyncPad(extra, rec.id);
+      return { label: s.label, synced: s.synced, armed: s.armed };
+    },
+    apply(entity, _extra, rec) {
+      if (!(entity instanceof SyncPad)) {
+        throw new Error(`restore: sync pad entity ${rec.id} did not restore as SyncPad`);
+      }
+    },
+  },
+  'consumable-pickup': {
+    buildProps(extra, rec) {
+      const c = readConsumablePickup(extra, rec.id);
+      return { consumableId: c.consumableId, label: c.label };
+    },
+    apply(entity, _extra, rec) {
+      if (!(entity instanceof ConsumablePickup)) {
+        throw new Error(
+          `restore: consumable pickup entity ${rec.id} did not restore as ConsumablePickup`
+        );
+      }
+    },
+  },
+  'escort-npc': {
+    buildProps(extra, rec) {
+      const n = readEscortNpc(extra, rec.id);
+      return { label: n.label, activated: n.activated, armed: n.armed };
+    },
+    apply(entity, _extra, rec) {
+      if (!(entity instanceof EscortNpc)) {
+        throw new Error(`restore: escort NPC entity ${rec.id} did not restore as EscortNpc`);
+      }
+    },
+  },
+  keycard: {
+    buildProps(extra, rec) {
+      const k = readKeyCard(extra, rec.id);
+      const props: Partial<RestoreEntityProps> = { doorId: k.doorId, label: k.label };
+      if (k.siteId) props.siteId = k.siteId;
+      return props;
+    },
+    apply(entity, _extra, rec) {
+      if (!(entity instanceof KeyCard)) {
+        throw new Error(`restore: keycard entity ${rec.id} did not restore as KeyCard`);
+      }
+    },
+  },
+});
 
 type RestoreOptions = {
   onPersist?: (record: RunSnapshot) => void;
@@ -308,6 +789,8 @@ function snapshotLocationSite(site: LocationSite): LocationSite {
   return {
     id: site.id,
     seed: site.seed,
+    mapWidth: site.mapWidth,
+    mapHeight: site.mapHeight,
     label: site.label,
     tier: site.tier,
     scoreTarget: site.scoreTarget,
@@ -397,7 +880,7 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
 
   for (const entity of restoredEntities) {
     run.world.addEntity(entity);
-    if (entity instanceof CorpDrone) {
+    if (entity instanceof PatrolHostile) {
       entity.bindToBus(run.bus);
     }
     if (entity === player) {
@@ -522,9 +1005,23 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
   if (!Number.isInteger(rec.maxHp) || rec.maxHp <= 0) {
     throw new RangeError(`restore: entity ${rec.id} has invalid maxHp=${rec.maxHp}`);
   }
+  if (
+    rec.damageReduction !== undefined &&
+    (!Number.isInteger(rec.damageReduction) || rec.damageReduction < 0)
+  ) {
+    throw new RangeError(
+      `restore: entity ${rec.id} has invalid damageReduction=${rec.damageReduction}`
+    );
+  }
+  if (rec.shieldHp !== undefined && (!Number.isInteger(rec.shieldHp) || rec.shieldHp < 0)) {
+    throw new RangeError(`restore: entity ${rec.id} has invalid shieldHp=${rec.shieldHp}`);
+  }
   if (rec.faction && !KNOWN_FACTIONS.has(rec.faction)) {
     throw new Error(`restore: entity ${rec.id} has unknown faction "${rec.faction}"`);
   }
+
+  const extra = normalizeEntityExtra(rec);
+  const entry = ENTITY_RESTORE[rec.archetype];
 
   const entityProps: RestoreEntityProps = {
     id: rec.id,
@@ -532,103 +1029,21 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
     y: rec.y,
     maxAp: rec.maxAp,
     maxHp: rec.maxHp,
+    damageReduction: rec.damageReduction ?? 0,
+    shieldHp: rec.shieldHp ?? 0,
   };
   if (isCrewArchetype(rec.archetype)) {
-    entityProps.callsign = rec.callsign ?? null;
-    entityProps.flatlined = !!rec.flatlined;
-    entityProps.inventory = rec.inventory ?? null;
-    entityProps.gear = rec.gear ?? null;
+    const crew = extra as Partial<CrewSnapshot>;
+    entityProps.callsign = crew.callsign ?? null;
+    entityProps.flatlined = !!crew.flatlined;
+    entityProps.inventory = crew.inventory ?? null;
+    entityProps.gear = crew.gear ?? null;
   }
-  if (rec.archetype === 'drone') {
-    entityProps.patrolWaypoints = rec.drone?.patrolWaypoints ?? [];
+  if (isPatrolArchetype(rec.archetype)) {
+    entityProps.patrolWaypoints = (extra as Partial<PatrolSnapshot>).patrolWaypoints ?? [];
   }
-  if (rec.archetype === 'turret' && rec.turret) {
-    // Turret's range/attackDamage are tunables that survive a round-trip;
-    // passing them through the constructor keeps a custom-tuned improvised
-    // turret (M3) behaving identically after restore.
-    if (Number.isInteger(rec.turret.range)) entityProps.range = rec.turret.range;
-    if (Number.isInteger(rec.turret.attackDamage)) {
-      entityProps.attackDamage = rec.turret.attackDamage;
-    }
-    if (rec.turret.ownerId !== undefined) entityProps.ownerId = rec.turret.ownerId;
-  }
-  if (rec.archetype === 'corp-turret' && rec.corpTurret) {
-    if (Number.isInteger(rec.corpTurret.range)) entityProps.range = rec.corpTurret.range;
-    if (Number.isInteger(rec.corpTurret.attackDamage)) {
-      entityProps.attackDamage = rec.corpTurret.attackDamage;
-    }
-  }
-  if (rec.archetype === 'relay-node') {
-    entityProps.label = rec.relayNode?.label ?? 'Relay node';
-  }
-  if (rec.archetype === 'consumable-pickup' && rec.consumablePickup) {
-    entityProps.consumableId = rec.consumablePickup.consumableId;
-    entityProps.label = rec.consumablePickup.label;
-  }
-  if (rec.archetype === 'escort-npc' && rec.escortNpc) {
-    entityProps.label = rec.escortNpc.label;
-    entityProps.activated = rec.escortNpc.activated;
-    entityProps.armed = rec.escortNpc.armed;
-  }
-  if (rec.archetype === 'keycard' && rec.keycard) {
-    entityProps.doorId = rec.keycard.doorId;
-    entityProps.label = rec.keycard.label;
-    if (rec.keycard.siteId) entityProps.siteId = rec.keycard.siteId;
-  }
-  if (rec.archetype === 'terminal' && rec.terminal) {
-    entityProps.label = rec.terminal.label;
-    entityProps.sliced = rec.terminal.sliced;
-    entityProps.armed = rec.terminal.armed;
-    entityProps.raisesAlarm = rec.terminal.raisesAlarm;
-    entityProps.unlocksId = rec.terminal.unlocksId ?? null;
-  }
-  if (rec.archetype === 'door' && rec.door) {
-    entityProps.doorId = rec.door.doorId;
-    entityProps.locked = rec.door.locked;
-  }
-  if (rec.archetype === 'pickup' && rec.pickup) {
-    entityProps.label = rec.pickup.label;
-    entityProps.secured = rec.pickup.secured;
-    entityProps.armed = rec.pickup.armed;
-  }
-  if (rec.archetype === 'contact' && rec.contact) {
-    entityProps.label = rec.contact.label;
-    entityProps.handoffComplete = rec.contact.handoffComplete;
-    entityProps.armed = rec.contact.armed;
-  }
-  if (rec.archetype === 'deny-target') {
-    entityProps.label = rec.denyTarget?.label ?? 'Deny target';
-    entityProps.requiresBreach = rec.denyTarget?.requiresBreach ?? false;
-  }
-  if (rec.archetype === 'sync-pad' && rec.syncPad) {
-    entityProps.label = rec.syncPad.label;
-    entityProps.synced = rec.syncPad.synced;
-    entityProps.armed = rec.syncPad.armed;
-  }
-  if (rec.archetype === 'terminal' && !rec.terminal) {
-    throw new TypeError(`restore: terminal entity ${rec.id} requires terminal state`);
-  }
-  if (rec.archetype === 'door' && !rec.door) {
-    throw new TypeError(`restore: door entity ${rec.id} requires door state`);
-  }
-  if (rec.archetype === 'pickup' && !rec.pickup) {
-    throw new TypeError(`restore: pickup entity ${rec.id} requires pickup state`);
-  }
-  if (rec.archetype === 'contact' && !rec.contact) {
-    throw new TypeError(`restore: contact entity ${rec.id} requires contact state`);
-  }
-  if (rec.archetype === 'deny-target' && !rec.denyTarget) {
-    throw new TypeError(`restore: deny target entity ${rec.id} requires deny target state`);
-  }
-  if (rec.archetype === 'sync-pad' && !rec.syncPad) {
-    throw new TypeError(`restore: sync pad entity ${rec.id} requires sync pad state`);
-  }
-  if (rec.archetype === 'escort-npc' && !rec.escortNpc) {
-    throw new TypeError(`restore: escort NPC entity ${rec.id} requires escort state`);
-  }
-  if (rec.archetype === 'keycard' && !rec.keycard) {
-    throw new TypeError(`restore: keycard entity ${rec.id} requires keycard state`);
-  }
+  if (entry?.buildProps) Object.assign(entityProps, entry.buildProps(extra, rec));
+
   const entity = factory(entityProps);
   // Re-apply the live HP / AP / alive / stealth state. We can't pass current
   // HP through the constructor (Entity always starts at full health), so we
@@ -643,8 +1058,12 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
   if (rec.alive === true && rec.hp === 0) {
     throw new Error(`restore: entity ${rec.id} flagged alive with hp=0`);
   }
+  if (rec.alive === false && (rec.shieldHp ?? 0) > 0) {
+    throw new Error(`restore: entity ${rec.id} flagged dead with shieldHp=${rec.shieldHp}`);
+  }
   entity.hp = rec.hp;
   entity.alive = rec.alive ?? rec.hp > 0;
+  entity.shieldHp = rec.shieldHp ?? 0;
   if (Number.isInteger(rec.ap)) {
     if (rec.ap < 0 || rec.ap > entity.maxAp) {
       throw new RangeError(`restore: entity ${rec.id} ap=${rec.ap} out of [0, ${entity.maxAp}]`);
@@ -659,195 +1078,18 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
     repairGearForCrew(entity);
   }
 
-  if (rec.archetype === 'tech' && rec.tech) {
-    if (!(entity instanceof Tech)) {
-      throw new Error(`restore: tech entity ${rec.id} did not restore as Tech`);
-    }
-    // Re-apply the pre-built turret flag so a mid-job save remembers whether
-    // the player already deployed. Defaults to `true` (Tech ctor) when the
-    // record omits it.
-    entity.turretReady = !!rec.tech.turretReady;
-  }
-
-  if (rec.archetype === 'drone' && rec.drone) {
-    if (!(entity instanceof CorpDrone)) {
-      throw new Error(`restore: drone entity ${rec.id} did not restore as CorpDrone`);
-    }
-    if (rec.drone.state && !KNOWN_DRONE_STATES.has(rec.drone.state as CorpDrone['state'])) {
-      throw new Error(`restore: drone ${rec.id} has unknown state "${rec.drone.state}"`);
-    }
-    if (rec.drone.state) entity.state = rec.drone.state as CorpDrone['state'];
-    if (rec.drone.lastKnownTarget) {
-      const lk = rec.drone.lastKnownTarget;
-      if (!Number.isInteger(lk.x) || !Number.isInteger(lk.y)) {
-        throw new TypeError(`restore: drone ${rec.id} lastKnownTarget must have integer coords`);
-      }
-      entity.lastKnownTarget = { x: lk.x, y: lk.y };
-    }
-    if (Number.isInteger(rec.drone.patrolIndex)) {
-      const idx = rec.drone.patrolIndex as number;
-      const len = entity.patrolWaypoints.length;
-      // Bounds-check against the restored waypoint list — `takeTurnSteps`
-      // dereferences `patrolWaypoints[patrolIndex]` without a guard, so a
-      // stale or corrupt index would crash mid-turn. Fail loudly here instead.
-      if (idx < 0 || (len > 0 && idx >= len)) {
-        throw new RangeError(`restore: drone ${rec.id} patrolIndex=${idx} out of [0, ${len})`);
-      }
-      entity.patrolIndex = len > 0 ? idx : 0;
-    }
-  }
-
-  if (rec.archetype === 'terminal' && rec.terminal) {
-    if (!(entity instanceof Terminal)) {
-      throw new Error(`restore: terminal entity ${rec.id} did not restore as Terminal`);
-    }
-    if (typeof rec.terminal.label !== 'string' || rec.terminal.label.length === 0) {
-      throw new TypeError(`restore: terminal ${rec.id} label must be a non-empty string`);
-    }
-    if (typeof rec.terminal.sliced !== 'boolean') {
-      throw new TypeError(`restore: terminal ${rec.id} sliced must be boolean`);
-    }
-    if (typeof rec.terminal.armed !== 'boolean') {
-      throw new TypeError(`restore: terminal ${rec.id} armed must be boolean`);
-    }
-    if (typeof rec.terminal.raisesAlarm !== 'boolean') {
-      throw new TypeError(`restore: terminal ${rec.id} raisesAlarm must be boolean`);
-    }
-    if (
-      rec.terminal.unlocksId !== undefined &&
-      rec.terminal.unlocksId !== null &&
-      (typeof rec.terminal.unlocksId !== 'string' || rec.terminal.unlocksId.length === 0)
-    ) {
-      throw new TypeError(
-        `restore: terminal ${rec.id} unlocksId must be null or a non-empty string`
-      );
-    }
-  }
-  if (rec.archetype === 'door' && rec.door) {
-    if (!(entity instanceof Door)) {
-      throw new Error(`restore: door entity ${rec.id} did not restore as Door`);
-    }
-    if (typeof rec.door.doorId !== 'string' || rec.door.doorId.length === 0) {
-      throw new TypeError(`restore: door ${rec.id} doorId must be a non-empty string`);
-    }
-    if (typeof rec.door.locked !== 'boolean') {
-      throw new TypeError(`restore: door ${rec.id} locked must be boolean`);
-    }
-    const expectedGlyph = rec.door.locked ? DOOR_LOCKED_GLYPH : DOOR_OPEN_GLYPH;
-    if (rec.glyph !== expectedGlyph) {
+  // Patrol hostiles share one state-machine block; subclass extras land in apply.
+  if (isPatrolArchetype(rec.archetype)) {
+    if (!(entity instanceof PatrolHostile)) {
       throw new Error(
-        `restore: door ${rec.id} glyph "${rec.glyph}" disagrees with locked=${rec.door.locked}`
+        `restore: ${rec.archetype} entity ${rec.id} did not restore as a PatrolHostile`
       );
     }
-  }
-  if (rec.archetype === 'pickup' && rec.pickup) {
-    if (!(entity instanceof Pickup)) {
-      throw new Error(`restore: pickup entity ${rec.id} did not restore as Pickup`);
-    }
-    if (typeof rec.pickup.label !== 'string' || rec.pickup.label.length === 0) {
-      throw new TypeError(`restore: pickup ${rec.id} label must be a non-empty string`);
-    }
-    if (typeof rec.pickup.secured !== 'boolean') {
-      throw new TypeError(`restore: pickup ${rec.id} secured must be boolean`);
-    }
-    if (typeof rec.pickup.armed !== 'boolean') {
-      throw new TypeError(`restore: pickup ${rec.id} armed must be boolean`);
-    }
-  }
-  if (rec.archetype === 'contact' && rec.contact) {
-    if (!(entity instanceof Contact)) {
-      throw new Error(`restore: contact entity ${rec.id} did not restore as Contact`);
-    }
-    if (typeof rec.contact.label !== 'string' || rec.contact.label.length === 0) {
-      throw new TypeError(`restore: contact ${rec.id} label must be a non-empty string`);
-    }
-    if (typeof rec.contact.handoffComplete !== 'boolean') {
-      throw new TypeError(`restore: contact ${rec.id} handoffComplete must be boolean`);
-    }
-    if (typeof rec.contact.armed !== 'boolean') {
-      throw new TypeError(`restore: contact ${rec.id} armed must be boolean`);
-    }
-  }
-  if (rec.archetype === 'deny-target' && rec.denyTarget) {
-    if (!(entity instanceof DenyTarget)) {
-      throw new Error(`restore: deny target entity ${rec.id} did not restore as DenyTarget`);
-    }
-    if (typeof rec.denyTarget.label !== 'string' || rec.denyTarget.label.length === 0) {
-      throw new TypeError(`restore: deny target ${rec.id} label must be a non-empty string`);
-    }
-  }
-  if (rec.archetype === 'sync-pad' && rec.syncPad) {
-    if (!(entity instanceof SyncPad)) {
-      throw new Error(`restore: sync pad entity ${rec.id} did not restore as SyncPad`);
-    }
-    if (typeof rec.syncPad.label !== 'string' || rec.syncPad.label.length === 0) {
-      throw new TypeError(`restore: sync pad ${rec.id} label must be a non-empty string`);
-    }
-    if (typeof rec.syncPad.synced !== 'boolean') {
-      throw new TypeError(`restore: sync pad ${rec.id} synced must be boolean`);
-    }
-    if (typeof rec.syncPad.armed !== 'boolean') {
-      throw new TypeError(`restore: sync pad ${rec.id} armed must be boolean`);
-    }
-  }
-  if (rec.archetype === 'consumable-pickup' && rec.consumablePickup) {
-    if (!(entity instanceof ConsumablePickup)) {
-      throw new Error(
-        `restore: consumable pickup entity ${rec.id} did not restore as ConsumablePickup`
-      );
-    }
-    if (
-      typeof rec.consumablePickup.consumableId !== 'string' ||
-      rec.consumablePickup.consumableId.length === 0
-    ) {
-      throw new TypeError(
-        `restore: consumable pickup ${rec.id} consumableId must be a non-empty string`
-      );
-    }
-    if (typeof rec.consumablePickup.label !== 'string' || rec.consumablePickup.label.length === 0) {
-      throw new TypeError(`restore: consumable pickup ${rec.id} label must be a non-empty string`);
-    }
-  }
-  if (rec.archetype === 'escort-npc' && rec.escortNpc) {
-    if (!(entity instanceof EscortNpc)) {
-      throw new Error(`restore: escort NPC entity ${rec.id} did not restore as EscortNpc`);
-    }
-    if (typeof rec.escortNpc.label !== 'string' || rec.escortNpc.label.length === 0) {
-      throw new TypeError(`restore: escort NPC ${rec.id} label must be a non-empty string`);
-    }
-    if (typeof rec.escortNpc.activated !== 'boolean') {
-      throw new TypeError(`restore: escort NPC ${rec.id} activated must be boolean`);
-    }
-    if (typeof rec.escortNpc.armed !== 'boolean') {
-      throw new TypeError(`restore: escort NPC ${rec.id} armed must be boolean`);
-    }
+    restorePatrolState(entity, extra, rec);
   }
 
-  if (rec.archetype === 'keycard' && rec.keycard) {
-    if (!(entity instanceof KeyCard)) {
-      throw new Error(`restore: keycard entity ${rec.id} did not restore as KeyCard`);
-    }
-    if (typeof rec.keycard.doorId !== 'string' || rec.keycard.doorId.length === 0) {
-      throw new TypeError(`restore: keycard ${rec.id} doorId must be a non-empty string`);
-    }
-    if (typeof rec.keycard.label !== 'string' || rec.keycard.label.length === 0) {
-      throw new TypeError(`restore: keycard ${rec.id} label must be a non-empty string`);
-    }
-  }
-  if (rec.archetype === 'deny-target' && rec.denyTarget) {
-    if (!(entity instanceof DenyTarget)) {
-      throw new Error(`restore: deny target entity ${rec.id} did not restore as DenyTarget`);
-    }
-    if (typeof rec.denyTarget.label !== 'string' || rec.denyTarget.label.length === 0) {
-      throw new TypeError(`restore: deny target ${rec.id} label must be a non-empty string`);
-    }
-    if (
-      rec.denyTarget.requiresBreach !== undefined &&
-      typeof rec.denyTarget.requiresBreach !== 'boolean'
-    ) {
-      throw new TypeError(`restore: deny target ${rec.id} requiresBreach must be boolean`);
-    }
-  }
+  // Per-archetype post-construct state + cheap instanceof guards.
+  entry?.apply?.(entity, extra, rec);
 
   // Stash archetype tag on the instance so the caller can later recover the
   // player from a heterogeneous entity set.
@@ -1046,9 +1288,12 @@ function normalizeContract(
   };
   const reward = raw.reward;
   const context = normalizeContractContext(raw.context);
+  const dimensions = normalizeMapDimensions(raw.mapWidth, raw.mapHeight, 'restore: contract');
   if (!reward) {
     return {
       ...raw,
+      mapWidth: dimensions.width,
+      mapHeight: dimensions.height,
       objective: normalizeObjective(raw.objective),
       context,
       reward: { credits: 0, repDelta: 0 },
@@ -1068,6 +1313,8 @@ function normalizeContract(
   }
   return {
     ...raw,
+    mapWidth: dimensions.width,
+    mapHeight: dimensions.height,
     objective: normalizeObjective(raw.objective),
     context,
     reward: {

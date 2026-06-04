@@ -1,10 +1,11 @@
 {
   "name": "kernel-panic",
-  "version": "0.2.6-balance.1",
+  "version": "0.2.7",
   "description": "Turn-based cyberpunk roguelike PWA (ASCII-plus terminal aesthetic)",
   "main": "index.html",
   "type": "module",
   "scripts": {
+    "prepare": "git config core.hooksPath .githooks",
     "start": "npm run dev",
     "dev": "concurrently -k -n ts,assets,serve -c blue,magenta,green \"npm:dev:ts\" \"npm:dev:assets\" \"npm:dev:serve\"",
     "dev:ts": "tsc -p tsconfig.json --watch --preserveWatchOutput",

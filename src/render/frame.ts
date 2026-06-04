@@ -14,6 +14,7 @@ import type { World } from '../game/World.js';
 import type { Entity } from '../game/Entity.js';
 import type { VisionField } from '../game/Vision.js';
 import type { Glyph } from './palette.js';
+import { isConcealedFromPlayer, sniperAimOverlayTiles } from '../game/playerPerception.js';
 import type { FactionId, TileId } from '../game/constants.js';
 
 /**
@@ -78,12 +79,20 @@ export function cameraFor(target: Entity, viewport: Viewport): Camera {
 export type BuildFrameOptions = {
   vision?: VisionField;
   /**
+   * Deployed crew member — enables player-perception conceal (sniper range
+   * hide) and the aim crosshair overlay on marked targets.
+   */
+  player?: Entity;
+  /**
    * `"x,y"` keys in world coords. Brief breaching-charge detonation flash: hazard
    * glyph (`▓`) on terrain in these cells (~`BREACH_BLAST_OVERLAY` ms).
    */
   blastOverlayKeys?: ReadonlySet<string>;
   lookCursor?: { x: number; y: number } | null;
 };
+
+/** Sniper telegraph overlay — red crosshair composited over the target glyph. */
+const AIM_CROSSHAIR_OVERLAY = Object.freeze({ char: '+', fg: '#ff4444' });
 
 /** Presentation-only — does not mutate the grid. */
 const BLAST_OVERLAY_GLYPH = glyphForTile(TILE.HAZARD);
@@ -94,8 +103,10 @@ const BLAST_OVERLAY_GLYPH = glyphForTile(TILE.HAZARD);
  */
 export function buildFrame(world: World, camera: Camera, options: BuildFrameOptions = {}): Frame {
   const { x: cx, y: cy, width, height } = camera;
-  const { vision, blastOverlayKeys, lookCursor } = options;
+  const { vision, blastOverlayKeys, lookCursor, player } = options;
   const cells: Glyph[] = Array.from({ length: width * height });
+
+  const omitEntity = (e: Entity) => player && isConcealedFromPlayer(e, player, world);
 
   // Index entities once so we don't pay an O(n) scan per cell. Three-pass:
   // dead first, then passable live props, then impassable live actors — so a
@@ -106,10 +117,10 @@ export function buildFrame(world: World, camera: Camera, options: BuildFrameOpti
     if (!e.alive) entityIndex.set(`${e.x},${e.y}`, e);
   }
   for (const e of world.entities.values()) {
-    if (e.alive && e.passable) entityIndex.set(`${e.x},${e.y}`, e);
+    if (e.alive && e.passable && !omitEntity(e)) entityIndex.set(`${e.x},${e.y}`, e);
   }
   for (const e of world.entities.values()) {
-    if (e.alive && !e.passable) entityIndex.set(`${e.x},${e.y}`, e);
+    if (e.alive && !e.passable && !omitEntity(e)) entityIndex.set(`${e.x},${e.y}`, e);
   }
 
   for (let dy = 0; dy < height; dy++) {
@@ -161,6 +172,20 @@ export function buildFrame(world: World, camera: Camera, options: BuildFrameOpti
         cells[idx] = { ...cell, fg: '#06110f', bg: '#00d9a5' };
       }
     }
+  }
+
+  // Sniper aim telegraph — red crosshair composited over the marked target
+  // (player glyph stays visible underneath). Look-cursor highlight wins on
+  // the same cell.
+  for (const { x: tx, y: ty } of sniperAimOverlayTiles(world)) {
+    const dx = tx - cx;
+    const dy = ty - cy;
+    if (dx < 0 || dy < 0 || dx >= width || dy >= height) continue;
+    if (lookCursor && lookCursor.x === tx && lookCursor.y === ty) continue;
+    const idx = dy * width + dx;
+    const cell = cells[idx];
+    if (!cell || cell.char === OOB_GLYPH.char) continue;
+    cells[idx] = { ...cell, overlay: AIM_CROSSHAIR_OVERLAY };
   }
 
   return { width, height, cells };

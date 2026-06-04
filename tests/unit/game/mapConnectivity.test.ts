@@ -12,7 +12,7 @@ import {
   isImpassablePlacementChokepoint,
   anchorPreservesExplorationReachability,
 } from '../../../src/game/mapConnectivity.js';
-import { reconEligibleCellKeys } from '../../../src/game/Run.js';
+import { reconEligibleCellKeys } from '../../../src/game/objectiveProgress.js';
 
 function oneTileBridgeWorld(): {
   world: World;

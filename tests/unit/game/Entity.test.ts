@@ -75,6 +75,15 @@ test('Entity.refreshAp restores to maxAp', () => {
   assert.equal(e.ap, 4);
 });
 
+test('Entity.refreshAp clears temporary shield', () => {
+  const e = new Entity({ ...baseProps(), maxAp: 4 });
+  e.addShield(2);
+  e.spendAp(3);
+  e.refreshAp();
+  assert.equal(e.ap, 4);
+  assert.equal(e.shieldHp, 0);
+});
+
 test('Entity defaults to full HP and respects custom maxHp', () => {
   const def = new Entity(baseProps());
   assert.equal(def.hp, def.maxHp);
@@ -83,6 +92,19 @@ test('Entity defaults to full HP and respects custom maxHp', () => {
   const e = new Entity({ ...baseProps(), maxHp: 5 });
   assert.equal(e.hp, 5);
   assert.equal(e.maxHp, 5);
+});
+
+test('Entity.damageReduction defaults to 0 and accepts non-negative integers', () => {
+  const def = new Entity(baseProps());
+  assert.equal(def.damageReduction, 0);
+
+  const armored = new Entity({ ...baseProps(), damageReduction: 2 });
+  assert.equal(armored.damageReduction, 2);
+});
+
+test('Entity rejects invalid damageReduction', () => {
+  assert.throws(() => new Entity({ ...baseProps(), damageReduction: -1 }), RangeError);
+  assert.throws(() => new Entity({ ...baseProps(), damageReduction: 1.5 }), RangeError);
 });
 
 test('Entity rejects non-positive maxHp (data-corruption guard)', () => {
@@ -96,6 +118,20 @@ test('Entity.damage subtracts HP and keeps it non-negative', () => {
   e.damage(2);
   assert.equal(e.hp, 1);
   assert.equal(e.alive, true);
+});
+
+test('Entity.damage consumes temporary shield before HP', () => {
+  const e = new Entity({ ...baseProps(), maxHp: 5 });
+  e.addShield(2);
+  assert.equal(e.shieldHp, 2);
+
+  assert.equal(e.damage(1), 0, 'shield-only damage does not reduce HP');
+  assert.equal(e.hp, 5);
+  assert.equal(e.shieldHp, 1);
+
+  assert.equal(e.damage(3), 2, 'overflow reaches HP');
+  assert.equal(e.hp, 3);
+  assert.equal(e.shieldHp, 0);
 });
 
 test('Entity.damage flips alive=false at 0 HP', () => {
@@ -122,6 +158,25 @@ test('Entity.damage on a dead entity throws', () => {
   const e = new Entity({ ...baseProps(), maxHp: 1 });
   e.damage(1);
   assert.throws(() => e.damage(1), /already dead/);
+});
+
+test('Entity.heal restores HP without exceeding maxHp', () => {
+  const e = new Entity({ ...baseProps(), maxHp: 5 });
+  e.damage(3);
+
+  assert.equal(e.heal(2), 2);
+  assert.equal(e.hp, 4);
+  assert.equal(e.heal(5), 1);
+  assert.equal(e.hp, 5);
+});
+
+test('Entity.heal and addShield reject corrupt inputs loudly', () => {
+  const e = new Entity(baseProps());
+  assert.throws(() => e.heal(-1), RangeError);
+  assert.throws(() => e.addShield(0), RangeError);
+  e.damage(e.hp);
+  assert.throws(() => e.heal(1), /already dead/);
+  assert.throws(() => e.addShield(1), /already dead/);
 });
 
 test('Entity.stealthed defaults to false', () => {

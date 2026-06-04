@@ -22,6 +22,11 @@ export interface RelayNodeInit extends Omit<EntityInit, 'faction' | 'glyph' | 'm
   label?: string;
 }
 
+/** M6.2: RelayNode snapshot `extra`. */
+export type RelayNodeSnapshot = {
+  label: string;
+};
+
 export class RelayNode extends Entity {
   label: string;
   /** Stationary infrastructure cannot dodge melee. */

@@ -6,7 +6,9 @@
 
 import { FACTION } from './constants.js';
 import type { Entity } from './Entity.js';
+import { Flanker } from './ai/Flanker.js';
 import { Turret } from './Turret.js';
+import { isConcealedFromPlayer } from './playerPerception.js';
 import type { World } from './World.js';
 import type { TurnActionStep } from '../types.js';
 
@@ -93,13 +95,35 @@ export function isCorpTurnStepLogVisibleToPlayer(
 ): boolean {
   const actor = world.entities.get(entityId);
   if (!actor?.alive) return false;
+  const player = world.entities.get(playerId);
+  if (actor instanceof Flanker && player && isConcealedFromPlayer(actor, player, world)) {
+    return false;
+  }
 
-  if (step.type === 'fire' && step.target === playerId) {
+  if (
+    (step.type === 'fire' ||
+      step.type === 'melee' ||
+      step.type === 'suppress' ||
+      step.type === 'shove') &&
+    step.target === playerId
+  ) {
+    return true;
+  }
+
+  // A lookout marking the player is felt even when the lookout itself is unseen
+  // — "this fireteam is coordinating on you right now." Surface it like a shot.
+  if (step.type === 'spot' && step.target === playerId) {
+    return true;
+  }
+
+  // A sniper's aim telegraph must reach the player even when the sniper tile is
+  // unseen (range conceal) — the whole point is the red dot from the dark.
+  if (step.type === 'aim' && step.target === playerId) {
     return true;
   }
 
   // kaizen: decide if we should surface this just on kills or also on hits
-  if (step.type === 'fire' && step.result.killed) {
+  if ((step.type === 'fire' || step.type === 'melee') && step.result.killed) {
     const victim = world.entities.get(step.target);
     if (victim instanceof Turret && victim.ownerId === playerId) {
       return true;
@@ -107,6 +131,22 @@ export function isCorpTurnStepLogVisibleToPlayer(
   }
 
   return isTileVisible(actor.x, actor.y);
+}
+
+/**
+ * Whether a corp-turn step should be painted and paced for the player.
+ * Matches log visibility for combat steps; facility alarm always repaints
+ * so the status bar picks up ALERT on the next frame.
+ */
+export function isCorpTurnStepVisibleToPlayer(
+  world: World,
+  playerId: string,
+  entityId: string,
+  step: TurnActionStep,
+  isTileVisible: IsVisibleFn
+): boolean {
+  if (step.type === 'alarm') return true;
+  return isCorpTurnStepLogVisibleToPlayer(world, playerId, entityId, step, isTileVisible);
 }
 
 /**
@@ -133,6 +173,43 @@ export function formatCorpTurnStep(
         (r.killed ? ` ${targetLabel.toUpperCase()} DOWN.` : '')
       );
     }
+    case 'melee': {
+      const r = step.result;
+      const targetLabel = resolve(step.target);
+      return (
+        `${actorLabel} strikes ${targetLabel} — ` +
+        `${r.hit ? 'HIT' : r.dodged ? 'dodged' : 'miss'} ` +
+        `(roll ${r.roll.toFixed(2)} vs ${r.dodgeThreshold.toFixed(2)}${r.inCover ? ', cover' : ''}).` +
+        (step.knockback
+          ? ` ${targetLabel} is shoved to (${step.knockback.x}, ${step.knockback.y}).`
+          : '') +
+        (r.killed ? ` ${targetLabel.toUpperCase()} DOWN.` : '')
+      );
+    }
+    case 'suppress': {
+      const r = step.result;
+      const targetLabel = resolve(step.target);
+      return (
+        `${actorLabel} lays down suppressing fire on ${targetLabel} — ` +
+        `${r.hit ? 'HIT' : 'miss'} (roll ${r.roll.toFixed(2)} vs ${r.threshold.toFixed(2)}` +
+        `${r.inCover ? ', cover' : ''}).` +
+        (r.killed ? ` ${targetLabel.toUpperCase()} DOWN.` : '')
+      );
+    }
+    case 'shove': {
+      const targetLabel = resolve(step.target);
+      return `${actorLabel} body-checks ${targetLabel} back to (${step.to.x}, ${step.to.y}) — making room to fire.`;
+    }
+    case 'heal': {
+      const targetLabel = resolve(step.target);
+      return `${actorLabel} patches ${targetLabel} for ${step.amount} HP.`;
+    }
+    case 'shield': {
+      const targetLabel = resolve(step.target);
+      return `${actorLabel} throws a shield on ${targetLabel} (+${step.amount}).`;
+    }
+    case 'slide':
+      return null;
     case 'fire-blocked':
       return `${actorLabel} targets locked — ${step.reason}.`;
     case 'move-engage':
@@ -145,6 +222,18 @@ export function formatCorpTurnStep(
       return `${actorLabel} abandons pursuit — resuming patrol.`;
     case 'alarm':
       return `${actorLabel} trips the facility alarm — corp net hot.`;
+    case 'spot': {
+      const targetLabel = resolve(step.target);
+      return `${actorLabel} marks ${targetLabel} — fire converging on your position.`;
+    }
+    case 'aim': {
+      // Deliberately anonymous — the sniper may be range-concealed; the tell is
+      // the targeting laser, not a named, located shooter.
+      const targetLabel = resolve(step.target);
+      return `A targeting laser settles on ${targetLabel} — incoming fire.`;
+    }
+    case 'aim-cancelled':
+      return `${actorLabel} loses the shot — ${step.reason}.`;
     // Patrol movement and waypoint chatter are noise; skip them.
     case 'move-patrol':
     case 'patrol-arrived':

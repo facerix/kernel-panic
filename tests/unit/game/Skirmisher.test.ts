@@ -11,7 +11,8 @@ import {
   BASE_HIT_CHANCE,
   SIGHT_RANGE,
 } from '../../../src/game/constants.js';
-import { CorpDrone, DRONE_STATE } from '../../../src/game/ai/CorpDrone.js';
+import { Skirmisher } from '../../../src/game/ai/Skirmisher.js';
+import { PATROL_STATE } from '../../../src/game/ai/PatrolHostile.js';
 import { EventBus, EVENT } from '../../../src/game/events.js';
 import { Rng } from '../../../src/rng.js';
 
@@ -37,7 +38,7 @@ const openWorld = (w = 12, h = 6) => new World(new Grid(w, h));
 
 test('drone with patrol waypoints walks toward the first waypoint', () => {
   const w = openWorld();
-  const drone = new CorpDrone({
+  const drone = new Skirmisher({
     id: 'd',
     x: 1,
     y: 2,
@@ -49,14 +50,14 @@ test('drone with patrol waypoints walks toward the first waypoint', () => {
   // One AP, one move. Drone advances one Chebyshev step closer to (5, 2).
   assert.equal(drone.ap, 0);
   assert.ok(drone.x > 1, 'drone moved east');
-  assert.equal(drone.state, DRONE_STATE.PATROL);
+  assert.equal(drone.state, PATROL_STATE.PATROL);
   assert.equal(log.length, 1);
   assert.equal(log[0].type, 'move-patrol');
 });
 
 test('drone advances waypoint index on arrival', () => {
   const w = openWorld();
-  const drone = new CorpDrone({
+  const drone = new Skirmisher({
     id: 'd',
     x: 5,
     y: 2,
@@ -76,7 +77,7 @@ test('drone advances waypoint index on arrival', () => {
 
 test('drone with no waypoints holds position', () => {
   const w = openWorld();
-  const drone = new CorpDrone({ id: 'd', x: 3, y: 3, maxAp: 3 });
+  const drone = new Skirmisher({ id: 'd', x: 3, y: 3, maxAp: 3 });
   w.addEntity(drone);
   const log = drone.takeTurn(w, new Rng(1));
   assert.deepEqual({ x: drone.x, y: drone.y }, { x: 3, y: 3 });
@@ -87,13 +88,13 @@ test('drone with no waypoints holds position', () => {
 test('drone in LOS+range fires at the player when AP allows', () => {
   const w = openWorld();
   const player = new Entity({ id: 'p', x: 3, y: 2, faction: FACTION.PLAYER, glyph: '@' });
-  const drone = new CorpDrone({ id: 'd', x: 6, y: 2, maxAp: AP_COST.RANGED_ATTACK });
+  const drone = new Skirmisher({ id: 'd', x: 6, y: 2, maxAp: AP_COST.RANGED_ATTACK });
   w.addEntity(player);
   w.addEntity(drone);
   // Roll < BASE_HIT_CHANCE → guaranteed hit.
   const rng = new StubRng([0]);
   const log = drone.takeTurn(w, rng);
-  assert.equal(drone.state, DRONE_STATE.ENGAGE);
+  assert.equal(drone.state, PATROL_STATE.ENGAGE);
   assert.equal(drone.ap, 0);
   assert.equal(player.hp, player.maxHp - 1);
   assert.equal(log.length, 1);
@@ -108,7 +109,7 @@ test('long-sighted drone fires at a target beyond SIGHT_RANGE but within its sig
   const dist = SIGHT_RANGE + 2;
   const w = openWorld(dist + 3, 6);
   const player = new Entity({ id: 'p', x: 1 + dist, y: 2, faction: FACTION.PLAYER, glyph: '@' });
-  const drone = new CorpDrone({
+  const drone = new Skirmisher({
     id: 'd',
     x: 1,
     y: 2,
@@ -132,7 +133,7 @@ test('drone closes distance when target is out of fire range', () => {
   }
   const w = new World(grid);
   const player = new Entity({ id: 'p', x: 1, y: 1, faction: FACTION.PLAYER, glyph: '@' });
-  const drone = new CorpDrone({ id: 'd', x: 25, y: 1, maxAp: 4 });
+  const drone = new Skirmisher({ id: 'd', x: 25, y: 1, maxAp: 4 });
   w.addEntity(player);
   w.addEntity(drone);
   const log = drone.takeTurn(w, new Rng(1));
@@ -140,7 +141,7 @@ test('drone closes distance when target is out of fire range', () => {
   // with no waypoints, that means hold. The point of this test is the absence
   // of fire / illegal moves — drone shouldn't crash trying to engage at distance.
   assert.equal(player.hp, player.maxHp);
-  assert.equal(drone.state, DRONE_STATE.PATROL);
+  assert.equal(drone.state, PATROL_STATE.PATROL);
   void log;
 });
 
@@ -151,13 +152,13 @@ test('drone investigates last known position when target leaves LOS', () => {
   const grid = new Grid(12, 5);
   const w = new World(grid);
   const player = new Entity({ id: 'p', x: 8, y: 2, faction: FACTION.PLAYER, glyph: '@' });
-  const drone = new CorpDrone({ id: 'd', x: 2, y: 2, maxAp: 1 });
+  const drone = new Skirmisher({ id: 'd', x: 2, y: 2, maxAp: 1 });
   w.addEntity(player);
   w.addEntity(drone);
 
   // Turn 1: clear LOS, drone acquires + (with only 1 AP) tries to fire.
   drone.takeTurn(w, new StubRng([0]));
-  assert.equal(drone.state, DRONE_STATE.ENGAGE);
+  assert.equal(drone.state, PATROL_STATE.ENGAGE);
   assert.deepEqual(drone.lastKnownTarget, { x: 8, y: 2 });
 
   // Turn 2: player jumps behind cover by removing them from view — wall the row.
@@ -167,9 +168,9 @@ test('drone investigates last known position when target leaves LOS', () => {
   // Drone should have transitioned to investigate and stepped toward (8, 2)…
   // …but the wall blocks the direct path. With the row walled at y=2 between
   // x=4 and x=6, the drone needs to detour through y=1 or y=3.
-  assert.notEqual(drone.state, DRONE_STATE.ENGAGE);
+  assert.notEqual(drone.state, PATROL_STATE.ENGAGE);
   assert.ok(
-    drone.state === DRONE_STATE.INVESTIGATE || drone.state === DRONE_STATE.PATROL,
+    drone.state === PATROL_STATE.INVESTIGATE || drone.state === PATROL_STATE.PATROL,
     `unexpected state ${drone.state}`
   );
   // Either the drone moved (investigating) or marked the lead abandoned.
@@ -180,55 +181,55 @@ test('drone investigates last known position when target leaves LOS', () => {
 
 test('drone returns to patrol after reaching last-known position empty-handed', () => {
   const w = openWorld();
-  const drone = new CorpDrone({
+  const drone = new Skirmisher({
     id: 'd',
     x: 4,
     y: 2,
     maxAp: 1,
     patrolWaypoints: [{ x: 1, y: 2 }],
   });
-  drone.state = DRONE_STATE.INVESTIGATE;
+  drone.state = PATROL_STATE.INVESTIGATE;
   drone.lastKnownTarget = { x: 4, y: 2 }; // already there — nothing to find
   w.addEntity(drone);
   const log = drone.takeTurn(w, new Rng(1));
-  assert.equal(drone.state, DRONE_STATE.PATROL);
+  assert.equal(drone.state, PATROL_STATE.PATROL);
   assert.equal(drone.lastKnownTarget, null);
   assert.ok(log.some(e => e.type === 'investigate-cleared'));
 });
 
 test('noise event puts a patrolling drone into investigate', () => {
   const bus = new EventBus();
-  const drone = new CorpDrone({ id: 'd', x: 2, y: 2 });
+  const drone = new Skirmisher({ id: 'd', x: 2, y: 2 });
   drone.bindToBus(bus);
   bus.emit(EVENT.NOISE, { origin: { x: 7, y: 4 } });
-  assert.equal(drone.state, DRONE_STATE.INVESTIGATE);
+  assert.equal(drone.state, PATROL_STATE.INVESTIGATE);
   assert.deepEqual(drone.lastKnownTarget, { x: 7, y: 4 });
 });
 
 test('noise event does NOT pull an engaging drone off its target', () => {
   const bus = new EventBus();
-  const drone = new CorpDrone({ id: 'd', x: 2, y: 2 });
-  drone.state = DRONE_STATE.ENGAGE;
+  const drone = new Skirmisher({ id: 'd', x: 2, y: 2 });
+  drone.state = PATROL_STATE.ENGAGE;
   drone.lastKnownTarget = { x: 4, y: 2 };
   drone.bindToBus(bus);
   bus.emit(EVENT.NOISE, { origin: { x: 9, y: 9 } });
-  assert.equal(drone.state, DRONE_STATE.ENGAGE);
+  assert.equal(drone.state, PATROL_STATE.ENGAGE);
   assert.deepEqual(drone.lastKnownTarget, { x: 4, y: 2 }, 'lastKnownTarget unchanged');
 });
 
-test('CorpDrone.unbind detaches noise listener', () => {
+test('Skirmisher.unbind detaches noise listener', () => {
   const bus = new EventBus();
-  const drone = new CorpDrone({ id: 'd', x: 2, y: 2 });
+  const drone = new Skirmisher({ id: 'd', x: 2, y: 2 });
   drone.bindToBus(bus);
   drone.unbind();
   bus.emit(EVENT.NOISE, { origin: { x: 7, y: 4 } });
-  assert.equal(drone.state, DRONE_STATE.PATROL);
+  assert.equal(drone.state, PATROL_STATE.PATROL);
   assert.equal(drone.lastKnownTarget, null);
 });
 
 test('takeTurn on a dead drone is a no-op', () => {
   const w = openWorld();
-  const drone = new CorpDrone({
+  const drone = new Skirmisher({
     id: 'd',
     x: 1,
     y: 1,
@@ -241,13 +242,13 @@ test('takeTurn on a dead drone is a no-op', () => {
   assert.equal(drone.x, 1);
 });
 
-test('CorpDrone constructor rejects malformed waypoints', () => {
+test('Skirmisher constructor rejects malformed waypoints', () => {
   assert.throws(
-    () => new CorpDrone({ id: 'd', x: 1, y: 1, patrolWaypoints: [{ x: 0.5, y: 1 }] }),
+    () => new Skirmisher({ id: 'd', x: 1, y: 1, patrolWaypoints: [{ x: 0.5, y: 1 }] }),
     TypeError
   );
   assert.throws(
-    () => new CorpDrone({ id: 'd', x: 1, y: 1, patrolWaypoints: 'not-an-array' }),
+    () => new Skirmisher({ id: 'd', x: 1, y: 1, patrolWaypoints: 'not-an-array' }),
     TypeError
   );
 });
@@ -265,14 +266,14 @@ test('drone does NOT acquire a stealthed target outside Chebyshev 1', () => {
   const w = openWorld();
   const player = new Entity({ id: 'p', x: 3, y: 2, faction: FACTION.PLAYER, glyph: '@' });
   player.stealthed = true;
-  const drone = new CorpDrone({ id: 'd', x: 6, y: 2, maxAp: AP_COST.RANGED_ATTACK });
+  const drone = new Skirmisher({ id: 'd', x: 6, y: 2, maxAp: AP_COST.RANGED_ATTACK });
   w.addEntity(player);
   w.addEntity(drone);
   // Same setup as the "drone fires" test — but stealthed: drone shouldn't see
   // her at distance 3.
   const log = drone.takeTurn(w, new StubRng([0]));
   assert.equal(player.hp, player.maxHp, 'no shot through stealth');
-  assert.notEqual(drone.state, DRONE_STATE.ENGAGE);
+  assert.notEqual(drone.state, PATROL_STATE.ENGAGE);
   void log;
 });
 
@@ -280,42 +281,42 @@ test('drone DOES acquire a stealthed target standing adjacent (Chebyshev 1)', ()
   const w = openWorld();
   const player = new Entity({ id: 'p', x: 5, y: 2, faction: FACTION.PLAYER, glyph: '@' });
   player.stealthed = true;
-  const drone = new CorpDrone({ id: 'd', x: 6, y: 2, maxAp: AP_COST.RANGED_ATTACK });
+  const drone = new Skirmisher({ id: 'd', x: 6, y: 2, maxAp: AP_COST.RANGED_ATTACK });
   w.addEntity(player);
   w.addEntity(drone);
   drone.takeTurn(w, new StubRng([0]));
-  assert.equal(drone.state, DRONE_STATE.ENGAGE);
+  assert.equal(drone.state, PATROL_STATE.ENGAGE);
   assert.equal(player.hp, player.maxHp - 1, 'adjacent-stealth still gets shot');
 });
 
 test('drone ignores noise from same-faction sources (no friendly footstep panic)', () => {
   const bus = new EventBus();
-  const drone = new CorpDrone({ id: 'd', x: 2, y: 2 });
+  const drone = new Skirmisher({ id: 'd', x: 2, y: 2 });
   drone.bindToBus(bus);
   // Another drone — same faction.
-  const teammate = new CorpDrone({ id: 'd2', x: 5, y: 5 });
+  const teammate = new Skirmisher({ id: 'd2', x: 5, y: 5 });
   bus.emit(EVENT.NOISE, { origin: { x: 5, y: 5 }, radius: 8, source: teammate });
-  assert.equal(drone.state, DRONE_STATE.PATROL);
+  assert.equal(drone.state, PATROL_STATE.PATROL);
   assert.equal(drone.lastKnownTarget, null);
 });
 
 test('drone ignores noise outside its hearing radius', () => {
   const bus = new EventBus();
-  const drone = new CorpDrone({ id: 'd', x: 0, y: 0 });
+  const drone = new Skirmisher({ id: 'd', x: 0, y: 0 });
   drone.bindToBus(bus);
   // Origin 100 tiles away, radius 3 — well outside hearing.
   bus.emit(EVENT.NOISE, { origin: { x: 100, y: 0 }, radius: 3 });
-  assert.equal(drone.state, DRONE_STATE.PATROL);
+  assert.equal(drone.state, PATROL_STATE.PATROL);
   assert.equal(drone.lastKnownTarget, null);
 });
 
 test('drone investigates noise from a hostile inside its hearing radius', () => {
   const bus = new EventBus();
-  const drone = new CorpDrone({ id: 'd', x: 0, y: 0 });
+  const drone = new Skirmisher({ id: 'd', x: 0, y: 0 });
   const player = new Entity({ id: 'p', x: 2, y: 0, faction: FACTION.PLAYER, glyph: '@' });
   drone.bindToBus(bus);
   bus.emit(EVENT.NOISE, { origin: { x: 2, y: 0 }, radius: 3, source: player });
-  assert.equal(drone.state, DRONE_STATE.INVESTIGATE);
+  assert.equal(drone.state, PATROL_STATE.INVESTIGATE);
   assert.deepEqual(drone.lastKnownTarget, { x: 2, y: 0 });
 });
 
@@ -329,7 +330,7 @@ test('takeTurnSteps yields one entry per committed action (fire then move)', () 
   const w = openWorld();
   const player = new Entity({ id: 'p', x: 3, y: 2, faction: FACTION.PLAYER, glyph: '@' });
   // 3 AP: enough to fire (cost 2) AND then take one step (cost 1).
-  const drone = new CorpDrone({ id: 'd', x: 6, y: 2, maxAp: 3 });
+  const drone = new Skirmisher({ id: 'd', x: 6, y: 2, maxAp: 3 });
   w.addEntity(player);
   w.addEntity(drone);
   const rng = new StubRng([0]); // guaranteed hit
@@ -350,7 +351,7 @@ test('takeTurnSteps pauses mid-turn — caller can inspect state between yields'
   // frame behind it.
   const w = openWorld();
   const player = new Entity({ id: 'p', x: 3, y: 2, faction: FACTION.PLAYER, glyph: '@' });
-  const drone = new CorpDrone({ id: 'd', x: 6, y: 2, maxAp: 3 });
+  const drone = new Skirmisher({ id: 'd', x: 6, y: 2, maxAp: 3 });
   w.addEntity(player);
   w.addEntity(drone);
   const gen = drone.takeTurnSteps(w, new StubRng([0]));
@@ -370,7 +371,7 @@ test('takeTurnSteps pauses mid-turn — caller can inspect state between yields'
 
 test('takeTurnSteps on a dead drone is a no-op generator', () => {
   const w = openWorld();
-  const drone = new CorpDrone({ id: 'd', x: 1, y: 1, maxAp: 3 });
+  const drone = new Skirmisher({ id: 'd', x: 1, y: 1, maxAp: 3 });
   w.addEntity(drone);
   drone.damage(drone.maxHp); // flatline
   const steps = [...drone.takeTurnSteps(w, new Rng(1))];
@@ -382,7 +383,7 @@ test('takeTurnSteps does NOT crash the safety cap on unreachable patrol waypoint
   // outside waypoint returns null. Without the patrol-spin guard, the
   // generator would cycle patrolIndex through the ring forever (no AP
   // spent on `patrol-skipped`) and trip the 32-iteration safety cap with
-  // `CorpDrone <id> exceeded turn iteration cap`.
+  // `Skirmisher <id> exceeded turn iteration cap`.
   const grid = new Grid(8, 6);
   for (const [dx, dy] of [
     [-1, -1],
@@ -397,7 +398,7 @@ test('takeTurnSteps does NOT crash the safety cap on unreachable patrol waypoint
     grid.setTile(1 + dx, 1 + dy, TILE.WALL);
   }
   const w = new World(grid);
-  const drone = new CorpDrone({
+  const drone = new Skirmisher({
     id: 'd',
     x: 1,
     y: 1,
@@ -433,7 +434,7 @@ test('takeTurnSteps does NOT crash on co-located patrol waypoints', () => {
   // tile. Without the spin guard, the drone advances `patrolIndex` infinitely
   // (yielding `patrol-arrived` without burning AP) and hits the safety cap.
   const w = openWorld();
-  const drone = new CorpDrone({
+  const drone = new Skirmisher({
     id: 'd',
     x: 3,
     y: 3,
@@ -459,7 +460,7 @@ test('takeTurn drains takeTurnSteps into the legacy log shape', () => {
   // both depend on this.
   const w = openWorld();
   const player = new Entity({ id: 'p', x: 3, y: 2, faction: FACTION.PLAYER, glyph: '@' });
-  const drone = new CorpDrone({ id: 'd', x: 6, y: 2, maxAp: 3 });
+  const drone = new Skirmisher({ id: 'd', x: 6, y: 2, maxAp: 3 });
   w.addEntity(player);
   w.addEntity(drone);
 
@@ -467,7 +468,7 @@ test('takeTurn drains takeTurnSteps into the legacy log shape', () => {
   // on an identical setup and confirm the two are deep-equal.
   const gw = openWorld();
   const gplayer = new Entity({ id: 'p', x: 3, y: 2, faction: FACTION.PLAYER, glyph: '@' });
-  const gdrone = new CorpDrone({ id: 'd', x: 6, y: 2, maxAp: 3 });
+  const gdrone = new Skirmisher({ id: 'd', x: 6, y: 2, maxAp: 3 });
   gw.addEntity(gplayer);
   gw.addEntity(gdrone);
   const generated = [...gdrone.takeTurnSteps(gw, new StubRng([0]))];
@@ -481,10 +482,16 @@ test('takeTurn drains takeTurnSteps into the legacy log shape', () => {
 test('drone subscribes to alarm and force-transitions to ENGAGE with target position', () => {
   const bus = new EventBus();
   const world = new World(new Grid(12, 6), { events: bus });
-  const drone = new CorpDrone({ id: 'd', x: 1, y: 1, maxAp: 3, patrolWaypoints: [{ x: 5, y: 1 }] });
+  const drone = new Skirmisher({
+    id: 'd',
+    x: 1,
+    y: 1,
+    maxAp: 3,
+    patrolWaypoints: [{ x: 5, y: 1 }],
+  });
   world.addEntity(drone);
   drone.bindToBus(bus);
-  assert.equal(drone.state, DRONE_STATE.PATROL);
+  assert.equal(drone.state, PATROL_STATE.PATROL);
 
   // Simulate an alarm from a CorpCivilian spotting a player at (8, 3).
   bus.emit(EVENT.ALARM, {
@@ -493,19 +500,19 @@ test('drone subscribes to alarm and force-transitions to ENGAGE with target posi
     origin: { x: 3, y: 3 },
   });
 
-  assert.equal(drone.state, DRONE_STATE.ENGAGE, 'alarm should force ENGAGE');
+  assert.equal(drone.state, PATROL_STATE.ENGAGE, 'alarm should force ENGAGE');
   assert.deepEqual(drone.lastKnownTarget, { x: 8, y: 3 }, 'target should be the player position');
 });
 
 test('alarm overrides existing ENGAGE target with fresh intel', () => {
   const bus = new EventBus();
   const world = new World(new Grid(12, 6), { events: bus });
-  const drone = new CorpDrone({ id: 'd', x: 1, y: 1, maxAp: 3 });
+  const drone = new Skirmisher({ id: 'd', x: 1, y: 1, maxAp: 3 });
   world.addEntity(drone);
   drone.bindToBus(bus);
 
   // Already engaging a stale target.
-  drone.state = DRONE_STATE.ENGAGE;
+  drone.state = PATROL_STATE.ENGAGE;
   drone.lastKnownTarget = { x: 5, y: 5 };
 
   // Fresh alarm with a different player position.
@@ -521,7 +528,7 @@ test('alarm overrides existing ENGAGE target with fresh intel', () => {
 test('dead drone ignores alarm events', () => {
   const bus = new EventBus();
   const world = new World(new Grid(12, 6), { events: bus });
-  const drone = new CorpDrone({ id: 'd', x: 1, y: 1, maxAp: 3 });
+  const drone = new Skirmisher({ id: 'd', x: 1, y: 1, maxAp: 3 });
   world.addEntity(drone);
   drone.bindToBus(bus);
   drone.damage(drone.maxHp); // kill
@@ -532,11 +539,79 @@ test('dead drone ignores alarm events', () => {
     origin: { x: 2, y: 2 },
   });
 
-  assert.equal(drone.state, DRONE_STATE.PATROL, 'dead drone stays in original state');
+  assert.equal(drone.state, PATROL_STATE.PATROL, 'dead drone stays in original state');
   assert.equal(drone.lastKnownTarget, null, 'dead drone does not acquire target');
 });
 
 // --- M5: drones must not target NEUTRAL civilians ----------------------------
+
+// --- M2.1: skirmisher kiting (preferred engagement band) ---------------------
+
+test('drone kites away from a target that closed inside preferredMin (with retreat room)', () => {
+  const w = openWorld(14, 6);
+  const player = new Entity({ id: 'p', x: 5, y: 2, faction: FACTION.PLAYER, glyph: '@' });
+  // Adjacent (cheb 1 < preferredMin 3). 2 AP — enough to fire (cost 2) OR move;
+  // it must CHOOSE to retreat rather than fire at point-blank.
+  const drone = new Skirmisher({ id: 'd', x: 6, y: 2, maxAp: 2 });
+  w.addEntity(player);
+  w.addEntity(drone);
+  const log = drone.takeTurn(w, new StubRng([0])); // a 0-roll would guarantee a hit IF it fired
+  assert.equal(player.hp, player.maxHp, 'drone retreated instead of firing point-blank');
+  assert.ok(!log.some(s => s.type === 'fire'), 'no shot while kiting');
+  assert.ok(
+    log.some(s => s.type === 'move-engage'),
+    'drone stepped away under the engage banner'
+  );
+  assert.ok(drone.x > 6, 'drone increased distance from the player');
+});
+
+test('cornered drone fires when no retreat tile increases distance', () => {
+  // Left wall at x=0 boxes the drone at x=1; the only legal neighbours
+  // (1,1)/(1,3) sit at the same Chebyshev distance to the player, so none
+  // strictly increases distance → kite is impossible → it stands and fires.
+  const grid = new Grid(8, 6);
+  for (let y = 0; y < 6; y++) grid.setTile(0, y, TILE.WALL);
+  const w = new World(grid);
+  const player = new Entity({ id: 'p', x: 2, y: 2, faction: FACTION.PLAYER, glyph: '@' });
+  const drone = new Skirmisher({ id: 'd', x: 1, y: 2, maxAp: AP_COST.RANGED_ATTACK });
+  w.addEntity(player);
+  w.addEntity(drone);
+  const log = drone.takeTurn(w, new StubRng([0]));
+  assert.equal(drone.state, PATROL_STATE.ENGAGE);
+  assert.ok(
+    log.some(s => s.type === 'fire'),
+    'cornered drone falls back to firing'
+  );
+  assert.equal(player.hp, player.maxHp - 1);
+});
+
+test('drone at or beyond preferredMin fires rather than kiting', () => {
+  // cheb distance exactly preferredMin (3): outside the kite band, so it fires.
+  const w = openWorld();
+  const player = new Entity({ id: 'p', x: 3, y: 2, faction: FACTION.PLAYER, glyph: '@' });
+  const drone = new Skirmisher({ id: 'd', x: 6, y: 2, maxAp: AP_COST.RANGED_ATTACK });
+  assert.equal(drone.preferredMin, 3, 'default kite band');
+  w.addEntity(player);
+  w.addEntity(drone);
+  const log = drone.takeTurn(w, new StubRng([0]));
+  assert.equal(log[0].type, 'fire');
+  assert.equal(player.hp, player.maxHp - 1);
+});
+
+test('drone does NOT kite away from an adjacent stealthed target (would lose acquisition)', () => {
+  // A stealthed target is only spottable at Chebyshev ≤1; retreating would drop
+  // it entirely, so the drone stands and fires instead of kiting itself blind.
+  const w = openWorld();
+  const player = new Entity({ id: 'p', x: 5, y: 2, faction: FACTION.PLAYER, glyph: '@' });
+  player.stealthed = true;
+  const drone = new Skirmisher({ id: 'd', x: 6, y: 2, maxAp: AP_COST.RANGED_ATTACK });
+  w.addEntity(player);
+  w.addEntity(drone);
+  const log = drone.takeTurn(w, new StubRng([0]));
+  assert.equal(drone.state, PATROL_STATE.ENGAGE);
+  assert.ok(log.some(s => s.type === 'fire'));
+  assert.equal(player.hp, player.maxHp - 1);
+});
 
 test('drone does not acquire NEUTRAL entities as targets', () => {
   const grid = new Grid(10, 10);
@@ -545,7 +620,7 @@ test('drone does not acquire NEUTRAL entities as targets', () => {
   }
   const bus = new EventBus();
   const world = new World(grid, { events: bus });
-  const drone = new CorpDrone({
+  const drone = new Skirmisher({
     id: 'drone',
     x: 3,
     y: 3,

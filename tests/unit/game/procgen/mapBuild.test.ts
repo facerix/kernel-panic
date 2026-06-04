@@ -8,11 +8,26 @@ import { World } from '../../../../src/game/World.js';
 import { Door } from '../../../../src/game/entities/Door.js';
 import { Terminal } from '../../../../src/game/entities/Terminal.js';
 import { findPath } from '../../../../src/game/Pathfinding.js';
-import { buildMap, placeDoors } from '../../../../src/game/procgen/mapBuild.js';
+import {
+  buildMap,
+  mapIsFullyConnectedFromSpawn,
+  placeDoors,
+} from '../../../../src/game/procgen/mapBuild.js';
+import { MAP_DIMENSION_BANDS } from '../../../../src/game/procgen/mapDimensions.js';
 import { PREFABS } from '../../../../src/game/procgen/prefabs/index.js';
 
 const W = 24;
 const H = 16;
+
+const THREAT_BY_DIFFICULTY = {
+  [CONTRACT_DIFFICULTY.STANDARD]: 2,
+  [CONTRACT_DIFFICULTY.ELEVATED]: 3,
+  [CONTRACT_DIFFICULTY.CRITICAL]: 4,
+} as const;
+
+function assertMapConnected(map: ReturnType<typeof buildMap>, context: string): void {
+  assert.ok(mapIsFullyConnectedFromSpawn(map), `${context}: spawn cannot reach all passable tiles`);
+}
 
 function simpleCorridorWorld() {
   const grid = new Grid(7, 3, TILE.WALL);
@@ -54,7 +69,9 @@ test('buildMap is deterministic for the same seed', () => {
   assert.deepEqual(Array.from(a.grid.tiles), Array.from(b.grid.tiles), 'grid bytes diverged');
   assert.deepEqual(a.spawns, b.spawns);
   assert.deepEqual(a.exitTile, b.exitTile);
-  assert.deepEqual(a.drones, b.drones);
+  assert.deepEqual(a.fodder, b.fodder);
+  assert.deepEqual(a.specialists, b.specialists);
+  assert.deepEqual(a.elites, b.elites);
 });
 
 test('checkpoint divider wall survives corridor carve (regression: map-debug seed)', () => {
@@ -264,23 +281,9 @@ test('player spawn and exit are different tiles; spawn FLOOR, exit EXIT', () => 
 });
 
 test('every FLOOR cell is reachable from the player spawn', () => {
-  // Try a handful of seeds — connectivity has to hold for all of them.
   for (const seed of [1, 42, 0xabcd1234, 0xdeadbeef, 0x55555555]) {
     const map = buildMap({ rng: new Rng(seed), width: W, height: H, threatCount: 2 });
-    const world = new World(map.grid);
-    const spawn = map.spawns.player;
-    for (let y = 0; y < H; y++) {
-      for (let x = 0; x < W; x++) {
-        const t = map.grid.tileAt(x, y);
-        if (t !== TILE.FLOOR && t !== TILE.EXIT) continue;
-        if (x === spawn.x && y === spawn.y) continue;
-        const path = findPath(world, spawn, { x, y });
-        assert.ok(
-          path !== null && path.length > 0,
-          `seed ${seed.toString(16)}: floor (${x},${y}) unreachable from spawn (${spawn.x},${spawn.y})`
-        );
-      }
-    }
+    assertMapConnected(map, `seed ${seed.toString(16)} at ${W}x${H}`);
   }
 });
 
@@ -291,53 +294,166 @@ test('exit is reachable from spawn', () => {
   assert.ok(path && path.length > 0, 'exit unreachable from spawn');
 });
 
-test('drone count matches the requested threat budget', () => {
+test('STANDARD dimension band excludes the legacy 22x14 footprint', () => {
+  assert.ok(
+    !MAP_DIMENSION_BANDS[CONTRACT_DIFFICULTY.STANDARD].some(
+      dimensions => dimensions.width === 22 && dimensions.height === 14
+    )
+  );
+});
+
+test('regression: formerly disconnected seed connects via prefab-corridor carve', () => {
+  const map = buildMap({
+    rng: new Rng(1090470777),
+    width: 22,
+    height: 14,
+    threatCount: 2,
+    difficulty: CONTRACT_DIFFICULTY.STANDARD,
+  });
+  assertMapConnected(map, 'seed 1090470777 at legacy 22x14');
+  assert.notDeepEqual(map.spawns.player, map.exitTile);
+  const path = findPath(new World(map.grid), map.spawns.player, map.exitTile);
+  assert.ok(path && path.length > 0);
+});
+
+test('every allowlisted footprint stays connected across a seed sweep', () => {
+  const seedsPerSize = 40;
+  for (const difficulty of Object.values(CONTRACT_DIFFICULTY)) {
+    for (const dimensions of MAP_DIMENSION_BANDS[difficulty]) {
+      for (let i = 0; i < seedsPerSize; i++) {
+        const seed = i * 7919 + dimensions.width * 17 + dimensions.height;
+        const map = buildMap({
+          rng: new Rng(seed),
+          width: dimensions.width,
+          height: dimensions.height,
+          threatCount: THREAT_BY_DIFFICULTY[difficulty],
+          difficulty,
+        });
+        assertMapConnected(
+          map,
+          `${difficulty} ${dimensions.width}x${dimensions.height} seed ${seed}`
+        );
+      }
+    }
+  }
+});
+
+test('door-linked maps stay connected across a seed sweep', () => {
+  for (let seed = 0; seed < 60; seed++) {
+    const map = buildMap({
+      rng: new Rng(seed),
+      width: W,
+      height: H,
+      threatCount: 3,
+      difficulty: CONTRACT_DIFFICULTY.ELEVATED,
+      includePrefabDoors: true,
+    });
+    assert.ok(map.doors.length > 0, `seed ${seed}: expected prefab door anchors`);
+    assertMapConnected(map, `door-linked seed ${seed}`);
+  }
+});
+
+test('fodder count matches the requested threat budget', () => {
   for (const threat of [1, 2, 3]) {
     const map = buildMap({ rng: new Rng(11 + threat), width: W, height: H, threatCount: threat });
-    assert.equal(map.drones.length, threat, `expected ${threat} drones, got ${map.drones.length}`);
-    for (const drone of map.drones) {
+    assert.equal(
+      map.fodder.length,
+      threat,
+      `expected ${threat} fodder anchors, got ${map.fodder.length}`
+    );
+    for (const anchor of map.fodder) {
       assert.equal(
-        map.grid.tileAt(drone.x, drone.y),
+        map.grid.tileAt(anchor.x, anchor.y),
         TILE.FLOOR,
-        `drone anchor (${drone.x},${drone.y}) is not FLOOR`
+        `fodder anchor (${anchor.x},${anchor.y}) is not FLOOR`
       );
       assert.notDeepEqual(
-        { x: drone.x, y: drone.y },
+        { x: anchor.x, y: anchor.y },
         map.spawns.player,
-        'drone anchor coincides with spawn'
+        'fodder anchor coincides with spawn'
       );
       assert.notDeepEqual(
-        { x: drone.x, y: drone.y },
+        { x: anchor.x, y: anchor.y },
         map.exitTile,
-        'drone anchor coincides with exit'
+        'fodder anchor coincides with exit'
       );
     }
   }
 });
 
-test('drone anchors are unique tiles (no two drones on the same square)', () => {
+test('fodder anchors are unique tiles (no two hostiles on the same square)', () => {
   const map = buildMap({ rng: new Rng(0xc0ffee), width: W, height: H, threatCount: 3 });
   const seen = new Set();
-  for (const drone of map.drones) {
-    const key = `${drone.x},${drone.y}`;
-    assert.ok(!seen.has(key), `duplicate drone anchor at ${key}`);
+  for (const anchor of map.fodder) {
+    const key = `${anchor.x},${anchor.y}`;
+    assert.ok(!seen.has(key), `duplicate fodder anchor at ${key}`);
     seen.add(key);
   }
 });
 
-test('every drone receives a moving patrol path', () => {
+test('elite anchors are reserved only for critical maps', () => {
+  const standard = buildMap({
+    rng: new Rng(0x51a7e),
+    width: W,
+    height: H,
+    threatCount: 2,
+    difficulty: CONTRACT_DIFFICULTY.STANDARD,
+  });
+  assert.equal(standard.elites.length, 0);
+
+  const elevated = buildMap({
+    rng: new Rng(0x51a7e),
+    width: W,
+    height: H,
+    threatCount: 3,
+    difficulty: CONTRACT_DIFFICULTY.ELEVATED,
+  });
+  assert.equal(elevated.elites.length, 0);
+
+  const critical = buildMap({
+    rng: new Rng(0x51a7e),
+    width: W,
+    height: H,
+    threatCount: 4,
+    difficulty: CONTRACT_DIFFICULTY.CRITICAL,
+  });
+  assert.equal(critical.elites.length, 1);
+  const [elite] = critical.elites;
+  assert.ok(elite);
+  assert.equal(critical.grid.tileAt(elite.x, elite.y), TILE.FLOOR);
+  assert.notDeepEqual({ x: elite.x, y: elite.y }, critical.spawns.player);
+  assert.notDeepEqual({ x: elite.x, y: elite.y }, critical.exitTile);
+});
+
+test('fodder, specialist, and elite anchors share a collision budget', () => {
+  const map = buildMap({
+    rng: new Rng(0xc0ffee),
+    width: W,
+    height: H,
+    threatCount: 4,
+    difficulty: CONTRACT_DIFFICULTY.CRITICAL,
+  });
+  const seen = new Set<string>();
+  for (const anchor of [...map.fodder, ...map.specialists, ...map.elites]) {
+    const key = `${anchor.x},${anchor.y}`;
+    assert.ok(!seen.has(key), `duplicate combat anchor at ${key}`);
+    seen.add(key);
+  }
+});
+
+test('every fodder anchor receives a moving patrol path', () => {
   for (const seed of [0xc0ffee, 0xfeedface, 0xdeadbeef, 0x12345678]) {
     const map = buildMap({ rng: new Rng(seed), width: W, height: H, threatCount: 5 });
-    for (const drone of map.drones) {
+    for (const anchor of map.fodder) {
       assert.ok(
-        drone.waypoints.length >= 2,
-        `seed ${seed.toString(16)} drone at (${drone.x},${drone.y}) has too few waypoints`
+        anchor.waypoints.length >= 2,
+        `seed ${seed.toString(16)} fodder at (${anchor.x},${anchor.y}) has too few waypoints`
       );
       assert.ok(
-        drone.waypoints.some(wp => wp.x !== drone.x || wp.y !== drone.y),
-        `seed ${seed.toString(16)} drone at (${drone.x},${drone.y}) patrols in place`
+        anchor.waypoints.some(wp => wp.x !== anchor.x || wp.y !== anchor.y),
+        `seed ${seed.toString(16)} fodder at (${anchor.x},${anchor.y}) patrols in place`
       );
-      for (const wp of drone.waypoints) {
+      for (const wp of anchor.waypoints) {
         assert.equal(
           map.grid.tileAt(wp.x, wp.y),
           TILE.FLOOR,
@@ -348,9 +464,9 @@ test('every drone receives a moving patrol path', () => {
   }
 });
 
-test('threatCount=0 returns no drones', () => {
+test('threatCount=0 returns no fodder anchors', () => {
   const map = buildMap({ rng: new Rng(2), width: W, height: H, threatCount: 0 });
-  assert.equal(map.drones.length, 0);
+  assert.equal(map.fodder.length, 0);
 });
 
 test('non-integer dimensions throw', () => {

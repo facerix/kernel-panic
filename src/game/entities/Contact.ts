@@ -8,6 +8,13 @@ export interface ContactInit extends Omit<InteractableInit, 'glyph' | 'label' | 
   handoffComplete?: boolean;
 }
 
+/** M6.2: Contact snapshot `extra`. */
+export type ContactSnapshot = {
+  label: string;
+  handoffComplete: boolean;
+  armed: boolean;
+};
+
 export class Contact extends Interactable {
   handoffComplete: boolean;
 

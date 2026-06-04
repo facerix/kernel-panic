@@ -35,6 +35,13 @@ export interface KeyCardInit extends Omit<
   siteId?: string;
 }
 
+/** M6.2: KeyCard snapshot `extra`. Bag-hygienic — `siteId` is `null`, not absent. */
+export type KeyCardSnapshot = {
+  doorId: string;
+  label: string;
+  siteId: string | null;
+};
+
 export class KeyCard extends Entity {
   doorId: string;
   label: string;
@@ -63,5 +70,9 @@ export class KeyCard extends Entity {
     this.doorId = doorId;
     this.label = label;
     this.siteId = siteId ?? null;
+  }
+
+  override isHazardImmune(): boolean {
+    return true;
   }
 }

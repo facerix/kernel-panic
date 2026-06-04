@@ -388,6 +388,20 @@ test('World.raiseAlarm enters alert phase and emits one alarm event', async () =
   assert.equal(w.alarm.level, 1);
   assert.equal(w.alarm.holdTurnsRemaining, 2);
   assert.equal(w.alarmActive, true);
+  assert.equal(alarms[0].repPenalty, true, 'raiseAlarm defaults repPenalty to true');
+});
+
+test('World.raiseAlarm honors repPenalty: false on the emitted payload', async () => {
+  const { EventBus, EVENT } = await import('../../../src/game/events.js');
+  const bus = new EventBus();
+  const w = new World(new Grid(5, 5), { events: bus });
+  const alarms = [];
+  bus.on(EVENT.ALARM, payload => alarms.push(payload));
+
+  w.raiseAlarm({ origin: { x: 1, y: 1 }, repPenalty: false });
+
+  assert.equal(alarms.length, 1);
+  assert.equal(alarms[0].repPenalty, false);
 });
 
 test('World alarm ticks from alert to cooldown to quiet', async () => {

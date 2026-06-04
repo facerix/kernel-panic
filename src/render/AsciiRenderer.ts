@@ -246,6 +246,14 @@ export class AsciiRenderer {
         ctx!.shadowColor = cell.fg;
         ctx!.fillStyle = cell.fg;
         ctx!.fillText(cell.char, px, py);
+        if (cell.overlay) {
+          ctx!.font = `${Math.round(fontSize * 1.15)}px ${fontFamily}`;
+          ctx!.shadowBlur = glow * 2;
+          ctx!.shadowColor = cell.overlay.fg;
+          ctx!.fillStyle = cell.overlay.fg;
+          ctx!.fillText(cell.overlay.char, px, py);
+          ctx!.font = `${fontSize}px ${fontFamily}`;
+        }
       }
     }
     ctx!.shadowBlur = 0;

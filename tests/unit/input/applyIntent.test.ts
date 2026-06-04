@@ -8,6 +8,7 @@ import { EventBus } from '../../../src/game/events.js';
 import {
   TILE,
   FACTION,
+  AP_COST,
   MELEE_DAMAGE,
   SALVAGE_PER_IMPROVISED_TURRET,
 } from '../../../src/game/constants.js';
@@ -16,7 +17,7 @@ import { Merc } from '../../../src/game/archetypes/Merc.js';
 import { Razor } from '../../../src/game/archetypes/Razor.js';
 import { Tech } from '../../../src/game/archetypes/Tech.js';
 import { Turret } from '../../../src/game/Turret.js';
-import { CorpDrone } from '../../../src/game/ai/CorpDrone.js';
+import { Skirmisher } from '../../../src/game/ai/Skirmisher.js';
 import { ConsumablePickup } from '../../../src/game/entities/ConsumablePickup.js';
 import { Pickup } from '../../../src/game/entities/Pickup.js';
 import { Door } from '../../../src/game/entities/Door.js';
@@ -51,7 +52,7 @@ function buildCtx({ archetype = 'merc', placeDrone = true } = {}) {
 
   let drone = null;
   if (placeDrone) {
-    drone = new CorpDrone({ id: 'd1', x: 7, y: 2, maxAp: 3 });
+    drone = new Skirmisher({ id: 'd1', x: 7, y: 2, maxAp: 3 });
     world.addEntity(drone);
     drone.bindToBus(bus);
   }
@@ -155,7 +156,7 @@ test('move onto a lootable corpse auto-salvages (M4.1)', () => {
   const { ctx, log, player, world, calls } = buildCtx({ placeDrone: false });
   player.initInventory();
   // Drop a dead lootable drone one tile south of the player.
-  const drone = new CorpDrone({ id: 'corpse', x: 2, y: 3, maxAp: 3 });
+  const drone = new Skirmisher({ id: 'corpse', x: 2, y: 3, maxAp: 3 });
   world.addEntity(drone);
   drone.damage(drone.maxHp);
   drone.loot = { salvage: makeSalvage({ scrap: 4 }) };
@@ -183,7 +184,7 @@ test('move onto a corpse with 1 AP still salvages after the move spends AP', () 
   // Only 1 AP: the move spends it, and walk-onto salvage must not require
   // a second interact AP.
   player.ap = 1;
-  const drone = new CorpDrone({ id: 'corpse', x: 2, y: 3, maxAp: 3 });
+  const drone = new Skirmisher({ id: 'corpse', x: 2, y: 3, maxAp: 3 });
   world.addEntity(drone);
   drone.damage(drone.maxHp);
   drone.loot = { salvage: makeSalvage({ scrap: 2 }) };
@@ -242,7 +243,7 @@ test('move onto consumable plus low-AP corpse collects both pickups', () => {
   const { ctx, log, player, world } = buildCtx({ placeDrone: false });
   player.initInventory();
   player.ap = 1;
-  const drone = new CorpDrone({ id: 'corpse', x: 2, y: 3, maxAp: 3 });
+  const drone = new Skirmisher({ id: 'corpse', x: 2, y: 3, maxAp: 3 });
   world.addEntity(drone);
   drone.damage(drone.maxHp);
   drone.loot = { salvage: makeSalvage({ scrap: 2 }) };
@@ -487,7 +488,7 @@ test('melee intent still resolves adjacent strikes (for AI / replay, not player 
 test('vault body-check deals VAULT_DAMAGE and knocks hostile back', () => {
   // Place a drone on the vault landing tile (4,2) with open knockback at (5,2).
   const { ctx, log, player, world } = buildCtx({ archetype: 'merc', placeDrone: false });
-  const drone = new CorpDrone({ id: 'd1', x: 4, y: 2, maxAp: 3 });
+  const drone = new Skirmisher({ id: 'd1', x: 4, y: 2, maxAp: 3 });
   world.addEntity(drone);
   const hpBefore = drone.hp;
   applyIntent({ type: 'special', dx: 1, dy: 0 }, ctx);
@@ -502,11 +503,11 @@ test('vault body-check deals VAULT_DAMAGE and knocks hostile back', () => {
 
 test('vault body-check does not debit extra AP beyond the vault cost', () => {
   const { ctx, player, world } = buildCtx({ archetype: 'merc', placeDrone: false });
-  const drone = new CorpDrone({ id: 'd1', x: 4, y: 2, maxAp: 3 });
+  const drone = new Skirmisher({ id: 'd1', x: 4, y: 2, maxAp: 3 });
   world.addEntity(drone);
   const apBefore = player.ap; // 4
   applyIntent({ type: 'special', dx: 1, dy: 0 }, ctx);
-  assert.equal(player.ap, apBefore - 3, 'only vault AP spent, slam is free');
+  assert.equal(player.ap, apBefore - AP_COST.VAULT, 'only vault AP spent, slam is free');
 });
 
 test('vault on empty tile is pure repositioning (no damage log)', () => {
@@ -523,7 +524,7 @@ test('vault on empty tile is pure repositioning (no damage log)', () => {
 test('vault denied when knockback lane is blocked', () => {
   const { ctx, log, player, world } = buildCtx({ archetype: 'merc', placeDrone: false });
   // Place drone at (4,2) and wall at (5,2) to block knockback.
-  const drone = new CorpDrone({ id: 'd1', x: 4, y: 2, maxAp: 3 });
+  const drone = new Skirmisher({ id: 'd1', x: 4, y: 2, maxAp: 3 });
   world.addEntity(drone);
   ctx.world.grid.setTile(5, 2, TILE.WALL);
   applyIntent({ type: 'special', dx: 1, dy: 0 }, ctx);

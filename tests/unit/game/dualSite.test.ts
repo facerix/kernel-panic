@@ -312,8 +312,8 @@ describe('dual-site runs', () => {
     const rec = snapshot(run);
     const padRec = rec.entities.find(entity => entity.id === pad.id);
     assert.equal(padRec?.archetype, 'sync-pad');
-    assert.equal(padRec?.syncPad?.synced, true);
-    assert.equal(padRec?.syncPad?.armed, false);
+    assert.equal(padRec?.extra?.synced, true);
+    assert.equal(padRec?.extra?.armed, false);
 
     const { world: restoredWorld } = restore(rec);
     const restoredPad = [...restoredWorld.entities.values()].find(

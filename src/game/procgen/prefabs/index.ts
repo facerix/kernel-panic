@@ -1,6 +1,6 @@
 /**
  * Authored room prefabs — small ASCII-keyed tile blocks plus declared
- * anchors (drone spawns, cover positions). The procgen pipeline picks one
+ * anchors (fodder spawns, cover positions). The procgen pipeline picks one
  * per BSP leaf and stamps it inside the leaf's bounds.
  *
  * Hand-authoring shape: each prefab module exports an `ASCII` string and a
@@ -14,7 +14,7 @@
  *   `=`  TILE.COVER
  *   `|`  TILE.FLOOR + door anchor
  *
- * Drone anchors, optional waypoints, and exit candidate tiles are declared
+ * Fodder anchors, optional waypoints, and exit candidate tiles are declared
  * separately in the `anchors` object so prefab authors aren't squeezing
  * waypoint metadata into the ASCII grid (which would couple shape and
  * gameplay data).
@@ -42,7 +42,7 @@ export type {
   PrefabAnchor,
   PrefabAnchorsSpec,
   PrefabAscii,
-  PrefabDroneAnchor,
+  PrefabFodderAnchor,
   PrefabMetadata,
 } from './types.js';
 
@@ -102,7 +102,7 @@ export function parsePrefab(ascii: PrefabAscii, metadata: PrefabMetadata): Parse
   }
 
   const anchors = {
-    drones: validateAnchors(metadata.anchors?.drones ?? [], w, h, metadata.id, 'drones'),
+    fodder: validateAnchors(metadata.anchors?.fodder ?? [], w, h, metadata.id, 'fodder'),
     cover: validateAnchors(metadata.anchors?.cover ?? [], w, h, metadata.id, 'cover'),
     exit: validateAnchors(metadata.anchors?.exit ?? [], w, h, metadata.id, 'exit'),
     corpCivilians: validateAnchors(
@@ -131,7 +131,7 @@ function validateAnchors<T extends PrefabAnchor>(
   w: number,
   h: number,
   prefabId: string,
-  kind: 'drones' | 'cover' | 'exit' | 'corpCivilians' | 'neutralCivilians' | 'doors'
+  kind: 'fodder' | 'cover' | 'exit' | 'corpCivilians' | 'neutralCivilians' | 'doors'
 ): T[] {
   if (!Array.isArray(list)) {
     throw new TypeError(`prefab ${prefabId}: anchors.${kind} must be an array`);
@@ -147,10 +147,10 @@ function validateAnchors<T extends PrefabAnchor>(
         `prefab ${prefabId}: ${kind} anchor (${a.x},${a.y}) out of ${w}x${h} bounds`
       );
     }
-    if (kind === 'drones' && 'waypoints' in a && a.waypoints) {
+    if (kind === 'fodder' && 'waypoints' in a && a.waypoints) {
       if (!Array.isArray(a.waypoints)) {
         throw new TypeError(
-          `prefab ${prefabId}: drone waypoints must be an array, got ${typeof a.waypoints}`
+          `prefab ${prefabId}: fodder waypoints must be an array, got ${typeof a.waypoints}`
         );
       }
       for (const wp of a.waypoints) {

@@ -49,6 +49,14 @@ export interface TurretInit extends EntityInit {
   attackDamage?: number;
   ownerId?: string | null;
 }
+
+/** M6.2: Turret snapshot `extra` — tuned range/damage and deploying owner. */
+export type TurretSnapshot = {
+  range: number;
+  attackDamage: number;
+  ownerId: string | null;
+};
+
 export class Turret extends Entity {
   range: number;
   attackDamage: number;

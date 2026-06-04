@@ -23,6 +23,10 @@ import { placeHazardCluster } from '../../../src/game/Run.js';
 import { hasLineOfSight } from '../../../src/game/LineOfSight.js';
 import { Pickup } from '../../../src/game/entities/Pickup.js';
 import { ConsumablePickup } from '../../../src/game/entities/ConsumablePickup.js';
+import { SyncPad } from '../../../src/game/entities/SyncPad.js';
+import { KeyCard } from '../../../src/game/entities/KeyCard.js';
+import { Terminal } from '../../../src/game/entities/Terminal.js';
+import { EscortNpc } from '../../../src/game/entities/EscortNpc.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -170,6 +174,60 @@ test('ConsumablePickup on HAZARD tile is not damaged by hazard tick', () => {
   assert.equal(steps.filter(s => s.type === 'hazard-damage').length, 0);
   assert.equal(pickup.hp, 1);
   assert.equal(pickup.alive, true);
+});
+
+test('SyncPad on HAZARD tile is not damaged by hazard tick', () => {
+  const { world, grid } = makeHazardWorld();
+  grid.setTile(3, 3, TILE.HAZARD);
+  const pad = new SyncPad({ id: 'sync-pad-0', x: 3, y: 3, label: 'Sampling Bore' });
+  world.addEntity(pad);
+
+  const steps = [...runPlayerAftermathSteps(world, new Rng(1))];
+  assert.equal(steps.filter(s => s.type === 'hazard-damage').length, 0);
+  assert.equal(pad.hp, 1);
+  assert.equal(pad.alive, true);
+});
+
+test('KeyCard on HAZARD tile is not damaged by hazard tick', () => {
+  const { world, grid } = makeHazardWorld();
+  grid.setTile(3, 3, TILE.HAZARD);
+  const keycard = new KeyCard({
+    id: 'keycard-0',
+    x: 3,
+    y: 3,
+    doorId: 'door-0',
+    label: 'Annex keycard',
+  });
+  world.addEntity(keycard);
+
+  const steps = [...runPlayerAftermathSteps(world, new Rng(1))];
+  assert.equal(steps.filter(s => s.type === 'hazard-damage').length, 0);
+  assert.equal(keycard.hp, 1);
+  assert.equal(keycard.alive, true);
+});
+
+test('Terminal on HAZARD tile is not damaged by hazard tick', () => {
+  const { world, grid } = makeHazardWorld();
+  grid.setTile(3, 3, TILE.HAZARD);
+  const terminal = new Terminal({ id: 'terminal-0', x: 3, y: 3, label: 'Access terminal' });
+  world.addEntity(terminal);
+
+  const steps = [...runPlayerAftermathSteps(world, new Rng(1))];
+  assert.equal(steps.filter(s => s.type === 'hazard-damage').length, 0);
+  assert.equal(terminal.hp, 1);
+  assert.equal(terminal.alive, true);
+});
+
+test('EscortNpc on HAZARD tile takes hazard damage', () => {
+  const { world, grid } = makeHazardWorld();
+  grid.setTile(3, 3, TILE.HAZARD);
+  const escort = new EscortNpc({ id: 'escort-npc-0', x: 3, y: 3, label: 'Extractee' });
+  world.addEntity(escort);
+
+  const steps = [...runPlayerAftermathSteps(world, new Rng(1))];
+  assert.equal(steps.filter(s => s.type === 'hazard-damage').length, 1);
+  assert.equal(escort.hp, 2 - HAZARD_DAMAGE);
+  assert.equal(escort.alive, true);
 });
 
 test('dead entities on HAZARD do not take further damage', () => {

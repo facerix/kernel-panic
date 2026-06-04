@@ -63,6 +63,10 @@ Phase 3 depends on specific hooks built into Phase 2.5 milestones:
 | **M5** (economy/rep) | Top rep tier defined and reachable | Phase 3 gates Decker recruitment and Score access at this tier |
 | **M7** (persistence) | Location schema includes `scoreTarget` flag; site roster + mutation deltas | Phase 3 designates one roster site as the Score target; player "cases" it across visits |
 
+### Score target identification
+
+Score-target sites always use roster-stored dimensions ([phase-2.7-plan.md](phase-2.7-plan.md) M1.5: `mapWidth`, `mapHeight`, `seed`, mutation deltas); contract `difficulty` scales encounter composition only, not footprint.
+
 ## Milestones — detail
 
 ### P3.M1 — Campaign arc structure 🔲
@@ -173,7 +177,7 @@ Implementation notes TBD after Clock type is chosen. Multiple types may coexist 
   - Cost: **free action** or **1 AP** (TBD — free action recommended for less friction; AP cost adds tactical weight).
   - Can flip at any point during the active operator's turn (before or after spending AP).
 - **Turn structure:** Player turn → flip as desired → end turn → **both layers' hostile phases resolve** (corp drones move in Meatspace, ICE moves in Cyberspace). Both layers tick simultaneously.
-- **PIP / CCTV window:** The inactive layer renders in a small overlay (corner of the screen). Shows grid state, hostile positions, the other operator's status. Read-only — no input accepted in the PIP. The blueprint's "real-time CCTV showing your physical body's status" becomes this.
+- **PIP / CCTV window:** The inactive layer renders in a small overlay (bottom right corner of the screen). Shows grid state, hostile positions, the other operator's status. Read-only — no input accepted in the PIP. The blueprint's "real-time CCTV showing your physical body's status" becomes this.
 - **Vulnerability:** While the Decker is jacked in, their Meatspace body is a valid target for corp hostiles. If the body is destroyed, the Decker is killed (flatline) and Cyberspace access is lost. The Meatspace operator's implicit job is to **protect the Decker's body** — or at least keep hostiles away from the terminal.
 - **Jack-out:** The Decker can voluntarily jack out (returns control to single-grid Meatspace). Or is forced out if their body takes critical damage. Jack-out despawns the Cyberspace grid (any unsatisfied Cyberspace objectives fail).
 - **Contracts without Cyberspace:** Single-deploy as today. The Decker deploys solo in Meatspace (no flip, no Cyberspace grid). Their drone override hack is their primary value.

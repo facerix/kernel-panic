@@ -42,6 +42,7 @@
 import { FACTION, SIGHT_RANGE, VAULT_DAMAGE, NOISE_RADIUS } from '../game/constants.js';
 import { totalSalvage, formatSalvageCompact } from '../game/salvage.js';
 import { canFireRanged, resolveRanged, canMelee, resolveMelee } from '../game/Combat.js';
+import { isConcealedFromPlayer } from '../game/playerPerception.js';
 import { hasLineOfSight, withinRange } from '../game/LineOfSight.js';
 import { entityLabel } from '../game/Entity.js';
 import { Interactable } from '../game/entities/Interactable.js';
@@ -200,7 +201,10 @@ export function pickFireTarget(ctx: ApplyIntentContext, dx: number, dy: number) 
     if (!withinRange(player.x, player.y, x, y, SIGHT_RANGE)) return null;
     if (!hasLineOfSight(world.grid, player.x, player.y, x, y, { blockers })) return null;
     const e = world.entityAt(x, y);
-    if (e && e.faction !== player.faction) return e;
+    if (e && e.faction !== player.faction) {
+      if (isConcealedFromPlayer(e, player, world)) return null;
+      return e;
+    }
   }
   return null;
 }
@@ -437,7 +441,9 @@ function doMelee(intent: Intent, ctx: ApplyIntentContext) {
     log(`> MELEE DENIED: ${check.reason}`);
     return;
   }
-  const result = resolveMelee(world, player, target, ctx.rng);
+  const result = resolveMelee(world, player, target, ctx.rng, {
+    damage: 'meleeDamage' in player ? player.meleeDamage : undefined,
+  });
   if (
     !result.dodged &&
     result.damage === 0 &&

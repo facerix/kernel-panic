@@ -606,8 +606,8 @@ test('KeyCard snapshot round-trips through Run snapshot/restore', () => {
   const rec = snapshot(run);
   const kcRec = rec.entities.find(e => e.archetype === 'keycard');
   assert.ok(kcRec);
-  assert.equal(kcRec!.keycard?.doorId, 'door-0');
-  assert.equal(kcRec!.keycard?.label, 'Test card');
+  assert.equal(kcRec!.extra?.doorId, 'door-0');
+  assert.equal(kcRec!.extra?.label, 'Test card');
 
   const { world } = restore(rec);
   const restoredKc = [...world.entities.values()].find(e => e instanceof KeyCard);
@@ -647,7 +647,7 @@ test('KeyCard entity snapshot preserves siteId through round-trip', () => {
   const rec = snapshot(run);
   const kcRec = rec.entities.find(e => e.archetype === 'keycard');
   assert.ok(kcRec);
-  assert.equal(kcRec!.keycard?.siteId, 'site-42');
+  assert.equal(kcRec!.extra?.siteId, 'site-42');
 
   const { world } = restore(rec);
   const restoredKc = [...world.entities.values()].find(e => e instanceof KeyCard) as KeyCard;
@@ -655,7 +655,7 @@ test('KeyCard entity snapshot preserves siteId through round-trip', () => {
   assert.equal(restoredKc.siteId, 'site-42');
 });
 
-test('KeyCard entity snapshot omits siteId when null', () => {
+test('KeyCard entity snapshot stores siteId as null when unset', () => {
   const crew = makeCrew();
   const run = new Run({ crewMember: crew, seed: 42 });
   run.enterBriefing(fakeContract());
@@ -683,7 +683,11 @@ test('KeyCard entity snapshot omits siteId when null', () => {
   const rec = snapshot(run);
   const kcRec = rec.entities.find(e => e.archetype === 'keycard');
   assert.ok(kcRec);
-  assert.equal(kcRec!.keycard?.siteId, undefined, 'siteId should not be serialized when null');
+  assert.equal(
+    kcRec!.extra?.siteId,
+    null,
+    'siteId is bag-hygienic null (not undefined) when unset'
+  );
 });
 
 // ─── Unlock method roll ──────────────────────────────────────────────────────

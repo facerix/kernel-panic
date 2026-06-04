@@ -12,7 +12,7 @@ import { Run, RUN_STATE, OUTCOME, isObjectiveSatisfied } from '../../../src/game
 import { Entity } from '../../../src/game/Entity.js';
 import { Grid } from '../../../src/game/Grid.js';
 import { World } from '../../../src/game/World.js';
-import { CorpDrone } from '../../../src/game/ai/CorpDrone.js';
+import { Skirmisher } from '../../../src/game/ai/Skirmisher.js';
 import { EscortNpc } from '../../../src/game/entities/EscortNpc.js';
 import { runPlayerAftermathSteps } from '../../../src/game/combatTurnPipeline.js';
 import { buildCrewMember } from '../../../src/game/archetypes/index.js';
@@ -121,7 +121,7 @@ describe('EscortNpc', () => {
       label: 'Witness',
       activated: true,
     });
-    const drone = new CorpDrone({ id: 'drone-0', x: 1, y: 1, maxAp: 3 });
+    const drone = new Skirmisher({ id: 'drone-0', x: 1, y: 1, maxAp: 3 });
     world.addEntity(player);
     world.addEntity(escort);
     world.addEntity(drone);
@@ -371,8 +371,8 @@ describe('escort runs', () => {
 
     const rec = snapshot(run);
     const escortRec = rec.entities.find(entity => entity.archetype === 'escort-npc');
-    assert.equal(escortRec?.escortNpc?.activated, true);
-    assert.equal(escortRec?.escortNpc?.label, escort.label);
+    assert.equal(escortRec?.extra?.activated, true);
+    assert.equal(escortRec?.extra?.label, escort.label);
 
     const { run: restored } = restore(rec);
     const restoredEscort = escortIn(restored);

@@ -5,7 +5,7 @@
  *
  * Glyphs: `.` floor, `#` wall, `=` cover.
  *
- * The drone anchor sits centred along the top corridor; waypoints walk a
+ * The fodder anchor sits centred along the top corridor; waypoints walk a
  * short patrol so the player gets a visible LOS check on entry.
  */
 
@@ -23,7 +23,7 @@ export const METADATA = Object.freeze({
   w: 5,
   h: 4,
   anchors: {
-    drones: [
+    fodder: [
       {
         x: 2,
         y: 0,

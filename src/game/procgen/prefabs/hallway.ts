@@ -1,5 +1,5 @@
 /**
- * "Hallway" prefab — 6×3 corridor with cover at the thirds. No drone anchor
+ * "Hallway" prefab — 6×3 corridor with cover at the thirds. No fodder anchor
  * (a corridor is a transit space, not a sentry post); the cover gives the
  * player legitimate firing positions when bridging two combat rooms.
  */
@@ -17,7 +17,7 @@ export const METADATA = Object.freeze({
   w: 6,
   h: 3,
   anchors: {
-    drones: [],
+    fodder: [],
     cover: [
       { x: 1, y: 1 },
       { x: 4, y: 1 },

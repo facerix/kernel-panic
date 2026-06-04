@@ -4,7 +4,7 @@ Living plan for a small slice between Phase 2.6 (resilience) and Phase 2.7 (enem
 
 ## Why this phase exists
 
-Playtesting surfaced UX and Tech-turret tuning that should land **before** the enemy-identity work in 2.7/2.8 — not because they conflict, but because they improve the current skirmisher/guard loop without waiting for elites, medics, or principal theming.
+Playtesting surfaced UX and Tech-turret tuning that should land **before** the enemy-identity work in 2.7/2.9 — not because they conflict, but because they improve the current skirmisher/guard loop without waiting for elites, medics, or principal theming.
 
 ## Milestones
 
@@ -30,7 +30,7 @@ Playtesting surfaced UX and Tech-turret tuning that should land **before** the e
 ## Out of scope
 
 - Enemy roles, tier composition, map-size bands (Phase 2.7).
-- Principal aliases and mixed allegiance (Phase 2.8).
+- Principal aliases and mixed allegiance (Phase 2.9).
 - Cyberspace / Decker (Phase 3).
 
 ## Versioning note

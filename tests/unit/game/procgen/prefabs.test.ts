@@ -27,7 +27,7 @@ test('every prefab tile byte is a known TILE value', () => {
 
 test('declared anchors lie inside the prefab bounds', () => {
   for (const prefab of Object.values(PREFABS)) {
-    for (const a of prefab.anchors.drones) {
+    for (const a of prefab.anchors.fodder) {
       assert.ok(a.x >= 0 && a.x < prefab.w);
       assert.ok(a.y >= 0 && a.y < prefab.h);
       for (const wp of a.waypoints ?? []) {
@@ -77,7 +77,7 @@ test('parsePrefab throws on unknown glyphs', () => {
 test('parsePrefab maps door glyphs to FLOOR and keeps explicit door anchors', () => {
   const prefab = parsePrefab('.|.\n...', {
     id: 'door-test',
-    anchors: { drones: [], cover: [], exit: [], doors: [{ x: 1, y: 0 }] },
+    anchors: { fodder: [], cover: [], exit: [], doors: [{ x: 1, y: 0 }] },
   });
 
   assert.equal(prefab.tiles[1], TILE.FLOOR);
@@ -93,7 +93,7 @@ test('parsePrefab throws on out-of-bounds anchor', () => {
     () =>
       parsePrefab('...\n...', {
         id: 'oob',
-        anchors: { drones: [{ x: 9, y: 0 }] },
+        anchors: { fodder: [{ x: 9, y: 0 }] },
       }),
     /out of/
   );
@@ -108,7 +108,7 @@ test('parsePrefab throws on empty patrol paths', () => {
     () =>
       parsePrefab('...\n...', {
         id: 'empty-patrol',
-        anchors: { drones: [], cover: [], exit: [] },
+        anchors: { fodder: [], cover: [], exit: [] },
         patrolPaths: [[]],
       }),
     /patrolPaths/
@@ -120,7 +120,7 @@ test('parsePrefab throws on out-of-bounds patrol waypoints', () => {
     () =>
       parsePrefab('...\n...', {
         id: 'oob-patrol',
-        anchors: { drones: [], cover: [], exit: [] },
+        anchors: { fodder: [], cover: [], exit: [] },
         patrolPaths: [[{ x: 3, y: 0 }]],
       }),
     /patrol waypoint/
@@ -132,7 +132,7 @@ test('lab prefab exercises combat-depth anchors', () => {
   assert.equal(lab.id, 'lab');
   assert.equal(lab.w, 10);
   assert.equal(lab.h, 6);
-  assert.equal(lab.anchors.drones.length, 2);
+  assert.equal(lab.anchors.fodder.length, 2);
   assert.equal(lab.anchors.corpCivilians?.length, 1);
   assert.equal(lab.anchors.neutralCivilians?.length, 1);
   assert.equal(lab.patrolPaths.length, 2);
