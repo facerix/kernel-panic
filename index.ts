@@ -48,7 +48,7 @@ import {
   isCorpTurnStepLogVisibleToPlayer,
   isCorpTurnStepVisibleToPlayer,
 } from '/src/game/corpTurnStatusCopy.js';
-import { EVENT } from '/src/game/events.js';
+import { EVENT, alarmPayloadTriggersRepPenalty } from '/src/game/events.js';
 import { VisionField } from '/src/game/Vision.js';
 import { describeTileAt } from '/src/game/describe.js';
 import { AsciiRenderer } from '/src/render/AsciiRenderer.js';
@@ -1818,7 +1818,8 @@ function attachAnimationListeners(): void {
  * Subscribe M5 Rep-affecting events to the active run's bus.
  *
  *   - `civilian:harmed` → -20 Rep per kill, track all harm for clean completion.
- *   - `alarm` → -5 Rep per alarm trigger (complicity).
+ *   - `alarm` with `kind: 'facility'` → -5 Rep per facility raise (complicity).
+ *     Lookout `kind: 'lookout'` pings do not adjust Rep.
  *
  * Re-attached on every Run state transition (same posture as animations).
  */
@@ -1838,8 +1839,8 @@ function attachRepListeners(): void {
         flash(`REP ${actual >= 0 ? '+' : ''}${actual}: civilian killed.`);
       }
     }),
-    run.bus.on(EVENT.ALARM, () => {
-      if (!campaign) return;
+    run.bus.on(EVENT.ALARM, payload => {
+      if (!campaign || !alarmPayloadTriggersRepPenalty(payload)) return;
       const actual = campaign.adjustRep(REP.ALARM_PENALTY);
       flash(`REP ${actual >= 0 ? '+' : ''}${actual}: facility alarm triggered.`);
     }),

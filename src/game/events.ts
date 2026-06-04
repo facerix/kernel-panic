@@ -56,6 +56,17 @@ export const ALARM_KIND = Object.freeze({
 
 export type AlarmKind = (typeof ALARM_KIND)[keyof typeof ALARM_KIND];
 
+/**
+ * Whether an `ALARM` payload should apply `REP.ALARM_PENALTY`. Only facility
+ * raises count; lookout pings coordinate hostiles without social fallout.
+ * Legacy payloads that omit `kind` are treated as facility (raiseAlarm default).
+ */
+export function alarmPayloadTriggersRepPenalty(payload: unknown): boolean {
+  if (payload == null || typeof payload !== 'object') return true;
+  const kind = (payload as { kind?: string }).kind;
+  return kind === undefined || kind === ALARM_KIND.FACILITY;
+}
+
 export type EventType = (typeof EVENT)[keyof typeof EVENT];
 export type EventListener = (payload?: unknown) => void;
 
