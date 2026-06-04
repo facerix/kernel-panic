@@ -20,7 +20,7 @@ Every hostile currently has **one verb and no defensive identity**, so fights de
 
 ## Enemy archetypes (the roster)
 
-Eight buildable roles, grouped by the tier they belong to. Faction names from the C2077 list (Thug, Goon, Armored Enforcer, Field Techie…) are **flavor reskins** in Phase 2.8 — here we define behavior classes only.
+Eight buildable roles, grouped by the tier they belong to. Faction names from the C2077 list (Thug, Goon, Armored Enforcer, Field Techie…) are **flavor reskins** in Phase 2.9 — here we define behavior classes only.
 
 ### Tier 1 — Fodder
 
@@ -158,7 +158,7 @@ All rolls derive from the contract seed (deterministic, save-compatible).
 
 **Phase 2.7** is complete when:
 
-1. Every milestone above is ✅ except M5 (deliberate Phase 3 on-ramp). M6 is a non-gating tech-debt refactor — it does not block `v0.2.7`, but should land before Phase 2.8 reskins add more entity shapes.
+1. Every milestone above is ✅ except M5 (deliberate Phase 3 on-ramp). M6 is a non-gating tech-debt refactor — it does not block `v0.2.7`, but should land before Phase 2.9 reskins add more entity shapes.
 2. T1/T2/T3 composition rules are live: STANDARD = fodder only, ELEVATED = fodder + 1 specialist, CRITICAL = fodder + specialist + elite (or fodder + elite).
 3. Combat map width/height vary by contract difficulty and seed (M1.5); revisits and run snapshots reproduce the same footprint.
 4. Each archetype in the roster table has a distinct tactical identity verified by tests and playtest — including sharp separation of `CorpCivilian` (ambient facility alarm, cover-occluded LOS) from `Lookout` (mobile T2 specialist, extended LOS).
@@ -270,7 +270,7 @@ All rolls derive from the contract seed (deterministic, save-compatible).
 - Land full plumbing: types, persistence factory, snapshot/restore, loot, `corpTurnStatusCopy`, `kindFromId`.
 - **TDD:** guard closes and melees; dies in two player-phase swings at T1 stats; patrol/investigate transitions match skirmisher patterns.
 
-**Implementation note:** `Guard` (glyph `g`, `ENEMY_ROLE.FODDER`) extends `PatrolHostile`; melee `engageSteps` strikes when adjacent (`canMelee`/`resolveMelee`) else closes. Plumbing: `melee` turn-step in `types.ts` (shared by patrol hostiles) + `formatCorpTurnStep`/player-visibility in `corpTurnStatusCopy.ts`; `'guard'` archetype id + parallel `guard?` snapshot block in `Run.ts`; factory + waypoint/state restore (generalised over `drone`/`guard` persistence keys) and `bindToBus`/death-unbind broadened to `instanceof PatrolHostile` in `persistence.ts`/`Run.ts`; `kindFromId` → `Guard` for `guard-*` ids (skirmishers still label as `Drone` from `drone-*` ids until Phase 2.8 theming). **Mapgen:** prefab `anchors.fodder` (was `drones`) feed `map.fodder` spawn slots. **Spawn wiring (fodder slice of M1.3):** `Run.enterCombat` resolves `composeEncounter` from the contract seed and maps each fodder anchor to a skirmisher or guard; specialists/elites are deliberately *not* spawned until their class allowlist entries exist. **Objective:** new sweep contracts use `hostile-all`; legacy `drone-all` save payloads are accepted as an alias. The quota counts all live `Hostile` instances, so specialists and future elites gate a force-clear sweep. **UI copy:** contract briefing and KeyHelp use role-neutral "hostiles" / grouped glyph key (`c g k`).
+**Implementation note:** `Guard` (glyph `g`, `ENEMY_ROLE.FODDER`) extends `PatrolHostile`; melee `engageSteps` strikes when adjacent (`canMelee`/`resolveMelee`) else closes. Plumbing: `melee` turn-step in `types.ts` (shared by patrol hostiles) + `formatCorpTurnStep`/player-visibility in `corpTurnStatusCopy.ts`; `'guard'` archetype id + parallel `guard?` snapshot block in `Run.ts`; factory + waypoint/state restore (generalised over `drone`/`guard` persistence keys) and `bindToBus`/death-unbind broadened to `instanceof PatrolHostile` in `persistence.ts`/`Run.ts`; `kindFromId` → `Guard` for `guard-*` ids (skirmishers still label as `Drone` from `drone-*` ids until Phase 2.9 theming). **Mapgen:** prefab `anchors.fodder` (was `drones`) feed `map.fodder` spawn slots. **Spawn wiring (fodder slice of M1.3):** `Run.enterCombat` resolves `composeEncounter` from the contract seed and maps each fodder anchor to a skirmisher or guard; specialists/elites are deliberately *not* spawned until their class allowlist entries exist. **Objective:** new sweep contracts use `hostile-all`; legacy `drone-all` save payloads are accepted as an alias. The quota counts all live `Hostile` instances, so specialists and future elites gate a force-clear sweep. **UI copy:** contract briefing and KeyHelp use role-neutral "hostiles" / grouped glyph key (`c g k`).
 
 #### M2.3 — Combat damage tuning + skirmisher glyph
 
@@ -413,7 +413,7 @@ Playtest pass on T1 fodder pacing:
 
 - **`Juggernaut extends PatrolHostile`.** `engageSteps` priority: (1) if `cheb < JUGGERNAUT_PREFERRED_MIN` and band-reposition tile exists → step (skirmisher `#stepAwayFrom` pattern scoped to `JUGGERNAUT_SUPPRESS_RANGE`); (2) else if adjacent + cornered (no band-kite tile) + clear lane → **no-damage knockback** (shove 1 tile away to reopen the band; blocked lane → hold ground); (3) else if in suppress range + LOS + AP → `suppress`; (4) else `stepToward`.
 - **Constants** in `constants.ts`: `JUGGERNAUT_SUPPRESS_RANGE`, `JUGGERNAUT_SUPPRESS_AP`, `JUGGERNAUT_SUPPRESS_DAMAGE`, `JUGGERNAUT_PREFERRED_MIN`, `JUGGERNAUT_BASE_AP`. (The cornered shove deals no damage, so there is no `JUGGERNAUT_SHOVE_DAMAGE`.)
-- Land full plumbing: types (`suppress` + `shove` turn-steps), persistence, snapshot/restore, loot, `corpTurnStatusCopy`, `kindFromId`, glyph `j` (provisional — finalize in 2.8 alphabet pass).
+- Land full plumbing: types (`suppress` + `shove` turn-steps), persistence, snapshot/restore, loot, `corpTurnStatusCopy`, `kindFromId`, glyph `j` (provisional — finalize in 2.9 alphabet pass).
 - **Loot:** killed elites yield **bio salvage** rather than scrap/chips, reflecting their augmentations.
 - **TDD:** in suppress range + LOS → 1-AP suppress for 1 damage (hit roll applies); out of range → one step toward; `cheb < preferredMin` with legal band tile → reposition not panic flee; move + suppress in one low-AP corp turn; survives sustained 1-damage focus that kills skirmisher; armor floor ≥ 1; cornered point-blank → no-damage knockback that pushes the target 1 tile away; blocked knockback lane → hold ground (no damage, no AP spent); stealthed beyond Chebyshev 1 not suppressed; no deploy/spawn of `$`/`T`; bruiser unchanged; skirmisher kiting regression guard holds.
 
@@ -515,7 +515,7 @@ So a flanker that SLIDEs on corp turn N vanishes for the player's entire turn N+
 
 - Cyberspace-side enemies and the Decker (Phase 3).
 - Boss/named-encounter scripting beyond T3 mini-boss feel.
-- Faction-specific reskins as distinct AI — faction is a theming layer ([phase-2.8-plan.md](phase-2.8-plan.md)).
+- Faction-specific reskins as distinct AI — faction is a theming layer ([phase-2.9-plan.md](phase-2.9-plan.md)).
 - Full status-effect system implementation (see M5 / Phase 3).
 
 ## Open questions / kaizen notes
@@ -531,7 +531,7 @@ So a flanker that SLIDEs on corp turn N vanishes for the player's entire turn N+
 - **Map size allowlists (M1.5):** 22×14 removed from STANDARD after disconnected-room regressions; minimum band footprint is 24×16. Playtest whether CRITICAL needs 32×20 and whether aspect ratio should stay ~3:2 or allow taller “tower” maps for sniper verticality.
 - **Prefab–corridor connectors (M1.5):** step 6b is deterministic given seed/layout; if a future prefab shape still fails `mapIsFullyConnectedFromSpawn`, `buildMap` fails loud — shrink allowlist or adjust prefab anchors rather than silent tier-2 fallback.
 - **Map size vs. objective timer:** longer maps may need objective-timer review (Phase 2.5) so retrieve/sweep gigs don’t feel padded on large footprints — defer tuning until sizes land.
-- **UI copy:** contract briefing uses "N hostiles" (not "N drones"); role-specific aliases land in Phase 2.8.
-- **Lookout + civilian coexistence:** office prefabs may spawn ambient civilians on ELEVATED/CRITICAL maps that also roll a lookout specialist — confirm briefing/log copy distinguishes `[Corp]Civilian` from the lookout alias once Phase 2.8 theming lands.
+- **UI copy:** contract briefing uses "N hostiles" (not "N drones"); role-specific aliases land in Phase 2.9.
+- **Lookout + civilian coexistence:** office prefabs may spawn ambient civilians on ELEVATED/CRITICAL maps that also roll a lookout specialist — confirm briefing/log copy distinguishes `[Corp]Civilian` from the lookout alias once Phase 2.9 theming lands.
 - **Specialist/elite sweep objectives (M4.0):** new sweep contracts use `hostile-all`; legacy `drone-all` payloads remain accepted for old saves. The quota counts every live `Hostile`, so specialists and future elites gate a force-clear sweep.
 - **Specialist loot (M3.1):** the Lookout falls through `Run.#rollLoot` to the scrap default like any non-turret Hostile. Revisit whether T2/T3 specialists/elites should drop richer typed salvage (chips/data) when the loot table is reworked.
