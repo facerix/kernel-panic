@@ -1072,6 +1072,10 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
   }
   entity.stealthed = !!rec.stealthed;
   if (rec.glyph) entity.glyph = rec.glyph;
+  // Phase 2.9 principal theming. Missing on pre-2.9 saves → stays undefined and
+  // `entityLabel` falls back to `kindFromId` (backward compatible).
+  if (rec.displayName !== undefined) entity.displayName = rec.displayName;
+  if (rec.principalTag !== undefined) entity.principalTag = rec.principalTag;
 
   // Repair latent gear overflow on crew entities (same as restoreCrewMember).
   if (entity instanceof Crew) {

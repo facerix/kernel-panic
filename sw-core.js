@@ -68,6 +68,7 @@ const CacheConfig = {
       '/src/game/Crew.js',
       '/src/game/describe.js',
       '/src/game/encounters.js',
+      '/src/game/enemyAliases.js',
       '/src/game/entities/BreachingCharge.js',
       '/src/game/entities/ConsumablePickup.js',
       '/src/game/entities/Contact.js',

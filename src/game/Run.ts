@@ -56,7 +56,8 @@ import { Lookout } from './ai/Lookout.js';
 import { Sniper } from './ai/Sniper.js';
 import { Medic } from './ai/Medic.js';
 import { PatrolHostile } from './ai/PatrolHostile.js';
-import { composeEncounter, ENEMY_ARCHETYPE } from './encounters.js';
+import { composeEncounter, ENEMY_ARCHETYPE, type EnemyArchetype } from './encounters.js';
+import { aliasFor } from './enemyAliases.js';
 import { CorpCivilian } from './entities/CorpCivilian.js';
 import { Terminal } from './entities/Terminal.js';
 import { Door } from './entities/Door.js';
@@ -228,6 +229,9 @@ export type RunEntitySnapshot = {
   maxAp: number;
   alive: boolean;
   stealthed: boolean;
+  /** Phase 2.9 principal theming — omitted for un-aliased entities (player, props). */
+  displayName?: string;
+  principalTag?: string;
   /** Opaque per-archetype payload; strict shape owned by the entity module. */
   extra?: EntitySnapshotExtra;
 };
@@ -472,19 +476,31 @@ export class Run {
       difficulty: this.contract.difficulty,
       fodderCount: map.fodder.length,
     });
+    // Phase 2.9 M1.2: stamp principal-themed display identity onto each hostile
+    // from the contract owner. Behavior/glyph are unchanged; this is label-only.
+    const principalId = this.contract.context.principal.id;
+    const applyAlias = (entity: Entity, archetype: EnemyArchetype): void => {
+      const alias = aliasFor(principalId, archetype);
+      entity.displayName = alias.displayName;
+      entity.principalTag = alias.principalTag;
+    };
     const fodder = composition.entries.filter(e => e.role === ENEMY_ROLE.FODDER);
     for (let i = 0; i < map.fodder.length; i++) {
       const a = map.fodder[i]!;
       const entry = fodder[i];
-      const hostile =
+      const archetype =
         entry?.archetype === ENEMY_ARCHETYPE.GUARD
+          ? ENEMY_ARCHETYPE.GUARD
+          : ENEMY_ARCHETYPE.SKIRMISHER;
+      const hostile =
+        archetype === ENEMY_ARCHETYPE.GUARD
           ? new Guard({
               id: `guard-${i}`,
               x: a.x,
               y: a.y,
               maxAp: 3,
               patrolWaypoints: a.waypoints,
-              tier: entry.tier,
+              tier: entry!.tier,
             })
           : new Skirmisher({
               id: `drone-${i}`,
@@ -494,6 +510,7 @@ export class Run {
               patrolWaypoints: a.waypoints,
               tier: entry?.tier,
             });
+      applyAlias(hostile, archetype);
       this.world.addEntity(hostile);
       hostile.bindToBus(this.bus);
     }
@@ -543,6 +560,7 @@ export class Run {
         // case lands here — fail loud rather than drop a composed threat.
         throw new Error(`Run.enterCombat: no spawn case for specialist "${entry.archetype}"`);
       }
+      applyAlias(specialist, entry.archetype);
       this.world.addEntity(specialist);
       specialist.bindToBus(this.bus);
     }
@@ -588,6 +606,7 @@ export class Run {
       } else {
         throw new Error(`Run.enterCombat: no spawn case for elite "${entry.archetype}"`);
       }
+      applyAlias(elite, entry.archetype);
       this.world.addEntity(elite);
       elite.bindToBus(this.bus);
     }
@@ -1678,6 +1697,10 @@ function snapshotEntity(entity: Entity): RunEntitySnapshot {
     alive: entity.alive,
     stealthed: !!entity.stealthed,
   };
+  // Only serialize identity when present, so un-aliased entities (player, props)
+  // keep a byte-stable snapshot and pre-2.9 saves stay unaffected.
+  if (entity.displayName !== undefined) base.displayName = entity.displayName;
+  if (entity.principalTag !== undefined) base.principalTag = entity.principalTag;
   const extract = SNAPSHOT_EXTRACTORS[archetype];
   if (extract) base.extra = extract(entity);
   return base;

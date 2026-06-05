@@ -1,8 +1,10 @@
-# Phase 2.9 Plan — Principal theming & mixed hostile encounters
+# Phase 2.9 Plan — Principal theming & allegiance plumbing
 
-Living plan for the post–Phase 2.8 slice: turn the **role taxonomy** from Phase 2.7 into a **principal-facing theming layer** — diegetic enemy names, grid presentation, and (at higher tiers) **mixed allegiance encounters** where site-aligned security and rival operators share a fight. **Target release: `v0.2.9`.** See [phase-2.7-plan.md](phase-2.7-plan.md) for the role classes and tier doctrine this builds on, [phase-2.8-plan.md](phase-2.8-plan.md) for the combat HUD polish that lands first, [phase-2.6-plan.md](phase-2.6-plan.md) for placement/persistence foundations, [cyberpunk-2077-enemy-list.md](cyberpunk-2077-enemy-list.md) for naming inspiration, and [kernel-panic-v1-blueprint.md](kernel-panic-v1-blueprint.md) for the overall vision.
+Living plan for the post–Phase 2.8 slice: turn the **archetype taxonomy** from Phase 2.7 into a **principal-facing theming layer** — diegetic enemy names per principal, and an **allegiance-aware faction model** so that hitting a gang reads as hitting a gang (rival hue + street labels) instead of a street crew wearing a `[Corp]` tag. **Target release: `v0.2.9`.** See [phase-2.7-plan.md](phase-2.7-plan.md) for the archetype classes and tier doctrine this builds on, [phase-2.8-plan.md](phase-2.8-plan.md) for the combat HUD polish that landed first, [phase-2.6-plan.md](phase-2.6-plan.md) for placement/persistence foundations, [cyberpunk-2077-enemy-list.md](cyberpunk-2077-enemy-list.md) for naming inspiration, and [kernel-panic-v1-blueprint.md](kernel-panic-v1-blueprint.md) for the overall vision.
 
-> **Do not start implementation until Phase 2.8 is complete.** Alias tables, glyph policy, and mixed-encounter composition all assume the full hostile roster (skirmisher, bruiser, medic, sniper, lookout, juggernaut, flanker) and the `EnemyTier` composition roll from 2.7 M1.3. Revisit this doc once those classes merge.
+> **Scope decision (June 2026):** **Mixed-allegiance encounters** (site security + a rival insert on the *same* map, with friction/cooperation rules) are **deferred** — see [kaizen.md](kaizen.md) "Inter-hostile friction". Phase 2.9 ships `RIVAL` as a faction *value* but keeps **exactly one hostile faction per run** (derived from the contract's own principal). The play value this phase delivers is *identity*, not three-body tactics. Revisit mixed encounters after Cyberspace (Phase 3), which is the higher-impact direction.
+
+> **Dependencies met.** 2.7 (full archetype roster + `EnemyTier` composition roll) and 2.8 (combat HUD) are merged. **Terminology note:** the behavior taxonomy already ships as **`ENEMY_ARCHETYPE`** (`skirmisher`, `guard`, `sniper`, `lookout`, `medic`, `bruiser`, `juggernaut`, `flanker`) in `encounters.ts` — the alias table keys on *that*, **not** a new `EnemyRole` enum (the name `EnemyRole` is already taken in 2.7 code, meaning the composition slot `FODDER`/`SPECIALIST`/`ELITE`).
 
 ## Why this phase exists
 
@@ -11,41 +13,41 @@ Phase 2.7 fixes *how* enemies fight — roles, tiers, defensive identity. Phase 
 Today every hostile is `[Corp]Drone` / `[Corp]Guard` (from `kindFromId` on `drone-*` / `guard-*` entity ids), with glyphs hard-coded per class (`k` skirmisher, `g` guard, …). The Curator lexicon already tags every contract with a **principal** (`Matsuda`, `Kestrel Dynamics`, `Chrome Choir`, …) and a difficulty tier, but that identity stops at briefing text — it never reaches spawned entities. Three problems follow:
 
 1. **Contracts feel interchangeable in combat.** A Matsuda finance gig and a Kestrel security gig both spawn identical `[Corp]Drone` / `[Corp]Guard` labels; the principal flavor is cosmetic-only.
-2. **The grid under-communicates role.** Glyph encodes class today (good), but once multiple specialists land in 2.7, players need at-a-glance role reading *and* (when we mix allegiances) who belongs to whom.
-3. **Higher tiers lack compositional surprise.** Tier doctrine in 2.7 adds role variety within one security force; 2.9 adds **cross-principal pressure** — site security plus a rival insert — without new AI classes.
+2. **Non-corp principals are mislabeled.** A Chrome Choir / Redline / Null Saints contract spawns the *same* `[Corp]`-tagged, corp-hued hostiles as a megacorp job — a street gang reads as the establishment. Faction is doing identity duty it was never modeled for.
 
-**Direction chosen (brainstorm, May 2026):**
+**Direction chosen (brainstorm May 2026, refined June 2026):**
 
-- **Behavior classes stay stable; principal names are a theming layer** — same `Skirmisher` / `Guard` AI, different display alias per principal (Phase 2.7 landed the role classes; 2.9 implements the alias layer).
+- **Behavior classes stay stable; principal names are a theming layer** — same `Skirmisher` / `Guard` AI, different display alias per principal. The alias table keys on `(principalId, ENEMY_ARCHETYPE)`.
 - **Labels move from `[Corp]Kind` to `[PrincipalTag]Alias`** — e.g. `[Matsuda]Auditor`, `[Choir]Racketeer`. Retire the generic `[Corp]` prefix for aliased hostiles.
-- **Glyphs encode role; color encodes allegiance** — keep one glyph per role class globally (`k` skirmisher, `g` guard, `e` bruiser, …); differentiate site security vs rivals via faction hue when both appear on-map. *Not* per-principal glyph chars (e.g. Auditor=`a`, Guard=`g`) — flavor belongs in the label, role belongs on the grid.
-- **T2+ may spawn site-aligned hostiles plus a rival insert** — seed-driven, tier-gated; both act during the enemy turn bucket; medics heal same-faction allies only (cross-faction friction by default).
+- **Glyph encodes archetype (already done in 2.7); color encodes allegiance.** Each AI class already hard-codes a unique glyph (`k` skirmisher, `g` guard, `b` bruiser, `m` medic, `s` sniper, `l` lookout, `f` flanker, `j` juggernaut) — so the "role-keyed glyph" milestone is **already satisfied**. 2.9 only adds the **allegiance hue**.
+- **Faction means *allegiance*, not employer.** `faction` is "whose side are you on in this fight" (player / site-establishment / rival / bystander), decoupled from *identity* (which principal employs you — that lives entirely in the display layer). One run = one hostile faction in 2.9.
+- **Faction is derived from the contract's principal group:** group includes `rival` → `FACTION.RIVAL`; else (`corp` / `civic`) → `FACTION.CORP`. **Civic folds into `CORP`** — institutional security *is* the establishment, same hue (very cyberpunk).
 
 ## Current status
 
-> **Depends on [Phase 2.7](phase-2.7-plan.md):** full role roster, `EnemyTier` model, tier-driven composition in `Run` / placement, armor/knockback/support behaviors.
+> **Depends on [Phase 2.7](phase-2.7-plan.md) (merged):** full archetype roster, `EnemyTier` model, tier-driven composition in `Run` / placement, armor/knockback/support behaviors. **[Phase 2.8](phase-2.8-plan.md) (merged):** combat HUD.
 
 | Milestone | Status |
 |---|---|
-| M1 — Alias data model & spawn wiring | 🔲 Not started |
-| M1.1 — `EnemyRole` + principal alias table | 🔲 Not started |
-| M1.2 — `displayName` / `principalTag` on entities + persistence | 🔲 Not started |
-| M1.3 — `entityLabel()` uses stored display metadata | 🔲 Not started |
-| M2 — Grid presentation | 🔲 Not started |
-| M2.1 — Role-keyed glyph constants (all 2.7 classes) | 🔲 Not started |
-| M2.2 — Allegiance hue (site vs rival) in palette | 🔲 Not started |
-| M3 — Mixed hostile encounters | 🔲 Not started |
-| M3.1 — `FACTION.RIVAL` (or equivalent) + turn-system generalization | 🔲 Not started |
-| M3.2 — Tier-gated rival insert in composition roll | 🔲 Not started |
-| M3.3 — Cross-faction alarm/noise cooperation rules | 🔲 Not started |
+| M1 — Alias data model & spawn wiring | ✅ Done |
+| M1.1 — `enemyAliases.ts`: `(principalId, archetype)` alias table + curated short tags | ✅ Done |
+| M1.2 — `displayName` / `principalTag` on entities + persistence | ✅ Done |
+| M1.3 — `entityLabel()` uses stored display metadata | ✅ Done |
+| M2 — Faction / allegiance plumbing (slim) | 🔲 Not started |
+| M2.1 — Remove `FACTION.CORP` hard-coding from AI classes | 🔲 Not started |
+| M2.2 — `FACTION.RIVAL` + principal-group→faction mapping; `Run` sets hostile faction | 🔲 Not started |
+| M2.3 — Allegiance hue (`FACTION_FG[RIVAL]`) in palette | 🔲 Not started |
+| ~~M3 — Mixed hostile encounters~~ | ⏭️ **Deferred → [kaizen.md](kaizen.md)** (post–Phase 3) |
+
+Role-keyed glyph constants (an earlier draft's M2.1) are **already satisfied** — each AI class hard-codes a unique glyph since 2.7.
 
 **Phase 2.9** is complete when:
 
 1. Every milestone above is ✅.
-2. Hostiles spawned for a contract show principal-themed aliases in log, describe, and corp turn copy — not generic `[Corp]Drone` / `[Corp]Guard`.
-3. Grid glyphs distinguish role at a glance; when rivals appear, allegiance is readable by color without extra chars.
-4. T2+ contracts can deterministically roll a rival insert alongside site-aligned hostiles; saves round-trip alias + faction metadata.
-5. Full campaign loop from Phase 2.7 remains playable offline on iOS Safari + Chrome desktop.
+2. Hostiles spawned for a contract show principal-themed aliases in log, describe, and corp-turn copy — not generic `[Corp]Drone` / `[Corp]Guard`.
+3. A rival-group contract (Chrome Choir / Redline / Null Saints) spawns `FACTION.RIVAL` hostiles with a distinct hue and street-flavored labels; corp/civic contracts spawn `FACTION.CORP` as today. One hostile faction per run.
+4. Saves round-trip `displayName` / `principalTag`; pre-2.9 saves still load (fall back to `kindFromId`).
+5. Full campaign loop remains playable offline on iOS Safari + Chrome desktop.
 6. `v0.2.9` tagged in git.
 
 ---
@@ -88,46 +90,35 @@ Replace `entityLabel()`'s `factionTag + kindFromId(id)` for aliased hostiles:
 
 | Layer | Encodes | Mechanism |
 |-------|---------|-----------|
-| **Character** | Tactical **role** | One glyph per role class globally (extend 2.7 constants) |
-| **Foreground color** | **Allegiance** | `FACTION.CORP` (site security) vs `FACTION.RIVAL` (insert) — or principal-scoped hue if two corp principals ever share a map |
+| **Character** | Tactical **archetype** | One glyph per AI class — **already shipped in 2.7** (`k`/`g`/`b`/`m`/`s`/`l`/`f`/`j`), hard-coded in each class's `super()` call |
+| **Foreground color** | **Allegiance** | `FACTION.CORP` (establishment: corp + civic) vs `FACTION.RIVAL` (gang/street) |
 
-The renderer already paints `entity.glyph` with `FACTION_FG[entity.faction]` (`palette.ts` → `glyphForEntity`). Alias landing is mostly **spawn-time metadata + palette extension**, not renderer logic.
+The renderer already paints `entity.glyph` with `FACTION_FG[entity.faction]` (`palette.ts` → `glyphForEntity`). So the only renderer-adjacent work is **one palette entry** for `FACTION.RIVAL`. The harder part is **un-hardcoding faction** — every AI class currently passes `faction: FACTION.CORP` in `super()` and `Omit`s `faction` from its props interface, so the constructor can't yet accept a rival.
 
-**Decided:** role-readable glyphs; allegiance via color when mixing factions.
+**Decided:** archetype-readable glyphs (done); allegiance via color; civic shares the corp hue.
 
-**Open:** final glyph alphabet (reserve collisions with `@`, `A`, `T`, `$`, `~`, `c`, `n`, …); whether T3 armored Enforcer shares bruiser glyph `e` or gets a distinct elite char.
+### Mixed encounters — DEFERRED
 
-### Mixed encounters (T2+)
-
-At elevated tiers, composition roll may add:
-
-```
-sitePrincipal → corp/civic role bundle (from 2.7 tier doctrine)
-+ rivalInsert   → 1 rival specialist or elite (seed-driven, tier-gated)
-```
-
-Example (T3): `[Matsuda]` Compliance drones + `[Matsuda]` Senior Auditor + `[Choir]` Lookout sharing alarm via the event bus. Matsuda medic patches Matsuda allies only; Choir Lookout is a separate priority target.
-
-**Decided:** mixed fights are desirable at T2+; rival insert is composition, not a new AI class.
-
-**Open:** tier thresholds (T2 only specialist rival? T3 elite rival?); which principals can appear as rivals vs site owners on the same map; whether rivals and site security **cooperate** (shared alarm, no friendly fire — current lean) or **compete** (separate objectives — probably out of scope).
+> Mixed-allegiance maps (site security **and** a rival insert sharing a fight, with friction/cooperation rules) are **out of scope for 2.9** — see [kaizen.md](kaizen.md) "Inter-hostile friction". The slim faction work below is the foundation a future phase would build on, but 2.9 keeps **one hostile faction per run**: `RIVAL` appears only on rival-group contracts, never alongside `CORP`. This sidesteps the `isHostileTo` (`faction !== this.faction`) friction question entirely — there's no second hostile faction on the map to fight.
 
 ---
 
 ## Where this lands in code (anticipated)
 
-| Area | Change |
-|------|--------|
-| `src/game/hub/Curator.ts` or new `enemyAliases.ts` | Principal × role alias table + short `principalTag` map |
-| `Entity` / spawn path (`Run`, placement) | Set `displayName`, `principalTag`, `glyph`, `faction` from contract context + composition slot |
-| `Entity.entityLabel()` | Prefer stored display metadata; fall back to `kindFromId` for un-aliased entities |
-| `Run.snapshotEntity` / `persistence` | Round-trip `displayName`, `principalTag` (glyph already persisted) |
-| `palette.ts` | `FACTION.RIVAL` color; optional `glyphForEntity` extension if hue overrides needed |
-| `TurnQueue` / `corpTurnDriver` | Enemy turn acts on **all hostile factions** (or renamed hostile bucket), AP refresh matches |
-| `corpTurnStatusCopy` | Stop hardcoding `FACTION.CORP` filter; use hostile-faction set |
-| `Hostile` subclasses | No new behavior required if reskin-only; medic already heals `this.faction` |
+| Area | Change | Milestone |
+|------|--------|-----------|
+| New `src/game/enemyAliases.ts` | `(principalId, archetype)` → `{ displayName, principalTag }` table + pure `aliasFor()` lookup + curated short-tag map. Imports principal ids from `CONTRACT_LEXICON`. | M1.1 |
+| `Entity` + spawn path (`Run.enterCombat`) | Optional `displayName` / `principalTag` fields; spawn sets them from `aliasFor(contract.context.principal.id, entry.archetype)` | M1.2 |
+| `Entity.entityLabel()` | Prefer stored display metadata (`[principalTag]displayName`); fall back to `factionTag + kindFromId` for un-aliased entities (old saves) | M1.3 |
+| `Run.snapshotEntity` / `persistence` | Round-trip `displayName`, `principalTag`; missing on old saves → fallback path | M1.2 |
+| AI classes (`src/game/ai/*.ts`) | Stop hard-coding `faction: FACTION.CORP`; un-`Omit` `faction` from props, accept via constructor (default may stay `CORP`) | M2.1 |
+| `constants.ts` | Add `FACTION.RIVAL`; `factionForPrincipalGroup()` helper (group has `rival` → RIVAL, else CORP) | M2.2 |
+| `Run.enterCombat` | Resolve run-wide hostile faction once from `contract.context.principal.groups`; pass to every hostile constructor | M2.2 |
+| `palette.ts` | `FACTION_FG[FACTION.RIVAL]` hue (distinct from corp `#ff4d6d`); corpse-dim path preserves it | M2.3 |
 
-Class names (`Skirmisher`, `Guard`, `Sniper`, …) are stable implementation names; display layer decouples player-facing identity. **Save-compat note:** persistence archetype ids (`'drone'`, `'guard'`) and entity id prefixes (`drone-*`, `guard-*`) stay until a deliberate migration — Phase 2.9 theming rides on `displayName` / `principalTag`, not save-key churn.
+**No turn-system change.** Because one run has a single hostile faction, `corpTurnDriver` / `TurnQueue` / `corpTurnStatusCopy` keep working as-is *if* `RIVAL` reuses the existing enemy-turn bucket. **Open detail for M2.2:** confirm the enemy-turn filter keys on "is-hostile" rather than literally `=== FACTION.CORP`, or have the rival run reuse the corp bucket — whichever is the smaller, well-tested change. (Generalizing the bucket to a hostile-faction *set* is the M3-deferred work.)
+
+Class names (`Skirmisher`, `Guard`, `Sniper`, …) are stable implementation names; the display layer decouples player-facing identity. **Save-compat note:** persistence archetype ids (`'drone'`, `'guard'`) and entity id prefixes (`drone-*`, `guard-*`) stay until a deliberate migration — Phase 2.9 theming rides on `displayName` / `principalTag`, not save-key churn.
 
 ---
 
@@ -137,11 +128,13 @@ Class names (`Skirmisher`, `Guard`, `Sniper`, …) are stable implementation nam
 
 **Goal:** Principal-themed names flow from contract → spawned entity → log/describe, with save compatibility.
 
-#### M1.1 — `EnemyRole` + principal alias table
+#### M1.1 — `enemyAliases.ts`: `(principalId, archetype)` alias table
 
-- Introduce a stable `EnemyRole` enum/union aligned with 2.7 taxonomy (skirmisher, bruiser, medic, sniper, lookout, juggernaut, flanker; netrunner deferred to Phase 3).
-- Curated alias table keyed by `(principalId, role)` — start with all principals in `CONTRACT_LEXICON.principals`; document Kestrel as baseline, others domain-flavored (see design pillars table).
-- **TDD:** lookup is pure; unknown pair fails loud in dev (or falls back to role default with `console.warn` — pick one and record).
+- **Reuse the existing `ENEMY_ARCHETYPE`** union (`encounters.ts`) as the role key — do **not** introduce a new `EnemyRole` (that name already means the composition slot in 2.7 code).
+- New module `src/game/enemyAliases.ts`: curated table keyed by `(principalId, ENEMY_ARCHETYPE)` → `{ displayName, principalTag }`, plus a curated short-tag map (`sable-kline` → `Sable`, `district-water-board` → `DWB`, `matsuda` → `Matsuda`, …). Cover all principals in `CONTRACT_LEXICON.principals`; Kestrel is the baseline (C2077-literal), others domain-flavored (see design pillars table).
+- Pure `aliasFor(principalId, archetype)` lookup.
+- **Fallback policy (decided):** unknown pair → `console.warn` in dev, fall back to the generic archetype name (e.g. `"Skirmisher"`) at runtime so a save never breaks. *Loud in dev, graceful in prod.*
+- **TDD:** lookup is pure and table-driven; a known pair returns its alias; an unknown pair returns the generic name **and** warns (assert the warn fires in dev).
 
 #### M1.2 — `displayName` / `principalTag` on entities + persistence
 
@@ -156,84 +149,65 @@ Class names (`Skirmisher`, `Guard`, `Sniper`, …) are stable implementation nam
 - Update `resolveEntityLabel`, `describe.ts` spacing, combat log paths that assume `[Corp]`.
 - **TDD:** aliased entity labels match table; un-aliased entities unchanged.
 
-### M2 — Grid presentation
+### M2 — Faction / allegiance plumbing (slim)
 
-**Goal:** Role-readable glyphs; allegiance-readable color when rivals present.
+**Goal:** A hostile can carry a faction other than `CORP`; a run's hostile faction is derived from its principal; rivals read by hue. **No mixed maps — one hostile faction per run.**
 
-#### M2.1 — Role-keyed glyph constants (all 2.7 classes)
+#### M2.1 — Remove `FACTION.CORP` hard-coding from AI classes
 
-- Centralize glyph per `EnemyRole` (extend existing skirmisher `k`, guard `g`, plus sniper/lookout/medic/bruiser/juggernaut/flanker).
-- Spawn sets `entity.glyph` from role, not from principal.
-- **TDD:** each role class spawns with expected char; glyph persisted across save/load.
+- Each AI class (`src/game/ai/*.ts`) currently does `super({ ..., faction: FACTION.CORP, glyph: '…' })` and `Omit`s `faction` from its props interface. Un-`Omit` `faction` and accept it via the constructor (default may remain `CORP` to keep call sites green until M2.2 wires the real value).
+- Glyph stays hard-coded per class (already correct — not principal-derived).
+- **TDD:** a hostile constructed with an explicit `faction: FACTION.RIVAL` reports that faction (and survives snapshot/restore); default-constructed hostile is still `CORP`.
 
-#### M2.2 — Allegiance hue (site vs rival) in palette
+#### M2.2 — `FACTION.RIVAL` + principal-group → faction mapping
 
-- Add `FACTION.RIVAL` (or equivalent) to `constants.ts` + `FACTION_FG` in `palette.ts`.
-- Site-aligned hostiles remain `FACTION.CORP`; rival inserts use `FACTION.RIVAL`.
-- **TDD:** two skirmishers different faction → same char, different `fg`; corpse dimming preserves faction hue.
+- Add `FACTION.RIVAL` to `constants.ts`. Add `factionForPrincipalGroup(groups)` (or `factionForPrincipal`): groups include `rival` → `RIVAL`; else (`corp` / `civic`) → `CORP`.
+- `Run.enterCombat` resolves the run's hostile faction once from `contract.context.principal.groups` and passes it to every hostile constructor (fodder, specialists, elites).
+- Confirm the enemy-turn filter (`corpTurnDriver` / `corpTurnStatusCopy`) treats `RIVAL` as an acting hostile — prefer keying on a hostile predicate over literal `=== FACTION.CORP` if that's the smaller change; otherwise reuse the corp bucket. (Full multi-faction bucket = deferred M3.)
+- **TDD:** a Chrome Choir contract spawns `RIVAL` hostiles; a Matsuda *and* a District Water Board (civic) contract both spawn `CORP`; rival hostiles act on the enemy turn and refresh AP; faction round-trips through save/load.
 
-### M3 — Mixed hostile encounters
+#### M2.3 — Allegiance hue in palette
 
-**Goal:** Tier-gated rival inserts; both allegiances act on the enemy turn; cross-faction rules documented.
+- Add `FACTION_FG[FACTION.RIVAL]` (distinct from corp `#ff4d6d`) in `palette.ts`.
+- **TDD:** two skirmishers of different faction → same glyph, different `fg`; corpse-dim path preserves the rival hue.
 
-#### M3.1 — `FACTION.RIVAL` + turn-system generalization
+### M3 — Mixed hostile encounters — ⏭️ DEFERRED
 
-- Generalize enemy turn beyond single `FACTION.CORP`: `corpTurnDriver` steps all hostile factions (parameter becomes hostile set or predicate); `TurnQueue.endTurn` refreshes AP for every faction in that set.
-- Audit call sites that assume exactly `[player, corp]` (`persistence`, `index.ts` shell, tests).
-- **TDD:** rival with `takeTurnSteps` acts on enemy turn; player/neutral entities skipped; AP refreshes for corp and rival.
-
-#### M3.2 — Tier-gated rival insert in composition roll
-
-- Extend 2.7 M1.3 composition roll: at T2+, optionally add one rival-role entity from a principal tagged `rival` in the lexicon (deterministic from contract seed).
-- Rival principal pick may be independent of contract principal (e.g. Matsuda job + Chrome Choir insert) — rules TBD in open questions.
-- **TDD:** seed determinism; T1 never spawns rival; T2+ may; rival never spawns without at least one site-aligned hostile.
-
-#### M3.3 — Cross-faction alarm/noise cooperation rules
-
-- Document and test: alarm/noise bus behavior when source and listener differ in faction but both are hostile to player.
-- **Default (lean):** rivals and site security share alarm targeting (lookout buffs everyone hostile to player); medics heal same faction only; no friendly fire between hostile factions unless explicitly added later.
-- **TDD:** lookout alarm causes patrol hostiles (skirmishers, guards) to engage; corp medic does not heal rival; rival medic does not heal corp.
+> Out of scope for 2.9. Tracked in [kaizen.md](kaizen.md) "Inter-hostile friction" with the full design spectrum (cooperate / asymmetric-goals / three-way), the cost insight (target acquisition is already faction-general), and the tuning risk. Revisit after Cyberspace (Phase 3). The M2 faction work above is the foundation it would build on.
 
 ---
 
 ## Out of scope
 
+- **Mixed-allegiance encounters / inter-hostile friction** — deferred to [kaizen.md](kaizen.md), post–Phase 3. One hostile faction per run in 2.9.
 - New enemy **behavior** classes or AI (Phase 2.7 + Phase 3 netrunner).
 - Cyberspace-side enemies and the Decker (Phase 3).
 - Boss/named-encounter scripting with bespoke dialogue.
-- Full principal-specific **composition bias** (e.g. Orchid Vector always rolls medic) — alias table only unless open questions resolve toward bias.
+- Full principal-specific **composition bias** (e.g. Orchid Vector always rolls medic) — alias table only.
+- A distinct **civic** hue — civic folds into `FACTION.CORP` for 2.9.
 - Telemetry / analytics for which aliases players see.
 - ~~Renaming implementation classes (`CorpDrone` → `Skirmisher`, `CorpGuard` → `Guard`)~~ — **done in Phase 2.7 closeout**; persistence keys intentionally unchanged.
 
-## Open questions / kaizen notes
+## Decisions locked (June 2026)
 
-Revisit after 2.7 hostile entities land and we have playtest surface for all roles.
+- **Role key:** reuse `ENEMY_ARCHETYPE`; no new `EnemyRole`.
+- **Alias table home:** dedicated `src/game/enemyAliases.ts` (not `Curator.ts`).
+- **Short tags:** curated per-principal map (not derived from `principal.label`).
+- **Fallback:** unknown `(principalId, archetype)` → generic archetype name; `console.warn` in dev, graceful in prod.
+- **Faction = allegiance, not employer;** derived from principal group; civic → `CORP`; rival groups → `RIVAL`; one hostile faction per run.
+- **Glyphs:** already role-keyed since 2.7 — no work.
+
+## Open questions / kaizen notes
 
 ### Labels & aliases
 
-- **Principal short tags:** curated map vs derived from `principal.label` (truncation rules for tablet log width).
-- **No-prefix mode:** drop `[Tag]` when contract header is sufficient and encounter is single-allegiance?
-- **Fallback policy:** unknown `(principalId, role)` → role generic name (`Skirmisher`, `Guard`, …) vs dev throw vs `[Corp]` legacy tag.
-- **Alias table ownership:** live in `Curator.ts` next to lexicon vs dedicated module imported by spawn code.
+- **No-prefix mode:** drop `[Tag]` when the contract header already names the owner and the encounter is single-allegiance? (Low priority — single-allegiance is *always* true in 2.9, so a `[Tag]` is arguably always redundant with the briefing; decide during M1.3 from how the log actually reads.)
+- **Short-tag curation detail:** finalize the curated map entries (`[Vuong]` vs `[Vuong Holdings]`, `[DWB]` vs `[Water Board]`) for tablet log width during M1.1.
 
-### Glyphs & palette
+### Sequencing
 
-- **Final role alphabet:** assign chars for sniper, lookout, juggernaut, flanker without colliding with map/objective glyphs.
-- **Elite bruiser vs bruiser:** same `e` or distinct glyph for T3 armored Enforcer?
-- **Two corp principals on one map:** ever needed? If yes, hue-by-principal vs shared corp pink.
-
-### Mixed encounters
-
-- **Tier gates:** rival insert at T2 only, T3 only, or both with different role weights?
-- **Rival principal selection:** fixed pool vs seed-picked from `rival`-group lexicon entries vs story-weighted (Clock / rep — Phase 3 adjacency).
-- **Cooperation model:** confirm shared alarm + no cross-heal (current lean) vs rivals as chaotic third party.
-- **Contract principal as rival:** can the job poster's rivals show up defending a *different* principal's site, or only "intruder" inserts?
-- **Turn queue naming:** rename corp slot to `hostile` in UI/docs while keeping save compat?
-
-### Sequencing & vertical slice
-
-- **Suggested first slice after 2.7:** M1 for one principal (e.g. Matsuda) on the three original prototypes only — proves label + persistence path before M2/M3.
-- **Netrunner aliases:** table slot reserved; implementation stays Phase 3 with status-effect system.
+- **Suggested first slice:** land **M1** (aliases + persistence, all principals) as its own reviewable merge and playtest before M2 faction plumbing.
+- **Netrunner aliases:** table slot reserved; implementation stays Phase 3 with the status-effect system.
 
 ---
 
