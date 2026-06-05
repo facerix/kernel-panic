@@ -58,7 +58,11 @@ test('a RIVAL hostile shares the role glyph but renders a distinct allegiance hu
   const corp = new Entity({ id: 'drone-0', x: 0, y: 0, faction: FACTION.CORP, glyph: 'k' });
   const rival = new Entity({ id: 'drone-1', x: 0, y: 0, faction: FACTION.RIVAL, glyph: 'k' });
 
-  assert.equal(glyphForEntity(corp).char, glyphForEntity(rival).char, 'glyph encodes role, not side');
+  assert.equal(
+    glyphForEntity(corp).char,
+    glyphForEntity(rival).char,
+    'glyph encodes role, not side'
+  );
   assert.notEqual(
     glyphForEntity(corp).fg,
     glyphForEntity(rival).fg,

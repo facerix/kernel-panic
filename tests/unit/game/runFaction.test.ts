@@ -8,13 +8,21 @@ import { buildCrewMember } from '../../../src/game/archetypes/index.js';
 import { snapshot, restore } from '../../../src/game/persistence.js';
 import { FACTION, factionForPrincipalGroups } from '../../../src/game/constants.js';
 import { Rng } from '../../../src/rng.js';
-import { OBJECTIVES, type Contract, type ContractContextToken } from '../../../src/game/hub/Curator.js';
+import {
+  OBJECTIVES,
+  type Contract,
+  type ContractContextToken,
+} from '../../../src/game/hub/Curator.js';
 import { testContractContext } from './contractTestUtils.js';
 
 const PRINCIPALS: Record<string, ContractContextToken> = {
   matsuda: { id: 'matsuda', label: 'Matsuda', groups: ['corp', 'finance'] },
   choir: { id: 'chrome-choir', label: 'Chrome Choir', groups: ['rival', 'street'] },
-  water: { id: 'district-water-board', label: 'District Water Board', groups: ['civic', 'infrastructure'] },
+  water: {
+    id: 'district-water-board',
+    label: 'District Water Board',
+    groups: ['civic', 'infrastructure'],
+  },
 };
 
 function contractFor(principal: ContractContextToken, seed = 7): Contract {

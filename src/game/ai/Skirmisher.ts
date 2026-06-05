@@ -17,13 +17,7 @@
  */
 
 import { PatrolHostile, type PatrolHostileInit, type EngageSteps } from './PatrolHostile.js';
-import {
-  AP_COST,
-  PREFERRED_MIN,
-  ENEMY_ROLE,
-  ENEMY_TIER,
-  resolveEnemyStats,
-} from '../constants.js';
+import { AP_COST, PREFERRED_MIN, ENEMY_ROLE, ENEMY_TIER, resolveEnemyStats } from '../constants.js';
 import type { EnemyTier } from '../constants.js';
 import { withinRange, hasLineOfSight } from '../LineOfSight.js';
 import { canFireRanged, resolveRanged } from '../Combat.js';
