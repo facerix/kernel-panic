@@ -31,7 +31,6 @@
 
 import { PatrolHostile, type PatrolHostileInit, type EngageSteps } from './PatrolHostile.js';
 import {
-  FACTION,
   AP_COST,
   ENEMY_ROLE,
   ENEMY_TIER,
@@ -51,7 +50,7 @@ import type { PatrolHostileMoveStep } from '../../types.js';
 import type { World } from '../World.js';
 import type { Rng } from '../../rng.js';
 
-export interface JuggernautProps extends Omit<PatrolHostileInit, 'faction' | 'glyph'> {
+export interface JuggernautProps extends Omit<PatrolHostileInit, 'glyph'> {
   tier?: EnemyTier;
   /** Band floor override — band-kite when a target closes within `preferredMin`. */
   preferredMin?: number;
@@ -81,7 +80,7 @@ export class Juggernaut extends PatrolHostile {
     // Resolve elite stat scaling from the *base* (low) AP so the T3 apBonus
     // lifts a 3-AP body to 4, not a 4-AP body to 5 (that band is the Bruiser's).
     const stats = resolveEnemyStats({ ...props, maxAp }, ENEMY_ROLE.ELITE, tier);
-    super({ ...props, ...stats, faction: FACTION.CORP, glyph: 'j', patrolWaypoints });
+    super({ ...props, ...stats, glyph: 'j', patrolWaypoints });
     const band = preferredMin ?? JUGGERNAUT_PREFERRED_MIN;
     if (!Number.isInteger(band) || band < 0) {
       throw new RangeError(`Juggernaut preferredMin must be a non-negative integer, got ${band}`);

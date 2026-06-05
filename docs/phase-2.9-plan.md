@@ -33,13 +33,36 @@ Today every hostile is `[Corp]Drone` / `[Corp]Guard` (from `kindFromId` on `dron
 | M1.1 — `enemyAliases.ts`: `(principalId, archetype)` alias table + curated short tags | ✅ Done |
 | M1.2 — `displayName` / `principalTag` on entities + persistence | ✅ Done |
 | M1.3 — `entityLabel()` uses stored display metadata | ✅ Done |
-| M2 — Faction / allegiance plumbing (slim) | 🔲 Not started |
-| M2.1 — Remove `FACTION.CORP` hard-coding from AI classes | 🔲 Not started |
-| M2.2 — `FACTION.RIVAL` + principal-group→faction mapping; `Run` sets hostile faction | 🔲 Not started |
-| M2.3 — Allegiance hue (`FACTION_FG[RIVAL]`) in palette | 🔲 Not started |
+| M2 — Faction / allegiance plumbing (slim) | 🟡 In progress — core landed; shell polish + playtest remain |
+| M2.1 — Remove `FACTION.CORP` hard-coding from AI classes | ✅ Done |
+| M2.2 — `FACTION.RIVAL` + principal-group→faction mapping; `Run` sets hostile faction | ✅ Done |
+| M2.3 — Allegiance hue (`FACTION_FG[RIVAL]`) in palette | ✅ Done |
+| M2.4 — RIVAL hostile-turn shell integration (HUD, resume, status copy, restore) | ✅ Done (June 2026) |
 | ~~M3 — Mixed hostile encounters~~ | ⏭️ **Deferred → [kaizen.md](kaizen.md)** (post–Phase 3) |
+| ~~Per-principal glyph hue~~ | ⏭️ **Deferred** — see [Out of scope](#out-of-scope) |
 
 Role-keyed glyph constants (an earlier draft's M2.1) are **already satisfied** — each AI class hard-codes a unique glyph since 2.7.
+
+### Session log — June 2026 (M2.4)
+
+M2 core plumbing landed (`FACTION.RIVAL`, `factionForPrincipalGroups`, `Run.hostileFaction`, AI constructor `faction` param, palette hue, `runFaction` / `hostileFaction` tests). First rival-contract playtest hit a **tier-1 fault** when the player exhausted AP and the queue advanced to the `RIVAL` slot:
+
+- **Symptom:** `formatTurnLabel: unsupported faction "rival"` in `combatHud.ts` → error boundary degraded to Hub.
+- **Root cause:** Renderer and shell paths still assumed the hostile turn was always `FACTION.CORP`; `RIVAL` was in the turn queue but not in HUD / status / restore paths.
+
+**Fixes shipped this session:**
+
+| Area | Change |
+|------|--------|
+| `combatHud.ts` | `formatTurnLabel` / `turnA11yText` treat `RIVAL` like `CORP` (`HOSTILES ACTIVE`) |
+| `AsciiRenderer.ts` | Hostile-turn HUD color keys off `currentFaction !== PLAYER`, not `=== CORP` |
+| `index.ts` | `resumePendingCombatSliceIfNeeded` resumes any non-player slice; status ephemeral keys off `run.hostileFaction` with dynamic faction tag |
+| `corpTurnStatusCopy.ts` | `countVisibleCorpEntities` accepts optional `hostileFaction` (defaults `CORP`) |
+| `persistence.ts` | `restoreEntity` reapplies `rec.faction` (rival hostiles were reverting to `CORP` on load) |
+
+**Enemy-turn bucket (M2.2 open detail — resolved):** `corpTurnDriver` already filters by the `corpFaction` argument; the shell passes `run.hostileFaction`. No `TurnQueue` rename needed — one hostile slot per run, value is `CORP` or `RIVAL`.
+
+**Remaining before `v0.2.9` tag:** offline playtest on iOS Safari + Chrome desktop (rival contract end-to-end); opportunistic copy pass (`CORP TURN — controls locked` flash still says "CORP" during rival turns — cosmetic).
 
 **Phase 2.9** is complete when:
 
@@ -97,6 +120,13 @@ The renderer already paints `entity.glyph` with `FACTION_FG[entity.faction]` (`p
 
 **Decided:** archetype-readable glyphs (done); allegiance via color; civic shares the corp hue.
 
+**Deferred — per-principal glyph hue:** A unique foreground colour per Curator principal (17 entries) was considered during M2 playtest. Technically small (~`principalHueFor(id)` in `enemyAliases.ts` + thread through `glyphForEntity`), but **out of scope for 2.9**:
+
+- **Design:** Colour encodes *allegiance* (establishment vs gang), not employer — see locked decision below. Per-principal hues would muddy the corp/rival at-a-glance read unless constrained to hue *families* (rose band for corp, amber for rival, etc.).
+- **Payoff:** One run = one principal today, so per-principal hue is indistinguishable from per-run tint until mixed encounters (M3 / [kaizen.md](kaizen.md)). Low ROI before contested-site maps.
+- **Curation cost:** 17 perceptually distinct hues on a dark CRT palette is an art-direction problem, not a code problem.
+- **Revisit trigger:** M3 mixed encounters, or a deliberate "contested site" contract that puts two principals' crews on one map. Smallest useful intermediate: **per-run principal tint** (one hue per contract) if we want more identity before M3.
+
 ### Mixed encounters — DEFERRED
 
 > Mixed-allegiance maps (site security **and** a rival insert sharing a fight, with friction/cooperation rules) are **out of scope for 2.9** — see [kaizen.md](kaizen.md) "Inter-hostile friction". The slim faction work below is the foundation a future phase would build on, but 2.9 keeps **one hostile faction per run**: `RIVAL` appears only on rival-group contracts, never alongside `CORP`. This sidesteps the `isHostileTo` (`faction !== this.faction`) friction question entirely — there's no second hostile faction on the map to fight.
@@ -115,8 +145,11 @@ The renderer already paints `entity.glyph` with `FACTION_FG[entity.faction]` (`p
 | `constants.ts` | Add `FACTION.RIVAL`; `factionForPrincipalGroup()` helper (group has `rival` → RIVAL, else CORP) | M2.2 |
 | `Run.enterCombat` | Resolve run-wide hostile faction once from `contract.context.principal.groups`; pass to every hostile constructor | M2.2 |
 | `palette.ts` | `FACTION_FG[FACTION.RIVAL]` hue (distinct from corp `#ff4d6d`); corpse-dim path preserves it | M2.3 |
+| `combatHud.ts` / `AsciiRenderer.ts` | Hostile-turn label + styling for `RIVAL` (not only `CORP`) | M2.4 |
+| `index.ts` | `resumePendingCombatSliceIfNeeded`, status ephemeral, faction tag via `run.hostileFaction` | M2.4 |
+| `persistence.ts` | Restore `rec.faction` on entities; queue order from `run.hostileFaction` | M2.2 / M2.4 |
 
-**No turn-system change.** Because one run has a single hostile faction, `corpTurnDriver` / `TurnQueue` / `corpTurnStatusCopy` keep working as-is *if* `RIVAL` reuses the existing enemy-turn bucket. **Open detail for M2.2:** confirm the enemy-turn filter keys on "is-hostile" rather than literally `=== FACTION.CORP`, or have the rival run reuse the corp bucket — whichever is the smaller, well-tested change. (Generalizing the bucket to a hostile-faction *set* is the M3-deferred work.)
+**No turn-system rename.** Because one run has a single hostile faction, `corpTurnDriver` / `TurnQueue` / `corpTurnStatusCopy` keep their names and reuse the existing enemy-turn bucket. The shell passes `run.hostileFaction` into `corpTurnDriver` (`corpFaction` param); filter is `e.faction === corpFaction`, not literal `=== FACTION.CORP`. (Generalizing the bucket to a hostile-faction *set* is the M3-deferred work.)
 
 Class names (`Skirmisher`, `Guard`, `Sniper`, …) are stable implementation names; the display layer decouples player-facing identity. **Save-compat note:** persistence archetype ids (`'drone'`, `'guard'`) and entity id prefixes (`drone-*`, `guard-*`) stay until a deliberate migration — Phase 2.9 theming rides on `displayName` / `principalTag`, not save-key churn.
 
@@ -171,6 +204,16 @@ Class names (`Skirmisher`, `Guard`, `Sniper`, …) are stable implementation nam
 - Add `FACTION_FG[FACTION.RIVAL]` (distinct from corp `#ff4d6d`) in `palette.ts`.
 - **TDD:** two skirmishers of different faction → same glyph, different `fg`; corpse-dim path preserves the rival hue.
 
+#### M2.4 — RIVAL hostile-turn shell integration
+
+Surfaced by playtest after M2.2 landed: the turn queue advanced to `RIVAL` but HUD / shell / restore paths still assumed `CORP` only.
+
+- `formatTurnLabel` / `turnA11yText`: `RIVAL` → `HOSTILES ACTIVE` (same lockout copy as corp hostile phase).
+- `AsciiRenderer`: hostile-turn HUD color when `currentFaction !== PLAYER`.
+- `index.ts`: cold-resume corp slice when `currentFaction !== PLAYER`; status ephemeral uses `run.hostileFaction` + `countVisibleCorpEntities(..., hostileFaction)`.
+- `persistence.restoreEntity`: reapply `rec.faction` (was validated but not assigned — rival hostiles loaded as `CORP`).
+- **TDD:** `combatHud.test.ts`, `corpTurnStatusCopy.test.ts`, `runFaction.test.ts` (snapshot round-trip).
+
 ### M3 — Mixed hostile encounters — ⏭️ DEFERRED
 
 > Out of scope for 2.9. Tracked in [kaizen.md](kaizen.md) "Inter-hostile friction" with the full design spectrum (cooperate / asymmetric-goals / three-way), the cost insight (target acquisition is already faction-general), and the tuning risk. Revisit after Cyberspace (Phase 3). The M2 faction work above is the foundation it would build on.
@@ -180,6 +223,7 @@ Class names (`Skirmisher`, `Guard`, `Sniper`, …) are stable implementation nam
 ## Out of scope
 
 - **Mixed-allegiance encounters / inter-hostile friction** — deferred to [kaizen.md](kaizen.md), post–Phase 3. One hostile faction per run in 2.9.
+- **Per-principal glyph hue** — unique foreground colour per Curator principal (~17 curated hues, or hash-derived). Colour stays allegiance-encoded for 2.9 (`CORP` / `RIVAL` families). Per-principal tint has low payoff while one principal owns each run; revisit with M3 mixed maps or a per-run tint spike if playtest asks for more grid identity. See [Grid glyphs & color](#grid-glyphs--color) deferred note.
 - New enemy **behavior** classes or AI (Phase 2.7 + Phase 3 netrunner).
 - Cyberspace-side enemies and the Decker (Phase 3).
 - Boss/named-encounter scripting with bespoke dialogue.
@@ -196,6 +240,7 @@ Class names (`Skirmisher`, `Guard`, `Sniper`, …) are stable implementation nam
 - **Fallback:** unknown `(principalId, archetype)` → generic archetype name; `console.warn` in dev, graceful in prod.
 - **Faction = allegiance, not employer;** derived from principal group; civic → `CORP`; rival groups → `RIVAL`; one hostile faction per run.
 - **Glyphs:** already role-keyed since 2.7 — no work.
+- **Colour:** allegiance only in 2.9; per-principal hue deferred (see Out of scope).
 
 ## Open questions / kaizen notes
 
@@ -206,8 +251,13 @@ Class names (`Skirmisher`, `Guard`, `Sniper`, …) are stable implementation nam
 
 ### Sequencing
 
-- **Suggested first slice:** land **M1** (aliases + persistence, all principals) as its own reviewable merge and playtest before M2 faction plumbing.
+- **Suggested first slice:** land **M1** (aliases + persistence, all principals) as its own reviewable merge and playtest before M2 faction plumbing. ✅ Done.
+- **M2.4 lesson:** faction in the queue is not enough — grep shell/renderer for literal `FACTION.CORP` on `currentFaction` whenever a new hostile faction value lands.
 - **Netrunner aliases:** table slot reserved; implementation stays Phase 3 with the status-effect system.
+
+### Shell copy (cosmetic, post–M2.4)
+
+- `isCorpControlsLocked` flash still says `CORP TURN — controls locked until security finishes.` during rival turns. Consider neutral hostile-turn copy (`HOSTILES ACTIVE — controls locked`, etc.) in a polish pass.
 
 ---
 

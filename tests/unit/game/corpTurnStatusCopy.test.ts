@@ -27,6 +27,17 @@ test('countVisibleCorpEntities counts only alive corp on visible tiles', () => {
   assert.equal(countVisibleCorpEntities(entities, isTileVisible), 1);
 });
 
+test('countVisibleCorpEntities honors an explicit hostile faction (RIVAL)', () => {
+  const entities = [
+    { alive: true, faction: FACTION.RIVAL, x: 1, y: 1 },
+    { alive: true, faction: FACTION.CORP, x: 1, y: 2 },
+    { alive: true, faction: FACTION.RIVAL, x: 3, y: 3 },
+  ];
+  const visible = new Set(['1,1', '1,2']);
+  const isTileVisible = (x, y) => visible.has(`${x},${y}`);
+  assert.equal(countVisibleCorpEntities(entities, isTileVisible, FACTION.RIVAL), 1);
+});
+
 test('corpTurnStatusBody: random message on unseen corp activity', () => {
   assert.doesNotMatch(corpTurnStatusBody(0), /security drone/i);
   assert.doesNotMatch(corpTurnStatusBody(0), /Multiple hostiles/i);

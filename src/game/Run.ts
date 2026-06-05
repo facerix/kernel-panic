@@ -36,7 +36,14 @@ import { Rng } from '../rng.js';
 import { World } from './World.js';
 import { TurnQueue } from './TurnQueue.js';
 import { EventBus, EVENT } from './events.js';
-import { FACTION, TILE, SALVAGE_DROP_MIN, SALVAGE_DROP_MAX, ENEMY_ROLE } from './constants.js';
+import {
+  FACTION,
+  TILE,
+  SALVAGE_DROP_MIN,
+  SALVAGE_DROP_MAX,
+  ENEMY_ROLE,
+  factionForPrincipalGroups,
+} from './constants.js';
 import { coordKey, explorationReachableKeys } from './mapConnectivity.js';
 import { isValidBlockingPlacement, checkPlacementIntegrity } from './placement.js';
 import { makeSalvage, type TypedSalvage } from './salvage.js';
@@ -460,7 +467,10 @@ export class Run {
         new Door({ id: `door-entity-${i}`, doorId: `door-${i}`, x: a.x, y: a.y })
       );
     }
-    this.queue = new TurnQueue([FACTION.PLAYER, FACTION.CORP]);
+    // Phase 2.9: one hostile faction per run, derived from the contract
+    // principal (rival-group → RIVAL, else CORP). The queue drives that faction's
+    // turn + AP refresh; index.ts's corp-turn driver targets the same.
+    this.queue = new TurnQueue([FACTION.PLAYER, this.hostileFaction]);
     this.exitTile = { ...map.exitTile };
     const doorLinkedContract = contractRequiresDoor(this.contract);
     if (doorLinkedContract) {
@@ -478,8 +488,12 @@ export class Run {
     });
     // Phase 2.9 M1.2: stamp principal-themed display identity onto each hostile
     // from the contract owner. Behavior/glyph are unchanged; this is label-only.
+    // M2.2: every hostile carries the run's single allegiance (CORP or RIVAL).
     const principalId = this.contract.context.principal.id;
-    const applyAlias = (entity: Entity, archetype: EnemyArchetype): void => {
+    // Stamp allegiance + principal identity onto a freshly-built hostile, before
+    // it joins the world / binds the bus.
+    const themeHostile = (entity: Entity, archetype: EnemyArchetype): void => {
+      this.#stampAllegiance(entity);
       const alias = aliasFor(principalId, archetype);
       entity.displayName = alias.displayName;
       entity.principalTag = alias.principalTag;
@@ -510,7 +524,7 @@ export class Run {
               patrolWaypoints: a.waypoints,
               tier: entry?.tier,
             });
-      applyAlias(hostile, archetype);
+      themeHostile(hostile, archetype);
       this.world.addEntity(hostile);
       hostile.bindToBus(this.bus);
     }
@@ -560,7 +574,7 @@ export class Run {
         // case lands here — fail loud rather than drop a composed threat.
         throw new Error(`Run.enterCombat: no spawn case for specialist "${entry.archetype}"`);
       }
-      applyAlias(specialist, entry.archetype);
+      themeHostile(specialist, entry.archetype);
       this.world.addEntity(specialist);
       specialist.bindToBus(this.bus);
     }
@@ -606,13 +620,14 @@ export class Run {
       } else {
         throw new Error(`Run.enterCombat: no spawn case for elite "${entry.archetype}"`);
       }
-      applyAlias(elite, entry.archetype);
+      themeHostile(elite, entry.archetype);
       this.world.addEntity(elite);
       elite.bindToBus(this.bus);
     }
     for (let i = 0; i < map.corpCivilians.length; i++) {
       const a = map.corpCivilians[i]!;
       const civ = new CorpCivilian({ id: `corp-civ-${i}`, x: a.x, y: a.y });
+      this.#stampAllegiance(civ);
       this.world.addEntity(civ);
     }
     for (let i = 0; i < map.neutralCivilians.length; i++) {
@@ -714,6 +729,21 @@ export class Run {
    */
   get mutationDeltas(): TileDelta[] {
     return this.world?.mutationDeltas ?? [];
+  }
+
+  /**
+   * Phase 2.9: the single hostile faction for this run, derived from the
+   * contract principal's groups (rival-group → `RIVAL`, corp/civic → `CORP`).
+   * Drives the turn queue and the corp-turn driver. Defaults to `CORP` when
+   * there's no contract (e.g. pre-combat states).
+   */
+  get hostileFaction(): FactionId {
+    return factionForPrincipalGroups(this.contract?.context?.principal?.groups ?? []);
+  }
+
+  /** Phase 2.9: override CORP defaults with the run's single hostile allegiance. */
+  #stampAllegiance(entity: Entity): void {
+    entity.faction = this.hostileFaction;
   }
 
   isObjectiveSatisfied(): boolean {
@@ -1146,15 +1176,15 @@ export class Run {
         const anchor = linkedDoorId
           ? findBehindDoorAnchor(this.world, this.player, this.exitTile, linkedDoorId, this.rng)
           : findInteractableAnchor(this.world, this.player, this.exitTile, this.rng);
-        this.world.addEntity(
-          new DenyTarget({
-            id: `deny-target-${i}`,
-            x: anchor.x,
-            y: anchor.y,
-            label: objectiveTargetLabel(this.contract, i, count),
-            requiresBreach,
-          })
-        );
+        const denyTarget = new DenyTarget({
+          id: `deny-target-${i}`,
+          x: anchor.x,
+          y: anchor.y,
+          label: objectiveTargetLabel(this.contract, i, count),
+          requiresBreach,
+        });
+        this.#stampAllegiance(denyTarget);
+        this.world.addEntity(denyTarget);
       }
     }
     if (this.contract.objective.kind === OBJECTIVES.DUAL_SITE) {
@@ -1221,14 +1251,14 @@ export class Run {
         const count = 3;
         for (let i = 0; i < count; i++) {
           const anchor = findInteractableAnchor(this.world, this.player, this.exitTile, this.rng);
-          this.world.addEntity(
-            new RelayNode({
-              id: `relay-node-${i}`,
-              x: anchor.x,
-              y: anchor.y,
-              label: (this.contract.objective.params?.target as string) ?? 'Relay node',
-            })
-          );
+          const relay = new RelayNode({
+            id: `relay-node-${i}`,
+            x: anchor.x,
+            y: anchor.y,
+            label: (this.contract.objective.params?.target as string) ?? 'Relay node',
+          });
+          this.#stampAllegiance(relay);
+          this.world.addEntity(relay);
         }
         // Add one corp turret for pressure alongside relay nodes.
         this.#placeCorpTurret(0);
@@ -1297,13 +1327,13 @@ export class Run {
   #placeCorpTurret(index: number): void {
     if (!this.world || !this.player || !this.exitTile) return;
     const anchor = findInteractableAnchor(this.world, this.player, this.exitTile, this.rng);
-    this.world.addEntity(
-      new CorpTurret({
-        id: `corp-turret-${index}`,
-        x: anchor.x,
-        y: anchor.y,
-      })
-    );
+    const turret = new CorpTurret({
+      id: `corp-turret-${index}`,
+      x: anchor.x,
+      y: anchor.y,
+    });
+    this.#stampAllegiance(turret);
+    this.world.addEntity(turret);
   }
 
   /**

@@ -304,7 +304,7 @@ export class AsciiRenderer {
       segments: apSegments(apText),
     });
     const turnLabel = formatTurnLabel(hud.turn);
-    const isCorpTurn = hud.turn.currentFaction === FACTION.CORP;
+    const isCorpTurn = hud.turn.currentFaction !== FACTION.PLAYER;
     this.#drawHudRow({
       text: turnLabel,
       anchor: 'bottom-left',
@@ -459,11 +459,19 @@ function hpSegments(text: string): HudTextSegment[] {
 }
 
 function apSegments(text: string): HudTextSegment[] {
-  return [...text].map(char => {
-    if (char === COMBAT_HUD_GLYPHS.AP_SPENT) return { text: char, color: HUD_AP_SPENT };
-    if (char === COMBAT_HUD_GLYPHS.AP_AVAILABLE) {
-      return { text: char, color: HUD_AP_AVAILABLE };
+  const prefix = 'AP ';
+  const glyphs = text.startsWith(prefix) ? text.slice(prefix.length) : text;
+  const segments: HudTextSegment[] = text.startsWith(prefix)
+    ? [{ text: prefix, color: HUD_TEXT, glowColor: HUD_GLOW }]
+    : [];
+  for (const char of glyphs) {
+    if (char === COMBAT_HUD_GLYPHS.AP_SPENT) {
+      segments.push({ text: char, color: HUD_AP_SPENT });
+    } else if (char === COMBAT_HUD_GLYPHS.AP_AVAILABLE) {
+      segments.push({ text: char, color: HUD_AP_AVAILABLE });
+    } else {
+      segments.push({ text: char, color: HUD_TEXT, glowColor: HUD_GLOW });
     }
-    return { text: char, color: HUD_TEXT, glowColor: HUD_GLOW };
-  });
+  }
+  return segments;
 }

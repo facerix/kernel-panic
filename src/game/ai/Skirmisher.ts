@@ -18,7 +18,6 @@
 
 import { PatrolHostile, type PatrolHostileInit, type EngageSteps } from './PatrolHostile.js';
 import {
-  FACTION,
   AP_COST,
   PREFERRED_MIN,
   ENEMY_ROLE,
@@ -33,7 +32,7 @@ import type { PatrolHostileMoveStep } from '../../types.js';
 import type { World } from '../World.js';
 import type { Rng } from '../../rng.js';
 
-export interface SkirmisherProps extends Omit<PatrolHostileInit, 'faction' | 'glyph'> {
+export interface SkirmisherProps extends Omit<PatrolHostileInit, 'glyph'> {
   tier?: EnemyTier;
   /** Kiting band override — retreat when a target is within `preferredMin`. */
   preferredMin?: number;
@@ -55,7 +54,7 @@ export class Skirmisher extends PatrolHostile {
 
   constructor({ tier = ENEMY_TIER.T1, preferredMin, patrolWaypoints, ...props }: SkirmisherProps) {
     const stats = resolveEnemyStats(props, ENEMY_ROLE.FODDER, tier);
-    super({ ...props, ...stats, faction: FACTION.CORP, glyph: 'k', patrolWaypoints });
+    super({ ...props, ...stats, glyph: 'k', patrolWaypoints });
     const band = preferredMin ?? PREFERRED_MIN;
     if (!Number.isInteger(band) || band < 0) {
       throw new RangeError(`Skirmisher preferredMin must be a non-negative integer, got ${band}`);

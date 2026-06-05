@@ -8,7 +8,6 @@ import {
   AP_COST,
   ENEMY_ROLE,
   ENEMY_TIER,
-  FACTION,
   HEAVY_MELEE_DAMAGE,
   resolveEnemyStats,
 } from '../constants.js';
@@ -19,14 +18,14 @@ import { knockbackByOffset, awayVector } from '../knockback.js';
 import type { World } from '../World.js';
 import type { Rng } from '../../rng.js';
 
-export interface BruiserProps extends Omit<PatrolHostileInit, 'faction' | 'glyph'> {
+export interface BruiserProps extends Omit<PatrolHostileInit, 'glyph'> {
   tier?: EnemyTier;
 }
 
 export class Bruiser extends PatrolHostile {
   constructor({ tier = ENEMY_TIER.T3, patrolWaypoints, ...props }: BruiserProps) {
     const stats = resolveEnemyStats(props, ENEMY_ROLE.ELITE, tier);
-    super({ ...props, ...stats, faction: FACTION.CORP, glyph: 'b', patrolWaypoints });
+    super({ ...props, ...stats, glyph: 'b', patrolWaypoints });
   }
 
   get meleeDamage(): number {

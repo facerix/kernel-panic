@@ -31,6 +31,9 @@ const FACTION_FG = {
   [FACTION.PLAYER]: '#00d9a5',
   [FACTION.CORP]: '#ff4d6d',
   [FACTION.NEUTRAL]: '#c8b6ff',
+  // Phase 2.9 rival/gang allegiance — amber, distinct from corp rose so a
+  // rival-owned site reads differently at a glance.
+  [FACTION.RIVAL]: '#ff9e3d',
 };
 
 /**

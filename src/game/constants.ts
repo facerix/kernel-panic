@@ -29,6 +29,10 @@ export const FACTION = Object.freeze({
   PLAYER: 'player',
   CORP: 'corp',
   NEUTRAL: 'neutral',
+  // Phase 2.9: gang/street allegiance. A run carries exactly one hostile faction
+  // (CORP for corp/civic principals, RIVAL for rival-group principals) — they do
+  // not share a map yet (mixed encounters are deferred; see docs/kaizen.md).
+  RIVAL: 'rival',
 });
 
 export const TERMINAL_GLYPH = '‡';
@@ -46,6 +50,17 @@ export type TileId = (typeof TILE)[keyof typeof TILE];
 
 /** Faction string — one of the `FACTION` values. */
 export type FactionId = (typeof FACTION)[keyof typeof FACTION];
+
+/**
+ * Phase 2.9: a run carries exactly one hostile faction, derived from the
+ * contract principal's groups. Rival-group principals (gangs/street) spawn
+ * `RIVAL`; corp *and* civic principals are "the establishment" and spawn `CORP`
+ * (civic folds into corp — very cyberpunk). Mixed maps are deferred — see
+ * docs/kaizen.md "Inter-hostile friction".
+ */
+export function factionForPrincipalGroups(groups: readonly string[]): FactionId {
+  return groups.includes('rival') ? FACTION.RIVAL : FACTION.CORP;
+}
 
 /**
  * Action Point costs from the V1 blueprint. Centralised so tuning is one edit.

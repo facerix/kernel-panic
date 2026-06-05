@@ -13,12 +13,17 @@
  */
 
 import { Entity, type EntityInit } from '../Entity.js';
-import { FACTION } from '../constants.js';
+import { FACTION, type FactionId } from '../constants.js';
 import { RELAY_NODE_HP } from '../constants.js';
 
 export const RELAY_NODE_GLYPH = '~';
 
 export interface RelayNodeInit extends Omit<EntityInit, 'faction' | 'glyph' | 'maxAp'> {
+  /**
+   * Allegiance (Phase 2.9). Defaults to `FACTION.CORP`; the spawn path
+   * stamps the run's hostile faction for rival-group principals.
+   */
+  faction?: FactionId;
   label?: string;
 }
 
@@ -32,10 +37,10 @@ export class RelayNode extends Entity {
   /** Stationary infrastructure cannot dodge melee. */
   readonly baseDodgeChance = 0;
 
-  constructor({ label = 'Relay node', maxHp = RELAY_NODE_HP, ...props }: RelayNodeInit) {
+  constructor({ label = 'Relay node', maxHp = RELAY_NODE_HP, faction, ...props }: RelayNodeInit) {
     super({
       ...props,
-      faction: FACTION.CORP,
+      faction: faction ?? FACTION.CORP,
       glyph: RELAY_NODE_GLYPH,
       maxAp: 0,
       maxHp,

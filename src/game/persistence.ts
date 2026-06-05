@@ -866,15 +866,18 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
   run.restoreMapMemory(normalizeMapMemory(record.mapMemory));
   normalizeRunKeyItems(record.keyItems).forEach(k => run.addKeyItem(k));
 
-  const factionOrder = [FACTION.PLAYER, FACTION.CORP];
-  if (record.currentFaction !== FACTION.PLAYER && record.currentFaction !== FACTION.CORP) {
-    throw new Error(`restore: unknown currentFaction "${record.currentFaction}"`);
-  }
+  // Phase 2.9: the hostile slot is the run's single allegiance (CORP or RIVAL),
+  // derived from the restored contract principal — keeping the queue consistent
+  // with how `Run.enterCombat` built it.
+  const factionOrder = [FACTION.PLAYER, run.hostileFaction];
   run.queue = new TurnQueue(factionOrder);
   run.queue.turnNumber = record.turnNumber;
   const factionIndex = factionOrder.indexOf(record.currentFaction);
   if (factionIndex < 0) {
-    throw new Error(`restore: unknown currentFaction "${record.currentFaction}"`);
+    throw new Error(
+      `restore: currentFaction "${record.currentFaction}" not in run faction order ` +
+        `[${factionOrder.join(', ')}]`
+    );
   }
   run.queue.index = factionIndex;
 
@@ -1071,6 +1074,7 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
     entity.ap = rec.ap;
   }
   entity.stealthed = !!rec.stealthed;
+  if (rec.faction) entity.faction = rec.faction;
   if (rec.glyph) entity.glyph = rec.glyph;
   // Phase 2.9 principal theming. Missing on pre-2.9 saves → stays undefined and
   // `entityLabel` falls back to `kindFromId` (backward compatible).

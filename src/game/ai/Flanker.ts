@@ -17,7 +17,6 @@ import {
   AP_COST,
   ENEMY_ROLE,
   ENEMY_TIER,
-  FACTION,
   FLANKER_BASE_AP,
   HEAVY_MELEE_DAMAGE,
   resolveEnemyStats,
@@ -31,7 +30,7 @@ import type { GridPoint } from '../../types.js';
 import type { World } from '../World.js';
 import type { Rng } from '../../rng.js';
 
-export interface FlankerProps extends Omit<PatrolHostileInit, 'faction' | 'glyph'> {
+export interface FlankerProps extends Omit<PatrolHostileInit, 'glyph'> {
   tier?: EnemyTier;
   slideConcealed?: boolean;
 }
@@ -61,7 +60,7 @@ export class Flanker extends PatrolHostile {
     ...props
   }: FlankerProps) {
     const stats = resolveEnemyStats({ ...props, maxAp }, ENEMY_ROLE.ELITE, tier);
-    super({ ...props, ...stats, faction: FACTION.CORP, glyph: 'f', patrolWaypoints });
+    super({ ...props, ...stats, glyph: 'f', patrolWaypoints });
     this.slideConcealed = !!slideConcealed;
   }
 

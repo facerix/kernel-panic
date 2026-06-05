@@ -53,6 +53,28 @@ test('glyphForEntity uses the entity glyph and a faction-derived colour', () => 
   assert.equal(colours.size, 3, 'each faction should have a distinct foreground colour');
 });
 
+test('a RIVAL hostile shares the role glyph but renders a distinct allegiance hue', () => {
+  // Same archetype (skirmisher 'k'), different allegiance → same char, different fg.
+  const corp = new Entity({ id: 'drone-0', x: 0, y: 0, faction: FACTION.CORP, glyph: 'k' });
+  const rival = new Entity({ id: 'drone-1', x: 0, y: 0, faction: FACTION.RIVAL, glyph: 'k' });
+
+  assert.equal(glyphForEntity(corp).char, glyphForEntity(rival).char, 'glyph encodes role, not side');
+  assert.notEqual(
+    glyphForEntity(corp).fg,
+    glyphForEntity(rival).fg,
+    'allegiance must read by colour'
+  );
+});
+
+test('glyphForCorpse preserves the rival allegiance hue (dimmed)', () => {
+  const rival = new Entity({ id: 'drone-1', x: 0, y: 0, faction: FACTION.RIVAL, glyph: 'k' });
+  const corpse = glyphForCorpse(rival);
+  assert.equal(corpse.char, CORPSE_GLYPH_CHAR);
+  // Dimmed rival hue stays distinct from a dimmed corp hue.
+  const corp = new Entity({ id: 'drone-0', x: 0, y: 0, faction: FACTION.CORP, glyph: 'k' });
+  assert.notEqual(corpse.fg, glyphForCorpse(corp).fg);
+});
+
 test('glyphForEntity throws on an unknown faction', () => {
   const ghost = new Entity({ id: 'g', x: 0, y: 0, faction: 'unknown-faction', glyph: '?' });
   assert.throws(() => glyphForEntity(ghost), /unknown faction/i);

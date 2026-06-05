@@ -4,7 +4,7 @@
  * and formats per-step log lines for the sidebar game log.
  */
 
-import { FACTION } from './constants.js';
+import { FACTION, type FactionId } from './constants.js';
 import type { Entity } from './Entity.js';
 import { Flanker } from './ai/Flanker.js';
 import { Turret } from './Turret.js';
@@ -36,11 +36,12 @@ const GENERIC_STATUS_MESSAGES = [
  */
 export function countVisibleCorpEntities(
   entities: Iterable<Entity>,
-  isTileVisible: IsVisibleFn
+  isTileVisible: IsVisibleFn,
+  hostileFaction: FactionId = FACTION.CORP
 ): number {
   let n = 0;
   for (const e of entities) {
-    if (!e?.alive || e.faction !== FACTION.CORP) continue;
+    if (!e?.alive || e.faction !== hostileFaction) continue;
     if (isTileVisible(e.x, e.y)) n++;
   }
   return n;
