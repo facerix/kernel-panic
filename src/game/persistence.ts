@@ -75,7 +75,11 @@ import type { BreachingChargeInit } from './entities/BreachingCharge.js';
 import { Run, RUN_STATE, PATROL_ARCHETYPE_IDS } from './Run.js';
 import { Campaign, CAMPAIGN_STATE } from './Campaign.js';
 import { normalizeContractContext, normalizeObjective } from './hub/Curator.js';
-import { normalizeHubReveals } from './hub/hubReveals.js';
+import {
+  migrateLegacyHubReveals,
+  normalizeHubReveals,
+  snapshotHubReveals,
+} from './hub/hubReveals.js';
 import type { CrewInit } from './Crew.js';
 import type { Inventory, Gear } from './Crew.js';
 import type { TurretInit } from './Turret.js';
@@ -740,6 +744,7 @@ export type KeyItemSnapshot = {
 export type HubRevealsSnapshot = {
   finnIntroduced?: boolean;
   terminalExplained?: boolean;
+  terminalRecruitmentExplained?: boolean;
   clinicIntroduced?: boolean;
 };
 
@@ -777,7 +782,7 @@ export function snapshotCampaign(campaign: Campaign): CampaignSnapshot {
     pendingRecruitReward: campaign.pendingRecruitReward,
     rewardRecruitIds: [...campaign.rewardRecruitIds],
     healedThisVisit: [...campaign.healedThisVisit],
-    hubReveals: { ...campaign.hubReveals },
+    hubReveals: snapshotHubReveals(campaign.hubReveals),
     completedJobs: campaign.completedJobs,
     keyItems: campaign.keyItems.map(k => ({ ...k })),
     siteRoster: campaign.siteRoster.map(snapshotLocationSite),
@@ -915,7 +920,13 @@ export function restoreCampaign(record: unknown, options: RestoreCampaignOptions
     credits: record.credits ?? 0,
     rep: record.rep,
     meta: record.meta,
-    hubReveals: normalizeHubReveals(record.hubReveals, 'restoreCampaign hubReveals'),
+    hubReveals: normalizeHubReveals(
+      migrateLegacyHubReveals(record.hubReveals, {
+        rep: record.rep,
+        pendingRecruitReward: record.pendingRecruitReward,
+      }),
+      'restoreCampaign hubReveals'
+    ),
     completedJobs: record.completedJobs ?? 0,
     keyItems: record.keyItems,
     siteRoster: record.siteRoster,

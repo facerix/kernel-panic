@@ -72,7 +72,7 @@ import { hasLineOfSight } from '/src/game/LineOfSight.js';
 import { ITEM_ID, getItemById } from '/src/game/items.js';
 import type { CampaignSnapshot } from '/src/game/persistence.js';
 import type { Contract } from '/src/game/hub/Curator.js';
-import { isTerminalRecruitmentUnlocked } from '/src/game/hub/hubReveals.js';
+import { isTerminalAccessible } from '/src/game/hub/hubReveals.js';
 import type { Crew } from '/src/game/Crew.js';
 import { resolveEntityLabel, type Entity } from '/src/game/Entity.js';
 import type { RunResult, RunTelemetry, Outcome } from '/src/game/Run.js';
@@ -1605,7 +1605,7 @@ function handleInteract(): void {
     campaign.terminal &&
     isChebyshevAdjacent(campaign.player, campaign.terminal)
   ) {
-    if (!isTerminalRecruitmentUnlocked(campaign.hubReveals)) {
+    if (!isTerminalAccessible(campaign.hubReveals)) {
       flash('TERMINAL — access denied. Systems locked.');
       return;
     }
