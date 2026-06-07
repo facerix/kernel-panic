@@ -89,10 +89,10 @@ Score-target sites always use roster-stored dimensions (P2.7.M1.5: `mapWidth`, `
 
 **Scope:**
 
-- **Arc state:** Campaign save tracks current act (1/2/3), run count, and arc-specific flags (Decker recruited, Score revealed, Clock started, Score attempted).
+- **Arc state:** Campaign save tracks `arcStage` (`act-1` / `act-2` / `act-3` / `score`), run count, and arc-specific flags (`deckerRecruited`, `scoreRevealed`, `clockStarted`, `scoreAttempted`, `scoreCompleted`). Prefer a typed `Campaign.arc` record over stuffing more opaque keys into `Campaign.meta`; legacy saves can normalize from absent `arc` into Act 1.
 - **Act transitions:** Define triggers for act boundaries:
-  - Act 1 → Act 2: reach top rep tier + minimum run count (e.g. 4–5 runs). Triggers Score reveal and Decker recruitment opportunity.
-  - Act 2 → Act 3: Decker recruited + Score target site visited at least once + Clock threshold (e.g. run 10+). Triggers "final prep" phase.
+  - Act 1 → Act 2: reach top rep tier + minimum successful job count (recommended: `completedJobs >= 4`). Triggers Score reveal and Decker recruitment opportunity.
+  - Act 2 → Act 3: Decker recruited + Score target site visited at least once + Clock threshold (recommended: `completedJobs >= 9`). Triggers "final prep" phase.
   - Score available: Act 3 + player-initiated (choose to attempt the Score from the Hub).
 - **Score target designation:** At Act 2 entry, choose exactly one remembered or newly seeded `LocationSite`, set `scoreTarget: true`, and promote `tier: 'score'` so P2.5.M7 eviction preserves it. If no roster site exists yet, synthesize a site identity from the Curator lexicon and add it to the roster; do not silently defer the Score reveal.
 - **Arc-aware Curator:** Current code already passes through `arcStage`; P3.M1 must make it behaviorally meaningful:
@@ -108,14 +108,33 @@ Score-target sites always use roster-stored dimensions (P2.7.M1.5: `mapWidth`, `
 
 **The Clock mechanic:**
 
-The Clock creates mounting pressure that discourages indefinite grinding. Options (pick one or combine at implementation):
+The Clock creates mounting pressure that discourages indefinite grinding. **Recommended first implementation:** combine escalating global difficulty as soft pressure with an operational window as the hard campaign deadline. It is easy to communicate, test, and tune:
+
+- `clockStartsAtJob = 8`
+- `scoreDeadlineJob = 13`
+- `heat = max(0, completedJobs - clockStartsAtJob)`
+- Each point of heat nudges contract threat / alarm sensitivity upward, capped by difficulty tier.
+- If the player returns to Hub with `completedJobs >= scoreDeadlineJob` and `scoreAttempted` is false, campaign ends with clock loss.
+
+Other Clock variants remain useful later, but should not block P3.M1:
 
 - **Escalating global difficulty:** Each run after a threshold (e.g. run 8), corp security tier increases globally — more drones, tougher spawns, higher alarm sensitivity. Soft pressure: you *can* keep running, but it gets harder.
 - **Rival crew:** A competing team is after the same Score. Abstract progress bar: each run you take, they advance. If they reach the Score first, you lose (or the Score becomes dramatically harder — they've tripped every alarm).
 - **Operational window:** The Score target has a time-limited vulnerability (maintenance cycle, personnel rotation, satellite blind spot). After N total runs, the window closes permanently. Hard deadline.
 - **Neural degradation:** The Decker's implants degrade with each jack-in. After N Cyberspace runs, they can no longer jack in — and the Score requires Cyberspace. Biological clock on the crew, not the world.
 
-Implementation notes TBD after Clock type is chosen. Multiple types may coexist (escalating difficulty as soft pressure + operational window as hard deadline).
+Neural degradation is deferred until Cyberspace is fun enough to deserve a jack-in-specific cost. Rival crew pressure is best saved for the inter-hostile friction work in kaizen unless a Score narrative beat specifically needs it.
+
+**Implementation slices:**
+
+| Slice | Change | Tests |
+|---|---|---|
+| **P3.M1.1 Arc record** | Add `Campaign.arc`, derive `arcStage`, persist/restore, normalize old saves to Act 1 | constructor validation, snapshot round-trip, invalid stage throws |
+| **P3.M1.2 Transitions** | Advance acts from `rep`, `completedJobs`, Decker flag, Score-site visit | boundary tests around job counts and rep tier |
+| **P3.M1.3 Score target** | Promote one roster site to `tier: 'score'`; preserve through eviction | exactly-one target, no eviction at roster cap, synthetic target when roster empty |
+| **P3.M1.4 Clock** | Start heat after threshold; hard loss at deadline; show status | heat math, deadline loss, no loss after Score attempt |
+| **P3.M1.5 Curator bias** | Pass campaign-derived arc context; bias board slots by act and score target | seeded boards show expected `arcStage` and target-site frequency |
+| **P3.M1.6 Score entry** | Hub action creates the special Score contract in Act 3 only | availability gates, deployment path, attempted flag |
 
 **Acceptance:**
 
@@ -141,6 +160,8 @@ Implementation notes TBD after Clock type is chosen. Multiple types may coexist 
 - **Cyberspace stats:** The Decker has Cyberspace-specific attributes (e.g. RAM, intrusion strength, ICE resistance) used in P3.M3. Other archetypes cannot jack in (or can with severe penalties — TBD).
 - **Recruitment flow:** Triggered at Act 1 → Act 2 transition. Uses the **progressive Hub reveal** system from P2.5.M5: Curator message introduces the Decker on Hub entry when rep threshold is met and `arc.deckerRecruited` is false. Same pattern as Finn's introduction and Terminal explanation — the Hub grows with the campaign.
 - **Deployment:** The Decker is deployable as a solo operator on any contract (Meatspace only on non-Cyberspace contracts). On Cyberspace contracts, the Decker is one of the dual-deploy pair (see P3.M4).
+- **Roster rule:** The Decker is a named crew member, not a temporary ability unlock. Recruitment should add them to `Campaign.crew` through the existing recruit/callsign machinery or a deliberately separate `recruitDecker()` path with the same validation guarantees. Do not let normal random recruitment roll a Decker before Act 2.
+- **Jack-in authority:** Only a living Decker can start P3.M3 jack-in. If a contract has a Cyberspace requirement and no living Decker is available, deployment should fail loudly at the Hub selection layer rather than starting an unwinnable run.
 
 **Acceptance:**
 
@@ -160,7 +181,7 @@ Implementation notes TBD after Clock type is chosen. Multiple types may coexist 
 
 **Scope:**
 
-- **Cyberspace grid:** Separate `Grid` / `World` instance for the digital layer. **Graph-based nodes and logic pathways** (per blueprint) — may use the same grid engine with a different tileset/topology, or a simplified node graph. Design decision at implementation; document trade-offs.
+- **Cyberspace grid:** Separate `Grid` / `World` instance for the digital layer. **First implementation should reuse the existing square grid engine** with a distinct tileset and generation rules, then reserve a later graph-topology refactor only if the square grid fails the feel test. This keeps pathfinding, rendering, snapshots, and tests inside known machinery.
 - **Cyberspace tileset / aesthetic:** Distinct from Meatspace. Nodes, data lines, firewalls, open channels. ASCII glyphs TBD but visually differentiated (color palette, glyph set, CRT effects).
 - **ICE hostiles:** Three types per blueprint:
   - **Probe:** Sentry / patrol. Detects the Decker, raises alert (Cyberspace alarm analog).
@@ -170,6 +191,31 @@ Implementation notes TBD after Clock type is chosen. Multiple types may coexist 
 - **Cyberspace objectives:** What the Decker *does* once jacked in — slice data nodes, disable firewalls, open digital locks. Reuses `Interactable` patterns from P2.5.M2.2 adapted for Cyberspace.
 - **Generation:** Procedural per jack-in. Seeded from contract + campaign RNG. Not persistent (fresh each time). Complexity scales with contract difficulty / act.
 - **Jack-in trigger:** Decker interacts with a Meatspace terminal (P2.5.M2.2 `Interactable`). This spawns the Cyberspace grid and activates dual-deploy mode (P3.M4).
+
+**Entering Cyberspace — first playable slice:**
+
+The first jack-in should prove the door between layers before shipping every ICE behavior:
+
+1. Add a `requiresCyberspace` / `cyberspaceObjective` contract param for Act 2+ jobs, generated only when the Decker has been recruited.
+2. Place a Meatspace jack-in terminal using the existing `Terminal` / interactable placement path, distinct in label from ordinary terminal-slice props.
+3. When the Decker interacts with the jack-in terminal, create a `cyberspace` run layer with:
+   - generated grid and seed metadata,
+   - Decker digital avatar,
+   - one data node objective,
+   - at least one Probe ICE.
+4. Latch a run state like `cyberspace.active = true`; repeated jack-in attempts against the same terminal throw or log a deterministic "already linked" message depending on whether state is corrupt or just redundant input.
+5. Saving mid-jack-in restores both Meatspace and Cyberspace. Absent or malformed Cyberspace snapshot data for an active jack-in is tier-1 corrupt state and must throw to the boundary.
+
+**Suggested slice order:**
+
+| Slice | Change | Tests |
+|---|---|---|
+| **P3.M3.1 Contract flag** | Add Cyberspace-capable contract metadata and validation | generated only Act 2+, invalid flag/params throw |
+| **P3.M3.2 Jack-in terminal** | Place a terminal that can start the digital layer | deterministic placement, no collision with objective props |
+| **P3.M3.3 Cyber layer model** | Add serializable `Run.cyberspace` layer with grid/world/avatar | snapshot round-trip, active-layer invariants |
+| **P3.M3.4 Data node objective** | Slice one data node and feed objective satisfaction | incomplete blocks clean extraction, complete allows it |
+| **P3.M3.5 Probe ICE** | Minimal ICE patrol/detect/attack loop | seeded movement, detection/alarm, damage/death |
+| **P3.M3.6 Render swap** | Render Cyberspace when active; Meatspace remains reachable for P3.M4 | browser smoke and console-clean verification |
 
 **Acceptance:**
 
@@ -193,13 +239,25 @@ Implementation notes TBD after Clock type is chosen. Multiple types may coexist 
   - **Pre–jack-in phase:** Both operators start in Meatspace. The Meatspace operator moves and acts normally. The Decker must reach a terminal and jack in (P2.5.M2.2 interact) to activate Cyberspace. Until jack-in, this is a normal single-grid mission.
   - **Post–jack-in:** Cyberspace grid spawns. Flip mechanic activates. Decker's Meatspace body remains at the terminal — vulnerable, immobile, and targetable by corp hostiles (blueprint: "your physical body is a vegetable").
 - **The flip:** Switch active control between Meatspace operator and Decker. Active operator receives player input (move, attack, interact). Inactive operator holds position.
-  - Cost: **free action** or **1 AP** (TBD — free action recommended for less friction; AP cost adds tactical weight).
+  - Cost: **free action** for the first implementation. AP cost can be revisited after playtesting, but the first version should make the new mental model easy to explore.
   - Can flip at any point during the active operator's turn (before or after spending AP).
 - **Turn structure:** Player turn → flip as desired → end turn → **both layers' hostile phases resolve** (corp drones move in Meatspace, ICE moves in Cyberspace). Both layers tick simultaneously.
 - **PIP / CCTV window:** The inactive layer renders in a small overlay (bottom right corner of the screen). Shows grid state, hostile positions, the other operator's status. Read-only — no input accepted in the PIP. The blueprint's "real-time CCTV showing your physical body's status" becomes this.
 - **Vulnerability:** While the Decker is jacked in, their Meatspace body is a valid target for corp hostiles. If the body is destroyed, the Decker is killed (flatline) and Cyberspace access is lost. The Meatspace operator's implicit job is to **protect the Decker's body** — or at least keep hostiles away from the terminal.
 - **Jack-out:** The Decker can voluntarily jack out (returns control to single-grid Meatspace). Or is forced out if their body takes critical damage. Jack-out despawns the Cyberspace grid (any unsatisfied Cyberspace objectives fail).
 - **Contracts without Cyberspace:** Single-deploy as today. The Decker deploys solo in Meatspace (no flip, no Cyberspace grid). Their drone override hack is their primary value.
+- **Save invariant:** A run may be single-layer, pre-jack dual-deploy, or active dual-layer. Those states must be explicit. A save with `cyberspace.active = true` but no cyber grid/avatar, or with a Decker marked jacked-in but no Meatspace body anchor, is corrupt and must throw.
+
+**Integration slices:**
+
+| Slice | Change | Tests |
+|---|---|---|
+| **P3.M4.1 Dual deploy pre-jack** | Select Meatspace operator + Decker; both begin in Meatspace | deployment gates, placement, no Decker = no Cyberspace contract |
+| **P3.M4.2 Jacked body anchor** | Decker body becomes immobile target at terminal after jack-in | body targetable, movement rejected, death flatlines Decker |
+| **P3.M4.3 Flip command** | Free action swaps active input layer | input routed to active layer only, inactive holds position |
+| **P3.M4.4 Dual hostile phase** | End turn advances corp and ICE phases once each | deterministic order, both layers tick, no double AP refresh |
+| **P3.M4.5 PIP** | Inactive layer mini-render + status summary | desktop/mobile layout, no input capture |
+| **P3.M4.6 Jack-out** | Voluntary and forced jack-out transitions back to Meatspace | cleanup, objective failure rules, snapshot round-trip |
 
 **Acceptance:**
 
