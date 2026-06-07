@@ -1,5 +1,6 @@
 import { TILE, FACTION } from '../game/constants.js';
 import type { TileId, FactionId } from '../game/constants.js';
+import { terrainPaletteFor } from './principalTerrainPalettes.js';
 
 /** Second glyph painted on top of the base cell (e.g. sniper aim crosshair). */
 export type GlyphOverlay = { char: string; fg: string };
@@ -55,10 +56,24 @@ export const OOB_GLYPH = Object.freeze({ char: ' ', fg: '#000000' });
  */
 export const UNSEEN_GLYPH = Object.freeze({ char: '·', fg: '#1a1a1a' });
 
-export function glyphForTile(tile: TileId): Glyph {
+export function glyphForTile(tile: TileId, principalId?: string): Glyph {
   const g = TILE_GLYPH[tile];
   if (!g) throw new Error(`palette: unknown tile id ${tile}`);
-  return g;
+  if (!principalId) return g;
+
+  const palette = terrainPaletteFor(principalId);
+  switch (tile) {
+    case TILE.FLOOR:
+      return { char: g.char, fg: palette.floor };
+    case TILE.WALL:
+      return { char: g.char, fg: palette.wall };
+    case TILE.COVER:
+      return { char: g.char, fg: palette.cover };
+    case TILE.RUBBLE:
+      return { char: g.char, fg: palette.wall };
+    default:
+      return g;
+  }
 }
 
 export function glyphForEntity(entity: { faction: FactionId; glyph: string }): Glyph {

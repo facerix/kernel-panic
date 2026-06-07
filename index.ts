@@ -1987,11 +1987,16 @@ function paint(stateHint: InputState = activeInputState()): void {
     run.state === RUN_STATE.COMBAT && activeBreachBlastOverlayKeys.size > 0
       ? activeBreachBlastOverlayKeys
       : undefined;
+  const principalId =
+    run.state === RUN_STATE.COMBAT
+      ? campaign?.activeRun?.contract?.context?.principal?.id
+      : undefined;
   renderer.draw(run.world, run.player, {
     vision: activeVision,
     player: run.player,
     blastOverlayKeys,
     lookCursor,
+    principalId,
     locationLabel: currentLocationLabel(),
     combatHud: buildCombatHudSnapshot(run),
   });

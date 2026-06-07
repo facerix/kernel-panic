@@ -134,6 +134,7 @@ const CacheConfig = {
       '/src/render/CrtFilter.js',
       '/src/render/frame.js',
       '/src/render/palette.js',
+      '/src/render/principalTerrainPalettes.js',
       '/src/rng.js',
       '/src/ServiceWorkerManager.js',
       '/src/statusActivityRows.js',

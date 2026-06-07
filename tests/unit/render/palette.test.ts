@@ -34,6 +34,22 @@ test('glyphForTile throws on an unknown tile id (crash over silent fallback)', (
   assert.throws(() => glyphForTile(99), /unknown tile/i);
 });
 
+test('glyphForTile without principalId keeps the default terrain colours', () => {
+  assert.equal(glyphForTile(TILE.FLOOR).fg, '#1f4d44');
+  assert.equal(glyphForTile(TILE.WALL).fg, '#5fbcd4');
+  assert.equal(glyphForTile(TILE.COVER).fg, '#d49a3a');
+  assert.equal(glyphForTile(TILE.RUBBLE).fg, '#5fbcd4');
+});
+
+test('glyphForTile with principalId tints floor/wall/cover; rubble follows wall', () => {
+  const floor = glyphForTile(TILE.FLOOR, 'chrome-choir');
+  const wall = glyphForTile(TILE.WALL, 'chrome-choir');
+  const rubble = glyphForTile(TILE.RUBBLE, 'chrome-choir');
+  assert.notEqual(floor.fg, '#1f4d44');
+  assert.equal(rubble.fg, wall.fg);
+  assert.equal(glyphForTile(TILE.EXIT, 'chrome-choir').fg, '#eed5fa', 'exit stays global');
+});
+
 test('glyphForEntity uses the entity glyph and a faction-derived colour', () => {
   const player = new Entity({ id: 'p', x: 0, y: 0, faction: FACTION.PLAYER, glyph: '@' });
   const drone = new Entity({ id: 'd', x: 0, y: 0, faction: FACTION.CORP, glyph: 'd' });

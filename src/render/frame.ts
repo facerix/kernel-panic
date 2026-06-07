@@ -89,6 +89,8 @@ export type BuildFrameOptions = {
    */
   blastOverlayKeys?: ReadonlySet<string>;
   lookCursor?: { x: number; y: number } | null;
+  /** Combat terrain mood — `contract.context.principal.id` when in a job. */
+  principalId?: string;
 };
 
 /** Sniper telegraph overlay — red crosshair composited over the target glyph. */
@@ -103,7 +105,7 @@ const BLAST_OVERLAY_GLYPH = glyphForTile(TILE.HAZARD);
  */
 export function buildFrame(world: World, camera: Camera, options: BuildFrameOptions = {}): Frame {
   const { x: cx, y: cy, width, height } = camera;
-  const { vision, blastOverlayKeys, lookCursor, player } = options;
+  const { vision, blastOverlayKeys, lookCursor, player, principalId } = options;
   const cells: Glyph[] = Array.from({ length: width * height });
 
   const omitEntity = (e: Entity) => player && isConcealedFromPlayer(e, player, world);
@@ -135,7 +137,7 @@ export function buildFrame(world: World, camera: Camera, options: BuildFrameOpti
 
       if (vision) {
         if (vision.isVisible(wx, wy)) {
-          cells[idx] = glyphForCell(world, entityIndex, wx, wy, blastOverlayKeys);
+          cells[idx] = glyphForCell(world, entityIndex, wx, wy, blastOverlayKeys, principalId);
         } else if (vision.hasSeen(wx, wy)) {
           // Memory pass: tile only for live entities (we don't track where
           // they are). Memorised corpses render at MEMORY_DIM so the player
@@ -149,7 +151,9 @@ export function buildFrame(world: World, camera: Camera, options: BuildFrameOpti
             const fg = factionFgForMemory(corpseRec.faction as FactionId);
             cells[idx] = { char: CORPSE_GLYPH_CHAR, fg: dimColor(fg, MEMORY_DIM) };
           } else {
-            const tileGlyph = dimGlyph(glyphForTile(world.grid.tileAt(wx, wy) as TileId));
+            const tileGlyph = dimGlyph(
+              glyphForTile(world.grid.tileAt(wx, wy) as TileId, principalId)
+            );
             cells[idx] = blastTerrainOverlay(wx, wy, blastOverlayKeys, tileGlyph, { dim: true });
           }
         } else {
@@ -158,7 +162,7 @@ export function buildFrame(world: World, camera: Camera, options: BuildFrameOpti
         continue;
       }
 
-      cells[idx] = glyphForCell(world, entityIndex, wx, wy, blastOverlayKeys);
+      cells[idx] = glyphForCell(world, entityIndex, wx, wy, blastOverlayKeys, principalId);
     }
   }
 
@@ -200,13 +204,14 @@ function glyphForCell(
   entityIndex: Map<string, Entity>,
   wx: number,
   wy: number,
-  blastOverlayKeys?: ReadonlySet<string>
+  blastOverlayKeys: ReadonlySet<string> | undefined,
+  principalId?: string
 ): Glyph {
   const entity = entityIndex.get(`${wx},${wy}`);
   if (entity) {
     return entity.alive ? glyphForEntity(entity) : glyphForCorpse(entity);
   }
-  const tileGlyph = glyphForTile(world.grid.tileAt(wx, wy) as TileId);
+  const tileGlyph = glyphForTile(world.grid.tileAt(wx, wy) as TileId, principalId);
   return blastTerrainOverlay(wx, wy, blastOverlayKeys, tileGlyph);
 }
 
