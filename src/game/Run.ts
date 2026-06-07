@@ -302,6 +302,8 @@ export type RunOptions = {
   /** M7.2: campaign key items already held for this location site, used to
    *  skip respawning pickup keycards on revisit (player re-opens via interact). */
   priorKeyItems?: unknown;
+  /** M7.2+: coordinate keys explored on prior visits to this location site. */
+  priorSeenKeys?: unknown;
 };
 
 type EntityDamagedPayload = {
@@ -338,6 +340,8 @@ export class Run {
   keyItems: KeyItem[];
   /** M7.2: prior-visit terrain mutations replayed in `enterCombat`. */
   priorMutationDeltas: TileDelta[];
+  /** M7.2+: prior-visit exploration memory restored into shell fog on jack-in. */
+  priorSeenKeys: string[];
   /** M7.2: site-scoped key items from a prior visit (see `priorKeyItems`). */
   priorKeyItems: KeyItem[];
   onPersist: ((record: RunSnapshot) => void) | null;
@@ -354,6 +358,7 @@ export class Run {
     onAbortRequested,
     priorMutationDeltas,
     priorKeyItems,
+    priorSeenKeys,
   }: RunOptions = {}) {
     if (typeof seed !== 'number' || !Number.isFinite(seed)) {
       throw new TypeError(`Run requires a finite numeric seed, got ${seed}`);
@@ -379,6 +384,9 @@ export class Run {
     if (priorKeyItems !== undefined && !Array.isArray(priorKeyItems)) {
       throw new TypeError('Run: priorKeyItems must be an array when supplied');
     }
+    if (priorSeenKeys !== undefined && !Array.isArray(priorSeenKeys)) {
+      throw new TypeError('Run: priorSeenKeys must be an array when supplied');
+    }
 
     this.id = id ?? makeRunId(seed);
     this.crewMember = crewMember;
@@ -402,6 +410,7 @@ export class Run {
     this.priorMutationDeltas = ((priorMutationDeltas as TileDelta[] | undefined) ?? []).map(d => ({
       ...d,
     }));
+    this.priorSeenKeys = [...((priorSeenKeys as string[] | undefined) ?? [])];
     this.priorKeyItems = ((priorKeyItems as KeyItem[] | undefined) ?? []).map(k => ({ ...k }));
     this.onPersist = (onPersist as ((record: RunSnapshot) => void) | undefined) ?? null;
     this.onResult = (onResult as ((result: RunResult) => void) | undefined) ?? null;
@@ -816,6 +825,14 @@ export class Run {
   /** Compatibility alias for M2.11 recon tests and call sites. */
   recordReconSeen(keys: Iterable<string>): void {
     this.recordMapSeen(keys);
+  }
+
+  /** Re-derive prior site exploration memory after campaign restore. */
+  refreshPriorSiteMemory(seenKeys: string[]): void {
+    if (!Array.isArray(seenKeys)) {
+      throw new TypeError('Run.refreshPriorSiteMemory: seenKeys must be an array');
+    }
+    this.priorSeenKeys = [...seenKeys];
   }
 
   objectiveProgress() {
@@ -1377,7 +1394,7 @@ export class Run {
     vision.recompute(this.world.grid, this.player, undefined, {
       blockers: this.world.blockerKeys(),
     });
-    this.recordMapSeen(vision.seen);
+    this.recordMapSeen(vision.visible);
   }
 
   #refreshObjectiveTimerState(): boolean {

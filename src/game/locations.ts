@@ -25,6 +25,44 @@ function coordKey(x: number, y: number): string {
   return `${x},${y}`;
 }
 
+const SEEN_KEY_RE = /^-?\d+,-?\d+$/;
+
+function assertValidSeenKey(key: string, context: string): void {
+  if (typeof key !== 'string' || !SEEN_KEY_RE.test(key)) {
+    throw new TypeError(`${context}: malformed coordinate key "${key}"`);
+  }
+}
+
+function compareSeenKeys(a: string, b: string): number {
+  const [ax, ay] = a.split(',').map(Number);
+  const [bx, by] = b.split(',').map(Number);
+  const dx = ax! - bx!;
+  return dx !== 0 ? dx : ay! - by!;
+}
+
+/**
+ * Union exploration memory from prior visits with a run's newly seen tiles.
+ * Returns a sorted, deduplicated copy — exploration accumulates across visits.
+ */
+export function mergeSiteSeenKeys(
+  existing: readonly string[],
+  incoming: readonly string[]
+): string[] {
+  if (!Array.isArray(existing) || !Array.isArray(incoming)) {
+    throw new TypeError('mergeSiteSeenKeys: existing and incoming must be arrays');
+  }
+  const merged = new Set<string>();
+  for (const key of existing) {
+    assertValidSeenKey(key, 'mergeSiteSeenKeys');
+    merged.add(key);
+  }
+  for (const key of incoming) {
+    assertValidSeenKey(key, 'mergeSiteSeenKeys');
+    merged.add(key);
+  }
+  return [...merged].sort(compareSeenKeys);
+}
+
 /**
  * Deterministic site id from a map seed. `String(seed)` is sufficient for the
  * current pool size (max 6 roster slots, no seed collisions in practice); a
@@ -127,6 +165,12 @@ export function normalizeLocationSite(raw: unknown): LocationSite {
     assertValidDelta(delta, i);
     return cloneDelta(delta);
   });
+  const seenKeys = Array.isArray(candidate.seenKeys)
+    ? candidate.seenKeys.map((key, i) => {
+        assertValidSeenKey(key, `normalizeLocationSite: seenKeys[${i}]`);
+        return key;
+      })
+    : [];
   return {
     id,
     seed,
@@ -136,6 +180,7 @@ export function normalizeLocationSite(raw: unknown): LocationSite {
     tier: candidate.tier,
     scoreTarget: candidate.scoreTarget,
     mutationDeltas,
+    seenKeys,
     lastVisitedJob: candidate.lastVisitedJob as number,
     ...(candidate.principal !== undefined
       ? { principal: normalizeLocationToken(candidate.principal, 'principal') }

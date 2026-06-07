@@ -222,6 +222,8 @@ export type LocationSite = {
   scoreTarget: boolean;
   /** Accumulated terrain mutations replayed on revisit. */
   mutationDeltas: TileDelta[];
+  /** Coordinate keys ("x,y") explored across all prior visits. */
+  seenKeys: string[];
   /** `campaign.completedJobs` at the most recent visit (eviction ordering). */
   lastVisitedJob: number;
   /**

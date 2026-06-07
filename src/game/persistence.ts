@@ -795,6 +795,7 @@ function snapshotLocationSite(site: LocationSite): LocationSite {
     tier: site.tier,
     scoreTarget: site.scoreTarget,
     mutationDeltas: site.mutationDeltas.map(delta => ({ ...delta })),
+    seenKeys: [...site.seenKeys],
     lastVisitedJob: site.lastVisitedJob,
     ...(site.principal
       ? { principal: { ...site.principal, groups: [...site.principal.groups] } }
@@ -950,6 +951,9 @@ export function restoreCampaign(record: unknown, options: RestoreCampaignOptions
     if (campaign.activeRun.state === RUN_STATE.BRIEFING && campaign.activeRun.contract) {
       campaign.activeRun.priorMutationDeltas = campaign.priorDeltasForContract(
         campaign.activeRun.contract
+      );
+      campaign.activeRun.refreshPriorSiteMemory(
+        campaign.priorSeenKeysForContract(campaign.activeRun.contract)
       );
       campaign.activeRun.priorKeyItems = campaign.priorKeyItemsForContract(
         campaign.activeRun.contract

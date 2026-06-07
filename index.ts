@@ -802,6 +802,9 @@ function onBriefingDeploy(evt: Event) {
   run.enterCombat();
   handlePersist();
   vision.resetFogState();
+  if (run.priorSeenKeys.length > 0) {
+    vision.restoreSeen(run.priorSeenKeys);
+  }
   attachVisionListener();
   attachAnimationListeners();
   attachRepListeners();
@@ -1866,7 +1869,7 @@ function recomputeVision(): void {
     blockers: run.world.blockerKeys(),
   });
   if (isRun(run) && run.state === RUN_STATE.COMBAT) {
-    run.recordMapSeen(vision.seen);
+    run.recordMapSeen(vision.visible);
   }
 }
 
