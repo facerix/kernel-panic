@@ -4,6 +4,12 @@
  * graph recon objectives count and placement validation share.
  */
 
+import { FACTION } from './constants.js';
+import { Hostile } from './Hostile.js';
+import { Door } from './entities/Door.js';
+import { DenyTarget } from './entities/DenyTarget.js';
+import { RelayNode } from './entities/RelayNode.js';
+import type { Entity } from './Entity.js';
 import type { GridPoint } from '../types.js';
 import type { World } from './World.js';
 
@@ -16,7 +22,28 @@ export type ExplorationReachabilityOptions = {
   extraBlockers?: ReadonlySet<string>;
   /** When false, only grid passability matters (legacy / debug only). */
   respectEntityBlockers?: boolean;
+  /**
+   * When true, locked doors are traversable for flood-fill only (recon
+   * eligible-area accounting). Open doors are already passable in gameplay.
+   */
+  passThroughLockedDoors?: boolean;
+  /**
+   * When true, transient occupants (hostiles, destroyable props, crew) do not
+   * shrink the recon eligible-area graph — only permanent neutral fixtures do.
+   */
+  reconEligibleArea?: boolean;
 };
+
+/** Impassable entities that permanently occupy a tile for recon accounting. */
+export function entityBlocksReconEligibleFlood(entity: Entity): boolean {
+  if (entity.passable) return false;
+  if (entity instanceof Door) return false;
+  if (entity instanceof Hostile) return false;
+  if (entity instanceof RelayNode) return false;
+  if (entity instanceof DenyTarget) return false;
+  if (entity.anchored && entity.faction === FACTION.NEUTRAL) return true;
+  return false;
+}
 
 /** True when any cardinal neighbour is passable and unoccupied. */
 export function hasAdjacentPassableTile(world: World, x: number, y: number): boolean {
@@ -44,7 +71,12 @@ export function explorationReachableKeys(
   start: GridPoint,
   options: ExplorationReachabilityOptions = {}
 ): Set<string> {
-  const { extraBlockers = new Set(), respectEntityBlockers = true } = options;
+  const {
+    extraBlockers = new Set(),
+    respectEntityBlockers = true,
+    passThroughLockedDoors = false,
+    reconEligibleArea = false,
+  } = options;
   const reachable = new Set<string>();
   const startKey = coordKey(start.x, start.y);
   if (!world.grid.inBounds(start.x, start.y) || !world.grid.isPassable(start.x, start.y)) {
@@ -66,7 +98,16 @@ export function explorationReachableKeys(
         if (!world.grid.inBounds(x, y)) continue;
         if (!world.grid.isPassable(x, y)) continue;
         if (extraBlockers.has(key)) continue;
-        if (respectEntityBlockers && world.entityAt(x, y)) continue;
+        if (respectEntityBlockers) {
+          const blocker = world.entityAt(x, y);
+          if (blocker) {
+            if (reconEligibleArea) {
+              if (entityBlocksReconEligibleFlood(blocker)) continue;
+            } else if (!(passThroughLockedDoors && blocker instanceof Door && blocker.locked)) {
+              continue;
+            }
+          }
+        }
         reachable.add(key);
         queue.push({ x, y });
       }

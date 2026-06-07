@@ -17,6 +17,8 @@ import { Merc } from '../../../src/game/archetypes/Merc.js';
 import { Grid } from '../../../src/game/Grid.js';
 import { World } from '../../../src/game/World.js';
 import { Terminal } from '../../../src/game/entities/Terminal.js';
+import { Door } from '../../../src/game/entities/Door.js';
+import { Skirmisher } from '../../../src/game/ai/Skirmisher.js';
 import { EventBus } from '../../../src/game/events.js';
 import { VisionField } from '../../../src/game/Vision.js';
 import { OBJECTIVES } from '../../../src/game/hub/Curator.js';
@@ -122,6 +124,71 @@ describe('recon objective accounting', () => {
 
     assert.equal(eligible.has('5,3'), false);
     assert.equal(eligible.size, 6);
+  });
+
+  it('requires cells behind locked doors to be seen before recon completes', () => {
+    const grid = new Grid(9, 5, TILE.WALL);
+    for (const [x, y] of [
+      [1, 1],
+      [2, 1],
+      [3, 1],
+      [1, 2],
+      [2, 2],
+      [3, 2],
+      [5, 1],
+      [6, 1],
+      [7, 1],
+    ]) {
+      grid.setTile(x, y, TILE.FLOOR);
+    }
+    grid.setTile(4, 1, TILE.FLOOR);
+    const world = new World(grid, { events: new EventBus() });
+    world.addEntity(new Merc({ id: 'crew-merc', x: 1, y: 1 }));
+    world.addEntity(
+      new Door({
+        id: 'door-east',
+        doorId: 'door-east',
+        x: 4,
+        y: 1,
+      })
+    );
+
+    const eligible = reconEligibleCellKeys(world);
+    const spawnSide = new Set(['1,1', '2,1', '3,1', '1,2', '2,2', '3,2', '4,1']);
+    const contract = makeReconContract();
+
+    assert.equal(eligible.size, 10);
+    assert.equal(isObjectiveSatisfied(contract, world, undefined, { reconSeen: spawnSide }), false);
+    assert.equal(isObjectiveSatisfied(contract, world, undefined, { reconSeen: eligible }), true);
+  });
+
+  it('requires cells behind hostiles to be seen before recon completes', () => {
+    const grid = new Grid(9, 5, TILE.WALL);
+    for (const [x, y] of [
+      [1, 1],
+      [2, 1],
+      [3, 1],
+      [1, 2],
+      [2, 2],
+      [3, 2],
+      [4, 1],
+      [5, 1],
+      [6, 1],
+      [7, 1],
+    ]) {
+      grid.setTile(x, y, TILE.FLOOR);
+    }
+    const world = new World(grid, { events: new EventBus() });
+    world.addEntity(new Merc({ id: 'crew-merc', x: 1, y: 1 }));
+    world.addEntity(new Skirmisher({ id: 'drone-0', x: 4, y: 1 }));
+
+    const eligible = reconEligibleCellKeys(world);
+    const westWing = new Set(['1,1', '2,1', '3,1', '1,2', '2,2', '3,2', '4,1']);
+    const contract = makeReconContract();
+
+    assert.equal(eligible.size, 10);
+    assert.equal(isObjectiveSatisfied(contract, world, undefined, { reconSeen: westWing }), false);
+    assert.equal(isObjectiveSatisfied(contract, world, undefined, { reconSeen: eligible }), true);
   });
 });
 

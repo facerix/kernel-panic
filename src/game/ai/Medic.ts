@@ -12,7 +12,6 @@ import { PatrolHostile, type PatrolHostileInit, type EngageSteps } from './Patro
 import { Hostile } from '../Hostile.js';
 import {
   DEFAULT_HP,
-  FACTION,
   ENEMY_ROLE,
   ENEMY_TIER,
   MEDIC_HEAL_AMOUNT,
@@ -28,14 +27,14 @@ import type { TurnActionSteps } from '../../types.js';
 import type { World } from '../World.js';
 import type { Rng } from '../../rng.js';
 
-export interface MedicProps extends Omit<PatrolHostileInit, 'faction' | 'glyph'> {
+export interface MedicProps extends Omit<PatrolHostileInit, 'glyph'> {
   tier?: EnemyTier;
 }
 
 export class Medic extends PatrolHostile {
   constructor({ tier = ENEMY_TIER.T2, patrolWaypoints, ...props }: MedicProps) {
     const stats = resolveEnemyStats(props, ENEMY_ROLE.SPECIALIST, tier);
-    super({ ...props, ...stats, faction: FACTION.CORP, glyph: 'm', patrolWaypoints });
+    super({ ...props, ...stats, glyph: 'm', patrolWaypoints });
   }
 
   override *takeTurnSteps(world: World, rng: Rng): TurnActionSteps {

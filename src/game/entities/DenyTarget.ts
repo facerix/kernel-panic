@@ -8,9 +8,14 @@
  */
 
 import { Entity, type EntityInit } from '../Entity.js';
-import { DENY_TARGET_GLYPH, DENY_TARGET_HP, FACTION } from '../constants.js';
+import { DENY_TARGET_GLYPH, DENY_TARGET_HP, FACTION, type FactionId } from '../constants.js';
 
 export interface DenyTargetInit extends Omit<EntityInit, 'faction' | 'glyph' | 'maxAp'> {
+  /**
+   * Allegiance (Phase 2.9). Defaults to `FACTION.CORP`; the spawn path
+   * stamps the run's hostile faction for rival-group principals.
+   */
+  faction?: FactionId;
   label?: string;
   requiresBreach?: boolean;
 }
@@ -31,11 +36,12 @@ export class DenyTarget extends Entity {
     label = 'Deny target',
     maxHp = DENY_TARGET_HP,
     requiresBreach = false,
+    faction,
     ...props
   }: DenyTargetInit) {
     super({
       ...props,
-      faction: FACTION.CORP,
+      faction: faction ?? FACTION.CORP,
       glyph: DENY_TARGET_GLYPH,
       maxAp: 0,
       maxHp,

@@ -13,6 +13,8 @@ import {
   CORPSE_DIM,
   MEMORY_DIM,
   dimColor,
+  dimGlyph,
+  glyphForTile,
 } from '../../../src/render/palette.js';
 import { ConsumablePickup } from '../../../src/game/entities/ConsumablePickup.js';
 import { VisionField } from '../../../src/game/Vision.js';
@@ -153,7 +155,22 @@ test('buildFrame with vision dims remembered tiles and hides their entities', ()
   const cell = cellAt(frame, drone.x, drone.y);
   // Tile beneath the drone is FLOOR ('.'); memory should show floor, not 'd'.
   assert.equal(cell.char, '.', 'remembered tile renders without entity');
-  assert.equal(cell.fg, dimColor('#1f4d44', 0.35), 'remembered tile is dimmed');
+  assert.equal(cell.fg, dimGlyph(glyphForTile(TILE.FLOOR)).fg, 'remembered tile is dimmed');
+});
+
+test('buildFrame applies principal terrain palette to floor cells', () => {
+  const { world } = fixture();
+  const defaultFrame = buildFrame(world, { x: 0, y: 0, width: 6, height: 4 });
+  const choirFrame = buildFrame(
+    world,
+    { x: 0, y: 0, width: 6, height: 4 },
+    { principalId: 'chrome-choir' }
+  );
+  const defaultFloor = cellAt(defaultFrame, 0, 0);
+  const choirFloor = cellAt(choirFrame, 0, 0);
+  assert.equal(defaultFloor.char, '.');
+  assert.equal(choirFloor.char, '.');
+  assert.notEqual(defaultFloor.fg, choirFloor.fg);
 });
 
 test('buildFrame with vision hides corpses in remembered (out-of-LOS) tiles', () => {

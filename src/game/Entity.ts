@@ -36,6 +36,15 @@ export interface EntityInit {
    * Doors are anchored but handled separately (they unlock to become passable).
    */
   anchored?: boolean;
+  /**
+   * Phase 2.9 principal theming. Diegetic name shown in log / describe / status
+   * copy (e.g. `"Auditor"`), resolved from the contract principal at spawn via
+   * `enemyAliases.aliasFor`. Undefined for un-aliased entities (player, props,
+   * pre-2.9 saves) — `entityLabel` falls back to `kindFromId` then.
+   */
+  displayName?: string;
+  /** Short bracket prefix, e.g. `"Matsuda"` → `[Matsuda]Auditor`. Undefined when no owner tag applies. */
+  principalTag?: string;
 }
 
 /**
@@ -66,6 +75,8 @@ export class Entity {
   stealthed: boolean;
   passable: boolean;
   anchored: boolean;
+  displayName?: string;
+  principalTag?: string;
 
   constructor({
     id,
@@ -78,6 +89,8 @@ export class Entity {
     damageReduction = 0,
     passable = false,
     anchored = false,
+    displayName,
+    principalTag,
   }: EntityInit) {
     if (id === undefined || id === null || id === '') {
       throw new TypeError('Entity requires a non-empty id');
@@ -121,6 +134,8 @@ export class Entity {
     this.stealthed = false;
     this.passable = passable;
     this.anchored = anchored;
+    this.displayName = displayName;
+    this.principalTag = principalTag;
   }
 
   canAfford(cost: number): boolean {
@@ -280,16 +295,25 @@ function factionTag(faction: string): string {
 }
 
 /**
- * Player-facing label for an entity: callsign for crew members,
- * `[Faction]Kind` for everyone else (e.g. `[Corp]Drone`, `[Neutral]Civilian`,
- * `Turret`).
+ * Player-facing label for an entity, in priority order:
+ *   1. `callsign` — crew members (e.g. `Vega`).
+ *   2. Phase 2.9 principal identity — `[principalTag]displayName` (e.g.
+ *      `[Matsuda]Auditor`), or bare `displayName` if no tag applies.
+ *   3. Legacy `[Faction]Kind` from the id prefix (e.g. `[Corp]Drone`,
+ *      `[Neutral]Civilian`, `Turret`) — un-aliased entities and pre-2.9 saves.
  */
 export function entityLabel(entity: {
   id: string;
   faction: string;
   callsign?: string | null;
+  displayName?: string;
+  principalTag?: string;
 }): string {
   if (entity.callsign) return entity.callsign;
+  if (entity.displayName) {
+    const tag = entity.principalTag ? `[${entity.principalTag}]` : '';
+    return `${tag}${entity.displayName}`;
+  }
   return `${factionTag(entity.faction)}${kindFromId(entity.id)}`;
 }
 

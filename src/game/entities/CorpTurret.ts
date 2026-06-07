@@ -22,7 +22,7 @@
  */
 
 import { Hostile, type HostileInit } from '../Hostile.js';
-import { FACTION, AP_COST } from '../constants.js';
+import { FACTION, AP_COST, type FactionId } from '../constants.js';
 import { CORP_TURRET_RANGE, CORP_TURRET_DAMAGE, CORP_TURRET_HP } from '../constants.js';
 import { canFireRanged, resolveRanged } from '../Combat.js';
 import type { TurnActionStep, TurnActionSteps } from '../../types.js';
@@ -32,6 +32,11 @@ import type { Rng } from '../../rng.js';
 export const CORP_TURRET_GLYPH = '$';
 
 export interface CorpTurretInit extends Omit<HostileInit, 'faction' | 'glyph'> {
+  /**
+   * Allegiance (Phase 2.9). Defaults to `FACTION.CORP`; the spawn path
+   * stamps the run's hostile faction for rival-group principals.
+   */
+  faction?: FactionId;
   range?: number;
   attackDamage?: number;
 }
@@ -53,11 +58,12 @@ export class CorpTurret extends Hostile {
     attackDamage = CORP_TURRET_DAMAGE,
     maxHp = CORP_TURRET_HP,
     maxAp = AP_COST.RANGED_ATTACK,
+    faction,
     ...rest
   }: CorpTurretInit) {
     super({
       ...rest,
-      faction: FACTION.CORP,
+      faction: faction ?? FACTION.CORP,
       glyph: CORP_TURRET_GLYPH,
       maxHp,
       maxAp,

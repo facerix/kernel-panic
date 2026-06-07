@@ -36,7 +36,14 @@ import { Rng } from '../rng.js';
 import { World } from './World.js';
 import { TurnQueue } from './TurnQueue.js';
 import { EventBus, EVENT } from './events.js';
-import { FACTION, TILE, SALVAGE_DROP_MIN, SALVAGE_DROP_MAX, ENEMY_ROLE } from './constants.js';
+import {
+  FACTION,
+  TILE,
+  SALVAGE_DROP_MIN,
+  SALVAGE_DROP_MAX,
+  ENEMY_ROLE,
+  factionForPrincipalGroups,
+} from './constants.js';
 import { coordKey, explorationReachableKeys } from './mapConnectivity.js';
 import { isValidBlockingPlacement, checkPlacementIntegrity } from './placement.js';
 import { makeSalvage, type TypedSalvage } from './salvage.js';
@@ -56,7 +63,8 @@ import { Lookout } from './ai/Lookout.js';
 import { Sniper } from './ai/Sniper.js';
 import { Medic } from './ai/Medic.js';
 import { PatrolHostile } from './ai/PatrolHostile.js';
-import { composeEncounter, ENEMY_ARCHETYPE } from './encounters.js';
+import { composeEncounter, ENEMY_ARCHETYPE, type EnemyArchetype } from './encounters.js';
+import { aliasFor } from './enemyAliases.js';
 import { CorpCivilian } from './entities/CorpCivilian.js';
 import { Terminal } from './entities/Terminal.js';
 import { Door } from './entities/Door.js';
@@ -228,6 +236,9 @@ export type RunEntitySnapshot = {
   maxAp: number;
   alive: boolean;
   stealthed: boolean;
+  /** Phase 2.9 principal theming — omitted for un-aliased entities (player, props). */
+  displayName?: string;
+  principalTag?: string;
   /** Opaque per-archetype payload; strict shape owned by the entity module. */
   extra?: EntitySnapshotExtra;
 };
@@ -291,6 +302,8 @@ export type RunOptions = {
   /** M7.2: campaign key items already held for this location site, used to
    *  skip respawning pickup keycards on revisit (player re-opens via interact). */
   priorKeyItems?: unknown;
+  /** M7.2+: coordinate keys explored on prior visits to this location site. */
+  priorSeenKeys?: unknown;
 };
 
 type EntityDamagedPayload = {
@@ -327,6 +340,8 @@ export class Run {
   keyItems: KeyItem[];
   /** M7.2: prior-visit terrain mutations replayed in `enterCombat`. */
   priorMutationDeltas: TileDelta[];
+  /** M7.2+: prior-visit exploration memory restored into shell fog on jack-in. */
+  priorSeenKeys: string[];
   /** M7.2: site-scoped key items from a prior visit (see `priorKeyItems`). */
   priorKeyItems: KeyItem[];
   onPersist: ((record: RunSnapshot) => void) | null;
@@ -343,6 +358,7 @@ export class Run {
     onAbortRequested,
     priorMutationDeltas,
     priorKeyItems,
+    priorSeenKeys,
   }: RunOptions = {}) {
     if (typeof seed !== 'number' || !Number.isFinite(seed)) {
       throw new TypeError(`Run requires a finite numeric seed, got ${seed}`);
@@ -368,6 +384,9 @@ export class Run {
     if (priorKeyItems !== undefined && !Array.isArray(priorKeyItems)) {
       throw new TypeError('Run: priorKeyItems must be an array when supplied');
     }
+    if (priorSeenKeys !== undefined && !Array.isArray(priorSeenKeys)) {
+      throw new TypeError('Run: priorSeenKeys must be an array when supplied');
+    }
 
     this.id = id ?? makeRunId(seed);
     this.crewMember = crewMember;
@@ -391,6 +410,7 @@ export class Run {
     this.priorMutationDeltas = ((priorMutationDeltas as TileDelta[] | undefined) ?? []).map(d => ({
       ...d,
     }));
+    this.priorSeenKeys = [...((priorSeenKeys as string[] | undefined) ?? [])];
     this.priorKeyItems = ((priorKeyItems as KeyItem[] | undefined) ?? []).map(k => ({ ...k }));
     this.onPersist = (onPersist as ((record: RunSnapshot) => void) | undefined) ?? null;
     this.onResult = (onResult as ((result: RunResult) => void) | undefined) ?? null;
@@ -456,7 +476,10 @@ export class Run {
         new Door({ id: `door-entity-${i}`, doorId: `door-${i}`, x: a.x, y: a.y })
       );
     }
-    this.queue = new TurnQueue([FACTION.PLAYER, FACTION.CORP]);
+    // Phase 2.9: one hostile faction per run, derived from the contract
+    // principal (rival-group → RIVAL, else CORP). The queue drives that faction's
+    // turn + AP refresh; index.ts's corp-turn driver targets the same.
+    this.queue = new TurnQueue([FACTION.PLAYER, this.hostileFaction]);
     this.exitTile = { ...map.exitTile };
     const doorLinkedContract = contractRequiresDoor(this.contract);
     if (doorLinkedContract) {
@@ -472,19 +495,35 @@ export class Run {
       difficulty: this.contract.difficulty,
       fodderCount: map.fodder.length,
     });
+    // Phase 2.9 M1.2: stamp principal-themed display identity onto each hostile
+    // from the contract owner. Behavior/glyph are unchanged; this is label-only.
+    // M2.2: every hostile carries the run's single allegiance (CORP or RIVAL).
+    const principalId = this.contract.context.principal.id;
+    // Stamp allegiance + principal identity onto a freshly-built hostile, before
+    // it joins the world / binds the bus.
+    const themeHostile = (entity: Entity, archetype: EnemyArchetype): void => {
+      this.#stampAllegiance(entity);
+      const alias = aliasFor(principalId, archetype);
+      entity.displayName = alias.displayName;
+      entity.principalTag = alias.principalTag;
+    };
     const fodder = composition.entries.filter(e => e.role === ENEMY_ROLE.FODDER);
     for (let i = 0; i < map.fodder.length; i++) {
       const a = map.fodder[i]!;
       const entry = fodder[i];
-      const hostile =
+      const archetype =
         entry?.archetype === ENEMY_ARCHETYPE.GUARD
+          ? ENEMY_ARCHETYPE.GUARD
+          : ENEMY_ARCHETYPE.SKIRMISHER;
+      const hostile =
+        archetype === ENEMY_ARCHETYPE.GUARD
           ? new Guard({
               id: `guard-${i}`,
               x: a.x,
               y: a.y,
               maxAp: 3,
               patrolWaypoints: a.waypoints,
-              tier: entry.tier,
+              tier: entry!.tier,
             })
           : new Skirmisher({
               id: `drone-${i}`,
@@ -494,6 +533,7 @@ export class Run {
               patrolWaypoints: a.waypoints,
               tier: entry?.tier,
             });
+      themeHostile(hostile, archetype);
       this.world.addEntity(hostile);
       hostile.bindToBus(this.bus);
     }
@@ -543,6 +583,7 @@ export class Run {
         // case lands here — fail loud rather than drop a composed threat.
         throw new Error(`Run.enterCombat: no spawn case for specialist "${entry.archetype}"`);
       }
+      themeHostile(specialist, entry.archetype);
       this.world.addEntity(specialist);
       specialist.bindToBus(this.bus);
     }
@@ -588,12 +629,14 @@ export class Run {
       } else {
         throw new Error(`Run.enterCombat: no spawn case for elite "${entry.archetype}"`);
       }
+      themeHostile(elite, entry.archetype);
       this.world.addEntity(elite);
       elite.bindToBus(this.bus);
     }
     for (let i = 0; i < map.corpCivilians.length; i++) {
       const a = map.corpCivilians[i]!;
       const civ = new CorpCivilian({ id: `corp-civ-${i}`, x: a.x, y: a.y });
+      this.#stampAllegiance(civ);
       this.world.addEntity(civ);
     }
     for (let i = 0; i < map.neutralCivilians.length; i++) {
@@ -697,6 +740,21 @@ export class Run {
     return this.world?.mutationDeltas ?? [];
   }
 
+  /**
+   * Phase 2.9: the single hostile faction for this run, derived from the
+   * contract principal's groups (rival-group → `RIVAL`, corp/civic → `CORP`).
+   * Drives the turn queue and the corp-turn driver. Defaults to `CORP` when
+   * there's no contract (e.g. pre-combat states).
+   */
+  get hostileFaction(): FactionId {
+    return factionForPrincipalGroups(this.contract?.context?.principal?.groups ?? []);
+  }
+
+  /** Phase 2.9: override CORP defaults with the run's single hostile allegiance. */
+  #stampAllegiance(entity: Entity): void {
+    entity.faction = this.hostileFaction;
+  }
+
   isObjectiveSatisfied(): boolean {
     return this.#refreshObjectiveTimerState();
   }
@@ -767,6 +825,14 @@ export class Run {
   /** Compatibility alias for M2.11 recon tests and call sites. */
   recordReconSeen(keys: Iterable<string>): void {
     this.recordMapSeen(keys);
+  }
+
+  /** Re-derive prior site exploration memory after campaign restore. */
+  refreshPriorSiteMemory(seenKeys: string[]): void {
+    if (!Array.isArray(seenKeys)) {
+      throw new TypeError('Run.refreshPriorSiteMemory: seenKeys must be an array');
+    }
+    this.priorSeenKeys = [...seenKeys];
   }
 
   objectiveProgress() {
@@ -1127,15 +1193,15 @@ export class Run {
         const anchor = linkedDoorId
           ? findBehindDoorAnchor(this.world, this.player, this.exitTile, linkedDoorId, this.rng)
           : findInteractableAnchor(this.world, this.player, this.exitTile, this.rng);
-        this.world.addEntity(
-          new DenyTarget({
-            id: `deny-target-${i}`,
-            x: anchor.x,
-            y: anchor.y,
-            label: objectiveTargetLabel(this.contract, i, count),
-            requiresBreach,
-          })
-        );
+        const denyTarget = new DenyTarget({
+          id: `deny-target-${i}`,
+          x: anchor.x,
+          y: anchor.y,
+          label: objectiveTargetLabel(this.contract, i, count),
+          requiresBreach,
+        });
+        this.#stampAllegiance(denyTarget);
+        this.world.addEntity(denyTarget);
       }
     }
     if (this.contract.objective.kind === OBJECTIVES.DUAL_SITE) {
@@ -1202,14 +1268,14 @@ export class Run {
         const count = 3;
         for (let i = 0; i < count; i++) {
           const anchor = findInteractableAnchor(this.world, this.player, this.exitTile, this.rng);
-          this.world.addEntity(
-            new RelayNode({
-              id: `relay-node-${i}`,
-              x: anchor.x,
-              y: anchor.y,
-              label: (this.contract.objective.params?.target as string) ?? 'Relay node',
-            })
-          );
+          const relay = new RelayNode({
+            id: `relay-node-${i}`,
+            x: anchor.x,
+            y: anchor.y,
+            label: (this.contract.objective.params?.target as string) ?? 'Relay node',
+          });
+          this.#stampAllegiance(relay);
+          this.world.addEntity(relay);
         }
         // Add one corp turret for pressure alongside relay nodes.
         this.#placeCorpTurret(0);
@@ -1278,13 +1344,13 @@ export class Run {
   #placeCorpTurret(index: number): void {
     if (!this.world || !this.player || !this.exitTile) return;
     const anchor = findInteractableAnchor(this.world, this.player, this.exitTile, this.rng);
-    this.world.addEntity(
-      new CorpTurret({
-        id: `corp-turret-${index}`,
-        x: anchor.x,
-        y: anchor.y,
-      })
-    );
+    const turret = new CorpTurret({
+      id: `corp-turret-${index}`,
+      x: anchor.x,
+      y: anchor.y,
+    });
+    this.#stampAllegiance(turret);
+    this.world.addEntity(turret);
   }
 
   /**
@@ -1328,7 +1394,7 @@ export class Run {
     vision.recompute(this.world.grid, this.player, undefined, {
       blockers: this.world.blockerKeys(),
     });
-    this.recordMapSeen(vision.seen);
+    this.recordMapSeen(vision.visible);
   }
 
   #refreshObjectiveTimerState(): boolean {
@@ -1678,6 +1744,10 @@ function snapshotEntity(entity: Entity): RunEntitySnapshot {
     alive: entity.alive,
     stealthed: !!entity.stealthed,
   };
+  // Only serialize identity when present, so un-aliased entities (player, props)
+  // keep a byte-stable snapshot and pre-2.9 saves stay unaffected.
+  if (entity.displayName !== undefined) base.displayName = entity.displayName;
+  if (entity.principalTag !== undefined) base.principalTag = entity.principalTag;
   const extract = SNAPSHOT_EXTRACTORS[archetype];
   if (extract) base.extra = extract(entity);
   return base;

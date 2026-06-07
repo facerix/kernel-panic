@@ -26,7 +26,6 @@
 
 import { PatrolHostile, type PatrolHostileInit, type EngageSteps } from './PatrolHostile.js';
 import {
-  FACTION,
   AP_COST,
   ENEMY_ROLE,
   ENEMY_TIER,
@@ -41,7 +40,7 @@ import type { Entity } from '../Entity.js';
 import type { World } from '../World.js';
 import type { Rng } from '../../rng.js';
 
-export interface LookoutProps extends Omit<PatrolHostileInit, 'faction' | 'glyph'> {
+export interface LookoutProps extends Omit<PatrolHostileInit, 'glyph'> {
   tier?: EnemyTier;
 }
 
@@ -64,7 +63,7 @@ export class Lookout extends PatrolHostile {
     ...props
   }: LookoutProps) {
     const stats = resolveEnemyStats(props, ENEMY_ROLE.SPECIALIST, tier);
-    super({ ...props, ...stats, sightRange, faction: FACTION.CORP, glyph: 'l', patrolWaypoints });
+    super({ ...props, ...stats, sightRange, glyph: 'l', patrolWaypoints });
   }
 
   /**

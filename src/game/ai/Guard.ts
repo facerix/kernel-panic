@@ -10,21 +10,21 @@
  */
 
 import { PatrolHostile, type PatrolHostileInit, type EngageSteps } from './PatrolHostile.js';
-import { FACTION, AP_COST, ENEMY_ROLE, ENEMY_TIER, resolveEnemyStats } from '../constants.js';
+import { AP_COST, ENEMY_ROLE, ENEMY_TIER, resolveEnemyStats } from '../constants.js';
 import type { EnemyTier } from '../constants.js';
 import { canMelee, resolveMelee } from '../Combat.js';
 import type { Entity } from '../Entity.js';
 import type { World } from '../World.js';
 import type { Rng } from '../../rng.js';
 
-export interface GuardProps extends Omit<PatrolHostileInit, 'faction' | 'glyph'> {
+export interface GuardProps extends Omit<PatrolHostileInit, 'glyph'> {
   tier?: EnemyTier;
 }
 
 export class Guard extends PatrolHostile {
   constructor({ tier = ENEMY_TIER.T1, patrolWaypoints, ...props }: GuardProps) {
     const stats = resolveEnemyStats(props, ENEMY_ROLE.FODDER, tier);
-    super({ ...props, ...stats, faction: FACTION.CORP, glyph: 'g', patrolWaypoints });
+    super({ ...props, ...stats, glyph: 'g', patrolWaypoints });
   }
 
   protected override *engageSteps(world: World, rng: Rng, target: Entity): EngageSteps {

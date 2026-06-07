@@ -20,7 +20,7 @@
 
 import { Entity, type EntityInit } from '../Entity.js';
 import { EscortNpc } from './EscortNpc.js';
-import { FACTION, SIGHT_RANGE } from '../constants.js';
+import { FACTION, SIGHT_RANGE, type FactionId } from '../constants.js';
 import { hasConcealedLineOfSight, withinRange } from '../LineOfSight.js';
 import type { TurnActionStep, TurnActionSteps } from '../../types.js';
 import type { World } from '../World.js';
@@ -30,16 +30,21 @@ export interface CorpCivilianInit extends Omit<
   EntityInit,
   'faction' | 'glyph' | 'maxAp' | 'maxHp'
 > {
+  /**
+   * Allegiance (Phase 2.9). Defaults to `FACTION.CORP`; the spawn path
+   * stamps the run's hostile faction for rival-group principals.
+   */
+  faction?: FactionId;
   sightRange?: number;
 }
 
 export class CorpCivilian extends Entity {
   sightRange: number;
 
-  constructor({ sightRange = SIGHT_RANGE, ...props }: CorpCivilianInit) {
+  constructor({ sightRange = SIGHT_RANGE, faction, ...props }: CorpCivilianInit) {
     super({
       ...props,
-      faction: FACTION.CORP,
+      faction: faction ?? FACTION.CORP,
       glyph: 'c',
       maxAp: 1,
       maxHp: 1,

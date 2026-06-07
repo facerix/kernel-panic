@@ -32,6 +32,7 @@ import { OUTCOME, Run } from './Run.js';
 import {
   generateSiteId,
   mergeSiteDeltas as mergeDeltas,
+  mergeSiteSeenKeys as mergeSeen,
   normalizeLocationSite,
 } from './locations.js';
 import type { Contract } from './hub/Curator.js';
@@ -333,6 +334,7 @@ export class Campaign {
       seed: deployedContract.seed,
       // M7.2: replay prior-visit terrain on revisits ([] for first visits).
       priorMutationDeltas: this.priorDeltasForContract(deployedContract),
+      priorSeenKeys: this.priorSeenKeysForContract(deployedContract),
       priorKeyItems: this.priorKeyItemsForContract(deployedContract),
       onPersist: () => this.#persist(),
       onResult: (result: RunResult) => {
@@ -391,6 +393,7 @@ export class Campaign {
       // M7.2: persist this run's terrain mutations into the site roster before
       // returning to the Hub — breach holes survive even on an aborted exit.
       this.#mergeRunDeltasIntoRoster(this.activeRun);
+      this.#mergeRunSeenIntoRoster(this.activeRun);
       this.completedJobs += 1;
       if (completed) {
         addSalvage(this.salvage, extracted);
@@ -829,6 +832,16 @@ export class Campaign {
     this.#persist();
   }
 
+  /** Merge exploration memory from a finished run into the named roster site. */
+  mergeSiteSeenKeys(siteId: string, seenKeys: string[]): void {
+    const site = this.findRosterSite(siteId);
+    if (!site) {
+      throw new Error(`Campaign.mergeSiteSeenKeys: unknown site "${siteId}"`);
+    }
+    site.seenKeys = mergeSeen(site.seenKeys, seenKeys);
+    this.#persist();
+  }
+
   /**
    * Resolve the stable roster id for a contract's target location. Revisit
    * contracts carry an explicit `locationSiteId`; fresh contracts derive one
@@ -846,6 +859,15 @@ export class Campaign {
   priorDeltasForContract(contract: Contract): TileDelta[] {
     const site = this.findRosterSite(this.locationSiteIdForContract(contract));
     return site ? site.mutationDeltas.map(d => ({ ...d })) : [];
+  }
+
+  /**
+   * Prior-visit exploration memory for a contract's target location. Empty for
+   * a first visit. Used to seed `Run.priorSeenKeys` on deploy and restore.
+   */
+  priorSeenKeysForContract(contract: Contract): string[] {
+    const site = this.findRosterSite(this.locationSiteIdForContract(contract));
+    return site ? [...site.seenKeys] : [];
   }
 
   /**
@@ -871,6 +893,7 @@ export class Campaign {
       tier: existing?.tier ?? 'roster',
       scoreTarget: existing?.scoreTarget ?? false,
       mutationDeltas: existing ? existing.mutationDeltas : [],
+      seenKeys: existing ? existing.seenKeys : [],
       lastVisitedJob: this.completedJobs,
       // M7.2: a location's identity is its principal (+ site). Stored on first
       // visit so revisits can pin them and regenerate a coherent label.
@@ -900,6 +923,17 @@ export class Campaign {
       this.#rememberLocation(run.contract);
     }
     this.mergeSiteDeltas(siteId, deltas);
+  }
+
+  #mergeRunSeenIntoRoster(run: Run): void {
+    if (!run.contract) return;
+    const seen = run.mapSeenKeys();
+    if (seen.length === 0) return;
+    const siteId = this.locationSiteIdForContract(run.contract);
+    if (!this.findRosterSite(siteId)) {
+      this.#rememberLocation(run.contract);
+    }
+    this.mergeSiteSeenKeys(siteId, seen);
   }
 
   getCrewMember(memberId: string): Crew | null {

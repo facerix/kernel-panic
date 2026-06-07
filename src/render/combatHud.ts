@@ -126,12 +126,12 @@ export function formatHpSegments(vitals: CombatHudVitalInput): string {
 
 export function formatApPips(vitals: CombatHudApInput): string {
   validateCounter(vitals.ap, vitals.maxAp, 'ap', 'maxAp');
-  return rightFilledSegments(
+  return `AP ${rightFilledSegments(
     vitals.ap,
     vitals.maxAp,
     COMBAT_HUD_GLYPHS.AP_AVAILABLE,
     COMBAT_HUD_GLYPHS.AP_SPENT
-  );
+  )}`;
 }
 
 export function formatTurnLabel(turn: CombatHudTurnInput): string {
@@ -140,6 +140,7 @@ export function formatTurnLabel(turn: CombatHudTurnInput): string {
     case FACTION.PLAYER:
       return `TURN ${turn.turnNumber}`;
     case FACTION.CORP:
+    case FACTION.RIVAL:
       return 'HOSTILES ACTIVE';
     default:
       throw new Error(`formatTurnLabel: unsupported faction "${turn.currentFaction}"`);
@@ -225,6 +226,7 @@ function turnA11yText(turn: CombatHudTurnInput): string {
     case FACTION.PLAYER:
       return `turn ${turn.turnNumber}`;
     case FACTION.CORP:
+    case FACTION.RIVAL:
       return 'hostiles active';
     default:
       throw new Error(`turnA11yText: unsupported faction "${turn.currentFaction}"`);

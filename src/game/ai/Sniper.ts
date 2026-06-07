@@ -39,7 +39,6 @@ import {
   type PatrolSnapshot,
 } from './PatrolHostile.js';
 import {
-  FACTION,
   AP_COST,
   PREFERRED_MIN,
   ENEMY_ROLE,
@@ -63,7 +62,7 @@ import type {
 import type { World } from '../World.js';
 import type { Rng } from '../../rng.js';
 
-export interface SniperProps extends Omit<PatrolHostileInit, 'faction' | 'glyph'> {
+export interface SniperProps extends Omit<PatrolHostileInit, 'glyph'> {
   tier?: EnemyTier;
   /** Kiting band override — reposition when a target closes within `preferredMin`. */
   preferredMin?: number;
@@ -99,7 +98,7 @@ export class Sniper extends PatrolHostile {
     ...props
   }: SniperProps) {
     const stats = resolveEnemyStats(props, ENEMY_ROLE.SPECIALIST, tier);
-    super({ ...props, ...stats, sightRange, faction: FACTION.CORP, glyph: 's', patrolWaypoints });
+    super({ ...props, ...stats, sightRange, glyph: 's', patrolWaypoints });
     const band = preferredMin ?? PREFERRED_MIN;
     if (!Number.isInteger(band) || band < 0) {
       throw new RangeError(`Sniper preferredMin must be a non-negative integer, got ${band}`);

@@ -75,7 +75,11 @@ import type { BreachingChargeInit } from './entities/BreachingCharge.js';
 import { Run, RUN_STATE, PATROL_ARCHETYPE_IDS } from './Run.js';
 import { Campaign, CAMPAIGN_STATE } from './Campaign.js';
 import { normalizeContractContext, normalizeObjective } from './hub/Curator.js';
-import { normalizeHubReveals } from './hub/hubReveals.js';
+import {
+  migrateLegacyHubReveals,
+  normalizeHubReveals,
+  snapshotHubReveals,
+} from './hub/hubReveals.js';
 import type { CrewInit } from './Crew.js';
 import type { Inventory, Gear } from './Crew.js';
 import type { TurretInit } from './Turret.js';
@@ -740,6 +744,7 @@ export type KeyItemSnapshot = {
 export type HubRevealsSnapshot = {
   finnIntroduced?: boolean;
   terminalExplained?: boolean;
+  terminalRecruitmentExplained?: boolean;
   clinicIntroduced?: boolean;
 };
 
@@ -777,7 +782,7 @@ export function snapshotCampaign(campaign: Campaign): CampaignSnapshot {
     pendingRecruitReward: campaign.pendingRecruitReward,
     rewardRecruitIds: [...campaign.rewardRecruitIds],
     healedThisVisit: [...campaign.healedThisVisit],
-    hubReveals: { ...campaign.hubReveals },
+    hubReveals: snapshotHubReveals(campaign.hubReveals),
     completedJobs: campaign.completedJobs,
     keyItems: campaign.keyItems.map(k => ({ ...k })),
     siteRoster: campaign.siteRoster.map(snapshotLocationSite),
@@ -795,6 +800,7 @@ function snapshotLocationSite(site: LocationSite): LocationSite {
     tier: site.tier,
     scoreTarget: site.scoreTarget,
     mutationDeltas: site.mutationDeltas.map(delta => ({ ...delta })),
+    seenKeys: [...site.seenKeys],
     lastVisitedJob: site.lastVisitedJob,
     ...(site.principal
       ? { principal: { ...site.principal, groups: [...site.principal.groups] } }
@@ -866,15 +872,18 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
   run.restoreMapMemory(normalizeMapMemory(record.mapMemory));
   normalizeRunKeyItems(record.keyItems).forEach(k => run.addKeyItem(k));
 
-  const factionOrder = [FACTION.PLAYER, FACTION.CORP];
-  if (record.currentFaction !== FACTION.PLAYER && record.currentFaction !== FACTION.CORP) {
-    throw new Error(`restore: unknown currentFaction "${record.currentFaction}"`);
-  }
+  // Phase 2.9: the hostile slot is the run's single allegiance (CORP or RIVAL),
+  // derived from the restored contract principal — keeping the queue consistent
+  // with how `Run.enterCombat` built it.
+  const factionOrder = [FACTION.PLAYER, run.hostileFaction];
   run.queue = new TurnQueue(factionOrder);
   run.queue.turnNumber = record.turnNumber;
   const factionIndex = factionOrder.indexOf(record.currentFaction);
   if (factionIndex < 0) {
-    throw new Error(`restore: unknown currentFaction "${record.currentFaction}"`);
+    throw new Error(
+      `restore: currentFaction "${record.currentFaction}" not in run faction order ` +
+        `[${factionOrder.join(', ')}]`
+    );
   }
   run.queue.index = factionIndex;
 
@@ -911,7 +920,13 @@ export function restoreCampaign(record: unknown, options: RestoreCampaignOptions
     credits: record.credits ?? 0,
     rep: record.rep,
     meta: record.meta,
-    hubReveals: normalizeHubReveals(record.hubReveals, 'restoreCampaign hubReveals'),
+    hubReveals: normalizeHubReveals(
+      migrateLegacyHubReveals(record.hubReveals, {
+        rep: record.rep,
+        pendingRecruitReward: record.pendingRecruitReward,
+      }),
+      'restoreCampaign hubReveals'
+    ),
     completedJobs: record.completedJobs ?? 0,
     keyItems: record.keyItems,
     siteRoster: record.siteRoster,
@@ -947,6 +962,9 @@ export function restoreCampaign(record: unknown, options: RestoreCampaignOptions
     if (campaign.activeRun.state === RUN_STATE.BRIEFING && campaign.activeRun.contract) {
       campaign.activeRun.priorMutationDeltas = campaign.priorDeltasForContract(
         campaign.activeRun.contract
+      );
+      campaign.activeRun.refreshPriorSiteMemory(
+        campaign.priorSeenKeysForContract(campaign.activeRun.contract)
       );
       campaign.activeRun.priorKeyItems = campaign.priorKeyItemsForContract(
         campaign.activeRun.contract
@@ -1071,7 +1089,12 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
     entity.ap = rec.ap;
   }
   entity.stealthed = !!rec.stealthed;
+  if (rec.faction) entity.faction = rec.faction;
   if (rec.glyph) entity.glyph = rec.glyph;
+  // Phase 2.9 principal theming. Missing on pre-2.9 saves → stays undefined and
+  // `entityLabel` falls back to `kindFromId` (backward compatible).
+  if (rec.displayName !== undefined) entity.displayName = rec.displayName;
+  if (rec.principalTag !== undefined) entity.principalTag = rec.principalTag;
 
   // Repair latent gear overflow on crew entities (same as restoreCrewMember).
   if (entity instanceof Crew) {

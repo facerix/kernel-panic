@@ -12,11 +12,14 @@ import type { Campaign } from '../Campaign.js';
 
 export type HubReveals = {
   finnIntroduced?: boolean;
+  /** Crew roster / inventory access at the hub terminal. */
   terminalExplained?: boolean;
+  /** Rep-gated recruitment channel on the terminal. */
+  terminalRecruitmentExplained?: boolean;
   clinicIntroduced?: boolean;
 };
 
-export type HubRevealId = 'finn' | 'terminal' | 'clinic';
+export type HubRevealId = 'finn' | 'terminal' | 'terminal-recruit' | 'clinic';
 
 export type HubRevealMessage = {
   id: HubRevealId;
@@ -35,6 +38,18 @@ type HubRevealDefinition = {
 };
 
 const HUB_REVEAL_DEFINITIONS: readonly HubRevealDefinition[] = [
+  {
+    id: 'terminal',
+    flag: 'terminalExplained',
+    title: '── CREW TERMINAL ──',
+    qualifies(campaign) {
+      return campaign.crew.length > 0;
+    },
+    lines: [
+      "CURATOR: Terminal's online — crew readout.",
+      'CURATOR: [Space] at the ‡ glyph to review operatives, gear, and salvage.',
+    ],
+  },
   {
     id: 'finn',
     flag: 'finnIntroduced',
@@ -62,15 +77,15 @@ const HUB_REVEAL_DEFINITIONS: readonly HubRevealDefinition[] = [
     ],
   },
   {
-    id: 'terminal',
-    flag: 'terminalExplained',
+    id: 'terminal-recruit',
+    flag: 'terminalRecruitmentExplained',
     title: '── ROSTER ACCESS ──',
     qualifies(campaign) {
       return campaign.rep >= REP.RECRUIT_THRESHOLD || campaign.pendingRecruitReward;
     },
     lines: [
-      "CURATOR: Terminal's live for roster work.",
-      "CURATOR: Rep's high enough — [Space] at the ‡ glyph to recruit or review crew.",
+      'CURATOR: Recruitment channel open on the terminal.',
+      "CURATOR: Rep's high enough — [Space] at the ‡ glyph to recruit new operatives.",
     ],
   },
 ];
@@ -86,13 +101,53 @@ export function normalizeHubReveals(raw: unknown, context = 'hubReveals'): HubRe
   }
   const record = raw as Record<string, unknown>;
   const out: HubReveals = {};
-  for (const key of ['finnIntroduced', 'terminalExplained', 'clinicIntroduced'] as const) {
+  for (const key of [
+    'finnIntroduced',
+    'terminalExplained',
+    'terminalRecruitmentExplained',
+    'clinicIntroduced',
+  ] as const) {
     if (record[key] === undefined) continue;
     if (typeof record[key] !== 'boolean') {
       throw new TypeError(`${context}.${key} must be a boolean when present`);
     }
     out[key] = record[key];
   }
+  return out;
+}
+
+/**
+ * Pre-split snapshots used `terminalExplained` for the combined roster +
+ * recruitment unlock. Call from persistence restore only — not on live
+ * `Campaign` construction where `terminalExplained` now means crew access.
+ */
+export function migrateLegacyHubReveals(
+  raw: unknown,
+  context: { rep?: number; pendingRecruitReward?: boolean } = {}
+): unknown {
+  if (raw === undefined || raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    return raw;
+  }
+  const record = raw as Record<string, unknown>;
+  if (record.terminalExplained === true && !('terminalRecruitmentExplained' in record)) {
+    const rep = context.rep ?? REP.START;
+    const pending = context.pendingRecruitReward ?? false;
+    // Pre-split saves only set terminalExplained when recruitment unlocked (Rep ≥ 65).
+    if (rep >= REP.RECRUIT_THRESHOLD || pending) {
+      return { ...record, terminalRecruitmentExplained: true };
+    }
+  }
+  return raw;
+}
+
+/** Persist hub reveal flags; always writes `terminalRecruitmentExplained` so restore can distinguish new saves from legacy. */
+export function snapshotHubReveals(reveals: HubReveals): HubReveals {
+  const out: HubReveals = {
+    terminalRecruitmentExplained: reveals.terminalRecruitmentExplained ?? false,
+  };
+  if (reveals.finnIntroduced) out.finnIntroduced = true;
+  if (reveals.terminalExplained) out.terminalExplained = true;
+  if (reveals.clinicIntroduced) out.clinicIntroduced = true;
   return out;
 }
 
@@ -104,8 +159,12 @@ export function shouldSpawnClinic(reveals: HubReveals): boolean {
   return !!reveals.clinicIntroduced;
 }
 
-export function isTerminalRecruitmentUnlocked(reveals: HubReveals): boolean {
+export function isTerminalAccessible(reveals: HubReveals): boolean {
   return !!reveals.terminalExplained;
+}
+
+export function isTerminalRecruitmentUnlocked(reveals: HubReveals): boolean {
+  return !!reveals.terminalRecruitmentExplained;
 }
 
 /**

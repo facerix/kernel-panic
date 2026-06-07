@@ -412,7 +412,7 @@ test('non-player turn refuses everything except cancel', () => {
   const { ctx, log, queue, calls } = buildCtx();
   queue.endTurn(ctx.world); // → CORP
   applyIntent({ type: 'move', dx: 1, dy: 0 }, ctx);
-  assert.ok(log.some(l => l.includes('CORP TURN')));
+  assert.ok(log.some(l => l.includes('HOSTILES ACTIVE')));
   assert.ok(log.some(l => l.includes('controls locked')));
   // Cancel still works even out of turn (per the M7 cross-input cancel rule).
   log.length = 0;

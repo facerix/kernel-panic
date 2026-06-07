@@ -26,8 +26,8 @@
  */
 
 import { Hostile, type HostileInit } from '../Hostile.js';
-import { AP_COST, SIGHT_RANGE, moveStepApCost } from '../constants.js';
-import type { TileId } from '../constants.js';
+import { AP_COST, FACTION, SIGHT_RANGE, moveStepApCost } from '../constants.js';
+import type { FactionId, TileId } from '../constants.js';
 import { findPath } from '../Pathfinding.js';
 import { withinRange } from '../LineOfSight.js';
 import { EVENT } from '../events.js';
@@ -80,7 +80,14 @@ type AlarmEventPayload = {
   origin?: { x: number; y: number };
 };
 
-export interface PatrolHostileInit extends HostileInit {
+export interface PatrolHostileInit extends Omit<HostileInit, 'faction'> {
+  /**
+   * Allegiance (Phase 2.9). Optional here — patrol hostiles default to
+   * `FACTION.CORP`; the spawn path passes `FACTION.RIVAL` for rival-group
+   * principals. Glyph stays class-fixed (each subclass hard-codes it); faction
+   * is the one caller-supplied axis, defaulted in one place below.
+   */
+  faction?: FactionId;
   patrolWaypoints?: { x: number; y: number }[];
 }
 
@@ -91,8 +98,8 @@ export abstract class PatrolHostile extends Hostile {
   lastKnownTarget: { x: number; y: number } | null;
   #unsubs: (() => void)[];
 
-  constructor({ patrolWaypoints, ...props }: PatrolHostileInit) {
-    super(props);
+  constructor({ patrolWaypoints, faction, ...props }: PatrolHostileInit) {
+    super({ ...props, faction: faction ?? FACTION.CORP });
     const waypoints = patrolWaypoints ?? [];
     if (!Array.isArray(waypoints)) {
       throw new TypeError(`${this.constructor.name} patrolWaypoints must be an array`);

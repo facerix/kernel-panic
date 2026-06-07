@@ -6,8 +6,13 @@ import { REP } from '../../../../src/game/constants.js';
 import { OUTCOME } from '../../../../src/game/Run.js';
 import {
   emptyHubReveals,
+  isTerminalAccessible,
+  isTerminalRecruitmentUnlocked,
+  migrateLegacyHubReveals,
+  normalizeHubReveals,
   shouldSpawnClinic,
   shouldSpawnFinn,
+  snapshotHubReveals,
 } from '../../../../src/game/hub/hubReveals.js';
 import { makeSalvage } from '../../../../src/game/salvage.js';
 import { snapshotCampaign, restoreCampaign } from '../../../../src/game/persistence.js';
@@ -49,8 +54,40 @@ test('shouldSpawnFinn and shouldSpawnClinic follow hubReveals flags', () => {
   assert.equal(shouldSpawnClinic({ clinicIntroduced: true }), true);
 });
 
+test('terminal access and recruitment unlock follow separate hubReveals flags', () => {
+  assert.equal(isTerminalAccessible(emptyHubReveals()), false);
+  assert.equal(isTerminalRecruitmentUnlocked(emptyHubReveals()), false);
+  assert.equal(isTerminalAccessible({ terminalExplained: true }), true);
+  assert.equal(isTerminalRecruitmentUnlocked({ terminalRecruitmentExplained: true }), true);
+  assert.equal(isTerminalRecruitmentUnlocked({ terminalExplained: true }), false);
+});
+
+test('legacy terminalExplained snapshot backfills recruitment unlock on restore', () => {
+  const reveals = normalizeHubReveals(
+    migrateLegacyHubReveals({ terminalExplained: true }, { rep: REP.RECRUIT_THRESHOLD })
+  );
+  assert.equal(reveals.terminalExplained, true);
+  assert.equal(reveals.terminalRecruitmentExplained, true);
+});
+
+test('normalizeHubReveals does not backfill recruitment from terminalExplained alone', () => {
+  const reveals = normalizeHubReveals({ terminalExplained: true });
+  assert.equal(reveals.terminalExplained, true);
+  assert.equal(reveals.terminalRecruitmentExplained, undefined);
+});
+
+test('fresh campaign introduces crew terminal on first hub enter', () => {
+  const campaign = hubCampaign();
+  assert.equal(campaign.lastHubReveal?.id, 'terminal');
+  assert.ok(campaign.hubReveals.terminalExplained);
+  assert.equal(campaign.hubReveals.terminalRecruitmentExplained, undefined);
+});
+
 test('first Hub return with salvage introduces Finn and spawns him', () => {
-  const campaign = hubCampaign({ salvage: makeSalvage({ scrap: 3 }) });
+  const campaign = hubCampaign({
+    salvage: makeSalvage({ scrap: 3 }),
+    hubReveals: { terminalExplained: true },
+  });
   assert.ok(campaign.hubReveals.finnIntroduced);
   assert.ok(campaign.finn);
   assert.equal(campaign.clinic, null);
@@ -60,45 +97,51 @@ test('first Hub return with salvage introduces Finn and spawns him', () => {
 test('Finn reveal does not fire twice', () => {
   const campaign = hubCampaign({
     salvage: makeSalvage({ scrap: 1 }),
-    hubReveals: { finnIntroduced: true },
+    hubReveals: { finnIntroduced: true, terminalExplained: true },
   });
   campaign.enterHub();
   assert.equal(campaign.lastHubReveal, null);
   assert.ok(campaign.finn);
 });
 
-test('only one reveal fires per enterHub when clinic and terminal both qualify', () => {
-  const campaign = hubCampaign({ hubReveals: { finnIntroduced: true } });
+test('only one reveal fires per enterHub when clinic and recruitment both qualify', () => {
+  const campaign = hubCampaign({
+    hubReveals: { finnIntroduced: true, terminalExplained: true },
+  });
   campaign.rep = REP.RECRUIT_THRESHOLD;
   campaign.crew[0].hp = 1;
   campaign.enterHub();
   assert.equal(campaign.lastHubReveal?.id, 'clinic');
   assert.equal(campaign.hubReveals.clinicIntroduced, true);
-  assert.equal(campaign.hubReveals.terminalExplained, undefined);
+  assert.equal(campaign.hubReveals.terminalRecruitmentExplained, undefined);
 });
 
-test('terminal reveal when Rep meets threshold', () => {
+test('terminal recruitment reveal when Rep meets threshold', () => {
   const campaign = hubCampaign({
     rep: REP.RECRUIT_THRESHOLD,
-    hubReveals: { finnIntroduced: true },
+    hubReveals: { finnIntroduced: true, terminalExplained: true },
   });
-  assert.equal(campaign.lastHubReveal?.id, 'terminal');
-  assert.ok(campaign.hubReveals.terminalExplained);
+  assert.equal(campaign.lastHubReveal?.id, 'terminal-recruit');
+  assert.ok(campaign.hubReveals.terminalRecruitmentExplained);
 });
 
-test('terminal reveal when pendingRecruitReward even below Rep', () => {
+test('terminal recruitment reveal when pendingRecruitReward even below Rep', () => {
   const campaign = hubCampaign({
     rep: REP.START,
-    hubReveals: { finnIntroduced: true },
+    hubReveals: { finnIntroduced: true, terminalExplained: true },
   });
   campaign.pendingRecruitReward = true;
   campaign.enterHub();
-  assert.equal(campaign.lastHubReveal?.id, 'terminal');
+  assert.equal(campaign.lastHubReveal?.id, 'terminal-recruit');
 });
 
 test('clinic reveal when crew has attrition', () => {
   const campaign = hubCampaign({
-    hubReveals: { finnIntroduced: true, terminalExplained: true },
+    hubReveals: {
+      finnIntroduced: true,
+      terminalExplained: true,
+      terminalRecruitmentExplained: true,
+    },
   });
   campaign.crew[0].hp = 1;
   campaign.enterHub();
@@ -108,7 +151,11 @@ test('clinic reveal when crew has attrition', () => {
 });
 
 test('completedJobs alone qualifies Finn introduction', () => {
-  const campaign = hubCampaign({ completedJobs: 1 });
+  const campaign = hubCampaign({
+    completedJobs: 1,
+    hubReveals: { terminalExplained: true },
+  });
+  campaign.enterHub();
   assert.ok(campaign.hubReveals.finnIntroduced);
   assert.ok(campaign.finn);
 });
@@ -129,11 +176,15 @@ test('hubReveals and completedJobs round-trip in campaign snapshot', () => {
   const campaign = hubCampaign({
     salvage: makeSalvage({ scrap: 1 }),
     completedJobs: 2,
+    hubReveals: {
+      terminalExplained: true,
+      finnIntroduced: true,
+      clinicIntroduced: true,
+    },
   });
-  campaign.hubReveals.clinicIntroduced = true;
   const snap = snapshotCampaign(campaign);
   const restored = restoreCampaign(snap);
-  assert.deepEqual(restored.hubReveals, campaign.hubReveals);
+  assert.deepEqual(restored.hubReveals, snapshotHubReveals(campaign.hubReveals));
   assert.equal(restored.completedJobs, 2);
   assert.ok(restored.clinic);
 });
@@ -145,7 +196,7 @@ test('pre-M5.4 snapshot defaults hubReveals and completedJobs', () => {
   delete (raw as { hubReveals?: unknown }).hubReveals;
   delete (raw as { completedJobs?: unknown }).completedJobs;
   const restored = restoreCampaign(raw);
-  assert.deepEqual(restored.hubReveals, emptyHubReveals());
+  assert.deepEqual(restored.hubReveals, { terminalExplained: true });
   assert.equal(restored.completedJobs, 0);
   assert.equal(restored.finn, null);
 });

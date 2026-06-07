@@ -23,7 +23,7 @@ import dataStore from '/src/DataStore.js';
 
 import { Campaign, CAMPAIGN_STATE, willEndCampaignOnThisDeath } from '/src/game/Campaign.js';
 import { totalSalvage, formatSalvageCompact, type TypedSalvage } from '/src/game/salvage.js';
-import { RUN_STATE } from '/src/game/Run.js';
+import { RUN_STATE, Run } from '/src/game/Run.js';
 import { restoreCampaign, snapshotCampaign } from '/src/game/persistence.js';
 import { runCorpTurn as driveCorpTurn } from '/src/game/corpTurnDriver.js';
 import {
@@ -72,10 +72,10 @@ import { hasLineOfSight } from '/src/game/LineOfSight.js';
 import { ITEM_ID, getItemById } from '/src/game/items.js';
 import type { CampaignSnapshot } from '/src/game/persistence.js';
 import type { Contract } from '/src/game/hub/Curator.js';
-import { isTerminalRecruitmentUnlocked } from '/src/game/hub/hubReveals.js';
+import { isTerminalAccessible } from '/src/game/hub/hubReveals.js';
 import type { Crew } from '/src/game/Crew.js';
 import { resolveEntityLabel, type Entity } from '/src/game/Entity.js';
-import type { Run, RunResult, RunTelemetry, Outcome } from '/src/game/Run.js';
+import type { RunResult, RunTelemetry, Outcome } from '/src/game/Run.js';
 import type { Item } from '/src/game/items.js';
 import type { Intent } from '/src/input/applyIntent.js';
 import type { AimKind, Mode } from '/src/input/keymap.js';
@@ -802,6 +802,9 @@ function onBriefingDeploy(evt: Event) {
   run.enterCombat();
   handlePersist();
   vision.resetFogState();
+  if (run.priorSeenKeys.length > 0) {
+    vision.restoreSeen(run.priorSeenKeys);
+  }
   attachVisionListener();
   attachAnimationListeners();
   attachRepListeners();
@@ -1245,7 +1248,7 @@ function handleInputModeChange(): void {
   if (state.mode !== MODE.LOOK) return;
   if (isCorpControlsLocked()) {
     resetInputModes();
-    flash('CORP TURN — controls locked until security finishes.');
+    flash('HOSTILES ACTIVE — controls locked until security finishes.');
     return;
   }
   enterLookMode();
@@ -1274,7 +1277,7 @@ function isCorpControlsLocked(): boolean {
 
 function handleLookMove(dx = 0, dy = 0): void {
   if (isCorpControlsLocked()) {
-    flash('CORP TURN — controls locked until security finishes.');
+    flash('HOSTILES ACTIVE — controls locked until security finishes.');
     return;
   }
   const run = currentScene();
@@ -1510,7 +1513,7 @@ function advanceTurn(): void {
 function resumePendingCombatSliceIfNeeded(): void {
   const run = campaign?.activeRun;
   if (!run || run.state !== RUN_STATE.COMBAT || !run.world || !run.queue) return;
-  if (run.queue.currentFaction !== FACTION.CORP) return;
+  if (run.queue.currentFaction === FACTION.PLAYER) return;
   driveCombatTurnPipeline(run, { resumeFromCorpSlice: true });
 }
 
@@ -1527,6 +1530,7 @@ function runCorpTurn(onFinish: () => void): void {
   maybeDevFault('corp');
   const run = currentScene();
   if (!run) return;
+  if (!(run instanceof Run)) return;
   if (!run.world) {
     throw new Error(`[shell] cannot drive corp turn without world in state "${run.state}"`);
   }
@@ -1536,7 +1540,7 @@ function runCorpTurn(onFinish: () => void): void {
       world: run.world,
       rng: run.rng,
     },
-    corpFaction: FACTION.CORP,
+    corpFaction: run.hostileFaction,
     paint,
     animLock,
     actionDelayMs: CORP_ACTION_DELAY_MS,
@@ -1601,7 +1605,7 @@ function handleInteract(): void {
     campaign.terminal &&
     isChebyshevAdjacent(campaign.player, campaign.terminal)
   ) {
-    if (!isTerminalRecruitmentUnlocked(campaign.hubReveals)) {
+    if (!isTerminalAccessible(campaign.hubReveals)) {
       flash('TERMINAL — access denied. Systems locked.');
       return;
     }
@@ -1865,7 +1869,7 @@ function recomputeVision(): void {
     blockers: run.world.blockerKeys(),
   });
   if (isRun(run) && run.state === RUN_STATE.COMBAT) {
-    run.recordMapSeen(vision.seen);
+    run.recordMapSeen(vision.visible);
   }
 }
 
@@ -1986,11 +1990,16 @@ function paint(stateHint: InputState = activeInputState()): void {
     run.state === RUN_STATE.COMBAT && activeBreachBlastOverlayKeys.size > 0
       ? activeBreachBlastOverlayKeys
       : undefined;
+  const principalId =
+    run.state === RUN_STATE.COMBAT
+      ? campaign?.activeRun?.contract?.context?.principal?.id
+      : undefined;
   renderer.draw(run.world, run.player, {
     vision: activeVision,
     player: run.player,
     blastOverlayKeys,
     lookCursor,
+    principalId,
     locationLabel: currentLocationLabel(),
     combatHud: buildCombatHudSnapshot(run),
   });
@@ -2060,22 +2069,30 @@ function statusLine(state: InputState): string {
   const hintText = proximityHint();
   if (hintText) {
     ephemeral = `<span class="game-shell__activity hint">${hintText}</span>`;
-  } else if (run.state === RUN_STATE.COMBAT && run.queue.currentFaction === FACTION.CORP) {
-    if (!run.world) throw new Error('[shell] combat status requires a world');
-    const visibleCorp = countVisibleCorpEntities(
-      run.world.entities.values(),
-      (x: number, y: number) => vision.isVisible(x, y)
-    );
-    const body = corpTurnStatusBody(visibleCorp, run.queue.turnNumber);
-    corpToneActivityBody = body;
-    ephemeral = `<span class="game-shell__activity corp"><span class="faction-tag">CORP</span> — ${body}</span>`;
   } else if (
+    isRun(run) &&
+    run.state === RUN_STATE.COMBAT &&
+    run.queue.currentFaction === run.hostileFaction
+  ) {
+    if (!run.world) throw new Error('[shell] combat status requires a world');
+    const visibleHostiles = countVisibleCorpEntities(
+      run.world.entities.values(),
+      (x: number, y: number) => vision.isVisible(x, y),
+      run.hostileFaction
+    );
+    const body = corpTurnStatusBody(visibleHostiles, run.queue.turnNumber);
+    corpToneActivityBody = body;
+    const hostileTag = run.hostileFaction.toUpperCase();
+    ephemeral = `<span class="game-shell__activity corp"><span class="faction-tag">${hostileTag}</span> — ${body}</span>`;
+  } else if (
+    isRun(run) &&
     run.state === RUN_STATE.COMBAT &&
     run.queue.currentFaction === FACTION.PLAYER &&
     corpToneActivityBody !== null
   ) {
-    // show the last corp mood until the player acts and flushes it
-    ephemeral = `<span class="game-shell__activity corp"><span class="faction-tag">CORP</span> — ${corpToneActivityBody}</span>`;
+    // show the last hostile-turn mood until the player acts and flushes it
+    const hostileTag = run.hostileFaction.toUpperCase();
+    ephemeral = `<span class="game-shell__activity corp"><span class="faction-tag">${hostileTag}</span> — ${corpToneActivityBody}</span>`;
     corpToneActivityBody = null;
   }
   const activityRows = statusActionRows(actionLineHistory, pendingActionLineCount, !!ephemeral);

@@ -40,6 +40,21 @@ test('describeTileAt identifies live entities without corpse state', () => {
   assert.ok(!line?.includes('corpse'));
 });
 
+test('describeTileAt uses the principal alias and spaces the bracket', () => {
+  const { world } = worldWithPlayer();
+  const auditor = new Entity({
+    id: 'drone-1',
+    x: 3,
+    y: 2,
+    faction: FACTION.CORP,
+    glyph: 'k',
+    displayName: 'Auditor',
+    principalTag: 'Matsuda',
+  });
+  world.addEntity(auditor);
+  assert.equal(describeTileAt(world, 3, 2), '[Matsuda] Auditor');
+});
+
 test('describeTileAt identifies salvageable corpses with compact salvage', () => {
   const { world } = worldWithPlayer();
   const drone = new Entity({ id: 'drone-1', x: 3, y: 2, faction: FACTION.CORP, glyph: 'd' });

@@ -6,6 +6,7 @@ import { TILE } from '../../../src/game/constants.js';
 import {
   applyMutationDeltas,
   mergeSiteDeltas,
+  mergeSiteSeenKeys,
   normalizeLocationSite,
   generateSiteId,
 } from '../../../src/game/locations.js';
@@ -17,11 +18,14 @@ import {
   SITE_REVISIT_CHANCE,
   normalizeContractContext,
 } from '../../../src/game/hub/Curator.js';
-import { OUTCOME } from '../../../src/game/Run.js';
+import { OUTCOME, Run } from '../../../src/game/Run.js';
 import { KeyCard } from '../../../src/game/entities/KeyCard.js';
 import { Door } from '../../../src/game/entities/Door.js';
 import { Rng } from '../../../src/rng.js';
 import { resolveMapDimensions } from '../../../src/game/procgen/mapDimensions.js';
+import { VisionField } from '../../../src/game/Vision.js';
+import { reconEligibleCellKeys } from '../../../src/game/objectiveProgress.js';
+import { buildCrewMember } from '../../../src/game/archetypes/index.js';
 import type { Contract } from '../../../src/game/hub/Curator.js';
 import type { LocationSite, TileDelta } from '../../../src/types.js';
 
@@ -35,6 +39,7 @@ function validSite(overrides: Partial<LocationSite> = {}): LocationSite {
     tier: 'roster',
     scoreTarget: false,
     mutationDeltas: [],
+    seenKeys: [],
     lastVisitedJob: 0,
     ...overrides,
   };
@@ -137,6 +142,22 @@ test('mergeSiteDeltas: returns cloned deltas (no shared references)', () => {
   assert.deepEqual(merged[0], existing[0]);
 });
 
+// ─── mergeSiteSeenKeys ────────────────────────────────────────────────────────
+
+test('mergeSiteSeenKeys: unions distinct coordinates and deduplicates', () => {
+  const merged = mergeSiteSeenKeys(['1,2', '3,4'], ['3,4', '5,6']);
+  assert.deepEqual(merged, ['1,2', '3,4', '5,6']);
+});
+
+test('mergeSiteSeenKeys: returns a sorted copy', () => {
+  const merged = mergeSiteSeenKeys(['10,1', '2,9'], ['1,1']);
+  assert.deepEqual(merged, ['1,1', '2,9', '10,1']);
+});
+
+test('mergeSiteSeenKeys: throws on malformed keys', () => {
+  assert.throws(() => mergeSiteSeenKeys(['bad'], []), /malformed coordinate key/);
+});
+
 // ─── normalizeLocationSite ────────────────────────────────────────────────────
 
 test('normalizeLocationSite: valid site round-trips with cloned deltas', () => {
@@ -147,6 +168,13 @@ test('normalizeLocationSite: valid site round-trips with cloned deltas', () => {
   assert.deepEqual(normalized, site);
   assert.notEqual(normalized.mutationDeltas, site.mutationDeltas);
   assert.notEqual(normalized.mutationDeltas[0], site.mutationDeltas[0]);
+});
+
+test('normalizeLocationSite: missing seenKeys defaults to []', () => {
+  const raw = validSite() as Partial<LocationSite>;
+  delete raw.seenKeys;
+  const normalized = normalizeLocationSite(raw);
+  assert.deepEqual(normalized.seenKeys, []);
 });
 
 test('normalizeLocationSite: unknown tier throws', () => {
@@ -281,6 +309,7 @@ test('CampaignSnapshot round-trips the full roster including deltas + identity (
       tier: 'score',
       scoreTarget: true,
       lastVisitedJob: 3,
+      seenKeys: ['1,1', '2,2'],
       mutationDeltas: [
         { kind: 'tile', x: 1, y: 1, from: TILE.WALL, to: TILE.RUBBLE },
         { kind: 'entity-removed', id: 'door-entity-0', x: 2, y: 2, archetype: 'door' },
@@ -297,6 +326,7 @@ test('CampaignSnapshot round-trips the full roster including deltas + identity (
   assert.equal(restored.siteRoster[0]!.site!.id, 'sublevel-3');
   // Round-trip must deep-clone, not share delta references.
   assert.notEqual(restored.siteRoster[0]!.mutationDeltas, campaign.siteRoster[0]!.mutationDeltas);
+  assert.deepEqual(restored.siteRoster[0]!.seenKeys, ['1,1', '2,2']);
 });
 
 test('pre-M7.2 save restore defaults siteRoster to [] (case 11)', () => {
@@ -542,6 +572,17 @@ test('deployCrewMember remembers a fresh location with empty deltas (case 1, dep
   assert.ok(site, 'fresh deploy adds the site to the roster');
   assert.equal(site!.seed, '555');
   assert.deepEqual(site!.mutationDeltas, []);
+  assert.deepEqual(site!.seenKeys, []);
+});
+
+test('deployCrewMember seeds priorSeenKeys from the roster site', () => {
+  const campaign = new Campaign({ seed: 1 });
+  campaign.addSiteToRoster(validSite({ id: '888', seed: '888', seenKeys: ['4,4', '5,5'] }));
+  const run = campaign.deployCrewMember(
+    campaign.crew[0]!.id,
+    reachExitContract(888, { context: testContext('888') })
+  );
+  assert.deepEqual(run.priorSeenKeys, ['4,4', '5,5']);
 });
 
 test("onJobEnd EXIT merges this run's breaches into the roster (case 6)", () => {
@@ -562,6 +603,116 @@ test("onJobEnd EXIT merges this run's breaches into the roster (case 6)", () => 
     ),
     'breach merged into persisted site deltas'
   );
+});
+
+test("onJobEnd EXIT merges this run's exploration into the roster", () => {
+  const campaign = new Campaign({ seed: 1 });
+  const contract = reachExitContract(8888);
+  const run = campaign.deployCrewMember(campaign.crew[0]!.id, contract);
+  run.enterCombat();
+  run.recordReconSeen(['1,1', '2,2', '3,3']);
+
+  campaign.onJobEnd({ outcome: OUTCOME.EXIT, completed: true });
+
+  const site = campaign.findRosterSite('8888');
+  assert.ok(site);
+  for (const key of ['1,1', '2,2', '3,3']) {
+    assert.ok(site!.seenKeys.includes(key), `expected ${key} in persisted site memory`);
+  }
+});
+
+test('onJobEnd EXIT unions new exploration with prior site memory', () => {
+  const campaign = new Campaign({ seed: 1 });
+  campaign.addSiteToRoster(validSite({ id: '9999', seed: '9999', seenKeys: ['1,1', '2,2'] }));
+  const run = campaign.deployCrewMember(
+    campaign.crew[0]!.id,
+    reachExitContract(9999, { context: testContext('9999') })
+  );
+  run.enterCombat();
+  run.recordReconSeen(['3,3']);
+
+  campaign.onJobEnd({ outcome: OUTCOME.EXIT, completed: true });
+
+  const seen = campaign.findRosterSite('9999')!.seenKeys;
+  for (const key of ['1,1', '2,2', '3,3']) {
+    assert.ok(seen.includes(key), `expected ${key} in unioned site memory`);
+  }
+});
+
+test('onJobEnd DEATH does not merge exploration into the roster', () => {
+  const campaign = new Campaign({ seed: 1 });
+  const run = campaign.deployCrewMember(campaign.crew[0]!.id, reachExitContract(6666));
+  run.enterCombat();
+  run.recordReconSeen(['9,9']);
+
+  campaign.onJobEnd({ outcome: OUTCOME.DEATH });
+
+  assert.deepEqual(campaign.findRosterSite('6666')!.seenKeys, []);
+});
+
+test('Run: priorSeenKeys restore to vision without seeding objective mapSeen', () => {
+  const crew = buildCrewMember('razor', { x: 0, y: 0 }, new Rng(100), { id: 'crew-razor' });
+  const run = new Run({
+    crewMember: crew,
+    seed: 100,
+    priorSeenKeys: ['0,0', '99,99'],
+  });
+  run.enterBriefing(reachExitContract(100));
+  run.enterCombat();
+
+  const vision = new VisionField();
+  vision.restoreSeen(run.priorSeenKeys);
+  assert.equal(vision.hasSeen(99, 99), true, 'prior site tile is visible to fog memory');
+  assert.equal(
+    run.mapSeenKeys().includes('99,99'),
+    false,
+    'prior site tiles must not count toward this-run recon'
+  );
+});
+
+test('Run revisit: recon counts tiles seen this run, not prior site memory alone', () => {
+  const seed = 212;
+  const crew = buildCrewMember('razor', { x: 0, y: 0 }, new Rng(seed), { id: 'crew-razor' });
+  const reconContract = {
+    ...reachExitContract(seed),
+    objective: {
+      kind: OBJECTIVES.RECON,
+      title: 'Map site layout',
+      briefing: 'Map the whole floor, then extract.',
+      params: { target: 'site-layout' },
+    },
+  };
+  const probe = new Run({ crewMember: crew, seed });
+  probe.enterBriefing(reconContract);
+  probe.enterCombat();
+  const eligible = [...reconEligibleCellKeys(probe.world!)];
+  assert.ok(eligible.length > 0);
+
+  const revisit = new Run({
+    crewMember: buildCrewMember('razor', { x: 0, y: 0 }, new Rng(seed), { id: 'crew-razor-2' }),
+    seed,
+    priorSeenKeys: eligible,
+  });
+  revisit.enterBriefing(reconContract);
+  revisit.enterCombat();
+
+  // Prior memory alone must not satisfy recon — only this-run LOS counts.
+  assert.equal(revisit.isObjectiveSatisfied(), false);
+
+  // Simulate jack-in fog restore + vision recompute (shell path).
+  const vision = new VisionField();
+  vision.restoreSeen(revisit.priorSeenKeys);
+  vision.recompute(revisit.world!.grid, revisit.player!, undefined, {
+    blockers: revisit.world!.blockerKeys(),
+  });
+  revisit.recordMapSeen(vision.visible);
+
+  const progress = revisit.objectiveProgress()!;
+  assert.ok(progress.current > 0, 'spawn LOS this run must count toward recon');
+  assert.ok(progress.current < progress.total, 'prior dim memory alone must not complete recon');
+  for (const key of vision.visible) {
+    assert.ok(revisit.mapSeenKeys().includes(key), `current LOS tile ${key} should be recorded`);
+  }
 });
 
 test('KeyCard on a revisit contract is stamped with the site id (case 7)', () => {
