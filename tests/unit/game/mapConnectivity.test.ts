@@ -6,6 +6,7 @@ import { World } from '../../../src/game/World.js';
 import { Merc } from '../../../src/game/archetypes/Merc.js';
 import { Terminal } from '../../../src/game/entities/Terminal.js';
 import { Door } from '../../../src/game/entities/Door.js';
+import { Skirmisher } from '../../../src/game/ai/Skirmisher.js';
 import { TILE } from '../../../src/game/constants.js';
 import {
   explorationReachableKeys,
@@ -76,6 +77,74 @@ function pierSevenPocketWorld(): {
 }
 
 describe('mapConnectivity', () => {
+  it('counts locked-door pockets toward recon eligibility', () => {
+    const grid = new Grid(9, 5, TILE.WALL);
+    for (const [x, y] of [
+      [1, 1],
+      [2, 1],
+      [3, 1],
+      [1, 2],
+      [2, 2],
+      [3, 2],
+      [4, 1],
+      [5, 1],
+      [6, 1],
+      [7, 1],
+    ]) {
+      grid.setTile(x, y, TILE.FLOOR);
+    }
+    const world = new World(grid);
+    world.addEntity(new Merc({ id: 'crew-merc', x: 1, y: 1 }));
+    world.addEntity(
+      new Door({
+        id: 'door-east',
+        doorId: 'door-east',
+        x: 4,
+        y: 1,
+      })
+    );
+
+    const spawn = { x: 1, y: 1 };
+    const eligible = reconEligibleCellKeys(world);
+    const walkableNow = explorationReachableKeys(world, spawn);
+
+    assert.equal(eligible.has('7,1'), true, 'rooms behind a locked door must count');
+    assert.ok(
+      eligible.size > walkableNow.size,
+      'recon required area exceeds currently walkable area'
+    );
+    assert.equal(walkableNow.has('7,1'), false, 'east wing is not walkable until the door opens');
+  });
+
+  it('counts hostile-guarded pockets toward recon eligibility', () => {
+    const grid = new Grid(9, 5, TILE.WALL);
+    for (const [x, y] of [
+      [1, 1],
+      [2, 1],
+      [3, 1],
+      [1, 2],
+      [2, 2],
+      [3, 2],
+      [4, 1],
+      [5, 1],
+      [6, 1],
+      [7, 1],
+    ]) {
+      grid.setTile(x, y, TILE.FLOOR);
+    }
+    const world = new World(grid);
+    world.addEntity(new Merc({ id: 'crew-merc', x: 1, y: 1 }));
+    world.addEntity(new Skirmisher({ id: 'drone-0', x: 4, y: 1 }));
+
+    const spawn = { x: 1, y: 1 };
+    const eligible = reconEligibleCellKeys(world);
+    const walkableNow = explorationReachableKeys(world, spawn);
+
+    assert.equal(eligible.has('7,1'), true, 'rooms behind a hostile must count');
+    assert.ok(eligible.size > walkableNow.size);
+    assert.equal(walkableNow.has('7,1'), false, 'east wing is blocked until the drone moves or dies');
+  });
+
   it('counts only entity-reachable cells for recon eligibility', () => {
     const { world, spawn, bridge } = oneTileBridgeWorld();
     world.addEntity(
