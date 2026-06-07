@@ -142,7 +142,11 @@ describe('mapConnectivity', () => {
 
     assert.equal(eligible.has('7,1'), true, 'rooms behind a hostile must count');
     assert.ok(eligible.size > walkableNow.size);
-    assert.equal(walkableNow.has('7,1'), false, 'east wing is blocked until the drone moves or dies');
+    assert.equal(
+      walkableNow.has('7,1'),
+      false,
+      'east wing is blocked until the drone moves or dies'
+    );
   });
 
   it('counts only entity-reachable cells for recon eligibility', () => {

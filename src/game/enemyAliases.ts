@@ -141,7 +141,7 @@ const ALIAS_TABLE: Readonly<Record<string, PrincipalAliases>> = Object.freeze({
     },
   },
   'northstar-civic': {
-    tag: 'Nstar',
+    tag: 'N*',
     names: {
       skirmisher: 'Patrol Officer',
       guard: 'Civic Guard',
@@ -207,7 +207,7 @@ const ALIAS_TABLE: Readonly<Record<string, PrincipalAliases>> = Object.freeze({
     },
   },
   'port-warden-bureau': {
-    tag: 'Warden',
+    tag: 'Port',
     names: {
       skirmisher: 'Port Officer',
       guard: 'Harbor Guard',

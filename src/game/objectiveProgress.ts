@@ -104,11 +104,7 @@ export function reconEligibleCellKeys(world: World | null | undefined): Set<stri
   if (!world) return new Set();
   const player = playerInWorld(world);
   if (!player) return allPassableCellKeys(world);
-  return explorationReachableKeys(
-    world,
-    { x: player.x, y: player.y },
-    { reconEligibleArea: true }
-  );
+  return explorationReachableKeys(world, { x: player.x, y: player.y }, { reconEligibleArea: true });
 }
 
 export function reconObjectiveProgress(

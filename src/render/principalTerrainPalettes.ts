@@ -93,14 +93,14 @@ const PALETTES: Readonly<Record<string, TerrainPalette>> = Object.freeze({
   },
   // ── Rival principals ─────────────────────────────────────────────────────────
   'chrome-choir': {
-    floor: '#302520',
-    wall: '#c87858',
-    cover: '#d4a050',
+    floor: '#373632',
+    wall: '#e8e9ed',
+    cover: '#86878b',
   },
   'redline-union': {
-    floor: '#352820',
-    wall: '#b87050',
-    cover: '#e0a040',
+    floor: '#303841',
+    wall: '#be3144',
+    cover: '#d3d6db',
   },
   'null-saints': {
     floor: '#281a30',

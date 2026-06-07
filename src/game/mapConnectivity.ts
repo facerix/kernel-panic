@@ -103,9 +103,7 @@ export function explorationReachableKeys(
           if (blocker) {
             if (reconEligibleArea) {
               if (entityBlocksReconEligibleFlood(blocker)) continue;
-            } else if (
-              !(passThroughLockedDoors && blocker instanceof Door && blocker.locked)
-            ) {
+            } else if (!(passThroughLockedDoors && blocker instanceof Door && blocker.locked)) {
               continue;
             }
           }

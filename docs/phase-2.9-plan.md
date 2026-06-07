@@ -33,7 +33,7 @@ Today every hostile is `[Corp]Drone` / `[Corp]Guard` (from `kindFromId` on `dron
 | M1.1 — `enemyAliases.ts`: `(principalId, archetype)` alias table + curated short tags | ✅ Done |
 | M1.2 — `displayName` / `principalTag` on entities + persistence | ✅ Done |
 | M1.3 — `entityLabel()` uses stored display metadata | ✅ Done |
-| M2 — Faction / allegiance plumbing (slim) | 🟡 In progress — core landed; shell polish + playtest remain |
+| M2 — Faction / allegiance plumbing (slim) | ✅ Done |
 | M2.1 — Remove `FACTION.CORP` hard-coding from AI classes | ✅ Done |
 | M2.2 — `FACTION.RIVAL` + principal-group→faction mapping; `Run` sets hostile faction | ✅ Done |
 | M2.3 — Allegiance hue (`FACTION_FG[RIVAL]`) in palette | ✅ Done |
@@ -105,9 +105,7 @@ Replace `entityLabel()`'s `factionTag + kindFromId(id)` for aliased hostiles:
 | `displayName` | `"Auditor"` — combat log, describe, status copy |
 | `principalTag` | Short bracket prefix, e.g. `"Matsuda"` → `[Matsuda]Auditor` |
 
-**Decided:** prefer `[PrincipalTag]Alias` over generic `[Corp]` for themed hostiles.
-
-**Open:** exact short-tag curation (`[Vuong]` vs `[Vuong Holdings]`, `[DWB]` vs `[Water Board]`); whether prefix is omitted when the contract header already states the owner and no mixed allegiance is present.
+**Decided:** prefer `[PrincipalTag]Alias` over generic `[Corp]` for themed hostiles. Curated final short-tag list; prefer this over omitted even with pricipal in location banner.
 
 ### Grid glyphs & color
 
@@ -240,24 +238,15 @@ Surfaced by playtest after M2.2 landed: the turn queue advanced to `RIVAL` but H
 - **Fallback:** unknown `(principalId, archetype)` → generic archetype name; `console.warn` in dev, graceful in prod.
 - **Faction = allegiance, not employer;** derived from principal group; civic → `CORP`; rival groups → `RIVAL`; one hostile faction per run.
 - **Glyphs:** already role-keyed since 2.7 — no work.
-- **Colour:** allegiance only in 2.9; per-principal hue deferred (see Out of scope).
+- **Colour:** allegiance and per-principal terrain in 2.9; per-principal glyphs deferred (see Out of scope).
 
 ## Open questions / kaizen notes
 
-### Labels & aliases
-
-- **No-prefix mode:** drop `[Tag]` when the contract header already names the owner and the encounter is single-allegiance? (Low priority — single-allegiance is *always* true in 2.9, so a `[Tag]` is arguably always redundant with the briefing; decide during M1.3 from how the log actually reads.)
-- **Short-tag curation detail:** finalize the curated map entries (`[Vuong]` vs `[Vuong Holdings]`, `[DWB]` vs `[Water Board]`) for tablet log width during M1.1.
-
 ### Sequencing
 
-- **Suggested first slice:** land **M1** (aliases + persistence, all principals) as its own reviewable merge and playtest before M2 faction plumbing. ✅ Done.
-- **M2.4 lesson:** faction in the queue is not enough — grep shell/renderer for literal `FACTION.CORP` on `currentFaction` whenever a new hostile faction value lands.
-- **Netrunner aliases:** table slot reserved; implementation stays Phase 3 with the status-effect system.
-
-### Shell copy (cosmetic, post–M2.4)
-
-- `isCorpControlsLocked` flash still says `CORP TURN — controls locked until security finishes.` during rival turns. Consider neutral hostile-turn copy (`HOSTILES ACTIVE — controls locked`, etc.) in a polish pass.
+- ~~**Suggested first slice:** land **M1** (aliases + persistence, all principals) as its own reviewable merge and playtest before M2 faction plumbing.~~ ✅ Done.
+- ~~**M2.4 lesson:** faction in the queue is not enough — grep shell/renderer for literal `FACTION.CORP` on `currentFaction` whenever a new hostile faction value lands.~~
+- ~~**Netrunner aliases:** table slot reserved; implementation stays Phase 3 with the status-effect system.~~
 
 ---
 
