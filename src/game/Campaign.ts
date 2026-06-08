@@ -3,7 +3,16 @@ import { World } from './World.js';
 import { TurnQueue } from './TurnQueue.js';
 import { EventBus } from './events.js';
 import { Entity } from './Entity.js';
-import { FACTION, REP, RECRUIT, SALVAGE_SELL_RATE, CLINIC_COST_PER_HP } from './constants.js';
+import {
+  CONTRACT_DIFFICULTY,
+  FACTION,
+  REP,
+  REP_TIER,
+  RECRUIT,
+  SALVAGE_SELL_RATE,
+  CLINIC_COST_PER_HP,
+  repTierForRep,
+} from './constants.js';
 import {
   SALVAGE_TYPES,
   addSalvage,
@@ -14,7 +23,7 @@ import {
   type TypedSalvage,
 } from './salvage.js';
 import { buildCrewMember, RECRUIT_ARCHETYPE_POOL } from './archetypes/index.js';
-import { Curator } from './hub/Curator.js';
+import { CONTRACT_LEXICON, Curator } from './hub/Curator.js';
 import { Terminal } from './hub/Terminal.js';
 import { Finn } from './hub/Finn.js';
 import { Clinic } from './hub/Clinic.js';
@@ -35,13 +44,24 @@ import {
   mergeSiteSeenKeys as mergeSeen,
   normalizeLocationSite,
 } from './locations.js';
+import { resolveMapDimensions } from './procgen/mapDimensions.js';
 import type { Contract } from './hub/Curator.js';
 import type { Crew } from './Crew.js';
-import type { CampaignArcStage, GridPoint, KeyItem, LocationSite, TileDelta } from '../types.js';
+import type {
+  CampaignArcStage,
+  GridPoint,
+  KeyItem,
+  LocationSite,
+  LocationToken,
+  TileDelta,
+} from '../types.js';
 import type { RunResult, Outcome } from './Run.js';
 
 /** Max remembered combat locations (P2.5.M7.2). One slot is reserved for Phase 3's score target. */
 export const SITE_ROSTER_CAP = 6;
+export const ARC_ACT_2_MIN_COMPLETED_JOBS = 4;
+export const ARC_ACT_3_MIN_COMPLETED_JOBS = 9;
+const SYNTHETIC_SCORE_TARGET_DIFFICULTY = CONTRACT_DIFFICULTY.CRITICAL;
 
 export const CAMPAIGN_STATE = Object.freeze({
   HUB: 'HUB',
@@ -274,6 +294,7 @@ export class Campaign {
     if (this.state !== CAMPAIGN_STATE.HUB && this.state !== CAMPAIGN_STATE.COMBAT) {
       throw new Error(`Campaign.enterHub: illegal transition from ${this.state}`);
     }
+    this.#advanceArcTransitions();
     this.recruitedThisVisit = false;
     this.healedThisVisit = new Set();
     this.lastHubReveal = null;
@@ -424,8 +445,8 @@ export class Campaign {
       // returning to the Hub — breach holes survive even on an aborted exit.
       this.#mergeRunDeltasIntoRoster(this.activeRun);
       this.#mergeRunSeenIntoRoster(this.activeRun);
-      this.completedJobs += 1;
       if (completed) {
+        this.completedJobs += 1;
         addSalvage(this.salvage, extracted);
         const reward = this.activeRun.contract?.reward;
         this.credits += reward?.credits ?? 0;
@@ -968,6 +989,102 @@ export class Campaign {
     return this.crew.find(member => member.id === memberId) ?? null;
   }
 
+  #advanceArcTransitions(): void {
+    if (this.crew.some(member => member.archetype === 'Decker')) {
+      this.arc.deckerRecruited = true;
+    }
+
+    if (this.arc.arcStage === 'act-1' && this.#qualifiesForAct2()) {
+      this.arc.arcStage = 'act-2';
+      this.arc.scoreRevealed = true;
+    }
+
+    if (this.arc.scoreRevealed) {
+      this.#ensureScoreTargetDesignated();
+    }
+
+    if (this.arc.arcStage === 'act-2' && this.#qualifiesForAct3()) {
+      this.arc.arcStage = 'act-3';
+    }
+  }
+
+  #qualifiesForAct2(): boolean {
+    return (
+      repTierForRep(this.rep).id === REP_TIER.TRUSTED &&
+      this.completedJobs >= ARC_ACT_2_MIN_COMPLETED_JOBS
+    );
+  }
+
+  #qualifiesForAct3(): boolean {
+    return (
+      this.arc.deckerRecruited &&
+      this.completedJobs >= ARC_ACT_3_MIN_COMPLETED_JOBS &&
+      this.siteRoster.some(site => site.scoreTarget && site.lastVisitedJob > 0)
+    );
+  }
+
+  #ensureScoreTargetDesignated(): void {
+    const scoreTargets = this.siteRoster.filter(site => site.scoreTarget);
+    if (scoreTargets.length > 1) {
+      throw new Error('Campaign arc: multiple Score targets in site roster');
+    }
+    const scoreTierNonTargets = this.siteRoster.filter(
+      site => site.tier === 'score' && !site.scoreTarget
+    );
+    if (scoreTierNonTargets.length > 0) {
+      throw new Error('Campaign arc: score-tier roster site missing scoreTarget');
+    }
+    if (scoreTargets.length === 1) {
+      scoreTargets[0]!.tier = 'score';
+      return;
+    }
+
+    const target = this.#selectRememberedScoreTarget() ?? this.#synthesizeScoreTarget();
+    target.scoreTarget = true;
+    target.tier = 'score';
+  }
+
+  #selectRememberedScoreTarget(): LocationSite | null {
+    if (this.siteRoster.length === 0) return null;
+    return [...this.siteRoster].sort(
+      (a, b) => b.lastVisitedJob - a.lastVisitedJob || a.id.localeCompare(b.id)
+    )[0]!;
+  }
+
+  #synthesizeScoreTarget(): LocationSite {
+    const seed = this.rng.intRange(0, 0x7fffffff);
+    const principal = this.rng.pick(
+      CONTRACT_LEXICON.principals.filter(token => token.groups.includes('corp'))
+    );
+    const site = this.rng.pick(
+      CONTRACT_LEXICON.sites.filter(token =>
+        token.groups.some(group =>
+          ['corp', 'data', 'security', 'infrastructure', 'hidden'].includes(group)
+        )
+      )
+    );
+    const dimensions = resolveMapDimensions({
+      seed,
+      difficulty: SYNTHETIC_SCORE_TARGET_DIFFICULTY,
+    });
+    const target = normalizeLocationSite({
+      id: `score-${generateSiteId(seed)}`,
+      seed: String(seed),
+      mapWidth: dimensions.width,
+      mapHeight: dimensions.height,
+      label: `// ${principal.label} ${site.label} - Score target`,
+      tier: 'score',
+      scoreTarget: true,
+      mutationDeltas: [],
+      seenKeys: [],
+      lastVisitedJob: 0,
+      principal: locationTokenFromLexicon(principal),
+      site: locationTokenFromLexicon(site),
+    });
+    this.siteRoster.push(target);
+    return target;
+  }
+
   #persist(): void {
     this.onPersist?.(this);
   }
@@ -1067,6 +1184,18 @@ export function normalizeCampaignArc(raw: unknown, context = 'Campaign arc'): Ca
     clockStarted: readBooleanArcFlag('clockStarted'),
     scoreAttempted: readBooleanArcFlag('scoreAttempted'),
     scoreCompleted: readBooleanArcFlag('scoreCompleted'),
+  };
+}
+
+function locationTokenFromLexicon(token: {
+  id: string;
+  label: string;
+  groups: readonly string[];
+}): LocationToken {
+  return {
+    id: token.id,
+    label: token.label,
+    groups: [...token.groups],
   };
 }
 

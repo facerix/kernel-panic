@@ -769,7 +769,7 @@ export type CampaignSnapshot = {
   healedThisVisit?: string[];
   /** Progressive Hub introduction flags. Defaults to {} for pre-P2.5.M5.4 saves. */
   hubReveals?: HubRevealsSnapshot;
-  /** Count of jobs ended with EXIT (extract). Defaults to 0 for pre-P2.5.M5.4 saves. */
+  /** Count of completed jobs. Abort extractions do not increment this arc counter. */
   completedJobs?: number;
   /** Persistent key-item inventory (keycards). Defaults to [] for pre-P2.5.M6.2 saves. */
   keyItems?: KeyItemSnapshot[];
