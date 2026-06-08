@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Kernel Panic — savegame editor</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+    <link rel="stylesheet" href="/main.css" type="text/css" />
+    <style>
+      .save-editor {
+        max-width: 960px;
+        margin: 1rem auto;
+        padding: 0 1rem;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+
+      /* --- toolbar --- */
+      .toolbar {
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 1rem;
+        flex-wrap: wrap;
+      }
+      .toolbar button {
+        background: #1a2422;
+        color: var(--accent-color);
+        border: 1px solid var(--accent-color);
+        padding: 0.4rem 0.75rem;
+        border-radius: 4px;
+        cursor: pointer;
+        font-family: inherit;
+        font-size: 0.85rem;
+      }
+      .toolbar button:hover,
+      .toolbar button:focus-visible {
+        background: var(--accent-color);
+        color: #06090a;
+      }
+      .toolbar button.danger {
+        border-color: #e05050;
+        color: #e05050;
+      }
+      .toolbar button.danger:hover,
+      .toolbar button.danger:focus-visible {
+        background: #e05050;
+        color: #06090a;
+      }
+
+      /* --- toast --- */
+      .toast {
+        position: fixed;
+        bottom: 1rem;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--accent-color);
+        color: #06090a;
+        padding: 0.5rem 1.25rem;
+        border-radius: 4px;
+        font-weight: bold;
+        opacity: 0;
+        transition: opacity 0.3s;
+        pointer-events: none;
+        z-index: 100;
+      }
+      .toast.visible {
+        opacity: 1;
+      }
+
+      /* --- quick-edit panel --- */
+      .quick-edit {
+        background: #0d1614;
+        border: 1px solid #1a2422;
+        border-radius: 6px;
+        padding: 0.75rem 1rem;
+        margin-bottom: 1rem;
+      }
+      .quick-edit h2 {
+        margin: 0 0 0.5rem;
+        font-size: 1rem;
+        color: var(--accent-color);
+      }
+      .quick-edit .qe-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+        gap: 0.4rem 1rem;
+      }
+      .quick-edit label {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-size: 0.8rem;
+      }
+      .quick-edit input,
+      .quick-edit select {
+        background: #06090a;
+        color: var(--text-color);
+        border: 1px solid #2a3e38;
+        border-radius: 3px;
+        padding: 0.2rem 0.35rem;
+        font-family: inherit;
+        font-size: 0.8rem;
+        width: 5rem;
+      }
+      .quick-edit input:focus,
+      .quick-edit select:focus {
+        outline: 1px solid var(--accent-color);
+        border-color: var(--accent-color);
+      }
+      .qe-crew-row {
+        display: contents;
+      }
+      .qe-crew-row span.callsign {
+        font-weight: bold;
+        color: var(--accent-color);
+        min-width: 6rem;
+      }
+
+      /* --- empty state --- */
+      .empty-state {
+        text-align: center;
+        padding: 3rem 1rem;
+        color: #6a8a80;
+      }
+
+      /* --- tree --- */
+      .tree {
+        background: #06090a;
+        border: 1px solid #1a2422;
+        border-radius: 6px;
+        padding: 0.75rem;
+        overflow-x: auto;
+        font-size: 0.8rem;
+        line-height: 1.6;
+      }
+      .tree details {
+        margin-left: 1rem;
+      }
+      .tree details > summary {
+        cursor: pointer;
+        list-style: none;
+        color: #8a9e98;
+        user-select: none;
+      }
+      .tree details > summary::before {
+        content: '▸ ';
+        color: #4a6e60;
+      }
+      .tree details[open] > summary::before {
+        content: '▾ ';
+      }
+      .tree .key {
+        color: #6ee5c0;
+      }
+      .tree .bracket {
+        color: #4a6e60;
+      }
+      .tree .count {
+        color: #4a6e60;
+        font-size: 0.75rem;
+      }
+      .tree .leaf {
+        margin-left: 1rem;
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+      }
+      .tree .leaf .key {
+        min-width: 8ch;
+      }
+      .tree .val-null {
+        color: #666;
+        font-style: italic;
+      }
+      .tree .val-bool {
+        color: #c5a3ff;
+      }
+      .tree .val-num {
+        color: #ffb86c;
+      }
+      .tree .val-str {
+        color: #f1fa8c;
+      }
+      .tree input.inline-edit {
+        background: #0d1614;
+        color: var(--text-color);
+        border: 1px solid #2a3e38;
+        border-radius: 3px;
+        padding: 0 0.25rem;
+        font-family: inherit;
+        font-size: 0.8rem;
+        width: auto;
+        min-width: 4ch;
+      }
+      .tree input.inline-edit:focus {
+        outline: 1px solid var(--accent-color);
+        border-color: var(--accent-color);
+      }
+      .tree select.inline-edit {
+        background: #0d1614;
+        color: var(--text-color);
+        border: 1px solid #2a3e38;
+        border-radius: 3px;
+        padding: 0 0.25rem;
+        font-family: inherit;
+        font-size: 0.8rem;
+      }
+      .tree .dirty {
+        border-color: #ffb86c !important;
+        box-shadow: 0 0 3px #ffb86c44;
+      }
+    </style>
+  </head>
+  <body class="save-editor">
+    <header>
+      <h1>Kernel Panic — savegame editor</h1>
+    </header>
+    <main>
+      <div class="toolbar" id="toolbar"></div>
+      <section id="quick-edit"></section>
+      <section id="tree-root"></section>
+    </main>
+    <div class="toast" id="toast"></div>
+    <script src="/debug/save.js" type="module"></script>
+  </body>
+</html>

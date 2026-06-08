@@ -32,6 +32,7 @@ const files = [
   // Debug harness pages (their scripts are compiled by tsc into dist/debug/).
   'debug/index.html',
   'debug/map.html',
+  'debug/save.html',
 ];
 
 // Directories copied recursively.
