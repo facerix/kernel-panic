@@ -1,6 +1,6 @@
 import { Entity, type EntityInit } from './Entity.js';
 import { EscortNpc } from './entities/EscortNpc.js';
-import { FACTION, SIGHT_RANGE } from './constants.js';
+import { FACTION, SIGHT_RANGE, type FactionId } from './constants.js';
 import { hasLineOfSight, withinRange } from './LineOfSight.js';
 import type { Rng } from '../rng.js';
 import type { TurnActionStep } from '../types.js';
@@ -20,12 +20,30 @@ export interface HostileInit extends EntityInit {
 export abstract class Hostile extends Entity {
   sightRange: number;
 
+  /**
+   * Decker drone-override state (P3.M2). While `overrideTurnsRemaining > 0`
+   * this hostile has been hijacked: its `faction` is temporarily the
+   * overrider's (PLAYER) and `factionBeforeOverride` records the allegiance to
+   * restore when the override lapses. Both default to the not-overridden state
+   * so every existing hostile is unaffected. The countdown is ticked once per
+   * player turn by `stepOverriddenDrones` (see `droneOverride.ts`).
+   */
+  overrideTurnsRemaining: number;
+  factionBeforeOverride: FactionId | null;
+
   constructor({ sightRange = SIGHT_RANGE, ...props }: HostileInit) {
     if (!Number.isInteger(sightRange) || sightRange < 0) {
       throw new RangeError(`Hostile sightRange must be a non-negative integer, got ${sightRange}`);
     }
     super(props);
     this.sightRange = sightRange;
+    this.overrideTurnsRemaining = 0;
+    this.factionBeforeOverride = null;
+  }
+
+  /** Whether this hostile is currently flipped to the player's side. */
+  get isOverridden(): boolean {
+    return this.overrideTurnsRemaining > 0;
   }
 
   abstract override takeTurn(world: World, rng: Rng): void | TurnActionStep[];

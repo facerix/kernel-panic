@@ -53,6 +53,7 @@ import { Crew } from './Crew.js';
 import { Merc } from './archetypes/Merc.js';
 import { Razor } from './archetypes/Razor.js';
 import { Tech } from './archetypes/Tech.js';
+import { Decker } from './archetypes/Decker.js';
 import { Turret } from './Turret.js';
 import { Skirmisher } from './ai/Skirmisher.js';
 import { Guard } from './ai/Guard.js';
@@ -136,7 +137,7 @@ const KNOWN_OUTCOMES = new Set(Object.values(OUTCOME));
 
 export type RunState = (typeof RUN_STATE)[keyof typeof RUN_STATE];
 export type Outcome = (typeof OUTCOME)[keyof typeof OUTCOME];
-export type CrewArchetypeId = 'merc' | 'razor' | 'tech';
+export type CrewArchetypeId = 'merc' | 'razor' | 'tech' | 'decker';
 export type EntityArchetypeId =
   | CrewArchetypeId
   | 'turret'
@@ -1602,12 +1603,19 @@ function exitTileInWorld(world: World): GridPoint | null {
 
 /** Shared patrol state-machine slice (Skirmisher, Guard, Bruiser, …). */
 function patrolSnapshotExtra(e: PatrolHostile): PatrolSnapshot {
-  return {
+  const snap: PatrolSnapshot = {
     state: e.state,
     lastKnownTarget: e.lastKnownTarget ? { x: e.lastKnownTarget.x, y: e.lastKnownTarget.y } : null,
     patrolWaypoints: e.patrolWaypoints.map(wp => ({ x: wp.x, y: wp.y })),
     patrolIndex: e.patrolIndex,
   };
+  // Only serialise override fields while the hijack is live — keeps the common
+  // (never-overridden) snapshot identical to its pre-P3 shape.
+  if (e.isOverridden) {
+    snap.overrideTurnsRemaining = e.overrideTurnsRemaining;
+    snap.factionBeforeOverride = e.factionBeforeOverride;
+  }
+  return snap;
 }
 
 /** Shared crew slice (Merc, Razor, Tech). Inventory/Gear are JSON-safe at runtime. */
@@ -1634,6 +1642,7 @@ const SNAPSHOT_EXTRACTORS: Partial<Record<EntityArchetypeId, (e: Entity) => Enti
   {
     merc: e => crewSnapshotExtra(e as Crew) as unknown as EntitySnapshotExtra,
     razor: e => crewSnapshotExtra(e as Crew) as unknown as EntitySnapshotExtra,
+    decker: e => crewSnapshotExtra(e as Crew) as unknown as EntitySnapshotExtra,
     tech: e =>
       ({
         ...crewSnapshotExtra(e as Crew),
@@ -1757,6 +1766,7 @@ function archetypeOf(entity: Entity): EntityArchetypeId {
   if (entity instanceof Merc) return 'merc';
   if (entity instanceof Razor) return 'razor';
   if (entity instanceof Tech) return 'tech';
+  if (entity instanceof Decker) return 'decker';
   if (entity instanceof Turret) return 'turret';
   if (entity instanceof Bruiser) return 'bruiser';
   if (entity instanceof Juggernaut) return 'juggernaut';
@@ -2259,6 +2269,7 @@ function archetypeOfCrew(entity: Entity): CrewArchetypeId {
   if (entity instanceof Merc) return 'merc';
   if (entity instanceof Razor) return 'razor';
   if (entity instanceof Tech) return 'tech';
+  if (entity instanceof Decker) return 'decker';
   throw new Error(
     `archetypeOfCrew: cannot classify crew member ${(entity as Entity | undefined)?.id}`
   );

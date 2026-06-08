@@ -7,6 +7,8 @@ import { EVENT } from './events.js';
 import { chebyshev, findPath } from './Pathfinding.js';
 import { detonateBreachingCharge } from './breachBlast.js';
 import { BreachingCharge } from './entities/BreachingCharge.js';
+import { stepOverriddenDrones, type OverriddenDroneAction } from './droneOverride.js';
+import type { Hostile } from './Hostile.js';
 import type { BlastCasualty } from './breachBlast.js';
 import type { Entity } from './Entity.js';
 import type { NeutralCivilianTurnStep } from '../types.js';
@@ -65,9 +67,16 @@ export type BreachDetonateAftermathStep = {
   casualties: BlastCasualty[];
 };
 
+export type OverriddenDroneAftermathStep = {
+  type: 'overridden-drone';
+  entity: Hostile;
+  action: OverriddenDroneAction;
+};
+
 export type PlayerAftermathStep =
   | BreachDetonateAftermathStep
   | TurretAftermathStep
+  | OverriddenDroneAftermathStep
   | NeutralCivilianAftermathStep
   | EscortAftermathStep
   | HazardAftermathStep;
@@ -88,6 +97,9 @@ export function isPlayerAftermathStepLogVisible(
       return true;
     }
     return isTileVisible(turret.x, turret.y);
+  }
+  if (step.type === 'overridden-drone') {
+    return isTileVisible(step.entity.x, step.entity.y);
   }
   if (step.type === 'neutral-civilian') {
     return isTileVisible(step.entity.x, step.entity.y);
@@ -320,6 +332,13 @@ export function* runPlayerAftermathSteps(
       };
     }
   }
+  // Phase 1b: overridden drones act on the player's side, then their hijack
+  // countdown ticks and they revert when it lapses (P3.M2). They are
+  // player-aligned automated combatants — same aftermath slot as turrets.
+  for (const { entity, action } of stepOverriddenDrones(world, rng)) {
+    yield { type: 'overridden-drone', entity, action };
+  }
+
   // Phase 2: neutral civilian reactions (flee / panic / idle based on rep)
   const rep = opts?.rep ?? REP.START;
   for (const entity of world.entities.values()) {
@@ -396,6 +415,9 @@ export function formatPlayerAftermathStepLogLines(step: PlayerAftermathStep) {
   if (step.type === 'turret-autofire') {
     const line = formatTurretAutofireLine(step.turret, step.action);
     return line ? [line] : [];
+  }
+  if (step.type === 'overridden-drone') {
+    return formatOverriddenDroneLine(step);
   }
   if (step.type === 'neutral-civilian') {
     return formatNeutralCivilianLine(step.entity, step.step);
@@ -528,6 +550,17 @@ function validatePlayerAftermathDriverCtx(
   if (ctx.schedule !== undefined && typeof ctx.schedule !== 'function') {
     throw new TypeError('drivePlayerAftermath: ctx.schedule must be a function when supplied');
   }
+}
+
+function formatOverriddenDroneLine(step: OverriddenDroneAftermathStep): string[] {
+  const label = entityLabel(step.entity);
+  if (step.action.type === 'override-expired') {
+    return [`${label} shakes off the override — back under corp control.`];
+  }
+  // The drone's individual combat outcome surfaces through ENTITY_DAMAGED
+  // listeners (same as corp-turn steps); here we only note that the hijacked
+  // unit is acting on our side.
+  return [`${label} (overridden) acts.`];
 }
 
 function formatNeutralCivilianLine(

@@ -16,10 +16,12 @@ import {
   ARCHETYPES,
   ARCHETYPE_IDS,
   CALLSIGNS_BY_ARCHETYPE,
+  RECRUIT_ARCHETYPE_POOL,
   buildCrewMember,
   isArchetypeId,
   pickCallsign,
 } from '../../../src/game/archetypes/index.js';
+import { Decker } from '../../../src/game/archetypes/Decker.js';
 import { FACTION } from '../../../src/game/constants.js';
 import { Merc, CALLSIGNS as MERC_CALLSIGNS } from '../../../src/game/archetypes/Merc.js';
 import { CALLSIGNS as RAZOR_CALLSIGNS } from '../../../src/game/archetypes/Razor.js';
@@ -143,6 +145,35 @@ test('buildCrewMember rejects a malformed spawn', () => {
 test('buildCrewMember rejects a missing or invalid rng', () => {
   assert.throws(() => buildCrewMember('merc', { x: 0, y: 0 }), /Rng/i);
   assert.throws(() => buildCrewMember('merc', { x: 0, y: 0 }, {}), /Rng/i);
+});
+
+// --- Decker (P3.M2): registered, buildable, but not a starter/recruit pick ---
+
+test('Decker is registered in ARCHETYPES with its OVERRIDE perk metadata', () => {
+  const a = ARCHETYPES.decker;
+  assert.ok(a, 'missing decker archetype');
+  assert.equal(a.id, 'decker');
+  assert.equal(a.name, 'DECKER');
+  assert.deepEqual(a.perks, ['override']);
+  assert.equal(a.perkName, 'OVERRIDE');
+  assert.ok(a.perkLabel.length > 0);
+});
+
+test('Decker is excluded from the starter selector and the random recruit pool', () => {
+  // The Decker joins only via the Act-2 narrative beat — never as a starter
+  // pick or a random recruit roll (P3.M2 design constraint).
+  assert.ok(!ARCHETYPE_IDS.includes('decker'), 'Decker must not be a selectable starter');
+  assert.ok(
+    !RECRUIT_ARCHETYPE_POOL.includes('decker'),
+    'Decker must not be in the random recruit pool'
+  );
+});
+
+test('buildCrewMember can still construct a Decker by id (recruitment path)', () => {
+  const d = buildCrewMember('decker', { x: 1, y: 2 }, new Rng(9));
+  assert.ok(d instanceof Decker);
+  assert.equal(isArchetypeId('decker'), true);
+  assert.ok(CALLSIGNS_BY_ARCHETYPE.decker.includes(d.callsign));
 });
 
 test('isArchetypeId is a string-set membership check', () => {

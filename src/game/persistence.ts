@@ -47,6 +47,7 @@ import { Crew } from './Crew.js';
 import { Merc } from './archetypes/Merc.js';
 import { Razor } from './archetypes/Razor.js';
 import { Tech } from './archetypes/Tech.js';
+import { Decker } from './archetypes/Decker.js';
 import { Turret } from './Turret.js';
 import { Skirmisher, type SkirmisherProps } from './ai/Skirmisher.js';
 import { Guard, type GuardProps } from './ai/Guard.js';
@@ -179,6 +180,7 @@ const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) =
     merc: (props: RestoreEntityProps) => new Merc(props as CrewInit),
     razor: (props: RestoreEntityProps) => new Razor(props as CrewInit),
     tech: (props: RestoreEntityProps) => new Tech(props as CrewInit),
+    decker: (props: RestoreEntityProps) => new Decker(props as CrewInit),
     turret: (props: RestoreEntityProps) => new Turret(props as TurretInit),
     drone: (props: RestoreEntityProps) => new Skirmisher(props as SkirmisherProps),
     guard: (props: RestoreEntityProps) => new Guard(props as GuardProps),
@@ -475,6 +477,46 @@ function restorePatrolState(
     }
     entity.patrolIndex = len > 0 ? idx : 0;
   }
+  restoreOverrideState(entity, patrol, rec);
+}
+
+/**
+ * Re-apply Decker drone-override bookkeeping (P3.M2). The two fields travel as
+ * a pair: a live hijack has a positive countdown *and* a recorded prior
+ * faction. Either one present without the other — or a countdown that isn't a
+ * positive integer, or a prior faction that isn't a known faction — is corrupt
+ * mid-override state and throws, rather than silently restoring a drone that
+ * can never revert.
+ */
+function restoreOverrideState(
+  entity: PatrolHostile,
+  patrol: Partial<PatrolSnapshot>,
+  rec: RunEntitySnapshot
+): void {
+  const hasTurns = patrol.overrideTurnsRemaining !== undefined;
+  const hasPrior =
+    patrol.factionBeforeOverride !== undefined && patrol.factionBeforeOverride !== null;
+  if (!hasTurns && !hasPrior) return;
+  if (hasTurns !== hasPrior) {
+    throw new Error(
+      `restore: ${rec.archetype} ${rec.id} override state is half-populated ` +
+        `(turns=${patrol.overrideTurnsRemaining}, prior=${patrol.factionBeforeOverride})`
+    );
+  }
+  const turns = patrol.overrideTurnsRemaining as number;
+  if (!Number.isInteger(turns) || turns <= 0) {
+    throw new RangeError(
+      `restore: ${rec.archetype} ${rec.id} overrideTurnsRemaining must be a positive integer, got ${turns}`
+    );
+  }
+  const prior = patrol.factionBeforeOverride as FactionId;
+  if (!KNOWN_FACTIONS.has(prior)) {
+    throw new Error(
+      `restore: ${rec.archetype} ${rec.id} factionBeforeOverride "${prior}" is not a known faction`
+    );
+  }
+  entity.overrideTurnsRemaining = turns;
+  entity.factionBeforeOverride = prior;
 }
 
 type RestoreEntry = {
@@ -1168,7 +1210,7 @@ function validateRecord(record: unknown): asserts record is RunSnapshot {
   }
 }
 
-const KNOWN_ARCHETYPES_SET = new Set<CrewArchetypeId>(['merc', 'razor', 'tech']);
+const KNOWN_ARCHETYPES_SET = new Set<CrewArchetypeId>(['merc', 'razor', 'tech', 'decker']);
 
 /** Clamp gear bonuses to archetype caps after restore. */
 function repairGearForCrew(member: Crew) {
@@ -1620,6 +1662,7 @@ function archetypeOfCrew(member: Crew): CrewArchetypeId {
   if (member instanceof Merc) return 'merc';
   if (member instanceof Razor) return 'razor';
   if (member instanceof Tech) return 'tech';
+  if (member instanceof Decker) return 'decker';
   throw new Error(`snapshotCampaign: cannot classify crew member ${member?.id}`);
 }
 

@@ -42,7 +42,7 @@ A new **player archetype** recruited mid-campaign (late Act 1 / start of Act 2),
 | Milestone | Status |
 |---|---|
 | P3.M1 — Campaign arc structure | 🚧 In progress — P3.M1.1 done |
-| P3.M2 — The Decker archetype | 🔲 Planned |
+| P3.M2 — The Decker archetype | 🚧 In progress — class + Drone Override Hack done; recruitment flow pending P3.M1.2 |
 | P3.M3 — Cyberspace grid + ICE | 🔲 Planned |
 | P3.M4 — Simstim flip (dual-deploy) | 🔲 Planned |
 | P3.M5 — The Score (climactic mission) | 🔲 Planned |
@@ -167,11 +167,13 @@ Neural degradation is deferred until Cyberspace is fun enough to deserve a jack-
 
 **Acceptance:**
 
-- Decker archetype playable in Meatspace: move, attack, interact, deploy — comparable to other archetypes.
-- Drone Override Hack: golden-path test — target drone, override succeeds, drone attacks corp allies for N turns, reverts or is destroyed.
-- Recruitment: gated by arc state; not available in Act 1; golden-path test for recruitment flow.
-- Snapshot: Decker state (including Cyberspace attributes) persists in campaign save; restore round-trip.
-- Key help: Decker glyph and ability description.
+- ✅ Decker archetype playable in Meatspace: move, attack, interact — comparable to other archetypes (`Decker` extends `Crew`, `baseHitChance` 0.7, `@` glyph).
+- ✅ Drone Override Hack: golden-path test — target drone, override succeeds, drone attacks corp allies for N turns, reverts or is destroyed (`droneOverride.ts`, `Decker.test.ts`). Failed roll burns AP and trips the alarm.
+- 🔲 Recruitment: gated by arc state; not available in Act 1; golden-path test for recruitment flow. **Deferred — needs P3.M1.2 act transitions.** Decker is registered but excluded from `ARCHETYPE_IDS` and `RECRUIT_ARCHETYPE_POOL` so random recruitment can't roll one early.
+- ✅ Snapshot: Decker state persists (campaign + run round-trip); live drone-override state round-trips through the patrol snapshot. Cyberspace attributes deferred to P3.M3.
+- ✅ Key help: Decker glyph (`@`) and OVERRIDE ability description via shared `ARCHETYPES[id].perkLabel`.
+
+**P3.M2 implementation note:** The Decker's signature **Override** reuses the unified `special` perk key — the intent layer's `doSpecial` sniffs `canOverride` and resolves a drone along the aim ray (`OVERRIDE_RANGE`, LOS-gated, like fire). A successful hijack flips the drone to `FACTION.PLAYER` for `OVERRIDE_DURATION` turns; the existing hostile AI then fights corp for free (it targets by faction difference). Override state lives on `Hostile` (`overrideTurnsRemaining`, `factionBeforeOverride`) and is driven each player turn by `stepOverriddenDrones`, a new combat-aftermath phase that steps the hijacked drone and reverts it when the countdown lapses. Mid-override saves round-trip through the patrol snapshot; half-populated override state throws on restore.
 
 ---
 

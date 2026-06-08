@@ -75,7 +75,25 @@ export const AP_COST = Object.freeze({
   VAULT: 2, // Merc — hop a cover tile while firing
   SLIDE: 2, // Razor — 2-tile reposition with stealth bonus
   DEPLOY: 2, // Tech — place a turret on an adjacent tile
+  OVERRIDE: 2, // Decker — hijack a corp drone's allegiance
 });
+
+/**
+ * Decker drone-override parameters (P3.M2). The Decker's signature Meatspace
+ * ability flips a corp drone to the player's side for a few turns by reusing
+ * the existing drone AI with a faction swap (the AI targets by faction, so a
+ * flipped drone fights its former allies for free).
+ *
+ *   - `OVERRIDE_RANGE` — reach for the intrusion, matched to baseline SIGHT so
+ *     the Decker must have a clean LOS lane like a ranged shot.
+ *   - `OVERRIDE_DURATION` — turns the drone stays player-aligned before its
+ *     firmware reasserts control and it reverts to its original faction.
+ *   - `OVERRIDE_SUCCESS_CHANCE` — probability the intrusion takes. A failed
+ *     attempt still burns AP and trips the facility alarm.
+ */
+export const OVERRIDE_RANGE = 5;
+export const OVERRIDE_DURATION = 3;
+export const OVERRIDE_SUCCESS_CHANCE = 0.6;
 
 /**
  * Tech turret parameters. The turret is a placed grid entity (peer of

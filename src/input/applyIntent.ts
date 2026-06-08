@@ -18,11 +18,13 @@
  * automation can commit a melee strike without synthesizing a walk intent.
  *
  * The archetype-specific perks (Merc's Vault, Razor's Slide, Tech's Deploy
- * Turret) collapse into a single `special` intent at the keymap layer. The
- * `doSpecial` dispatcher below routes it to the right verb based on which
- * methods the active player class exposes — `canVault` → vault, `canSlide` →
- * slide, `canDeploy` → deploy. This keeps the input surface symmetric across
- * archetypes (one key, one touch button) and stays out of the player's way:
+ * Turret, Decker's Override) collapse into a single `special` intent at the
+ * keymap layer. The `doSpecial` dispatcher below routes it to the right verb
+ * based on which methods the active player class exposes — `canVault` → vault,
+ * `canSlide` → slide, `canDeploy` → deploy, `canOverride` → override (the
+ * Decker resolves a drone along the aim ray, like fire). This keeps the input
+ * surface symmetric across archetypes (one key, one touch button) and stays
+ * out of the player's way:
  * the keymap doesn't need to know which class is in play, and the intent
  * dispatcher doesn't need an explicit archetype switch.
  *
@@ -39,7 +41,13 @@
  * harness assumption.
  */
 
-import { FACTION, SIGHT_RANGE, VAULT_DAMAGE, NOISE_RADIUS } from '../game/constants.js';
+import {
+  FACTION,
+  SIGHT_RANGE,
+  VAULT_DAMAGE,
+  NOISE_RADIUS,
+  OVERRIDE_RANGE,
+} from '../game/constants.js';
 import { totalSalvage, formatSalvageCompact } from '../game/salvage.js';
 import { canFireRanged, resolveRanged, canMelee, resolveMelee } from '../game/Combat.js';
 import { isConcealedFromPlayer } from '../game/playerPerception.js';
@@ -58,6 +66,7 @@ import type { Rng } from '../rng.js';
 import type { Tech } from '../game/archetypes/Tech.js';
 import type { Merc } from '../game/archetypes/Merc.js';
 import type { Razor } from '../game/archetypes/Razor.js';
+import type { Decker } from '../game/archetypes/Decker.js';
 
 export type Intent = {
   type: string;
@@ -347,7 +356,60 @@ function doSpecial(intent: Intent, ctx: ApplyIntentContext) {
   if (typeof (player as Razor).canSlide === 'function') {
     return doSlide(intent, ctx);
   }
+  if (typeof (player as Decker).canOverride === 'function') {
+    return doOverride(intent, ctx);
+  }
   log('> SPECIAL: this archetype has no perk action.');
+}
+
+/**
+ * Walk the aim ray for the Decker's Override perk and resolve the first hostile
+ * drone in reach, then attempt the hijack. Mirrors `pickFireTarget`'s geometry
+ * (bounded by `OVERRIDE_RANGE`, LOS-gated) so the target the picker lands on is
+ * exactly the one the resolver will act on. A failed roll trips the alarm; an
+ * out-of-reach ray or non-drone target yields a legible deny, not a crash.
+ */
+function doOverride(intent: Intent, ctx: ApplyIntentContext) {
+  const { world, player, log } = ctx;
+  const decker = player as Decker;
+  const playerLabel = entityLabel(player);
+  const target = pickOverrideTarget(ctx, intent.dx!, intent.dy!);
+  const check = decker.canOverride(world, target);
+  if (!check.ok) {
+    log(`> ${playerLabel} OVERRIDE DENIED: ${check.reason}`);
+    return;
+  }
+  const result = decker.overrideDrone(world, target!, ctx.rng);
+  const targetLabel = entityLabel(target!);
+  if (result.success) {
+    log(`> ${playerLabel} OVERRIDES ${targetLabel} — it fights for you! (${player.ap} AP left).`);
+  } else {
+    log(
+      `> ${playerLabel} OVERRIDE FAILED on ${targetLabel}` +
+        `${result.alarm ? ' — ALARM TRIPPED' : ''} (${player.ap} AP left).`
+    );
+  }
+  gateOnApExhausted(ctx);
+}
+
+/**
+ * First hostile along (dx, dy) within `OVERRIDE_RANGE` and LOS. Returns `null`
+ * when the ray leaves the map, exceeds range, hits a wall, or finds no entity —
+ * `canOverride` turns that `null` into a `not-overridable` deny.
+ */
+function pickOverrideTarget(ctx: ApplyIntentContext, dx: number, dy: number) {
+  const { world, player } = ctx;
+  const blockers = world.blockerKeys();
+  for (let step = 1; step <= OVERRIDE_RANGE; step++) {
+    const x = player.x + dx * step;
+    const y = player.y + dy * step;
+    if (!world.grid.inBounds(x, y)) return null;
+    if (!withinRange(player.x, player.y, x, y, OVERRIDE_RANGE)) return null;
+    if (!hasLineOfSight(world.grid, player.x, player.y, x, y, { blockers })) return null;
+    const e = world.entityAt(x, y);
+    if (e) return e;
+  }
+  return null;
 }
 
 function doDeploy(intent: Intent, ctx: ApplyIntentContext) {
