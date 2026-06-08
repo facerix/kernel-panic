@@ -41,7 +41,7 @@ A new **player archetype** recruited mid-campaign (late Act 1 / start of Act 2),
 
 | Milestone | Status |
 |---|---|
-| P3.M1 — Campaign arc structure | 🔲 Planned |
+| P3.M1 — Campaign arc structure | 🚧 In progress — P3.M1.1 done |
 | P3.M2 — The Decker archetype | 🔲 Planned |
 | P3.M3 — Cyberspace grid + ICE | 🔲 Planned |
 | P3.M4 — Simstim flip (dual-deploy) | 🔲 Planned |
@@ -127,14 +127,16 @@ Neural degradation is deferred until Cyberspace is fun enough to deserve a jack-
 
 **Implementation slices:**
 
-| Slice | Change | Tests |
-|---|---|---|
-| **P3.M1.1 Arc record** | Add `Campaign.arc`, derive `arcStage`, persist/restore, normalize old saves to Act 1 | constructor validation, snapshot round-trip, invalid stage throws |
-| **P3.M1.2 Transitions** | Advance acts from `rep`, `completedJobs`, Decker flag, Score-site visit | boundary tests around job counts and rep tier |
-| **P3.M1.3 Score target** | Promote one roster site to `tier: 'score'`; preserve through eviction | exactly-one target, no eviction at roster cap, synthetic target when roster empty |
-| **P3.M1.4 Clock** | Start heat after threshold; hard loss at deadline; show status | heat math, deadline loss, no loss after Score attempt |
-| **P3.M1.5 Curator bias** | Pass campaign-derived arc context; bias board slots by act and score target | seeded boards show expected `arcStage` and target-site frequency |
-| **P3.M1.6 Score entry** | Hub action creates the special Score contract in Act 3 only | availability gates, deployment path, attempted flag |
+| Slice | Status | Change | Tests |
+|---|---|---|---|
+| **P3.M1.1 Arc record** | ✅ Done | Add `Campaign.arc`, derive `arcStage`, persist/restore, normalize old saves to Act 1 | constructor validation, snapshot round-trip, invalid stage throws |
+| **P3.M1.2 Transitions** | 🔲 Planned | Advance acts from `rep`, `completedJobs`, Decker flag, Score-site visit | boundary tests around job counts and rep tier |
+| **P3.M1.3 Score target** | 🔲 Planned | Promote one roster site to `tier: 'score'`; preserve through eviction | exactly-one target, no eviction at roster cap, synthetic target when roster empty |
+| **P3.M1.4 Clock** | 🔲 Planned | Start heat after threshold; hard loss at deadline; show status | heat math, deadline loss, no loss after Score attempt |
+| **P3.M1.5 Curator bias** | 🔲 Planned | Pass campaign-derived arc context; bias board slots by act and score target | seeded boards show expected `arcStage` and target-site frequency |
+| **P3.M1.6 Score entry** | 🔲 Planned | Hub action creates the special Score contract in Act 3 only | availability gates, deployment path, attempted flag |
+
+**P3.M1.1 implementation note:** `Campaign` now owns a typed `arc` record (`arcStage`, `deckerRecruited`, `scoreRevealed`, `clockStarted`, `scoreAttempted`, `scoreCompleted`) plus an `arcStage` getter for Curator context. New snapshots serialize the record; pre-P3 snapshots normalize to Act 1; malformed persisted arc data throws during restore instead of being silently repaired.
 
 **Acceptance:**
 

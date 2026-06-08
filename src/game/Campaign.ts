@@ -37,7 +37,7 @@ import {
 } from './locations.js';
 import type { Contract } from './hub/Curator.js';
 import type { Crew } from './Crew.js';
-import type { GridPoint, KeyItem, LocationSite, TileDelta } from '../types.js';
+import type { CampaignArcStage, GridPoint, KeyItem, LocationSite, TileDelta } from '../types.js';
 import type { RunResult, Outcome } from './Run.js';
 
 /** Max remembered combat locations (P2.5.M7.2). One slot is reserved for Phase 3's score target. */
@@ -57,6 +57,28 @@ export type CampaignState = (typeof CAMPAIGN_STATE)[keyof typeof CAMPAIGN_STATE]
 // type is a plain Record so they don't cause a type error on restore.
 export type CampaignMeta = Record<string, unknown>;
 
+export type CampaignArc = {
+  arcStage: CampaignArcStage;
+  deckerRecruited: boolean;
+  scoreRevealed: boolean;
+  clockStarted: boolean;
+  scoreAttempted: boolean;
+  scoreCompleted: boolean;
+};
+
+const CAMPAIGN_ARC_STAGES: readonly CampaignArcStage[] = ['act-1', 'act-2', 'act-3', 'score'];
+
+export function defaultCampaignArc(): CampaignArc {
+  return {
+    arcStage: 'act-1',
+    deckerRecruited: false,
+    scoreRevealed: false,
+    clockStarted: false,
+    scoreAttempted: false,
+    scoreCompleted: false,
+  };
+}
+
 export type CampaignOptions = {
   id?: string;
   seed?: unknown;
@@ -65,6 +87,7 @@ export type CampaignOptions = {
   credits?: unknown;
   rep?: unknown;
   meta?: unknown;
+  arc?: unknown;
   hubReveals?: unknown;
   completedJobs?: unknown;
   keyItems?: unknown;
@@ -116,6 +139,7 @@ export class Campaign {
   credits: number;
   rep: number;
   meta: CampaignMeta;
+  arc: CampaignArc;
   state: CampaignState;
   activeRun: Run | null;
   deployedMemberId: string | null;
@@ -153,6 +177,7 @@ export class Campaign {
     credits = 0,
     rep = REP.START,
     meta = {},
+    arc,
     hubReveals,
     completedJobs = 0,
     keyItems,
@@ -205,6 +230,7 @@ export class Campaign {
     this.credits = credits;
     this.rep = rep;
     this.meta = { ...(meta as CampaignMeta) };
+    this.arc = normalizeCampaignArc(arc);
     this.hubReveals = normalizeHubReveals(hubReveals, 'Campaign hubReveals');
     this.completedJobs = (completedJobs as number) ?? 0;
     this.keyItems = normalizeKeyItems(keyItems);
@@ -238,6 +264,10 @@ export class Campaign {
     if (this.crew.length > 0) {
       this.enterHub();
     }
+  }
+
+  get arcStage(): CampaignArcStage {
+    return this.arc.arcStage;
   }
 
   enterHub(): void {
@@ -1005,6 +1035,39 @@ function normalizeSiteRoster(raw: unknown): LocationSite[] {
     throw new TypeError('Campaign: siteRoster must be an array when supplied');
   }
   return raw.map(entry => normalizeLocationSite(entry));
+}
+
+export function isCampaignArcStage(value: unknown): value is CampaignArcStage {
+  return typeof value === 'string' && CAMPAIGN_ARC_STAGES.includes(value as CampaignArcStage);
+}
+
+export function normalizeCampaignArc(raw: unknown, context = 'Campaign arc'): CampaignArc {
+  if (raw === undefined) return defaultCampaignArc();
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new TypeError(`${context} must be an object when supplied`);
+  }
+
+  const candidate = raw as Partial<Record<keyof CampaignArc, unknown>>;
+  if (!isCampaignArcStage(candidate.arcStage)) {
+    throw new Error(`${context}.arcStage "${candidate.arcStage}" is not known`);
+  }
+
+  const readBooleanArcFlag = (flag: keyof Omit<CampaignArc, 'arcStage'>): boolean => {
+    const value = candidate[flag];
+    if (typeof value !== 'boolean') {
+      throw new TypeError(`${context}.${flag} must be boolean`);
+    }
+    return value;
+  };
+
+  return {
+    arcStage: candidate.arcStage,
+    deckerRecruited: readBooleanArcFlag('deckerRecruited'),
+    scoreRevealed: readBooleanArcFlag('scoreRevealed'),
+    clockStarted: readBooleanArcFlag('clockStarted'),
+    scoreAttempted: readBooleanArcFlag('scoreAttempted'),
+    scoreCompleted: readBooleanArcFlag('scoreCompleted'),
+  };
 }
 
 function makeCampaignId(seed: number): string {

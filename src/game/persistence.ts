@@ -73,7 +73,7 @@ import { KeyCard } from './entities/KeyCard.js';
 import { BreachingCharge } from './entities/BreachingCharge.js';
 import type { BreachingChargeInit } from './entities/BreachingCharge.js';
 import { Run, RUN_STATE, PATROL_ARCHETYPE_IDS } from './Run.js';
-import { Campaign, CAMPAIGN_STATE } from './Campaign.js';
+import { Campaign, CAMPAIGN_STATE, normalizeCampaignArc } from './Campaign.js';
 import { normalizeContractContext, normalizeObjective } from './hub/Curator.js';
 import {
   migrateLegacyHubReveals,
@@ -97,6 +97,7 @@ import type { ConsumablePickupInit } from './entities/ConsumablePickup.js';
 import type { EscortNpcInit } from './entities/EscortNpc.js';
 import type { KeyCardInit } from './entities/KeyCard.js';
 import type { EntityInit } from './Entity.js';
+import type { CampaignArc } from './Campaign.js';
 import type { FactionId } from './constants.js';
 import type {
   CrewArchetypeId,
@@ -710,6 +711,8 @@ export type CampaignSnapshot = {
   credits?: number;
   rep: number;
   meta: CampaignMeta;
+  /** Phase 3 campaign arc state. Defaults to Act 1 for pre-P3 saves. */
+  arc?: CampaignArc;
   deployedMemberId: string | null;
   activeRun: CampaignActiveRunSnapshot | null;
   /** Recruit candidates available this hub visit. Defaults to [] for pre-P2.M6 saves. */
@@ -775,6 +778,7 @@ export function snapshotCampaign(campaign: Campaign): CampaignSnapshot {
     credits: campaign.credits,
     rep: campaign.rep,
     meta: { ...campaign.meta },
+    arc: { ...campaign.arc },
     deployedMemberId: campaign.deployedMemberId,
     activeRun: campaign.activeRun ? snapshotActiveRun(campaign.activeRun) : null,
     availableRecruits: campaign.availableRecruits.map(snapshotCrewMember),
@@ -920,6 +924,7 @@ export function restoreCampaign(record: unknown, options: RestoreCampaignOptions
     credits: record.credits ?? 0,
     rep: record.rep,
     meta: record.meta,
+    arc: record.arc,
     hubReveals: normalizeHubReveals(
       migrateLegacyHubReveals(record.hubReveals, {
         rep: record.rep,
@@ -1573,6 +1578,9 @@ function validateCampaignRecord(record: unknown): asserts record is CampaignSnap
     Array.isArray(candidate.meta)
   ) {
     throw new TypeError('restoreCampaign: meta must be an object');
+  }
+  if (candidate.arc !== undefined) {
+    normalizeCampaignArc(candidate.arc, 'restoreCampaign arc');
   }
   if (candidate.state === CAMPAIGN_STATE.COMBAT && !candidate.activeRun) {
     throw new Error('restoreCampaign: COMBAT state requires activeRun');

@@ -5,6 +5,7 @@ import {
   Campaign,
   CAMPAIGN_STATE,
   buildCrew,
+  defaultCampaignArc,
   willEndCampaignOnThisDeath,
 } from '../../../src/game/Campaign.js';
 import { OUTCOME, RUN_STATE } from '../../../src/game/Run.js';
@@ -52,11 +53,70 @@ test('Campaign starts in HUB with crew, salvage, credits, rep, and meta state', 
   assert.equal(campaign.credits, 0);
   assert.equal(campaign.rep, 20);
   assert.deepEqual(campaign.meta, {});
+  assert.deepEqual(campaign.arc, defaultCampaignArc());
+  assert.equal(campaign.arcStage, 'act-1');
   assert.equal(campaign.crew.length, 3);
   assert.ok(campaign.world);
   assert.ok(campaign.player);
   assert.ok(campaign.curator);
   assert.ok(campaign.terminal);
+});
+
+test('Campaign accepts and exposes a valid Phase 3 arc record', () => {
+  const campaign = new Campaign({
+    seed: 42,
+    arc: {
+      arcStage: 'act-2',
+      deckerRecruited: true,
+      scoreRevealed: true,
+      clockStarted: false,
+      scoreAttempted: false,
+      scoreCompleted: false,
+    },
+  });
+
+  assert.equal(campaign.arcStage, 'act-2');
+  assert.deepEqual(campaign.arc, {
+    arcStage: 'act-2',
+    deckerRecruited: true,
+    scoreRevealed: true,
+    clockStarted: false,
+    scoreAttempted: false,
+    scoreCompleted: false,
+  });
+});
+
+test('Campaign rejects malformed Phase 3 arc records', () => {
+  assert.throws(() => new Campaign({ seed: 42, arc: null }), /arc must be an object/i);
+  assert.throws(
+    () =>
+      new Campaign({
+        seed: 42,
+        arc: {
+          arcStage: 'act-x',
+          deckerRecruited: false,
+          scoreRevealed: false,
+          clockStarted: false,
+          scoreAttempted: false,
+          scoreCompleted: false,
+        },
+      }),
+    /arcStage/
+  );
+  assert.throws(
+    () =>
+      new Campaign({
+        seed: 42,
+        arc: {
+          arcStage: 'act-1',
+          deckerRecruited: false,
+          scoreRevealed: false,
+          clockStarted: false,
+          scoreAttempted: false,
+        },
+      }),
+    /scoreCompleted/
+  );
 });
 
 test('deployCrewMember starts a job Run for a non-flatlined crew member', () => {
@@ -522,6 +582,52 @@ test('rep survives campaign snapshot/restore round-trip', () => {
   const snap = snapshotCampaign(campaign);
   const restored = restoreCampaign(snap);
   assert.equal(restored.rep, 35);
+});
+
+test('campaign arc survives persistence round-trip', () => {
+  const campaign = new Campaign({
+    seed: 42,
+    arc: {
+      arcStage: 'score',
+      deckerRecruited: true,
+      scoreRevealed: true,
+      clockStarted: true,
+      scoreAttempted: true,
+      scoreCompleted: false,
+    },
+  });
+
+  const snap = snapshotCampaign(campaign);
+  const restored = restoreCampaign(snap);
+
+  assert.deepEqual(snap.arc, campaign.arc);
+  assert.deepEqual(restored.arc, campaign.arc);
+  assert.equal(restored.arcStage, 'score');
+});
+
+test('pre-P3 campaign snapshots restore with a default Act 1 arc', () => {
+  const campaign = new Campaign({ seed: 42 });
+  const snap = snapshotCampaign(campaign) as Record<string, unknown>;
+  delete snap.arc;
+
+  const restored = restoreCampaign(snap as never);
+
+  assert.deepEqual(restored.arc, defaultCampaignArc());
+  assert.equal(restored.arcStage, 'act-1');
+});
+
+test('restoreCampaign rejects corrupt Phase 3 arc snapshots', () => {
+  const campaign = new Campaign({ seed: 42 });
+  const snap = snapshotCampaign(campaign);
+
+  assert.throws(
+    () => restoreCampaign({ ...snap, arc: { ...snap.arc, arcStage: 'bad-stage' } }),
+    /arcStage/
+  );
+  assert.throws(
+    () => restoreCampaign({ ...snap, arc: { ...snap.arc, scoreAttempted: 'yes' } }),
+    /scoreAttempted/
+  );
 });
 
 // ─── Recruitment ────────────────────────────────────────────────────────

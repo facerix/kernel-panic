@@ -22,7 +22,7 @@ import { resolveMapDimensions } from '../procgen/mapDimensions.js';
 import type { Rng } from '../../rng.js';
 import type { EntityInit } from '../Entity.js';
 import type { ContractDifficulty } from '../constants.js';
-import type { LocationSite, LocationToken } from '../../types.js';
+import type { CampaignArcStage, LocationSite, LocationToken } from '../../types.js';
 
 export const OBJECTIVES = Object.freeze({
   REACH_EXIT: 'reach-exit',
@@ -46,8 +46,6 @@ export type ContractObjective = {
   params?: ObjectiveParams;
 };
 
-export type ContractArcStage = 'act-1' | 'act-2' | 'act-3' | 'score';
-
 export type ContractContextToken = {
   id: string;
   label: string;
@@ -62,7 +60,7 @@ export type ContractContext = {
   asset: ContractContextToken;
   action: ContractContextToken;
   tags: string[];
-  arcStage?: ContractArcStage;
+  arcStage?: CampaignArcStage;
   /**
    * References a `LocationSite.id` in the campaign roster when the Curator
    * targets a remembered site for a revisit (P2.5.M7.2). Distinct from the
@@ -73,7 +71,7 @@ export type ContractContext = {
 };
 
 type ContractRecipeContext = {
-  arcStage?: ContractArcStage;
+  arcStage?: CampaignArcStage;
 };
 
 type ContractToken = {
@@ -489,7 +487,7 @@ type ContractCampaign =
   | {
       rep?: number;
       meta?: Record<string, unknown>;
-      arcStage?: ContractArcStage | null;
+      arcStage?: CampaignArcStage | null;
       /** Remembered combat locations the Curator may steer revisits toward (P2.5.M7.2). */
       siteRoster?: LocationSite[];
     }
@@ -754,7 +752,7 @@ export function buildContractRecipeFixture({
   actionId: string;
   difficulty: ContractDifficulty;
   seed: number;
-  arcStage?: ContractArcStage;
+  arcStage?: CampaignArcStage;
 }): Contract {
   if (!isContractDifficulty(difficulty)) {
     throw new Error(`Curator fixture: unknown difficulty "${difficulty}"`);
@@ -895,7 +893,7 @@ function contractRecipeContext(campaign: ContractCampaign): ContractRecipeContex
   return arcStage ? { arcStage } : {};
 }
 
-function isArcStage(value: unknown): value is ContractArcStage {
+function isArcStage(value: unknown): value is CampaignArcStage {
   return value === 'act-1' || value === 'act-2' || value === 'act-3' || value === 'score';
 }
 
