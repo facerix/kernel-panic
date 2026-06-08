@@ -107,7 +107,7 @@ export class World {
     const repPenalty = context.repPenalty ?? true;
     this.alarm = alertAlarm(previous.triggers + 1);
     this.events?.emit(EVENT.ALARM, {
-      // Facility-cadence alarm. The `kind` discriminator (M3.1) lets patrol
+      // Facility-cadence alarm. The `kind` discriminator (P2.7.M3.1) lets patrol
       // hostiles distinguish a building-wide raise from a Lookout's direct
       // target-share ping. `repPenalty` is set by the caller — CorpCivilian
       // defaults true; combat terminals pass false (job noise, not social cost).
@@ -339,8 +339,8 @@ export class World {
    * Movement / targeting occupancy. Returns the first live, non-passable
    * entity at `(x, y)` — corpses are skipped (they stay in `entities` for
    * salvage/rendering but must not block movement or register as LOS
-   * blockers, see `blockerKeys`), and so are passable entities (M4.3
-   * walk-onto consumable pickups, future floor props). Callers that need a
+   * blockers, see `blockerKeys`), and so are passable entities (walk-onto
+   * consumable pickups, future floor props). Callers that need a
    * stricter "any live entity here" check — `addEntity`, `relocateEntity`,
    * placement helpers — should use {@link liveEntityAt}. Use
    * {@link anyEntityAt} for *any* occupant regardless of `alive`/`passable`,
@@ -423,8 +423,8 @@ export class World {
   }
 
   /**
-   * Walk-onto consumable pickup (M4.3), if any. Returns the first live,
-   * passable `ConsumablePickup` on the tile. The player auto-picks these up
+   * Walk-onto consumable pickup, if any. Returns the first live, passable
+   * `ConsumablePickup` on the tile. The player auto-picks these up
    * during `applyIntent.doMove`; AI never targets them. Co-existence with a
    * corpse on the same tile is supported (rare but legal — a drone dies on
    * top of a pickup); both can be collected in a single move tick.
@@ -437,8 +437,8 @@ export class World {
   }
 
   /**
-   * Walk-onto retrieve objective pickup (M2.5), if any. Passable `Pickup`
-   * props are secured when the player (or a perk landing) enters the tile.
+   * Walk-onto retrieve objective pickup, if any. Passable `Pickup` props are
+   * secured when the player (or a perk landing) enters the tile.
    */
   objectivePickupAt(x: number, y: number): Pickup | null {
     for (const e of this.entities.values()) {
@@ -448,7 +448,7 @@ export class World {
   }
 
   /**
-   * Walk-onto keycard pickup (M6.2), if any. Returns the first live `KeyCard`
+   * Walk-onto keycard pickup (P2.5.M6.2), if any. Returns the first live `KeyCard`
    * on the tile. The player auto-picks these up during `collectTileLoot`;
    * collected into `Campaign.keyItems` (persistent inventory), not consumables.
    */

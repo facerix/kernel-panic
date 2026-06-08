@@ -14,7 +14,7 @@
 export type GridPoint = { x: number; y: number };
 
 /**
- * M6.2: a JSON-safe value. The persistence layer's opaque entity property bag
+ * A JSON-safe value. The persistence layer's opaque entity property bag
  * (`EntitySnapshotExtra`) is keyed to this so anything stashed in a snapshot
  * survives `JSON.stringify` / `JSON.parse` byte-for-byte. `undefined` is
  * deliberately excluded — it is not JSON, so bag fields use `null` instead.
@@ -28,16 +28,16 @@ export type JsonValue =
   | { [key: string]: JsonValue };
 
 /**
- * M6.2: opaque per-entity property bag living at the centre of
- * `RunEntitySnapshot`. Each archetype owns the strict shape of its own slice
+ * Opaque per-entity property bag at the centre of `RunEntitySnapshot`
+ * (P2.7.M6.2). Each archetype owns the strict shape of its own slice
  * (exported as `XSnapshot` from the entity module); the centre type only knows
  * it is a JSON object. This dissolves the former ~24-key god-union.
  */
 export type EntitySnapshotExtra = { [key: string]: JsonValue };
 
 /**
- * M7.1 terrain-relevant mutations captured during a run. M7.2 location memory
- * consumes these deltas when it persists site changes across revisits.
+ * Terrain-relevant mutations captured during a run (P2.5.M7.1). Location
+ * memory (P2.5.M7.2) consumes these deltas when persisting site changes.
  */
 export type TileDelta =
   | { kind: 'tile'; x: number; y: number; from: number; to: number }
@@ -168,9 +168,9 @@ export type TurnActionStep =
 export type TurnActionSteps = Generator<TurnActionStep, void, undefined>;
 
 /**
- * M6.2: Key-item — keycards used to unlock doors. Comes in two scopes:
+ * Key-item — keycards used to unlock doors (P2.5.M6.2). Comes in two scopes:
  *   - **Campaign-scoped** (`siteId` set): stored in `Campaign.keyItems`,
- *     survives across runs. Not consumed on use (M7.2 revisit).
+ *     survives across runs. Not consumed on use (P2.5.M7.2 revisit).
  *   - **Run-scoped** (no `siteId`): stored in `Run.keyItems`, discarded
  *     when the run ends.
  */
@@ -181,7 +181,7 @@ export type KeyItem = {
   label: string;
   /** Stable `doorId` of the door this key opens. */
   doorId: string;
-  /** Optional site id — populated by M7.2 location memory. */
+  /** Optional site id — populated by P2.5.M7.2 location memory. */
   siteId?: string;
 };
 
@@ -192,10 +192,11 @@ export type KeyItem = {
 export type LocationToken = { id: string; label: string; groups: string[] };
 
 /**
- * M7.2: A remembered combat location in the campaign's site roster. When the
- * Curator sends the player back to a roster site, the map is rebuilt from
- * `seed` and the accumulated `mutationDeltas` (breach holes, removed doors)
- * are replayed onto the fresh geometry before fresh enemies/objectives spawn.
+ * A remembered combat location in the campaign's site roster (P2.5.M7.2).
+ * When the Curator sends the player back to a roster site, the map is rebuilt
+ * from `seed` and the accumulated `mutationDeltas` (breach holes, removed
+ * doors) are replayed onto the fresh geometry before fresh enemies/objectives
+ * spawn.
  *
  * A location's *identity* is its **principal** (and **site**): revisits pin
  * those tokens so the owner/place stay constant across visits while the job
@@ -203,10 +204,10 @@ export type LocationToken = { id: string; label: string; groups: string[] };
  * recent generation.
  *
  * `tier` / `scoreTarget` reserve one slot for Phase 3's "Score target" site;
- * M7 never sets `scoreTarget` true.
+ * `scoreTarget` is always false until Phase 3.
  */
 export type LocationSite = {
-  /** Stable, seed-derived id — the roster key. `String(seed)` in M7. */
+  /** Stable, seed-derived id — the roster key. */
   id: string;
   /** Deterministic map seed (stringified contract seed). */
   seed: string;
@@ -218,7 +219,7 @@ export type LocationSite = {
   label: string;
   /** Roster tier — `'score'` is reserved for Phase 3 and never evicted. */
   tier: 'score' | 'roster';
-  /** Phase 3 hook — always false in M7. */
+  /** Phase 3 hook — always false until Phase 3. */
   scoreTarget: boolean;
   /** Accumulated terrain mutations replayed on revisit. */
   mutationDeltas: TileDelta[];
@@ -239,7 +240,7 @@ export type Telemetry = {
   outcome: 'death' | 'exit' | 'campaign-over';
   campaignTerminal?: boolean;
   crewRoster?: { callsign: string; archetype: string; flatlined: boolean }[];
-  /** M4.2: typed-salvage wallet snapshot at the moment the run/campaign ends. */
+  /** Typed-salvage wallet snapshot at the moment the run/campaign ends. */
   salvage?: import('./game/salvage.js').TypedSalvage;
   archetype?: string;
   turn?: number;

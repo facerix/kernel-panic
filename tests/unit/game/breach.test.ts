@@ -189,7 +189,7 @@ test('mutation deltas and requiresBreach deny target state round-trip through ru
   assert.equal(restoredTarget?.requiresBreach, true);
 });
 
-test('pre-M7.1 run snapshots restore with empty mutationDeltas', () => {
+test('pre-P2.5.M7.1 run snapshots restore with empty mutationDeltas', () => {
   const run = new Run({ crewMember: makeCrew(), seed: 46 });
   run.enterBriefing(demolitionContract());
   run.enterCombat();

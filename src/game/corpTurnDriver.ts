@@ -41,7 +41,7 @@ export type CorpTurnDriverCtx = {
  *     there is no turn to advance for a dead/extracted run.
  *   - If no live corp entities are present (hub, or every drone cleared),
  *     `onFinish` fires immediately and synchronously. This is the case
- *     the M0 user-reported bug missed: the previous shell guarded the
+ *     a previously-reported bug missed: the previous shell guarded the
  *     finish call with `state === COMBAT`, which dropped HUB on the floor
  *     and the turn queue stuck on CORP forever.
  *   - With live corp entities, the driver yields one action per pump,

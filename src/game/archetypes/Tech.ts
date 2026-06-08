@@ -4,7 +4,7 @@ import { Turret } from '../Turret.js';
 import type { CrewInit, CrewSnapshot } from '../Crew.js';
 import type { World } from '../World.js';
 
-/** M6.2: Tech snapshot `extra` — crew fields plus the pre-built turret flag. */
+/** P2.7.M6.2: Tech snapshot `extra` — crew fields plus the pre-built turret flag. */
 export type TechSnapshot = CrewSnapshot & { turretReady: boolean };
 
 /**
@@ -36,15 +36,13 @@ export const CALLSIGNS = Object.freeze([
  * placed it persists until destroyed or the job ends, and the shell drives
  * its `autoFire(world, rng)` at the end of every player turn.
  *
- * `turretReady` flips false on `deployTurret`. M3 adds an `improviseTurret`
- * verb that builds new turrets mid-job by spending salvage; that's tracked
- * on `Crew.inventory.salvage` and not represented here yet.
+ * `turretReady` flips false on `deployTurret`. Additional improvised turrets
+ * are built mid-job via `improviseTurret`, which gates on scrap salvage
+ * instead of this flag.
  *
- * Why a separate `turretReady` flag rather than a count? In Phase 2 a Tech
- * has at most one pre-built turret per job — the "ready" boolean documents
- * intent clearly. M3 will replace this with a salvage-gated counter if and
- * when the design pulls in that direction; we can migrate the flag without
- * breaking the deployTurret contract.
+ * Why a separate `turretReady` flag rather than a count? A Tech has at most
+ * one pre-built turret per job — the "ready" boolean documents that intent
+ * clearly and migrates cleanly if the design ever needs a counter.
  */
 export class Tech extends Crew {
   override archetype = 'Tech';
@@ -57,11 +55,6 @@ export class Tech extends Crew {
 
   constructor(props: CrewInit) {
     super({ ...props, glyph: '@' });
-    /**
-     * The pre-built turret token. Refilled at job start by `Campaign`
-     * (M2); for now the debug harness re-instantiates Tech on each scenario
-     * rebuild so this stays at `true` until the player deploys.
-     */
     this.turretReady = true;
     /** Counter for unique improvised turret ids within a job. */
     this._improvisedTurretCount = 0;
@@ -78,9 +71,8 @@ export class Tech extends Crew {
    *   - `turretReady` flag — the pre-built turret hasn't already been dropped
    *   - target tile is in-bounds, passable, and unoccupied
    *
-   * Does *not* validate "improvised" salvage-gated turrets — M3 adds that as
-   * a separate `improviseTurret(world, dx, dy)` verb that shares the tile
-   * checks but gates on `Crew.inventory.salvage` instead of `turretReady`.
+   * Does *not* validate improvised salvage-gated turrets — see
+   * `canImproviseTurret` / `improviseTurret` for that path.
    */
   canDeploy(world: World, dx: number, dy: number) {
     if (!Number.isInteger(dx) || !Number.isInteger(dy)) {
@@ -121,10 +113,9 @@ export class Tech extends Crew {
    * false, adds a `Turret` entity to the world on the target tile, and
    * returns the new turret so the shell can wire its autofire.
    *
-   * The new turret's id is `<tech-id>-turret`; M3 may need a counter once
-   * Tech can drop additional improvised turrets. We crash on a duplicate id
-   * (World.addEntity already does so) rather than silently overwriting an
-   * existing turret — that would be a bug, not a feature.
+   * The pre-built turret id is `<tech-id>-turret`; improvised turrets use
+   * `<tech-id>-imp-turret-<n>`. We crash on a duplicate id (World.addEntity
+   * already does so) rather than silently overwriting an existing turret.
    */
   deployTurret(world: World, dx: number, dy: number) {
     const check = this.canDeploy(world, dx, dy);
@@ -173,9 +164,8 @@ export class Tech extends Crew {
     if (!this.inventory) {
       return { ok: false, reason: 'no-inventory' };
     }
-    // M4.2: improvised turrets are mechanical assemblies — cost is paid in
-    // scrap. Other typed salvage (chips/bio/data) is not interchangeable; a
-    // Tech sitting on chips but no scrap can't improvise.
+    // Improvised turrets are mechanical assemblies — cost is paid in scrap
+    // (P2.5.M4.2). Other typed salvage (chips/bio/data) is not interchangeable.
     if (this.inventory.salvage.scrap < SALVAGE_PER_IMPROVISED_TURRET) {
       return { ok: false, reason: 'insufficient-salvage' };
     }

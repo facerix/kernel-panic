@@ -1,28 +1,22 @@
 /**
- * Typed salvage components — M4.2.
- *
- * Replaces the pre-M4 single `salvage: number` field that lived on
- * `Crew.inventory`, `Campaign`, and `LootableEntity.loot`. Four typed buckets
- * let Finn (M5) and future crafting hooks price/spend distinct components
- * instead of treating salvage as a monolithic currency.
+ * Typed salvage wallet (P2.5.M4.2). Four buckets replace the old single
+ * `salvage: number` on `Crew.inventory`, `Campaign`, and `LootableEntity.loot`,
+ * letting Finn and crafting hooks price/spend distinct components.
  *
  *   - **Scrap** — generic mechanical parts. Drone corpses, breached props,
  *     improvised-turret cost (`Tech.improviseTurret`).
- *   - **Chips** — electronics. Corp turrets, relay nodes (when shippable),
- *     terminal slices (when M2.2 props gain loot).
+ *   - **Chips** — electronics. Corp turrets, relay nodes.
  *   - **Bio** — organic samples. Clinic / bio-flavored retrieve pickups.
- *   - **Data** — informational. Dossier/dead-drop retrieve, ledger handoffs,
- *     terminal slices that surface data.
+ *   - **Data** — informational. Dossier/dead-drop retrieve, ledger handoffs.
  *
  * Schema invariants (enforced by `validateSalvage`):
  *   - every field is a non-negative integer (no fractional yields, no debts)
  *   - no extra keys (catch typos at restore time, not at sell time)
  *
- * Migration: legacy snapshots that store `salvage: number` are converted via
- * `migrateSalvage` — all legacy creds bucket into **scrap**. This is the
- * documented one-time conversion from the M4 plan; it loses no value (creds
- * stay equivalent at the existing `SALVAGE_TO_CRED_RATE`) but does flatten
- * historical type information that never existed pre-M4.
+ * Migration: pre-P2.5.M4.2 snapshots store `salvage: number` and are
+ * converted by `migrateSalvage` — all legacy units bucket into **scrap**.
+ * The numeric total is preserved; only the type tag is inferred (scrap is the
+ * most defensible default for a generic legacy counter).
  *
  * Silent fallbacks are bugs (per CLAUDE.md). `validateSalvage` throws on
  * malformed input; `migrateSalvage` only accepts a finite non-negative
@@ -126,18 +120,11 @@ export function validateSalvage(value: unknown, ctx: string): TypedSalvage {
 }
 
 /**
- * Accept either a legacy `number` (pre-M4.2 salvage) or a TypedSalvage shape,
- * and return a freshly-allocated TypedSalvage.
- *
- * Migration rule (documented in `docs/phase-2.5-plan.md` M4.2): legacy creds
- * all bucket into `scrap`. The numeric total is preserved so the
- * `SALVAGE_TO_CRED_RATE` sell value is unaffected; only the type tag is
- * inferred (and "Scrap" is the most defensible default for a generic legacy
- * counter — that's the bucket M5 will price as the baseline material).
- *
- * Throws if `value` is neither a non-negative integer nor a valid
- * TypedSalvage. Silent fallbacks would corrupt saves — we'd rather crash a
- * load than silently zero out a campaign's wallet.
+ * Accept either a legacy `number` (pre-P2.5.M4.2 saves) or a TypedSalvage
+ * shape, and return a freshly-allocated TypedSalvage. Legacy units all bucket
+ * into `scrap`; the numeric total is preserved. Throws if `value` is neither
+ * a non-negative integer nor a valid TypedSalvage — silent fallbacks would
+ * corrupt saves.
  */
 export function migrateSalvage(value: unknown, ctx: string): TypedSalvage {
   if (typeof value === 'number') {

@@ -1,5 +1,5 @@
 /*
- * M7.2 — Location memory & site roster.
+ * P2.5.M7.2 — Location memory & site roster.
  *
  * Pure utility module for the campaign's site roster. The campaign remembers
  * combat locations by seed and accumulates terrain mutations (breach holes,

@@ -1,16 +1,16 @@
 /**
- * M7 debug harness. Both KeyboardController and the on-screen <touch-pad>
+ * Debug harness. Both KeyboardController and the on-screen <touch-pad>
  * emit the same intent shape; the game loop applies them through one path.
  * Player can be a Merc (vault), a Razor (slide + stealth), or a Tech
  * (deploy turret) — toggle with `1` / `2` / `3` on reset, or via
- * `?archetype=tech` in the URL. Razor is the default since M6.
+ * `?archetype=tech` in the URL. Razor is the default.
  *
- * New in M7: <touch-pad> overlay. Auto-shown on coarse pointers; force on
+ * <touch-pad> overlay. Auto-shown on coarse pointers; force on
  * desktop with `?touch=force`. Touch and keyboard each own their own aim
  * mode (per-input). On reset, both are reset to IDLE so a stale half-press
  * can't carry into a new scenario.
  *
- * New in M1 (Phase 2): Tech archetype + auto-firing turrets. At end of every
+ * Tech archetype + auto-firing turrets. At end of every
  * player turn, before the corp turn begins, `runPlayerAftermath` in
  * `combatTurnPipeline.js` runs the player aftermath (turret autofire today;
  * allied NPCs / hazards later). The harness logs each line to the feed.
@@ -103,7 +103,7 @@ function buildScenario() {
         ? new Tech({ id: 'tech', x: 3, y: 3, maxAp: 4 })
         : new Merc({ id: 'merc', x: 3, y: 3, maxAp: 4 });
   // Patrol the right-hand room; the drone spends most of its time visible to
-  // a player who pushes east, so M5 behaviour is observable from spawn.
+  // a player who pushes east, so behaviour is observable from spawn.
   drone = new Skirmisher({
     id: 'drone-1',
     x: 19,
@@ -126,12 +126,12 @@ function buildScenario() {
 
   // Refresh fog when *anything* moves — covers both the player's own steps
   // (cheap, idempotent) and corp drones walking into LOS during their turn.
-  // This is the deferred M4 fix the plan called out under "Vision only
+  // This is the deferred fix the plan called out under "Vision only
   // refreshes on player move."
   bus.on(EVENT.ENTITY_MOVED, () => recomputeVision());
 
   // Seed off the wall clock so each reset varies, but use a fresh Rng so
-  // future M7 saves can capture/restore .state cleanly.
+  // future saves can capture/restore .state cleanly.
   rng = new Rng(Date.now() & 0xffffffff);
   logLines.length = 0;
   log(
@@ -176,7 +176,7 @@ function rerender(state: { mode: Mode; aimKind: AimKind | null } = activeInputSt
 }
 
 /**
- * Game-loop glue lives in `/src/input/applyIntent.js` so the M8 game shell
+ * Game-loop glue lives in `/src/input/applyIntent.js` so the game shell
  * (and any future input source) shares a single intent-application path
  * with this harness. The closure here wraps that shared helper with the
  * harness's logger / advanceTurn / resetInputModes hooks.
@@ -378,7 +378,7 @@ function bindUI() {
         return;
       }
       if (intent?.type === 'quit-campaign') {
-        log('> QUIT CAMPAIGN is only wired in the M8 shell (no-op in harness).');
+        log('> QUIT CAMPAIGN is only wired in the shell (no-op in harness).');
         resetInputModes();
         rerender();
         return;
@@ -408,7 +408,7 @@ function bindUI() {
         return;
       }
       if (intent?.type === 'quit-campaign') {
-        log('> QUIT CAMPAIGN is only wired in the M8 shell (no-op in harness).');
+        log('> QUIT CAMPAIGN is only wired in the shell (no-op in harness).');
         resetInputModes();
         rerender();
         return;

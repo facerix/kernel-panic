@@ -2,6 +2,8 @@
 
 Living plan for a small, focused slice between Phase 2.5 and the enemy-roles work: harden how Kernel Panic handles failure on a **tablet-first offline PWA with no visible JS console**, and land the entity-agnostic placement/persistence consolidation already built locally. **Target release: `v0.2.6`.** See [phase-2.5-plan.md](phase-2.5-plan.md) for the completed Meatspace-depth slice, [phase-2.7-plan.md](phase-2.7-plan.md) for the enemy roles + tier work this unblocks, and [kernel-panic-v1-blueprint.md](kernel-panic-v1-blueprint.md) for the overall vision.
 
+**Phase prefix:** `P2.6` — use `P2.6.MN` when referencing milestones from this phase in other documents.
+
 ## Why this phase exists
 
 Two threads converged:

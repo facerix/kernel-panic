@@ -21,11 +21,11 @@ export type PrefabAnchorsSpec = {
   fodder: PrefabFodderAnchor[];
   cover: PrefabAnchor[];
   exit: PrefabAnchor[];
-  /** M5: corp-aligned non-combatant spawn points. */
+  /** Corp-aligned non-combatant spawn points. */
   corpCivilians?: PrefabAnchor[];
-  /** M5: neutral civilian spawn points. */
+  /** Neutral civilian spawn points. */
   neutralCivilians?: PrefabAnchor[];
-  /** M6.1: locked door entity anchors; ASCII `|` marks floor under the entity. */
+  /** P2.5.M6.1: locked door entity anchors; ASCII `|` marks floor under the entity. */
   doors?: PrefabAnchor[];
 };
 

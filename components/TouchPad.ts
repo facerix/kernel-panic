@@ -260,7 +260,7 @@ class TouchPad extends HTMLElement {
   #dpadRepeatPointerId: number | null = null;
   #ready = false;
   /**
-   * Optional input lockout. The M0 combat-feedback animations set this to
+   * Optional input lockout. The prototype's combat-feedback animations set this to
    * the shell's animation-lock checker; `pointerdown` early-returns while
    * it returns true so a held thumb can't queue actions mid-shake. Defaults
    * to a no-op so unit tests and non-animating callers don't have to wire it.

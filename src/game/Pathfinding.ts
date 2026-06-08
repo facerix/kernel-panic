@@ -7,7 +7,7 @@
  * unit-cost 8-neighbour grids, so A* terminates with an optimal path.
  *
  * **No path caching across calls.** Drone behaviour calls `findPath` fresh
- * every step because the grid will mutate when destruction lands in M7 and a
+ * every step because the grid can mutate (breach holes, removed doors) and a
  * stale cache would steer drones through walls. Cheap at V1 grid sizes
  * (~24×16) — the heap rarely exceeds a few dozen entries.
  *
@@ -16,7 +16,7 @@
  * "path toward the player" should produce a route even though the player
  * stands on the goal — so the drone can take the first step and re-evaluate.
  * Pass `allowOccupiedGoal: false` for callers that need a strictly-empty
- * destination (none in M5; reserved for movement commands).
+ * destination.
  */
 
 import type { World } from './World.js';

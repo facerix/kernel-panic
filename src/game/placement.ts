@@ -11,7 +11,7 @@
  * `checkPlacementIntegrity` is the post-placement safety net: it verifies
  * that no static blocking entity has sealed a passable branch of the map.
  * Call it once after all entities are placed (in enterCombat and in future
- * M7.2 "add entities to an existing map" paths).
+ * P2.5.M7.2 "add entities to an existing map" paths).
  */
 
 import type { GridPoint } from '../types.js';

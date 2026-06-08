@@ -211,15 +211,16 @@ export const PATROL_ARCHETYPE_IDS = Object.freeze([
 export type PatrolArchetypeId = (typeof PATROL_ARCHETYPE_IDS)[number];
 
 /**
- * M6.2: slimmed per-entity snapshot. Common fields every entity shares, plus a
- * single opaque {@link EntitySnapshotExtra} property bag. Each archetype owns
- * the strict shape of its own slice of `extra` (its exported `XSnapshot` type);
- * the centre type stays ignorant of those shapes. This replaced the former
- * ~24-key god-union — adding an archetype no longer edits this type.
+ * P2.7.M6.2: slimmed per-entity snapshot. Common fields every entity shares,
+ * plus a single opaque {@link EntitySnapshotExtra} property bag. Each archetype
+ * owns the strict shape of its own slice of `extra` (its exported `XSnapshot`
+ * type); the centre type stays ignorant of those shapes. This replaced the
+ * former ~24-key god-union — adding an archetype no longer edits this type.
  *
- * Legacy (pre-M6.2) saves stored those slices as named top-level sub-blocks
- * (`drone`, `terminal`, …) and crew fields at the top level. `restoreEntity`
- * normalises both shapes into `extra` on load (see `normalizeEntityExtra`).
+ * Legacy (pre-P2.7.M6.2) saves stored those slices as named top-level
+ * sub-blocks (`drone`, `terminal`, …) and crew fields at the top level.
+ * `restoreEntity` normalises both shapes into `extra` on load (see
+ * `normalizeEntityExtra`).
  */
 export type RunEntitySnapshot = {
   archetype: EntityArchetypeId;
@@ -257,23 +258,23 @@ export type RunSnapshot = {
   grid: { w: number; h: number; tiles: number[] };
   entities: RunEntitySnapshot[];
   telemetry: RunTelemetry;
-  /** M2.1 alarm cadence. Missing in older saves → defaults to quiet. */
+  /** Per-facility alarm cadence. Missing in older saves → defaults to quiet. */
   alarm?: AlarmState;
-  /** Legacy M5 map-wide alarm latch. Missing in pre-M5 saves → defaults to false. */
+  /** Legacy map-wide alarm latch. Missing in older saves → defaults to false. */
   alarmActive?: boolean;
-  /** M2.9 turn-limit objective state. Missing in older saves → fresh timer state. */
+  /** Turn-limit objective state. Missing in older saves → fresh timer state. */
   objectiveTimer?: ObjectiveTimerSnapshot;
-  /** M2.11 map memory. Missing in older saves → current LOS only. */
+  /** Map memory. Missing in older saves → current LOS only. */
   mapMemory?: MapMemorySnapshot;
-  /** M4 pickup unification: removed objective pickups still count as secured. */
+  /** Pickup unification: removed objective pickups still count as secured. */
   objectiveProgress?: ObjectiveProgressSnapshot;
-  /** M6.2: run-scoped key items (keycards without a siteId). Defaults to []. */
+  /** Run-scoped key items / keycards without a siteId (P2.5.M6.2). Defaults to []. */
   keyItems?: KeyItemSnapshot[];
-  /** M7.1: terrain/entity mutations recorded during the run. Defaults to []. */
+  /** Terrain/entity mutations recorded during the run (P2.5.M7.1). Defaults to []. */
   mutationDeltas?: TileDelta[];
 };
 
-/** M6.2: Serializable run-scoped key item. */
+/** Serializable run-scoped key item (P2.5.M6.2). */
 type KeyItemSnapshot = {
   id: string;
   label: string;
@@ -296,13 +297,13 @@ export type RunOptions = {
    *  to finalise the abort extraction, or do nothing to let the player
    *  stay on the exit tile and keep playing. */
   onAbortRequested?: unknown;
-  /** M7.2: terrain mutations from a prior visit to this location, replayed onto
-   *  the freshly-built map in `enterCombat`. Empty/omitted for a first visit. */
+  /** Terrain mutations from a prior visit to this location (P2.5.M7.2), replayed
+   *  onto the freshly-built map in `enterCombat`. Empty/omitted for a first visit. */
   priorMutationDeltas?: unknown;
-  /** M7.2: campaign key items already held for this location site, used to
+  /** Campaign key items already held for this location site (P2.5.M7.2), used to
    *  skip respawning pickup keycards on revisit (player re-opens via interact). */
   priorKeyItems?: unknown;
-  /** M7.2+: coordinate keys explored on prior visits to this location site. */
+  /** Coordinate keys explored on prior visits to this location site (P2.5.M7.2). */
   priorSeenKeys?: unknown;
 };
 
@@ -336,13 +337,13 @@ export class Run {
   telemetry: RunTelemetry;
   objectiveTimer: ObjectiveTimerSnapshot;
   mapSeen: Set<string>;
-  /** M6.2: run-scoped key items (keycards without a siteId). Lost on run end. */
+  /** Run-scoped key items / keycards without a siteId (P2.5.M6.2). Lost on run end. */
   keyItems: KeyItem[];
-  /** M7.2: prior-visit terrain mutations replayed in `enterCombat`. */
+  /** Prior-visit terrain mutations replayed in `enterCombat` (P2.5.M7.2). */
   priorMutationDeltas: TileDelta[];
-  /** M7.2+: prior-visit exploration memory restored into shell fog on jack-in. */
+  /** Prior-visit exploration memory restored into shell fog on jack-in (P2.5.M7.2). */
   priorSeenKeys: string[];
-  /** M7.2: site-scoped key items from a prior visit (see `priorKeyItems`). */
+  /** Site-scoped key items from a prior visit (P2.5.M7.2); see `priorKeyItems`. */
   priorKeyItems: KeyItem[];
   onPersist: ((record: RunSnapshot) => void) | null;
   onResult: ((result: RunResult) => void) | null;
@@ -458,10 +459,10 @@ export class Run {
       includePrefabDoors: contractRequiresDoor(this.contract),
     });
     this.world = new World(map.grid, { events: this.bus });
-    // M7.2: replay prior-visit terrain mutations (breach holes, removed doors)
-    // onto the fresh geometry before any entity placement. This mutates only
-    // the grid — `world.mutationDeltas` stays empty so it accumulates *this*
-    // run's new breaches, which merge into the roster on extract.
+    // Replay prior-visit terrain mutations (breach holes, removed doors) onto
+    // the fresh geometry before any entity placement (P2.5.M7.2). This mutates
+    // only the grid — `world.mutationDeltas` stays empty so it accumulates
+    // *this* run's new breaches, which merge into the roster on extract.
     if (this.priorMutationDeltas.length > 0) {
       applyMutationDeltas(this.world.grid, this.priorMutationDeltas);
     }
@@ -495,9 +496,9 @@ export class Run {
       difficulty: this.contract.difficulty,
       fodderCount: map.fodder.length,
     });
-    // Phase 2.9 M1.2: stamp principal-themed display identity onto each hostile
+    // P2.9.M1.2: stamp principal-themed display identity onto each hostile
     // from the contract owner. Behavior/glyph are unchanged; this is label-only.
-    // M2.2: every hostile carries the run's single allegiance (CORP or RIVAL).
+    // Every hostile carries the run's single allegiance (CORP or RIVAL).
     const principalId = this.contract.context.principal.id;
     // Stamp allegiance + principal identity onto a freshly-built hostile, before
     // it joins the world / binds the bus.
@@ -733,8 +734,9 @@ export class Run {
   }
 
   /**
-   * M7.2: terrain mutations accumulated during *this* run (breaches, removed
-   * doors). Merged into the location roster on extract. Empty before combat.
+   * Terrain mutations accumulated during *this* run (P2.5.M7.2) — breaches,
+   * removed doors. Merged into the location roster on extract. Empty before
+   * combat.
    */
   get mutationDeltas(): TileDelta[] {
     return this.world?.mutationDeltas ?? [];
@@ -822,7 +824,7 @@ export class Run {
     this.recordMapSeen(memory.seen);
   }
 
-  /** Compatibility alias for M2.11 recon tests and call sites. */
+  /** Compatibility alias for `recordMapSeen` — retained for existing call sites. */
   recordReconSeen(keys: Iterable<string>): void {
     this.recordMapSeen(keys);
   }
@@ -918,7 +920,7 @@ export class Run {
     } else if (killed && attacker instanceof Turret && attacker.ownerId === this.player.id) {
       this.telemetry.kills = (this.telemetry.kills ?? 0) + 1;
     }
-    // M5: emit civilian:harmed when a neutral *bystander* takes damage from the
+    // Emit civilian:harmed when a neutral *bystander* takes damage from the
     // player (or the player's turret). Corp staff (CorpCivilian) are excluded —
     // killing them is tactically valid and carries no Rep penalty.
     if (target instanceof NeutralCivilian) {
@@ -943,10 +945,9 @@ export class Run {
       target.unbind();
     }
 
-    // M3: assign loot to killed hostiles. The loot roll uses the Run's own
-    // Rng so it's deterministic on the contract seed.
-    // M4.2: loot is now typed — fodder drops scrap (mechanical), corp turrets
-    // drop chips (electronics), elites drop bio (augmentations).
+    // Assign typed loot to killed hostiles — fodder drops scrap (mechanical),
+    // corp turrets drop chips (electronics), elites drop bio (augmentations).
+    // The loot roll uses the Run's own Rng so it's deterministic on the seed.
     const lootTarget = target as Partial<LootableEntity>;
     if (killed && target instanceof Hostile && !lootTarget.loot) {
       lootTarget.loot = { salvage: this.#rollLoot(target) };
@@ -1079,13 +1080,14 @@ export class Run {
         const priorKey =
           revisitSiteId &&
           this.priorKeyItems.find(k => k.doorId === linkedDoorId && k.siteId === revisitSiteId);
-        // M7.2: held site keycard → skip spawn; door stays locked until interact.
+        // Held site keycard from a prior visit → skip spawn; door stays locked
+        // until interact (P2.5.M7.2).
         if (!priorKey) {
-          // M6.2: 50/50 roll — terminal unlock vs keycard unlock.
+          // 50/50 roll — terminal unlock vs keycard unlock (P2.5.M6.2).
           const unlockMethod = resolveUnlockMethod(this.contract, this.rng);
           if (unlockMethod === 'terminal') {
-            // M6.2: decoupled placement — terminal can land anywhere reachable
-            // from spawn (not biased toward door proximity).
+            // Decoupled placement — terminal can land anywhere reachable from
+            // spawn, not biased toward door proximity (P2.5.M6.2).
             const terminalAnchor = findDecoupledTerminalAnchor(
               this.world,
               this.player,
@@ -1104,7 +1106,7 @@ export class Run {
               })
             );
           } else {
-            // M6.2: keycard placed on the spawn side as an alternative unlock.
+            // Keycard placed on the spawn side as an alternative unlock (P2.5.M6.2).
             const keycardAnchor = findDecoupledTerminalAnchor(
               this.world,
               this.player,
@@ -1112,9 +1114,9 @@ export class Run {
               this.rng,
               linkedDoorId
             );
-            // M7.2: on a remembered-site revisit, stamp the keycard with the
-            // site id so collecting it promotes the card to campaign-scoped
-            // (M6.2 routing) for future revisit re-opens via interact.
+            // On a remembered-site revisit, stamp the keycard with the site id
+            // so collecting it promotes the card to campaign-scoped (P2.5.M6.2
+            // routing) for future revisit re-opens via interact (P2.5.M7.2).
             const keycardSiteId = this.contract.context.locationSiteId;
             this.world.addEntity(
               new KeyCard({
@@ -1223,7 +1225,7 @@ export class Run {
         }
       }
     }
-    // M2.4: Place sweep targets (relay nodes or corp turrets) for sweep contracts.
+    // Place sweep targets (relay nodes or corp turrets) for sweep contracts.
     if (this.contract.objective.kind === OBJECTIVES.SWEEP) {
       this.#placeSweepTargets();
     }
@@ -1240,8 +1242,8 @@ export class Run {
         })
       );
     }
-    // M2.3: Place hazard cluster near a future pickup anchor when hazardFlavor
-    // is set (e.g. "Gassed clinic data dump"). The cluster is placed around a
+    // Place hazard cluster near a future pickup anchor when hazardFlavor is set
+    // (e.g. "Gassed clinic data dump"). The cluster is placed around a
     // candidate anchor point biased away from spawn/exit.
     if (
       this.contract.objective.kind !== OBJECTIVES.RETRIEVE &&
@@ -1354,7 +1356,7 @@ export class Run {
   }
 
   /**
-   * Sprinkle 0–2 walk-onto consumable pickups onto the combat map (M4.3).
+   * Sprinkle 0–2 walk-onto consumable pickups onto the combat map.
    * Counts and types are drawn from `this.rng`, so the same contract seed
    * always produces the same pickup placement — deterministic by snapshot.
    * Pickups are passable (do not block routing) and are placed on any
@@ -1363,7 +1365,7 @@ export class Run {
    *
    * Distribution: count ∈ {0, 1, 2} weighted 0.25 / 0.5 / 0.25 (so the
    * median run has exactly one); type uniform over the shipped pool
-   * (stim / smoke charge / incendiary). M5 owns tier/recipe weighting.
+   * (stim / smoke charge / incendiary).
    */
   #placeConsumablePickups(): void {
     if (!this.world || !this.player || !this.exitTile) return;
@@ -1488,8 +1490,6 @@ function isObjectiveFamilySatisfied(
   const kind = contract.objective.kind;
   switch (kind) {
     case OBJECTIVES.REACH_EXIT:
-      // M1 only carries objective intent through contract generation, UI, and
-      // saves. M2 replaces these permissive cases with family-specific state.
       return true;
     case OBJECTIVES.RETRIEVE:
       return isRetrieveSatisfied(contract, world);
@@ -1532,9 +1532,9 @@ function objectiveDoorId(contract: Contract): string | null {
 export type UnlockMethod = 'terminal' | 'keycard';
 
 /**
- * M6.2: Determine unlock method for a door-locked contract. If the contract
- * params specify `unlockMethod`, use it; otherwise 50/50 from the seed rng.
- * Deterministic per seed.
+ * Determine unlock method for a door-locked contract (P2.5.M6.2). If the
+ * contract params specify `unlockMethod`, use it; otherwise 50/50 from the
+ * seed rng. Deterministic per seed.
  */
 function resolveUnlockMethod(contract: Contract, rng: Rng): UnlockMethod {
   const explicit = contract.objective.params?.unlockMethod;
@@ -1621,7 +1621,7 @@ function crewSnapshotExtra(e: Crew): CrewSnapshot {
 }
 
 /**
- * M6.2: per-archetype `extra` producers. The symmetric counterpart of
+ * P2.7.M6.2: per-archetype `extra` producers. The symmetric counterpart of
  * persistence's `ENTITY_RESTORE` registry — both keyed by archetype id, no
  * `instanceof` cascade. Archetypes absent here (corp-civilian, neutral-civilian,
  * breaching-charge, entity) carry no `extra`.
@@ -1996,14 +1996,14 @@ function findAccessibleInteractableAnchor(
 }
 
 /**
- * M6.2: Decoupled terminal/keycard placement — find a reachable tile on the
- * spawn side of the locked door, WITHOUT biasing toward door proximity. The
+ * Decoupled terminal/keycard placement (P2.5.M6.2) — find a reachable tile on
+ * the spawn side of the locked door, WITHOUT biasing toward door proximity. The
  * entity (terminal or keycard) can land anywhere reachable from spawn, turning
  * "find the unlock" into a routing puzzle.
  *
  * Reachability is validated by pathfinding from player spawn to the candidate
  * with the door still locked (impassable). Candidates must not sit on exploration
- * chokepoints on the spawn side. Falls back to near-door placement (the M6.1
+ * chokepoints on the spawn side. Falls back to near-door placement (P2.5.M6.1
  * behavior) if no remote tile qualifies.
  */
 function findDecoupledTerminalAnchor(
@@ -2028,7 +2028,7 @@ function findDecoupledTerminalAnchor(
     }
   }
   if (candidates.length === 0) {
-    // Fall back to M6.1 near-door behavior.
+    // Fall back to P2.5.M6.1 near-door behavior.
     return findAccessibleInteractableAnchor(world, player, exitTile, rng, doorId);
   }
   // Prefer remote tiles — the routing puzzle is more interesting when the
@@ -2176,7 +2176,7 @@ function isReachableWithDoorUnlocked(
 }
 
 /**
- * Anchor finder for **passable** props (M4.3 consumable pickups). Unlike
+ * Anchor finder for **passable** props (walk-onto consumable pickups). Unlike
  * `findInteractableAnchor`, this does *not* run the exploration-reachability
  * check — a passable entity cannot seal a corridor. Returns `null` when no
  * legal tile is available, leaving the caller to gracefully stop placing

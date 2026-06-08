@@ -87,15 +87,15 @@ export type Map = {
   spawns: { player: GridPoint };
   fodder: EntityAnchor[];
   /**
-   * T2+ specialist spawn slots (Phase 2.7 M3). Sized by difficulty: STANDARD
-   * gets none, ELEVATED/CRITICAL each get one (the single rolled specialist).
+   * T2+ specialist spawn slots (P2.7.M3). Sized by difficulty: STANDARD gets
+   * none, ELEVATED/CRITICAL each get one (the single rolled specialist).
    * Run maps the composed specialist entry onto these anchors.
    */
   specialists: EntityAnchor[];
   /**
-   * T3 elite spawn slots (Phase 2.7 M4). Sized by difficulty: CRITICAL gets
-   * one reserved slot even while `Run` keeps the buildable elite allowlist
-   * empty. This lets map legality fail loud before elite classes land.
+   * T3 elite spawn slots (P2.7.M4). Sized by difficulty: CRITICAL gets one
+   * reserved slot even while `Run` keeps the buildable elite allowlist empty.
+   * This lets map legality fail loud before elite classes land.
    */
   elites: EntityAnchor[];
   corpCivilians: CivilianAnchor[];
@@ -422,11 +422,11 @@ function buildMapOnce(mapRng: Rng, options: BuildMapOptions): Map {
     );
   }
 
-  // Specialist anchors (Phase 2.7 M3) — one per rolled specialist on
-  // ELEVATED/CRITICAL. Picked from FLOOR tiles in non-spawn leaves *after*
-  // fodder so they never collide; each gets a synthesised patrol so a lookout
-  // sweeps for vantage rather than standing still. Fail loud if the map can't
-  // budget them (M1.5 anchor budget) — that footprint is illegal for the tier.
+  // Specialist anchors (P2.7.M3) — one per rolled specialist on ELEVATED/
+  // CRITICAL. Picked from FLOOR tiles in non-spawn leaves *after* fodder so
+  // they never collide; each gets a synthesised patrol so a lookout sweeps for
+  // vantage rather than standing still. Fail loud if the map can't budget them
+  // (P2.7.M1.5 anchor budget) — that footprint is illegal for the tier.
   const specialistCount = specialistAnchorCount(difficulty);
   for (let i = 1; i < stamped.length && specialistAnchors.length < specialistCount; i++) {
     const region = stamped[i].leaf.region;
@@ -451,10 +451,10 @@ function buildMapOnce(mapRng: Rng, options: BuildMapOptions): Map {
     );
   }
 
-  // Elite anchors (Phase 2.7 M4 foundation) — CRITICAL maps reserve exactly
-  // one elite slot after fodder/specialists. Classes spawn later via
-  // Run.enterCombat's buildable elite allowlist, but map legality is already
-  // enforced here so M4 cannot silently degrade a T3 composition.
+  // Elite anchors (P2.7.M4) — CRITICAL maps reserve exactly one elite slot
+  // after fodder/specialists. Classes spawn later via Run.enterCombat's
+  // buildable elite allowlist, but map legality is enforced here so a bad
+  // footprint cannot silently degrade a T3 composition.
   const eliteCount = eliteAnchorCount(difficulty);
   for (let i = 1; i < stamped.length && eliteAnchors.length < eliteCount; i++) {
     const region = stamped[i].leaf.region;
@@ -923,7 +923,7 @@ function civilianCapsForDifficulty(difficulty: ContractDifficulty): {
 }
 
 /**
- * How many specialist spawn slots a tier needs (Phase 2.7 M3). Mirrors the
+ * How many specialist spawn slots a tier needs (P2.7.M3). Mirrors the
  * encounter composition rules: ELEVATED and CRITICAL each carry exactly one
  * specialist; STANDARD carries none.
  */
@@ -938,7 +938,7 @@ function specialistAnchorCount(difficulty: ContractDifficulty): number {
 }
 
 /**
- * How many elite spawn slots a tier needs (Phase 2.7 M4). CRITICAL carries
+ * How many elite spawn slots a tier needs (P2.7.M4). CRITICAL carries
  * exactly one elite; lower tiers carry none.
  */
 function eliteAnchorCount(difficulty: ContractDifficulty): number {

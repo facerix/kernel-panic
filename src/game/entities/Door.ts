@@ -10,7 +10,7 @@ export interface DoorInit extends Omit<InteractableInit, 'glyph' | 'maxAp' | 'la
   label?: string;
 }
 
-/** M6.2: Door snapshot `extra` — glyph reflects `locked` (validated on restore). */
+/** P2.7.M6.2: Door snapshot `extra` — glyph reflects `locked` (validated on restore). */
 export type DoorSnapshot = {
   doorId: string;
   locked: boolean;
@@ -63,7 +63,7 @@ export class Door extends Interactable {
       return { ok: false, reason: 'inactive', message: `${this.label}: inactive.` };
     }
     if (this.locked) {
-      // M6.2: check for a matching keycard in campaign key-item inventory.
+      // Check for a matching keycard in campaign key-item inventory (P2.5.M6.2).
       if (keyItems) {
         const match = keyItems.find(k => k.doorId === this.doorId);
         if (match) {

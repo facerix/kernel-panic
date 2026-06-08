@@ -1,8 +1,7 @@
 /**
- * Walk-onto objective pickup (M2.5 retrieve). Passable like M4.3 consumables
- * and drone corpses — the player steps onto the tile to secure it; Vault and
- * Slide landings collect the same way via `collectTileLoot`. Space-adjacent
- * interact still works for players who prefer the explicit INTERACT verb.
+ * Walk-onto objective pickup. Passable — the player steps onto the tile to
+ * secure it; Vault and Slide landings collect the same way via
+ * `collectTileLoot`. Space-adjacent interact also works.
  */
 
 import { Interactable, type InteractableInit, type InteractResult } from './Interactable.js';
@@ -14,7 +13,7 @@ export interface PickupInit extends Omit<InteractableInit, 'glyph' | 'label' | '
   label?: string;
 }
 
-/** M6.2: Pickup snapshot `extra`. */
+/** P2.7.M6.2: Pickup snapshot `extra`. */
 export type PickupSnapshot = {
   label: string;
   secured: boolean;

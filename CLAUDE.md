@@ -1,6 +1,6 @@
 # Kernel Panic
 
-Turn-based cyberpunk roguelike PWA: tactical grid combat in Meatspace first, with Cyberspace and social systems planned in later phases. Currently in **Phase 2.5** — contract objectives, campaign history, and more; see `docs/phase-2.5-plan.md` (`v0.2.5`).
+Turn-based cyberpunk roguelike PWA: tactical grid combat in Meatspace first, with Cyberspace and social systems planned in later phases. Currently in **Phase 3** (planning) — campaign arc, Cyberspace, the Decker, and the Score; see `docs/phase-3-plan.md` (`v0.3.0`). Phases 1–2.9 are complete and tagged.
 
 ## Domain
 
@@ -10,7 +10,7 @@ Turn-based cyberpunk roguelike PWA: tactical grid combat in Meatspace first, wit
 - **Economy:** Salvage → Finn's shop. Rep meter (NPC/social play in M5+).
 - **UI:** Canvas ASCII-plus terminal aesthetic; CRT-style presentation per blueprint.
 
-Detailed mechanics and roadmap: `docs/kernel-panic-v1-blueprint.md`. Current plan: `docs/phase-2.5-plan.md`.
+Detailed mechanics and roadmap: `docs/kernel-panic-v1-blueprint.md`. Current plan: `docs/phase-3-plan.md`.
 
 ## Coding standards
 

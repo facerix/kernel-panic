@@ -1,6 +1,8 @@
 # Phase 2.8 Plan — Combat HUD on canvas
 
-Living plan for the post–Phase 2.7, pre–Phase 2.9 polish slice: move the **highest-signal combat status** off the DOM status bar and onto the **canvas renderer**, where the player's eyes already are. **Target release: `v0.2.8`.** See [phase-2.7-plan.md](phase-2.7-plan.md) for the hostile roster this HUD reflects, [phase-2.9-plan.md](phase-2.9-plan.md) for principal theming (blocked until this lands), and [phase-2.5-plan.md](phase-2.5-plan.md) M7.2 for the existing top-left location chip pattern.
+Living plan for the post–Phase 2.7, pre–Phase 2.9 polish slice: move the **highest-signal combat status** off the DOM status bar and onto the **canvas renderer**, where the player's eyes already are. **Target release: `v0.2.8`.** See [phase-2.7-plan.md](phase-2.7-plan.md) for the hostile roster this HUD reflects, [phase-2.9-plan.md](phase-2.9-plan.md) for principal theming (blocked until this lands), and P2.5.M7.2 for the existing top-left location chip pattern.
+
+**Phase prefix:** `P2.8` — use `P2.8.MN` when referencing milestones from this phase in other documents.
 
 ## Why this phase exists
 

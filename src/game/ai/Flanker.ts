@@ -35,7 +35,7 @@ export interface FlankerProps extends Omit<PatrolHostileInit, 'glyph'> {
   slideConcealed?: boolean;
 }
 
-/** M6.2: Flanker snapshot `extra` — the patrol block plus its slide-vanish flag. */
+/** P2.7.M6.2: Flanker snapshot `extra` — the patrol block plus its slide-vanish flag. */
 export type FlankerSnapshot = PatrolSnapshot & { slideConcealed: boolean };
 
 const SLIDE_OFFSETS: ReadonlyArray<readonly [number, number]> = Object.freeze([

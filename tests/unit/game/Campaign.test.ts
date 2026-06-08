@@ -47,7 +47,6 @@ test('buildCrew creates one named member per starter archetype with unique calls
 test('Campaign starts in HUB with crew, salvage, credits, rep, and meta state', () => {
   const campaign = new Campaign({ seed: 42 });
   assert.equal(campaign.state, CAMPAIGN_STATE.HUB);
-  // M4.2: salvage is a typed-empty wallet, not a number.
   assert.deepEqual(campaign.salvage, emptySalvage());
   assert.equal(totalSalvage(campaign.salvage), 0);
   assert.equal(campaign.credits, 0);
@@ -159,7 +158,7 @@ test('willEndCampaignOnThisDeath is true only for the last surviving crew slot',
   assert.throws(() => willEndCampaignOnThisDeath(null), /Campaign-like/);
 });
 
-// --- M3: salvage extraction from inventory --------------------------------
+// --- salvage extraction from inventory --------------------------------
 
 test('onJobEnd with EXIT transfers crew inventory salvage to campaign pool', () => {
   const campaign = new Campaign({ seed: 42 });
@@ -169,7 +168,7 @@ test('onJobEnd with EXIT transfers crew inventory salvage to campaign pool', () 
   // Simulate the crew member collecting salvage during the job.
   member.initInventory();
   member.inventory.salvage = makeSalvage({ scrap: 7 });
-  // Exit extracts inventory salvage (M4.2: typed wallet passed through).
+  // Exit extracts inventory salvage (typed wallet passed through).
   campaign.onJobEnd({ outcome: OUTCOME.EXIT, salvage: makeSalvage({ scrap: 7 }) });
   assert.equal(campaign.salvage.scrap, 7, 'scrap accumulated from job');
   assert.equal(totalSalvage(campaign.salvage), 7);
@@ -190,7 +189,7 @@ test('onJobEnd with DEATH does not add salvage to the campaign pool', () => {
   assert.equal(campaign.credits, 0, 'death forfeits contract Creds');
 });
 
-// --- M3: persistence round-trip with inventory ----------------------------
+// --- persistence round-trip with inventory ----------------------------
 
 test('crew inventory survives campaign snapshot/restore round-trip', () => {
   const campaign = new Campaign({ seed: 42 });
@@ -222,7 +221,7 @@ test('onJobEnd flatlines deaths and ends the campaign when everyone is gone', ()
   );
 });
 
-// --- M5.4: Progressive Hub reveals ----------------------------------------
+// --- Progressive Hub reveals ----------------------------------------
 
 test('fresh Campaign Hub omits Finn and Clinic until introduced', () => {
   const campaign = new Campaign({ seed: 42 });
@@ -250,10 +249,10 @@ test('Campaign Hub spawns Patch after clinicIntroduced', () => {
   assert.equal(campaign.clinic.faction, 'neutral');
 });
 
-// --- M4: Campaign.purchase ------------------------------------------------
+// --- Campaign.purchase ------------------------------------------------
 
 test('sellSalvage converts campaign salvage into Creds at per-type rates', () => {
-  // M5.2: per-type sell rates. Legacy `salvage: 8` migrates to scrap.
+  // per-type sell rates. Legacy `salvage: 8` migrates to scrap.
   const campaign = new Campaign({ seed: 42, salvage: 8, credits: 5 });
   campaign.sellSalvage(1);
   assert.equal(totalSalvage(campaign.salvage), 7);
@@ -301,13 +300,13 @@ test('untyped sellSalvage draws scrap → chips → bio → data applying per-ty
   );
 });
 
-test('sellSalvage rejects unknown salvage types (M4.2)', () => {
+test('sellSalvage rejects unknown salvage types', () => {
   const campaign = new Campaign({ seed: 42 });
   campaign.salvage = makeSalvage({ scrap: 5 });
   assert.throws(() => campaign.sellSalvage(1, 'nuclear-waste'), /unknown salvage type/i);
 });
 
-test('per-type sell rates are differentiated (M5.2)', () => {
+test('per-type sell rates are differentiated', () => {
   // Sell 1 of each type and verify each yields its distinct rate.
   for (const type of ['scrap', 'chips', 'bio', 'data'] as const) {
     const campaign = new Campaign({ seed: 42 });
@@ -366,7 +365,7 @@ test('purchase applies reflex weave gear bonus', () => {
   assert.equal(member.gear.dodgeBonus, 0.1);
 });
 
-// M5.1: meta upgrades (expanded-catalog, better-contracts) removed — Rep
+// meta upgrades (expanded-catalog, better-contracts) removed — Rep
 // tiers replace them. Tests for those items removed here.
 
 test('purchase throws on insufficient Creds', () => {
@@ -402,7 +401,7 @@ test('purchase is illegal outside HUB state', () => {
   );
 });
 
-// --- M4: onJobEnd clears job-scoped consumables ----------------------------
+// --- onJobEnd clears job-scoped consumables ----------------------------
 
 test('onJobEnd preserves consumables but clears salvage', () => {
   const campaign = new Campaign({ seed: 42, salvage: 10, credits: SHOP_COST.STIM * 2 });
@@ -435,7 +434,7 @@ test('crew member HP persists across jobs — no free heal on deploy', () => {
   assert.equal(member.hp, startingHp - 2, 'HP must persist into the next job');
 });
 
-// --- M4: persistence round-trip with gear and consumables ------------------
+// --- persistence round-trip with gear and consumables ------------------
 
 test('crew gear survives campaign snapshot/restore round-trip', () => {
   const campaign = new Campaign({
@@ -458,7 +457,7 @@ test('crew gear survives campaign snapshot/restore round-trip', () => {
 });
 
 test('meta state survives campaign snapshot/restore round-trip', () => {
-  // M5.1: meta upgrades removed, but meta is still a plain Record that can
+  // meta upgrades removed, but meta is still a plain Record that can
   // carry arbitrary keys (future features, dead legacy data). Prove the
   // round-trip preserves whatever is in there.
   const campaign = new Campaign({ seed: 42 });
@@ -479,7 +478,7 @@ test('consumables survive campaign snapshot/restore round-trip', () => {
   assert.equal(restoredMember.inventory.consumables[0].id, 'stim');
 });
 
-// --- M5: Rep meter -----------------------------------------------------------
+// --- Rep meter -----------------------------------------------------------
 
 test('adjustRep raises rep and clamps at 100', () => {
   const campaign = new Campaign({ seed: 42 }); // starts at 20
@@ -525,7 +524,7 @@ test('rep survives campaign snapshot/restore round-trip', () => {
   assert.equal(restored.rep, 35);
 });
 
-// ─── M6 — Recruitment ────────────────────────────────────────────────────────
+// ─── Recruitment ────────────────────────────────────────────────────────
 
 test('generateRecruits returns 1–2 candidates when Rep ≥ 65', () => {
   const campaign = new Campaign({ seed: 99, rep: 65 });
@@ -653,8 +652,8 @@ test('availableRecruits and recruitedThisVisit survive persistence round-trip', 
   assert.equal(restored.recruitedThisVisit, false);
 });
 
-test('pre-M6 snapshot restores with empty availableRecruits', () => {
-  // Simulate a legacy snapshot without the M6 fields
+test('pre-P2.5.M6 snapshot restores with empty availableRecruits', () => {
+  // Simulate a legacy snapshot without the fields
   const campaign = new Campaign({ seed: 42 });
   const snap = snapshotCampaign(campaign) as Record<string, unknown>;
   delete snap.availableRecruits;
@@ -688,7 +687,7 @@ test('backfillRecruitsIfEligible does not run when recruitedThisVisit is true', 
   assert.equal(campaign.availableRecruits.length, 0);
 });
 
-// ─── M6 Phase B — Campaign-start rework ──────────────────────────────────────
+// ─── Campaign-start rework ──────────────────────────────────────
 
 test('Campaign with crew: [] starts without entering the Hub', () => {
   const campaign = new Campaign({ seed: 42, crew: [] });

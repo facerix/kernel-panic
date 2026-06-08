@@ -12,9 +12,8 @@
  * second copy table in UI code.
  *
  * `generateContracts` is deterministic on the supplied Rng — the Curator
- * doesn't roll behind your back. That's what makes the M8 save flow
- * round-trippable: snapshot the rng state, restore, and the same contract
- * comes out.
+ * doesn't roll behind your back. Snapshot the rng state, restore, and the
+ * same contract comes out.
  */
 
 import { Entity } from '../Entity.js';
@@ -65,9 +64,10 @@ export type ContractContext = {
   tags: string[];
   arcStage?: ContractArcStage;
   /**
-   * M7.2: references a `LocationSite.id` in the campaign roster when the
-   * Curator targets a remembered site for a revisit. Distinct from the `site`
-   * lexicon token (flavor) — this is the map-memory key. Absent for fresh maps.
+   * References a `LocationSite.id` in the campaign roster when the Curator
+   * targets a remembered site for a revisit (P2.5.M7.2). Distinct from the
+   * `site` lexicon token (flavor) — this is the map-memory key. Absent for
+   * fresh maps.
    */
   locationSiteId?: string;
 };
@@ -425,7 +425,7 @@ const DIFFICULTY_SPEC: Readonly<Record<ContractDifficulty, DifficultySpec>> = Ob
   }),
 });
 
-/** M6.1: objective families whose props can route behind a locked prefab door. */
+/** P2.5.M6.1: objective families whose props can route behind a locked prefab door. */
 const DOOR_ROUTING_OBJECTIVE_KINDS: ReadonlySet<ObjectiveKind> = new Set([
   OBJECTIVES.RETRIEVE,
   OBJECTIVES.HANDOFF,
@@ -435,14 +435,14 @@ const DOOR_ROUTING_OBJECTIVE_KINDS: ReadonlySet<ObjectiveKind> = new Set([
   OBJECTIVES.ESCORT_EXTRACT,
 ]);
 
-/** M6.1: contract tiers that opt into prefab door spawn + door-linked routing. */
+/** P2.5.M6.1: contract tiers that opt into prefab door spawn + door-linked routing. */
 const DOOR_ROUTING_DIFFICULTIES: ReadonlySet<ContractDifficulty> = new Set([
   CONTRACT_DIFFICULTY.ELEVATED,
   CONTRACT_DIFFICULTY.CRITICAL,
 ]);
 
 /**
- * Whether a generated contract should spawn prefab doors and apply M6 routing
+ * Whether a generated contract should spawn prefab doors and apply door routing
  * params (`requiresUnlock` → `door-0` in Run).
  */
 export function contractUsesDoorRouting(
@@ -470,7 +470,7 @@ function applyDoorRoutingToObjective(
   };
 }
 
-// M5.1: difficulty pools moved to REP_TIERS in constants.ts. Each Rep tier
+// P2.5.M5.1: difficulty pools moved to REP_TIERS in constants.ts. Each Rep tier
 // carries its own pool — the Curator reads `campaign.rep` to select it.
 
 export type Contract = {
@@ -490,16 +490,16 @@ type ContractCampaign =
       rep?: number;
       meta?: Record<string, unknown>;
       arcStage?: ContractArcStage | null;
-      /** M7.2: remembered combat locations the Curator may steer revisits toward. */
+      /** Remembered combat locations the Curator may steer revisits toward (P2.5.M7.2). */
       siteRoster?: LocationSite[];
     }
   | null
   | undefined;
 
 /**
- * M7.2: probability that a generated contract targets an existing roster site
- * (deterministic from the seeded board rng) instead of a fresh seed. The map
- * memory is the payoff — difficulty and objective are still freshly rolled.
+ * Probability that a generated contract targets an existing roster site
+ * (deterministic from the seeded board rng) instead of a fresh seed (P2.5.M7.2).
+ * The map memory is the payoff — difficulty and objective are still freshly rolled.
  */
 export const SITE_REVISIT_CHANCE = 0.4;
 
@@ -526,9 +526,9 @@ export class Curator extends Entity {
   /**
    * Roll three job-board contracts for the current Hub visit.
    *
-   * M5.1: The difficulty pool is now driven by the campaign's Rep tier
-   * instead of the old `betterContracts` meta flag. Higher Rep → harder
-   * (more lucrative) contracts. TRUSTED tier also gets a Cred floor bump.
+   * The difficulty pool is driven by the campaign's Rep tier instead of the
+   * old `betterContracts` meta flag (P2.5.M5.1). Higher Rep → harder (more
+   * lucrative) contracts. TRUSTED tier also gets a Cred floor bump.
    */
   generateContracts(rng: Rng, campaign?: ContractCampaign): Contract[] {
     if (!rng || typeof rng.next !== 'function') {
@@ -547,12 +547,12 @@ export class Curator extends Entity {
       const difficulty = rng.pick([...pool]);
       const spec = DIFFICULTY_SPEC[difficulty];
 
-      // M7.2: revisit biasing — reuse a remembered location. The site's
+      // Revisit biasing (P2.5.M7.2) — reuse a remembered location. The site's
       // principal (+ site) are *pinned* so the place keeps a consistent owner
       // across visits, while the objective/asset/action (the job) are rolled
       // fresh and the label is regenerated coherently from the pinned tokens.
       // Only roll when the roster is non-empty so empty-roster generation is
-      // unchanged (no extra rng draws) and pre-M7.2 determinism holds.
+      // unchanged (no extra rng draws) and pre-P2.5.M7.2 determinism holds.
       let revisitSite: LocationSite | undefined;
       let built: RenderedContract | undefined;
       let seed: number;
@@ -874,10 +874,10 @@ function possessive(value: string): string {
 }
 
 /**
- * M7.2: a `LocationSite.seed` is the stringified contract seed that first built
- * the map. Convert it back to the numeric seed `buildMap` expects so the
- * geometry is byte-identical on revisit. A non-numeric seed is corrupt data —
- * crash rather than build a mismatched map.
+ * A `LocationSite.seed` is the stringified contract seed that first built the
+ * map (P2.5.M7.2). Convert it back to the numeric seed `buildMap` expects so
+ * the geometry is byte-identical on revisit. A non-numeric seed is corrupt
+ * data — crash rather than build a mismatched map.
  */
 function siteSeedToContractSeed(site: LocationSite): number {
   const seed = Number(site.seed);
@@ -971,10 +971,11 @@ function generateRecipeContract(
 }
 
 /**
- * M7.2: generate a fresh job for a *remembered* location. The site's principal
- * (and site token, when present) are pinned — only recipes compatible with that
- * identity are eligible — so the owner/place stay constant while the objective,
- * asset, and action are rolled fresh and the label is re-rendered coherently.
+ * Generate a fresh job for a *remembered* location (P2.5.M7.2). The site's
+ * principal (and site token, when present) are pinned — only recipes compatible
+ * with that identity are eligible — so the owner/place stay constant while the
+ * objective, asset, and action are rolled fresh and the label is re-rendered
+ * coherently.
  *
  * Returns `null` when the pinned identity admits no compatible recipe, or no
  * unique label can be produced — the caller then falls back to a fresh contract.

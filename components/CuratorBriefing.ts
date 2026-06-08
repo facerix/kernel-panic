@@ -1,7 +1,7 @@
 /**
  * <curator-briefing> — Full-screen Curator voice overlay for diegetic intros.
  *
- * Reused for progressive Hub reveals (M5.4) and any future one-shot briefing
+ * Reused for progressive Hub reveals and any future one-shot briefing
  * copy the shell wants to foreground beyond the status line.
  *
  * Events:

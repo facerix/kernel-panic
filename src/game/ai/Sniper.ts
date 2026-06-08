@@ -68,7 +68,7 @@ export interface SniperProps extends Omit<PatrolHostileInit, 'glyph'> {
   preferredMin?: number;
 }
 
-/** M6.2: Sniper snapshot `extra` — the patrol block plus its held-aim target. */
+/** P2.7.M6.2: Sniper snapshot `extra` — the patrol block plus its held-aim target. */
 export type SniperSnapshot = PatrolSnapshot & { aimTargetId: string | null };
 
 type DamageEventPayload = { target?: Entity };

@@ -4,7 +4,7 @@ import { TILE } from './constants.js';
  * 2D tile grid backed by a flat Uint8Array.
  *
  * Coordinates are (x, y) with origin at the top-left, y growing downward —
- * matching the canvas coordinate system we'll render onto in M2.
+ * matching the canvas coordinate system.
  */
 export class Grid {
   width: number;

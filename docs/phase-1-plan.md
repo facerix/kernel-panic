@@ -2,6 +2,8 @@
 
 Living plan for Phase 1 of Kernel Panic. Source of truth for milestone scope, current progress, and decisions we've already locked in. See [kernel-panic-v1-blueprint.md](kernel-panic-v1-blueprint.md) for the design vision and [game-overview.md](game-overview.md) for the elevator pitch.
 
+**Phase prefix:** `P1` — use `P1.MN` when referencing milestones from this phase in other documents.
+
 ## Current status
 
 | Milestone | Status |

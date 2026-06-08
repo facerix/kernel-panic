@@ -11,7 +11,7 @@ import type { AimKind, Mode } from './keymap.js';
  * Modifier-key combos (ctrl/meta/alt) are ignored so we don't fight browser
  * shortcuts.
  *
- * Optional `isBlocked()` predicate gates *all* keydown handling. The M0
+ * Optional `isBlocked()` predicate gates *all* keydown handling. The
  * combat-feedback animations use this to lock input for ~300ms while a
  * shake/reddening plays — the controller early-returns before consulting
  * the keymap so mode transitions can't queue up during the lockout either.

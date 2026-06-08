@@ -1,15 +1,15 @@
 /**
- * M8 game shell. Promotes `/index.html` from the M0 scaffold to a real game:
+ * Game shell. Promotes `/index.html` from the original scaffold to a real game:
  *
  *   - boots DataStore + service worker,
  *   - restores a saved campaign when present,
  *   - drives `Campaign` (HUB) plus one active `Run` job episode,
  *   - paints the canvas during HUB / COMBAT, swaps DOM overlays during
- *     BRIEFING / RESULT (per the M8 plan: "DOM panels above the canvas;
+ *     BRIEFING / RESULT (per the original plan: "DOM panels above the canvas;
  *     canvas paints during HUB/COMBAT only"), plus <system-start> on a new
  *     campaign,
  *   - wires KeyboardController and <touch-pad> through the shared
- *     `applyIntent` helper that the M7 debug harness also uses,
+ *     `applyIntent` helper that the debug harness also uses,
  *   - persists snapshots on every `turn:ended` and clears the save on
  *     DEATH / EXIT (autosave-on-turn-end per the locked-in decision).
  *
@@ -265,7 +265,7 @@ let keyboard: KeyboardController;
 let currentJobOptions: Contract[] = [];
 
 /**
- * Animation-lock for M0 combat feedback. Listeners on the run bus
+ * Animation-lock for combat feedback. Listeners on the run bus
  * (`attachAnimationListeners`) push durations as effects fire; both
  * input controllers consult `isLocked()` so a key held mid-shake doesn't
  * sneak through. See `src/render/animations.js`.
@@ -434,8 +434,7 @@ async function boot() {
       paint();
     },
     onModeChange: () => {
-      // Keep the keyboard / touchpad in lock-step so the cross-input cancel
-      // rule the M7 harness established still holds in the shell.
+      // Keep the keyboard / touchpad in lock-step so cross-input cancel still holds.
       handleInputModeChange();
       paint();
     },
@@ -537,7 +536,7 @@ async function boot() {
     startFreshCampaign();
   }
 
-  // SW registration is the same posture as the M0 scaffold — kicked off last
+  // SW registration is the same posture as the debug scaffold — kicked off last
   // so it doesn't gate the shell's first paint.
   serviceWorkerManager.register().catch(err => console.warn('[shell] sw register failed', err));
 }
@@ -891,7 +890,7 @@ function onFinnSellSalvage(evt: Event) {
 
 function presentItemInventory() {
   if (!campaign) return;
-  // M4.2: inventory is now available in both Hub and combat. The two states
+  // Inventory is now available in both Hub and combat. The two states
   // surface different wallets:
   //   - Combat: the deployed crew member's job-scoped inventory (what they've
   //     picked up this run + their consumables).
@@ -920,7 +919,7 @@ function presentItemInventory() {
 }
 
 /**
- * Stashed item id for M4.3 thrown-consumable aim flow. Set when the
+ * Stashed item id for thrown-consumable aim flow. Set when the
  * inventory overlay confirmed an aimed consumable (incendiary) and we
  * flipped the input controllers into `MODE.AIM` with `aimKind: 'use-item'`;
  * consumed when the subsequent `use-item { dx, dy }` intent arrives or cleared
@@ -1045,7 +1044,7 @@ function applyUseConsumableResult(
  * Resolve an aimed `use-item { dx, dy }` intent. Pairs the keymap's direction
  * pick with the shell's stashed `pendingAimItemId` and runs the LOS-clear
  * pre-check before mutating state. Called from `applyIntent`'s onUseItem
- * callback (M4.3).
+ * callback.
  */
 function resolveAimedUseItem(aim: { dx: number; dy: number }, run: Run): void {
   if (!run.world || !run.player) throw new Error('[shell] resolveAimedUseItem: no scene');
@@ -1058,7 +1057,7 @@ function resolveAimedUseItem(aim: { dx: number; dy: number }, run: Run): void {
   }
   pendingAimItemId = null;
   if (itemId === ITEM_ID.INCENDIARY) {
-    // LOS-clear-target pre-check (M4.3 acceptance): the throw lands at
+    // LOS-clear-target pre-check: the throw lands at
     // `player + dir * INCENDIARY_THROW_DIST`. If LOS from the thrower to
     // that tile is blocked (or the tile is out of bounds), refuse the
     // throw *before* spending AP / consuming the bomb.
@@ -1320,7 +1319,7 @@ function handleIntent(intent: Intent): void {
   if (!run) return;
   // BRIEFING / RESULT swallow gameplay intents — JACK IN / NEW RUN drive
   // those transitions through the DOM buttons. Cancel is still valid (it
-  // clears any stuck aim mode, per the M7 cross-input cancel rule).
+  // clears any stuck aim mode, per the cross-input cancel rule).
   if (
     run.state === RUN_STATE.BRIEFING ||
     run.state === RUN_STATE.RESULT ||
@@ -1354,7 +1353,7 @@ function handleIntent(intent: Intent): void {
     keyItems: [...(campaign?.keyItems ?? []), ...(run as Run).keyItems],
     onKeycardCollected: kc => {
       if (kc.siteId) {
-        // Campaign-scoped: persists across runs (M7.2).
+        // Campaign-scoped: persists across runs.
         if (campaign?.keyItems.some(k => k.id === kc.id)) {
           return;
         }
@@ -1367,7 +1366,7 @@ function handleIntent(intent: Intent): void {
     onPlayerAction: (actionName: string) => {
       switch (actionName) {
         case PLAYER_ACTIONS.INVENTORY:
-          // M4.2: inventory opens in Hub *and* combat. In combat we still
+          // Inventory opens in Hub *and* combat. In combat we still
           // restrict to the player's turn so peeking doesn't dodge corp
           // tempo; in Hub there's no turn queue gating to worry about.
           if (campaign?.state === CAMPAIGN_STATE.COMBAT) {
@@ -1396,7 +1395,7 @@ function handleIntent(intent: Intent): void {
  * Pacing between drone actions when the corp turn is animated step-by-step.
  * Tuned just above MUZZLE_FLASH duration so the firing flash decays cleanly
  * before the same drone takes its next action (move, second shot, etc.) —
- * the M0 user-reported bug where a "fire then move" turn left the flash
+ * the original user-reported bug where a "fire then move" turn left the flash
  * stranded on the tile the drone had just vacated.
  */
 const CORP_ACTION_DELAY_MS = 130;
@@ -1660,7 +1659,7 @@ function handleCombatInteract(): void {
           flash('Insufficient AP to loot.');
           return;
         }
-        // M4.2: typed salvage — show pickup total + post-pickup compact wallet.
+        // Typed salvage — show pickup total + post-pickup compact wallet.
         const amount = totalSalvage(entity.loot.salvage);
         player.collectSalvage(run.world, entity);
         vision.forgetCorpse(entity);
@@ -1698,7 +1697,7 @@ function onNewRunRequested(): void {
     const jobResult = pendingJobResult;
     const { outcome } = jobResult;
     pendingJobResult = null;
-    // M3 + M4.2: extract typed salvage from the deployed crew member's
+    // Extract typed salvage from the deployed crew member's
     // inventory on exit. Death outcomes pass `undefined` so onJobEnd defaults
     // to an empty wallet (loot forfeited on flatline).
     const member = campaign.deployedMemberId
@@ -1707,8 +1706,8 @@ function onNewRunRequested(): void {
     const salvage = member?.inventory?.salvage;
     const objectiveComplete =
       outcome === 'exit' ? jobResult.telemetry.objectiveComplete !== false : false;
-    // M5: clean completion bonus — must run *before* `onJobEnd` so `enterHub` →
-    // `generateRecruits()` sees the updated Rep (M6 recruitment gates at 65).
+    // Clean completion bonus — must run *before* `onJobEnd` so `enterHub` →
+    // `generateRecruits()` sees the updated Rep (recruitment gates at 65).
     if (outcome === 'exit' && objectiveComplete && civilianHarmsThisJob === 0) {
       const actual = campaign.adjustRep(REP.CLEAN_COMPLETION_BONUS);
       flash(`REP +${actual}: clean extraction — no civilian casualties.`);
@@ -1745,7 +1744,7 @@ function onNewRunRequested(): void {
 }
 
 // ---------------------------------------------------------------------------
-// Vision (mirrors the M5 harness rule: refresh on every entity move)
+// Vision (mirrors the debug harness rule: refresh on every entity move)
 // ---------------------------------------------------------------------------
 
 function attachVisionListener(): void {
@@ -1759,7 +1758,7 @@ function attachVisionListener(): void {
 }
 
 /**
- * Subscribe the M0 combat-feedback animations to the active run's bus.
+ * Subscribe the combat-feedback animations to the active run's bus.
  *
  *   - `entity:damaged` where the player is the target → shake + reddening
  *     (~300ms lock).
@@ -1791,7 +1790,7 @@ function attachAnimationListeners(): void {
         const fired = runMuzzleFlash(renderer, paint, target.x, target.y);
         if (fired) animLock.push(ANIMATION_DURATIONS.MUZZLE_FLASH);
       }
-      // M3: memorise corpse position when a kill occurs within current LOS.
+      // Memorise corpse position when a kill occurs within current LOS.
       if (killed && target && vision.isVisible(target.x, target.y)) {
         vision.memoriseCorpse(target);
       }
@@ -1815,7 +1814,7 @@ function attachAnimationListeners(): void {
 }
 
 /**
- * Subscribe M5 Rep-affecting events to the active run's bus.
+ * Subscribe Rep-affecting events to the active run's bus.
  *
  *   - `civilian:harmed` (NeutralCivilian only) → -20 Rep per kill; track harm
  *     for clean completion. Corp staff kills are excluded.
@@ -1920,7 +1919,7 @@ function renderShell(): void {
 }
 
 /**
- * M7.2: the persistent location chip text for the canvas top-left. Combat shows
+ * The persistent location chip text for the canvas top-left. Combat shows
  * the contract's site flavor label (bracketed by `//`); the Hub shows
  * "// Safe House //" so the corner always answers "where am I".
  */
@@ -2049,7 +2048,7 @@ function statusLine(state: InputState): string {
   } else {
     if (!campaign) return stateLabel();
     const repLabel = REP_LABEL.find(b => campaign!.rep >= b.min)?.label ?? 'UNKNOWN';
-    // M4.2 (revised): Hub identity drops the typed-salvage compact tag —
+    // Hub identity drops the typed-salvage compact tag —
     // the inventory overlay (`i` in Hub) is the canonical wallet view with
     // full bucket names. Total Cred / Rep / crew counts stay on this line.
     identity = `CREW ${campaign.crew.filter(member => !member.flatlined).length}/${campaign.crew.length} CREDS ${campaign.credits ?? 0} REP ${campaign.rep} (${escapeHtml(repLabel)})`;
@@ -2245,7 +2244,7 @@ function resetInputModes(): void {
   keyboard.mode = MODE.IDLE;
   keyboard.aimKind = null;
   touchPadEl.setMode(MODE.IDLE);
-  // Clear any half-armed thrown-consumable aim (M4.3). Esc-cancel from
+  // Clear any half-armed thrown-consumable aim. Esc-cancel from
   // aim mode, or a cross-controller cancel, must not leave a stashed item
   // hanging — a later inventory click would otherwise mismatch.
   pendingAimItemId = null;
@@ -2299,7 +2298,7 @@ function handleGlobalKey(evt: KeyboardEvent): void {
   // While <key-help> is open it owns the foreground entirely: `?` and Esc
   // close it; every other key is swallowed so a held WASD doesn't pump
   // moves into the game underneath. (Tested manually — gameplay events
-  // routing through this layer was the bug we hit during M7 touchpad
+  // routing through this layer was the bug we hit during touchpad
   // testing too.)
   if (keyHelpEl.isOpen) {
     if (evt.key === '?' || evt.key === 'Escape') {

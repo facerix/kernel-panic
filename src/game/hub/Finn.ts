@@ -8,7 +8,7 @@
  * Like the Curator and Terminal, Finn is NEUTRAL faction, immobile, zero AP,
  * and one HP. The interaction is entirely mediated by the shell — Finn's game-
  * logic interface is just `catalog()` which returns the item list the shop UI
- * presents. M5.1 removed meta upgrades (Rep tiers replace them).
+ * presents. P2.5.M5.1 removed meta upgrades (Rep tiers replace them).
  */
 
 import { Entity } from '../Entity.js';

@@ -36,8 +36,8 @@ export type Gear = {
 };
 
 /**
- * M6.2: shared crew snapshot `extra`. Merc/Razor carry exactly this; the Tech
- * extends it with `turretReady`. Bag-hygienic — `null`, never `undefined`.
+ * P2.7.M6.2: shared crew snapshot `extra`. Merc/Razor carry exactly this; the
+ * Tech extends it with `turretReady`. Bag-hygienic — `null`, never `undefined`.
  */
 export type CrewSnapshot = {
   callsign: string | null;
@@ -63,23 +63,19 @@ const createDefaultGear = (): Gear => ({
  *
  *   - `callsign` — the in-fiction name a player remembers ("Glitch", "Cipher").
  *     Picked from each archetype's curated `CALLSIGNS` list by
- *     `buildCrewMember(archetypeId, spawn, rng)` in M1; deduplicated against
- *     campaign history by `Campaign.buildCrew` in M2. Defaults to `null` here
- *     so bare constructor tests can still exercise defaults; Campaign-created
- *     crew should always have a callsign.
+ *     `buildCrewMember(archetypeId, spawn, rng)`; deduplicated against campaign
+ *     history by `Campaign.buildCrew`. Defaults to `null` so bare constructor
+ *     tests can still exercise defaults; Campaign-created crew should always
+ *     have a callsign.
  *   - `flatlined` — campaign-permanent death flag. `Entity.alive` is job-
  *     scoped (resets when a crew member is redeployed on a new job);
  *     `flatlined` is the persistent twin that says "this crew member is gone
- *     for good." Phase-2 design lock: a flatlined crew member is never
- *     deployed again, and `Campaign` ends when every member is flatlined.
- *     `M2` is when `Campaign.onJobEnd` flips this; for now it's a default-
- *     `false` stub the tests can assert on.
- *   - `inventory` / `gear` — stub fields reserved for M3 (`inventory.salvage`
- *     plus `consumables`) and M4 (Finn's shop applies gear bonuses). Both
- *     default to `null` so we don't leak shape decisions into Phase 2 code
- *     before M3/M4 lock them in; the no-silent-fallback rule means a caller
- *     that touches `crew.inventory.salvage` today will crash legibly with a
- *     null-deref, which is the failure mode we want before the schema lands.
+ *     for good." A flatlined crew member is never deployed again, and
+ *     `Campaign` ends when every member is flatlined.
+ *   - `inventory` (`inventory.salvage` + `consumables`) and `gear` (Finn's
+ *     shop bonuses) default to `null` so tests can exercise Crew without a
+ *     full shop/salvage setup; callers that access these fields before
+ *     initializing them crash on null-deref rather than silently corrupting.
  *
  * Why a base class, not a mixin? `Entity`'s class shape already carries
  * factional and combat invariants; the archetype subclasses extend that with
@@ -304,7 +300,7 @@ export class Crew extends Entity {
    * of World).
    *
    * @param itemId  consumable id from `ITEM_ID`
-   * @param aim     `{ dx, dy }` unit vector for thrown items (M4.3 incendiary).
+   * @param aim     `{ dx, dy }` unit vector for thrown items (e.g. incendiary, breaching charge).
    *                Omit for self-targeted items (stim, smoke).
    */
   useConsumable(itemId: string, aim?: { dx: number; dy: number }) {
@@ -392,7 +388,7 @@ export class Crew extends Entity {
    *   - `targetEntity` has a `loot` object with `salvage > 0`
    *   - `targetEntity` is Chebyshev-adjacent (distance ≤ 1) to this crew member
    *
-   * On commit (M4.1): debits AP unless `spendAp` is false, transfers loot.salvage to
+   * On commit: debits AP unless `spendAp` is false, transfers loot.salvage to
    * `this.inventory.salvage`, then **removes the stripped corpse from the
    * world entirely** — no phantom tile, no zero-loot lingering corpse.
    * Closes the kaizen "corpse memory / lootability" line for drones; future
@@ -425,15 +421,12 @@ export class Crew extends Entity {
     if (spendAp) {
       this.spendAp(AP_COST.INTERACT);
     }
-    // M4.2: typed salvage — fold the corpse's typed loot into the crew
-    // member's typed wallet, then zero each bucket on the corpse before
-    // removing it. Total preserved across the four buckets.
+    // Fold the corpse's typed loot into the crew member's typed wallet, then
+    // zero each bucket on the corpse before removing it.
     addSalvage(this.inventory.salvage, targetEntity.loot.salvage);
     targetEntity.loot.salvage = emptySalvage();
-    // M4.1: strip the corpse from the world so the tile renders as empty and
-    // no longer registers in `anyEntityAt` / `lootableCorpseAt`. Pathing was
-    // already unaffected (corpses don't block movement), but the visual
-    // "phantom" tile was misleading.
+    // Strip the corpse from the world so the tile renders as empty and no
+    // longer registers in `anyEntityAt` / `lootableCorpseAt`.
     world.removeEntity(targetEntity.id);
   }
 }

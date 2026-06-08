@@ -3,8 +3,8 @@
  *
  * Deterministic given the same RNG state — combat asks the supplied `Rng`
  * for one number per shot, so a saved seed reproduces the engagement
- * exactly. That's important for the M7 save flow and for tests that need to
- * pin a hit/miss outcome.
+ * exactly. That's important for the save flow and for tests that need to pin
+ * a hit/miss outcome.
  *
  * Hit math:
  *   threshold = BASE_HIT_CHANCE − (cover ? COVER_HIT_PENALTY : 0)
@@ -145,7 +145,7 @@ export function resolveRanged(
     'baseHitChance' in attacker
       ? (attacker as { baseHitChance: number }).baseHitChance
       : BASE_HIT_CHANCE;
-  // M4: crew gear's targeting chip adds hitBonus to the base chance.
+  // Crew gear's targeting chip adds hitBonus to the base hit chance.
   const gearBonus = (attacker as Entity & { gear?: { hitBonus?: number } }).gear?.hitBonus ?? 0;
   const baseHit = options.baseHit ?? entityBaseHit + gearBonus;
   const coverPenalty = options.coverPenalty ?? COVER_HIT_PENALTY;
@@ -229,7 +229,7 @@ export function canMelee(world: World, attacker: Entity, target: Entity) {
 }
 
 /**
- * Commit a melee strike. M7 gives defenders a dodge roll while keeping the
+ * Commit a melee strike. Defenders get a dodge roll while keeping the
  * pre-check strict: adjacency + AP buys a committed swing, not guaranteed HP
  * loss. Throws on illegal pre-conditions (so a buggy caller can't silently
  * steal AP with no swing) and emits both `entity:damaged` and a `noise` event

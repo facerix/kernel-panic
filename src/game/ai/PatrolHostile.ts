@@ -56,10 +56,10 @@ export type EngageVerdict = 'continue' | 'break';
 export type EngageSteps = Generator<TurnActionStep, EngageVerdict, undefined>;
 
 /**
- * M6.2: serialised patrol state machine. Every patrol hostile (Skirmisher,
- * Guard, Bruiser, Juggernaut, Flanker, Lookout, Sniper, Medic) round-trips
- * this identical block as its snapshot `extra`. Subclasses extend it: the
- * Sniper adds `aimTargetId`, the Flanker adds `slideConcealed`.
+ * P2.7.M6.2: serialised patrol state machine. Every patrol hostile
+ * (Skirmisher, Guard, Bruiser, Juggernaut, Flanker, Lookout, Sniper, Medic)
+ * round-trips this identical block as its snapshot `extra`. Subclasses extend
+ * it: the Sniper adds `aimTargetId`, the Flanker adds `slideConcealed`.
  */
 export type PatrolSnapshot = {
   state: string;

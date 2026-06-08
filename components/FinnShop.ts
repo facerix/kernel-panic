@@ -1,7 +1,7 @@
 /**
  * <finn-shop> — modal shop for purchasing items from Finn.
  *
- * M5.2: Tabbed UI with SELL and BUY tabs. The SELL tab shows per-type salvage
+ * Tabbed UI with SELL and BUY tabs. The SELL tab shows per-type salvage
  * rows with differentiated pricing; the BUY tab shows consumables and gear
  * grouped by scope. Keyboard-navigable (←/→ or Tab to switch tabs, ↑/↓ to
  * browse within, Enter to buy/sell, Esc to close).

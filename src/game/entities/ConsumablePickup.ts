@@ -1,7 +1,7 @@
 /**
- * Walk-onto consumable pickup (M4.3). A loose item dropped on the combat
- * grid that the player auto-collects by stepping on its tile. Distinct from
- * the M2.5 objective `Pickup` (glyph `!`, walk-onto secure for retrieve
+ * Walk-onto consumable pickup. A loose item dropped on the combat grid that
+ * the player auto-collects by stepping on its tile. Distinct from the
+ * objective `Pickup` (glyph `!`, walk-onto secure for retrieve
  * objectives): consumables are flavor / loot, never gated by
  * extraction, and don't appear in `isObjectiveSatisfied`.
  *
@@ -18,8 +18,7 @@
  *     `Crew.addConsumable(consumableId)`.
  *
  * Placement: `Run.enterCombat` rolls 0–2 per run, uniform across the three
- * shipped consumables (stim / smoke charge / incendiary). M5 owns
- * tier/recipe-aware refinements.
+ * shipped consumables (stim / smoke charge / incendiary).
  *
  * Glyph: `'*'` — distinct from the objective Pickup `!`, Contact `&`,
  * SyncPad `§`, RelayNode `~`, and DenyTarget `X` glyphs already in use.
@@ -40,7 +39,7 @@ export interface ConsumablePickupInit extends Omit<
   label: string;
 }
 
-/** M6.2: ConsumablePickup snapshot `extra`. */
+/** P2.7.M6.2: ConsumablePickup snapshot `extra`. */
 export type ConsumablePickupSnapshot = {
   consumableId: string;
   label: string;

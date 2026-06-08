@@ -40,7 +40,7 @@ import type { Crew } from './Crew.js';
 import type { GridPoint, KeyItem, LocationSite, TileDelta } from '../types.js';
 import type { RunResult, Outcome } from './Run.js';
 
-/** M7.2: max remembered combat locations. One slot is reserved for Phase 3's score target. */
+/** Max remembered combat locations (P2.5.M7.2). One slot is reserved for Phase 3's score target. */
 export const SITE_ROSTER_CAP = 6;
 
 export const CAMPAIGN_STATE = Object.freeze({
@@ -52,9 +52,9 @@ export const CAMPAIGN_STATE = Object.freeze({
 const STARTER_ARCHETYPES = Object.freeze(['merc', 'razor', 'tech']);
 
 export type CampaignState = (typeof CAMPAIGN_STATE)[keyof typeof CAMPAIGN_STATE];
-// M5.1: `expandedCatalog` and `betterContracts` removed — Rep tiers replace
-// them. Old saves may still carry those keys as dead data; the type is a
-// plain Record so they don't cause a type error on restore.
+// `expandedCatalog` and `betterContracts` were removed in P2.5.M5.1 — Rep
+// tiers replace them. Old saves may still carry those keys as dead data; the
+// type is a plain Record so they don't cause a type error on restore.
 export type CampaignMeta = Record<string, unknown>;
 
 export type CampaignOptions = {
@@ -137,9 +137,9 @@ export class Campaign {
   healedThisVisit: Set<string>;
   hubReveals: HubReveals;
   completedJobs: number;
-  /** M6.2: persistent key-item inventory — keycards survive across runs. */
+  /** Persistent key-item inventory (P2.5.M6.2) — keycards survive across runs. */
   keyItems: KeyItem[];
-  /** M7.2: remembered combat locations (max `SITE_ROSTER_CAP`). */
+  /** Remembered combat locations / site roster (P2.5.M7.2), max `SITE_ROSTER_CAP`. */
   siteRoster: LocationSite[];
   /** Set by the latest `enterHub` when a reveal message fired; shell reads and clears. */
   lastHubReveal: HubRevealMessage | null;
@@ -166,9 +166,9 @@ export class Campaign {
     if (crew !== undefined && !Array.isArray(crew)) {
       throw new TypeError('Campaign: crew must be an array when supplied');
     }
-    // M4.2: salvage is now a TypedSalvage wallet. `migrateSalvage` accepts
-    // either a legacy non-negative integer (buckets entirely into scrap) or a
-    // structurally valid TypedSalvage. Anything else crashes.
+    // Salvage is a TypedSalvage wallet (pre-P2.5.M4.2 saves stored a number).
+    // `migrateSalvage` accepts either a legacy non-negative integer (bucketed
+    // into scrap) or a valid TypedSalvage. Anything else crashes.
     const salvageWallet =
       salvage === undefined || salvage === 0
         ? emptySalvage()
@@ -332,7 +332,7 @@ export class Campaign {
     this.activeRun = new Run({
       crewMember: member,
       seed: deployedContract.seed,
-      // M7.2: replay prior-visit terrain on revisits ([] for first visits).
+      // Replay prior-visit terrain mutations on revisits ([] for first visits).
       priorMutationDeltas: this.priorDeltasForContract(deployedContract),
       priorSeenKeys: this.priorSeenKeysForContract(deployedContract),
       priorKeyItems: this.priorKeyItemsForContract(deployedContract),
@@ -342,7 +342,7 @@ export class Campaign {
       },
     });
     this.activeRun.enterBriefing(deployedContract);
-    // M7.2: remember this location (or refresh its visit marker) on deploy.
+    // Remember this location (or refresh its visit marker) on deploy.
     this.#rememberLocation(deployedContract);
     // Breach contracts auto-grant a breaching charge so the objective is always
     // completable, even before Finn's shop is unlocked.
@@ -372,8 +372,8 @@ export class Campaign {
     if (outcome !== OUTCOME.DEATH && outcome !== OUTCOME.EXIT) {
       throw new Error(`Campaign.onJobEnd: unknown outcome "${outcome}"`);
     }
-    // M4.2: salvage payload is now typed. Default to empty (no carry-out on
-    // a death; shell omits the param). Validate structure when provided so a
+    // Salvage payload is typed (P2.5.M4.2). Default to empty (no carry-out on
+    // death; shell omits the param). Validate structure when provided so a
     // malformed call crashes here rather than corrupting the wallet.
     const extracted = salvage ?? emptySalvage();
     if (
@@ -390,7 +390,7 @@ export class Campaign {
     if (outcome === OUTCOME.DEATH) {
       this.flatlineMember(this.deployedMemberId);
     } else {
-      // M7.2: persist this run's terrain mutations into the site roster before
+      // Persist this run's terrain mutations into the site roster before
       // returning to the Hub — breach holes survive even on an aborted exit.
       this.#mergeRunDeltasIntoRoster(this.activeRun);
       this.#mergeRunSeenIntoRoster(this.activeRun);
@@ -451,13 +451,11 @@ export class Campaign {
   }
 
   /**
-   * Sell salvage to Finn for Creds.
-   *
-   * M5.2: each salvage type has a distinct Cred-per-unit rate via
-   * `SALVAGE_SELL_RATE`. When `type` is provided, sells exactly that type at
-   * its rate. When omitted, draws from buckets in `SALVAGE_TYPES` priority
-   * order (scrap → chips → bio → data), applying each type's rate as units
-   * are drawn. Throws on all illegal preconditions.
+   * Sell salvage to Finn for Creds. Each salvage type has a distinct
+   * Cred-per-unit rate via `SALVAGE_SELL_RATE`. When `type` is provided, sells
+   * exactly that type at its rate. When omitted, draws from buckets in
+   * `SALVAGE_TYPES` priority order (scrap → chips → bio → data), applying each
+   * type's rate as units are drawn. Throws on all illegal preconditions.
    */
   sellSalvage(quantity: number, type?: SalvageType): void {
     if (this.state !== CAMPAIGN_STATE.HUB) {
@@ -502,12 +500,12 @@ export class Campaign {
     this.#persist();
   }
 
-  // ─── Recruitment (M6) ─────────────────────────────────────────────────────
+  // ─── Recruitment ──────────────────────────────────────────────────────────
 
   /**
    * Collect every callsign ever used by any crew member (living or flatlined)
-   * and any current recruit candidate. Used to prevent callsign recycling
-   * within a campaign — the kaizen item from M2.
+   * and any current recruit candidate. Prevents callsign recycling within a
+   * campaign.
    */
   allUsedCallsigns(): Set<string> {
     const used = new Set<string>();
@@ -573,7 +571,7 @@ export class Campaign {
     this.#persist();
   }
 
-  // ─── Initial recruitment (M6 Phase B) ────────────────────────────────────
+  // ─── Initial recruitment ──────────────────────────────────────────────────
 
   /**
    * Generate the starter candidate pool for a fresh campaign. Returns
@@ -731,12 +729,12 @@ export class Campaign {
     this.#persist();
   }
 
-  // ─── Key items (M6.2) ───────────────────────────────────────────────────
+  // ─── Key items (P2.5.M6.2) ──────────────────────────────────────────────
 
   /**
    * Add a key item to the campaign's persistent inventory. Key items survive
-   * across runs and are never consumed on use (a keycard that unlocks a door
-   * stays in the inventory for revisit matching in M7.2).
+   * across runs and are never consumed on use — a keycard that unlocks a door
+   * stays in the inventory for revisit matching.
    */
   addKeyItem(item: KeyItem): void {
     if (!item || typeof item !== 'object') {
@@ -766,7 +764,7 @@ export class Campaign {
     return this.keyItems.find(k => k.doorId === doorId) ?? null;
   }
 
-  // ─── Location memory / site roster (M7.2) ─────────────────────────────────
+  // ─── Location memory / site roster (P2.5.M7.2) ───────────────────────────
 
   /** Look up a remembered site by its `LocationSite.id`. */
   findRosterSite(siteId: string): LocationSite | null {
@@ -777,7 +775,7 @@ export class Campaign {
    * Add a remembered site to the roster, or refresh `lastVisitedJob` if it is
    * already present. At capacity, evict the oldest `roster`-tier site (lowest
    * `lastVisitedJob`); `score`-tier sites are never evicted. If the roster is
-   * full of score-tier sites (degenerate — only one score slot exists in M7),
+   * full of score-tier sites (degenerate — one Phase 3 score slot exists),
    * the add is skipped with a warning rather than evicting the Phase 3 target.
    */
   addSiteToRoster(site: LocationSite): void {
@@ -895,8 +893,8 @@ export class Campaign {
       mutationDeltas: existing ? existing.mutationDeltas : [],
       seenKeys: existing ? existing.seenKeys : [],
       lastVisitedJob: this.completedJobs,
-      // M7.2: a location's identity is its principal (+ site). Stored on first
-      // visit so revisits can pin them and regenerate a coherent label.
+      // A location's identity is its principal (+ site). Stored on first visit
+      // so revisits can pin them and regenerate a coherent label.
       principal: contract.context.principal,
       ...(contract.context.site ? { site: contract.context.site } : {}),
     });
@@ -910,9 +908,9 @@ export class Campaign {
 
   /**
    * Merge an extracted run's terrain mutations into its roster site. Tolerant
-   * of a missing entry (e.g. a save deployed before M7.2 then extracted after
-   * the upgrade) by creating the entry first — this is a migration gap, not
-   * corruption, so we heal rather than crash.
+   * of a missing entry (e.g. a save deployed before P2.5.M7.2 then extracted
+   * after the upgrade) by creating the entry first — this is a migration gap,
+   * not corruption, so we heal rather than crash.
    */
   #mergeRunDeltasIntoRoster(run: Run): void {
     if (!run.contract) return;
@@ -964,7 +962,7 @@ export class Campaign {
 }
 
 /**
- * M6.2: Normalize key items from a snapshot (or undefined for pre-M6.2 saves).
+ * Normalize key items from a snapshot (or undefined for pre-P2.5.M6.2 saves).
  * Validates structure. Crashes on malformed entries per project policy.
  */
 function normalizeKeyItems(raw: unknown): KeyItem[] {
@@ -997,7 +995,7 @@ function normalizeKeyItems(raw: unknown): KeyItem[] {
 }
 
 /**
- * M7.2: Normalize the site roster from a snapshot (or undefined for pre-M7.2
+ * Normalize the site roster from a snapshot (or undefined for pre-P2.5.M7.2
  * saves). Validates every entry and its deltas. Crashes on malformed data per
  * project policy (crash over silent bad map).
  */

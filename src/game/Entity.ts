@@ -16,7 +16,7 @@ export interface EntityInit {
   /**
    * If true, the entity does not block movement or LOS — actors can walk
    * onto/through its tile, drones plan paths through it, and `World.entityAt`
-   * / `blockerKeys` skip it. Default `false`. Used by M4.3 ConsumablePickup
+   * / `blockerKeys` skip it. Default `false`. Used by walk-onto ConsumablePickup
    * (loose items on the floor) and reserved for future walk-through props
    * (floor signs, location markers).
    *
@@ -49,7 +49,7 @@ export interface EntityInit {
 
 /**
  * A grid-resident actor: player, drone, NPC. Pure data + AP/HP bookkeeping; no
- * AI here — drone behaviour lands in M5.
+ * AI here.
  *
  * Crashes on illegal AP spend or negative damage rather than clamping
  * silently — a bug that spends 3 AP from a 1-AP pool, or rolls negative

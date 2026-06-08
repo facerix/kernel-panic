@@ -4,8 +4,7 @@
  * wipes the crew. Renders the run's telemetry as a faux kernel-panic stack
  * trace (on DEATH) or a clean "JACK OUT" debrief (on EXIT). Campaign wipe uses
  * `outcome: 'campaign-over'` or `campaignTerminal: true` on a death payload.
- * Same component, different copy — keeps the shell's overlay count down per
- * the M8 plan.
+ * Same component, different copy — keeps the shell's overlay count down.
  *
  *   *** KERNEL PANIC ***
  *   fault:  unhandled_exception_in_meatspace

@@ -2,6 +2,8 @@
 
 Living plan for the Phase 3 slice of Kernel Panic: **campaign arc**, **Cyberspace**, **the Decker**, and **the Score** — the narrative and mechanical layer that gives the Meatspace foundations (Phase 2 / 2.5) a purpose. **Target release: `v0.3.0`.** See [phase-2.5-plan.md](phase-2.5-plan.md) for the Meatspace depth milestones that Phase 3 builds on, [kernel-panic-v1-blueprint.md](kernel-panic-v1-blueprint.md) for the overall design vision, and [game-overview.md](game-overview.md) for the elevator pitch.
 
+**Phase prefix:** `P3` — use `P3.MN` (e.g. `P3.M1.2`) when referencing milestones from this phase in other documents.
+
 ## Design vision
 
 The campaign is a **Neuromancer-shaped arc**: a crew of operators assembles over a series of street-level gigs, recruits a specialist who can open the digital layer, and builds toward a climactic multi-layer infiltration — **the Score**. Two interlocking pressures drive the player forward:
@@ -13,9 +15,9 @@ The campaign is a **Neuromancer-shaped arc**: a crew of operators assembles over
 
 | Arc | Runs | What happens | Systems |
 |-----|------|-------------|---------|
-| **Act 1: Street level** | 1–5 | Build rep, learn combat, recruit crew. Pure Meatspace gigs. Unconnected contracts from M2.10 recipes. | M2 objectives, M5 economy, M7 site roster begins |
+| **Act 1: Street level** | 1–5 | Build rep, learn combat, recruit crew. Pure Meatspace gigs. Unconnected contracts from P2.5.M2.10 recipes. | P2.5.M2 objectives, P2.5.M5 economy, P2.5.M7 site roster begins |
 | **Turning point** | ~5 | Reach top rep tier. Offered the Score (or discover it). Recruit the Decker. | Decker joins crew; Score target site designated |
-| **Act 2: Casing** | 6–10 | Prep runs at/near the target site + resource building. Cyberspace available on some contracts. Learning the flip. Curator biases toward Score-adjacent contracts. | M7 persistence (casing), Cyberspace, simstim flip |
+| **Act 2: Casing** | 6–10 | Prep runs at/near the target site + resource building. Cyberspace available on some contracts. Learning the flip. Curator biases toward Score-adjacent contracts. | P2.5.M7 persistence (casing), Cyberspace, simstim flip |
 | **The Clock starts** | ~8 | Pressure mounts — rival crew, corp heat, neural degradation. Contracts get harder; delay has cost. | Clock mechanic |
 | **Act 3: The Score** | 11–13 | Final prep runs, then the big job. Dual-layer climax: Meatspace breach + Cyberspace penetration. | Everything converges |
 
@@ -33,7 +35,7 @@ A new **player archetype** recruited mid-campaign (late Act 1 / start of Act 2),
 
 - **Cyberspace specialist:** Primary value is digital — jacking in at terminals, fighting ICE, opening digital locks, slicing data.
 - **Meatspace capable:** Viable as a solo deploy on non-Cyberspace contracts, but not their strength. Signature ability: **drone override hack** (turn a corp drone to your side temporarily — thematically perfect, reuses existing drone AI with faction flip).
-- **Recruitment:** Gated by rep tier (top tier from M5). Narrative beat — the Decker seeks you out, or a fixer introduces them. Not a menu selection.
+- **Recruitment:** Gated by rep tier (top tier from P2.5.M5). Narrative beat — the Decker seeks you out, or a fixer introduces them. Not a menu selection.
 
 ## Current status
 
@@ -53,25 +55,35 @@ A new **player archetype** recruited mid-campaign (late Act 1 / start of Act 2),
 3. Offline on iOS Safari + Chrome desktop throughout.
 4. `v0.3.0` tagged in git.
 
+### Implemented hooks already in the tree
+
+Phase 3 should start from the shipped Phase 2.5 surface, not rebuild it:
+
+- `Campaign` already persists `completedJobs`, `rep`, `hubReveals`, `keyItems`, and the P2.5.M7 `siteRoster`.
+- `LocationSite` already reserves `tier: 'score'` and `scoreTarget`; P2.5.M7 never sets them, so P3.M1 owns designation.
+- `Curator.generateContracts(rng, campaign)` already accepts `arcStage` and stores it into `contract.context.arcStage`; P3.M1 owns deriving the stage from campaign state and using it for real recipe weighting / Score targeting.
+- P2.7.M6.2 landed: entity snapshot `extra` property bags and campaign-scoped key items are available for Decker / Cyberspace state instead of expanding the old top-level snapshot union.
+- Hub reveal plumbing already exists (`applyFirstHubReveal`, Finn, Clinic, Terminal), so Decker recruitment should use the same progressive reveal pattern rather than adding a parallel modal.
+
 ## Phase 2.5 foundations (prerequisites)
 
 Phase 3 depends on specific hooks built into Phase 2.5 milestones:
 
 | 2.5 Milestone | Phase 3 hook | Notes |
 |---|---|---|
-| **M2.10** (recipes) | Recipe context accepts **arc stage** input | Phase 3 uses this to bias contract generation toward Score-adjacent objectives in Acts 2–3 |
-| **M5** (economy/rep) | Top rep tier defined and reachable | Phase 3 gates Decker recruitment and Score access at this tier |
-| **M7** (persistence) | Location schema includes `scoreTarget` flag; site roster + mutation deltas | Phase 3 designates one roster site as the Score target; player "cases" it across visits |
+| **P2.5.M2.10** (recipes) | Recipe context accepts **arc stage** input | Phase 3 uses this to bias contract generation toward Score-adjacent objectives in Acts 2–3 |
+| **P2.5.M5** (economy/rep) | Top rep tier defined and reachable | Phase 3 gates Decker recruitment and Score access at this tier |
+| **P2.5.M7** (persistence) | Location schema includes `scoreTarget` flag; site roster + mutation deltas | Phase 3 designates one roster site as the Score target; player "cases" it across visits |
 
 ### Score target identification
 
-Score-target sites always use roster-stored dimensions ([phase-2.7-plan.md](phase-2.7-plan.md) M1.5: `mapWidth`, `mapHeight`, `seed`, mutation deltas); contract `difficulty` scales encounter composition only, not footprint.
+Score-target sites always use roster-stored dimensions (P2.7.M1.5: `mapWidth`, `mapHeight`, `seed`, mutation deltas); contract `difficulty` scales encounter composition only, not footprint.
 
 ## Milestones — detail
 
 ### P3.M1 — Campaign arc structure 🔲
 
-**Depends on:** Phase 2.5 complete (M2.10 recipe hooks, M5 rep tiers, M7 site roster).
+**Depends on:** Phase 2.5 complete (P2.5.M2.10 recipe hooks, P2.5.M5 rep tiers, P2.5.M7 site roster).
 
 **Goal:** The campaign has a **three-act structure** with a defined beginning, middle, and end. The player progresses through acts based on rep, run count, and narrative triggers. The Curator is arc-aware — it generates contracts appropriate to the current act.
 
@@ -82,7 +94,13 @@ Score-target sites always use roster-stored dimensions ([phase-2.7-plan.md](phas
   - Act 1 → Act 2: reach top rep tier + minimum run count (e.g. 4–5 runs). Triggers Score reveal and Decker recruitment opportunity.
   - Act 2 → Act 3: Decker recruited + Score target site visited at least once + Clock threshold (e.g. run 10+). Triggers "final prep" phase.
   - Score available: Act 3 + player-initiated (choose to attempt the Score from the Hub).
-- **Arc-aware Curator:** M2.10 recipe context gains `arcStage` field. Act 1 = broad pool, unconnected gigs. Act 2 = bias toward Score target site and related factions. Act 3 = mostly prep contracts at or near the target.
+- **Score target designation:** At Act 2 entry, choose exactly one remembered or newly seeded `LocationSite`, set `scoreTarget: true`, and promote `tier: 'score'` so P2.5.M7 eviction preserves it. If no roster site exists yet, synthesize a site identity from the Curator lexicon and add it to the roster; do not silently defer the Score reveal.
+- **Arc-aware Curator:** Current code already passes through `arcStage`; P3.M1 must make it behaviorally meaningful:
+  - Act 1 = broad pool, unconnected gigs, no Score-target pinning.
+  - Act 2 = at least one board slot biased toward the Score target or its principal/site identity when available.
+  - Act 3 = board mostly prep contracts at or near the Score target, plus a separate player-initiated Score action instead of a random roll.
+  - Score = special contract build path; not part of the normal three-card job board.
+- **Hub surface:** Hub status / Terminal shows current act, Clock pressure, and Score target label once revealed. Decker recruitment uses progressive Hub reveal plumbing.
 - **Win/loss conditions:**
   - **Win:** Complete the Score (extract with objective satisfied from the final mission).
   - **Loss (flatline):** Entire crew wiped during any run (existing behavior, but now with arc context for the chronicle).
@@ -105,6 +123,7 @@ Implementation notes TBD after Clock type is chosen. Multiple types may coexist 
 - Act transitions fire at correct thresholds; tests for boundary conditions.
 - Curator generates arc-appropriate contracts per act (testable via seeded generation with arc context).
 - At least one Clock type implemented with visible feedback (Hub status, contract briefing, or log).
+- Exactly one Score target exists after Score reveal; it survives roster eviction and keeps its P2.5.M7 terrain memory.
 - Win/loss conditions reachable in golden-path test.
 
 ---
@@ -118,9 +137,9 @@ Implementation notes TBD after Clock type is chosen. Multiple types may coexist 
 **Scope:**
 
 - **Archetype definition:** Stats, AP costs, base loadout. Comparable to Merc/Razor/Tech in Meatspace capability but not optimized for it.
-- **Signature ability — Drone Override Hack:** Target a corp drone within range; spend AP to attempt override. On success, drone switches to PLAYER faction for N turns (or until destroyed). Reuses existing drone AI with faction flip. Failure may trigger alarm (M2.1 cadence).
+- **Signature ability — Drone Override Hack:** Target a corp drone within range; spend AP to attempt override. On success, drone switches to PLAYER faction for N turns (or until destroyed). Reuses existing drone AI with faction flip. Failure may trigger alarm (P2.5.M2.1 cadence).
 - **Cyberspace stats:** The Decker has Cyberspace-specific attributes (e.g. RAM, intrusion strength, ICE resistance) used in P3.M3. Other archetypes cannot jack in (or can with severe penalties — TBD).
-- **Recruitment flow:** Triggered at Act 1 → Act 2 transition. Uses the **progressive Hub reveal** system from Phase 2.5 M5: Curator message introduces the Decker on Hub entry when rep threshold is met and `deckerRecruited` flag is unset. Same pattern as Finn's introduction and Terminal explanation — the Hub grows with the campaign.
+- **Recruitment flow:** Triggered at Act 1 → Act 2 transition. Uses the **progressive Hub reveal** system from P2.5.M5: Curator message introduces the Decker on Hub entry when rep threshold is met and `arc.deckerRecruited` is false. Same pattern as Finn's introduction and Terminal explanation — the Hub grows with the campaign.
 - **Deployment:** The Decker is deployable as a solo operator on any contract (Meatspace only on non-Cyberspace contracts). On Cyberspace contracts, the Decker is one of the dual-deploy pair (see P3.M4).
 
 **Acceptance:**
@@ -147,10 +166,10 @@ Implementation notes TBD after Clock type is chosen. Multiple types may coexist 
   - **Probe:** Sentry / patrol. Detects the Decker, raises alert (Cyberspace alarm analog).
   - **Spark:** Fast, fragile attacker. Swarm behavior.
   - **Guardian:** Heavy. Guards critical nodes. High HP, high damage, limited mobility.
-- **ICE AI:** A* pathfinding (reuse Meatspace drone infrastructure with Cyberspace-specific cost maps). Alarm/alert model adapted from M2.1 for the digital layer.
-- **Cyberspace objectives:** What the Decker *does* once jacked in — slice data nodes, disable firewalls, open digital locks. Reuses `Interactable` patterns from M2.2 adapted for Cyberspace.
+- **ICE AI:** A* pathfinding (reuse Meatspace drone infrastructure with Cyberspace-specific cost maps). Alarm/alert model adapted from P2.5.M2.1 for the digital layer.
+- **Cyberspace objectives:** What the Decker *does* once jacked in — slice data nodes, disable firewalls, open digital locks. Reuses `Interactable` patterns from P2.5.M2.2 adapted for Cyberspace.
 - **Generation:** Procedural per jack-in. Seeded from contract + campaign RNG. Not persistent (fresh each time). Complexity scales with contract difficulty / act.
-- **Jack-in trigger:** Decker interacts with a Meatspace terminal (M2.2 `Interactable`). This spawns the Cyberspace grid and activates dual-deploy mode (P3.M4).
+- **Jack-in trigger:** Decker interacts with a Meatspace terminal (P2.5.M2.2 `Interactable`). This spawns the Cyberspace grid and activates dual-deploy mode (P3.M4).
 
 **Acceptance:**
 
@@ -171,7 +190,7 @@ Implementation notes TBD after Clock type is chosen. Multiple types may coexist 
 **Scope:**
 
 - **Dual-deploy:** On contracts with a Cyberspace component, the player selects two operators: one for Meatspace, one (the Decker) for Cyberspace. Both are placed on their respective grids at mission start (Meatspace operator at spawn, Decker at the jack-in terminal's Cyberspace entry node).
-  - **Pre–jack-in phase:** Both operators start in Meatspace. The Meatspace operator moves and acts normally. The Decker must reach a terminal and jack in (M2.2 interact) to activate Cyberspace. Until jack-in, this is a normal single-grid mission.
+  - **Pre–jack-in phase:** Both operators start in Meatspace. The Meatspace operator moves and acts normally. The Decker must reach a terminal and jack in (P2.5.M2.2 interact) to activate Cyberspace. Until jack-in, this is a normal single-grid mission.
   - **Post–jack-in:** Cyberspace grid spawns. Flip mechanic activates. Decker's Meatspace body remains at the terminal — vulnerable, immobile, and targetable by corp hostiles (blueprint: "your physical body is a vegetable").
 - **The flip:** Switch active control between Meatspace operator and Decker. Active operator receives player input (move, attack, interact). Inactive operator holds position.
   - Cost: **free action** or **1 AP** (TBD — free action recommended for less friction; AP cost adds tactical weight).
@@ -196,7 +215,7 @@ Implementation notes TBD after Clock type is chosen. Multiple types may coexist 
 
 ### P3.M5 — The Score (climactic mission) 🔲
 
-**Depends on:** P3.M1 (arc structure), P3.M4 (simstim flip), M7 (location persistence for the target site).
+**Depends on:** P3.M1 (arc structure), P3.M4 (simstim flip), P2.5.M7 (location persistence for the target site).
 
 **Goal:** The **climactic dual-layer mission** that the entire campaign builds toward. The Score is a contract at the designated target site, requiring both Meatspace breach and Cyberspace penetration to complete.
 
@@ -204,10 +223,10 @@ Implementation notes TBD after Clock type is chosen. Multiple types may coexist 
 
 - **Score contract:** A special contract type (or recipe) that is only available in Act 3 when the player chooses to attempt it. Not randomly rolled — player-initiated from the Hub.
 - **Dual objectives:** The Score has objectives in **both** layers:
-  - **Meatspace:** Breach the target site (using M7 pre-made breaches + new ones), reach the objective room, protect the Decker's body, extract.
+  - **Meatspace:** Breach the target site (using P2.5.M7 pre-made breaches + new ones), reach the objective room, protect the Decker's body, extract.
   - **Cyberspace:** Penetrate the target's digital defenses (ICE gauntlet), disable core security (opens physical locks/routes for the Meatspace operator), extract the target data/asset.
   - Both must be satisfied for a clean completion. Partial completion (one layer only) = partial payout or narrative consequence (TBD).
-- **Site knowledge payoff:** The target site uses M7's persistent geometry. Every prior visit's breaches, mapped rooms, and learned patrol routes carry over. The player who cased the site thoroughly has a significant advantage.
+- **Site knowledge payoff:** The target site uses P2.5.M7's persistent geometry. Every prior visit's breaches, mapped rooms, and learned patrol routes carry over. The player who cased the site thoroughly has a significant advantage.
 - **Escalated difficulty:** The Score is harder than any normal contract — more hostiles, tighter turn budget, more ICE, higher stakes. Failure = campaign loss (crew wipe or objective irrecoverably failed).
 - **Narrative climax:** The Score's briefing, objective copy, and completion text reflect the campaign's arc. The chronicle (P3.M6) records the outcome as the campaign's defining moment.
 
@@ -215,7 +234,7 @@ Implementation notes TBD after Clock type is chosen. Multiple types may coexist 
 
 - Score contract available only in Act 3, player-initiated.
 - Dual-layer objectives: Meatspace + Cyberspace both required.
-- Target site uses persistent geometry from prior visits (M7 mutations present).
+- Target site uses persistent geometry from prior visits (P2.5.M7 mutations present).
 - Completion = campaign win; failure = campaign loss.
 - Golden-path test: full Score run from deployment through dual-layer completion to extraction.
 
@@ -225,7 +244,7 @@ Implementation notes TBD after Clock type is chosen. Multiple types may coexist 
 
 **Depends on:** P3.M1 (arc structure provides the narrative beats to chronicle). Can begin data collection earlier if arc state is available.
 
-**Goal:** Ground the campaign's **resource + consequence** loop in something the player can **re-read**: a persisted **chronicle** of the active campaign, and a **durable summary** when a campaign ends. Deferred from Phase 2.5 M3 — the chronicle needs the campaign arc to be meaningful.
+**Goal:** Ground the campaign's **resource + consequence** loop in something the player can **re-read**: a persisted **chronicle** of the active campaign, and a **durable summary** when a campaign ends. Deferred from P2.5.M3 — the chronicle needs the campaign arc to be meaningful.
 
 **Scope:**
 

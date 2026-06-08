@@ -50,7 +50,7 @@ export const OOB_GLYPH = Object.freeze({ char: ' ', fg: '#000000' });
  *
  * Uses a faint mid-dot rather than a space so the foreground color
  * actually paints — previously the renderer's "skip space" optimization
- * meant the documented `#000000` was dead code (M4 review). The dot reads
+ * meant the documented `#000000` was dead code. The dot reads
  * as quiet static against the canvas bg and is visibly distinct from the
  * dimmed "memory" tiles, which keep their tile-shaped glyph.
  */

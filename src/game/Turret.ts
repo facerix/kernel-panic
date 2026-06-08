@@ -28,8 +28,8 @@ import type { Rng } from '../rng.js';
  * cover penalties, LOS occlusion, and damage events all behave the same as
  * for the player's own ranged attacks.
  *
- * Glyph is `'T'`. M3's improvised turrets share this class — Tech can deploy
- * more than one once the salvage loop lands.
+ * Glyph is `'T'`. Improvised turrets (deployed via `Tech.improviseTurret`)
+ * share this class.
  */
 
 type TurretAutoFireFireResult = {
@@ -50,7 +50,7 @@ export interface TurretInit extends EntityInit {
   ownerId?: string | null;
 }
 
-/** M6.2: Turret snapshot `extra` — tuned range/damage and deploying owner. */
+/** P2.7.M6.2: Turret snapshot `extra` — tuned range/damage and deploying owner. */
 export type TurretSnapshot = {
   range: number;
   attackDamage: number;

@@ -1,7 +1,7 @@
 /**
  * Shared intent applier — the single piece of game-loop glue that turns the
- * keymap/touchpad's intent objects into world mutations. Both the M7 debug
- * harness and the M8 game shell drive their input through this module so a
+ * keymap/touchpad's intent objects into world mutations. Both the debug
+ * harness and the game shell drive their input through this module so a
  * change to combat or movement plumbing only has one consumer to update.
  *
  * The intent shape is the closed enum the keymap / touch layer and other
@@ -75,7 +75,7 @@ export type ApplyIntentContext = {
   resetInputModes: () => void;
   onPlayerAction: (actionName: string) => void;
   /**
-   * Resolve a thrown consumable along the supplied aim direction (M4.3).
+   * Resolve a thrown consumable along the supplied aim direction.
    * The shell stashes the `pendingAimItemId` when the inventory overlay
    * confirmed an aimed consumable; this callback pairs that id with the
    * direction picked in `MODE.AIM` with `aimKind: 'use-item'`. Optional — harness tests that
@@ -87,9 +87,9 @@ export type ApplyIntentContext = {
   /** Called after looting removes a corpse — shell clears fog memory. */
   onCorpseSalvaged?: (entity: { x: number; y: number }) => void;
   /**
-   * M6.2: Called when the player walks onto a keycard pickup. The shell
-   * routes based on `siteId`: campaign-scoped keycards (with siteId) go to
-   * `Campaign.addKeyItem`; run-scoped keycards (no siteId) go to
+   * Called when the player walks onto a keycard pickup (P2.5.M6.2). The
+   * shell routes based on `siteId`: campaign-scoped keycards (with siteId)
+   * go to `Campaign.addKeyItem`; run-scoped keycards (no siteId) go to
    * `Run.addKeyItem`. The entity is removed from the world by
    * `collectTileLoot` itself.
    */
@@ -100,8 +100,8 @@ export type ApplyIntentContext = {
     siteId: string | null;
   }) => void;
   /**
-   * M6.2: Merged key-item inventory (campaign + run-scoped). Passed to
-   * Door.interact so a matching keycard can unlock a locked door via
+   * Merged key-item inventory — campaign + run-scoped (P2.5.M6.2). Passed
+   * to Door.interact so a matching keycard can unlock a locked door via
    * bump-interact. Optional — tests that don't exercise keycards can omit it.
    */
   keyItems?: KeyItem[];
@@ -138,7 +138,7 @@ function gateOnApExhausted(ctx: ApplyIntentContext) {
 
 /**
  * Drive a single player intent against the world. Auto-ends the player's
- * turn when their AP hits zero — consistent with the M3 harness behaviour.
+ * turn when their AP hits zero.
  */
 export function applyIntent(intent: Intent, ctx: ApplyIntentContext) {
   if (!intent || typeof intent !== 'object' || !KNOWN_INTENT_TYPES.has(intent.type)) {
@@ -219,8 +219,8 @@ function doMove(intent: Intent, ctx: ApplyIntentContext) {
   if (occupant) {
     if (occupant.faction === FACTION.NEUTRAL || occupant.faction === player.faction) {
       if (occupant instanceof Interactable) {
-        // M6.2: Door.interact accepts keyItems so a bump into a locked door
-        // checks for a matching keycard in the campaign inventory.
+        // Door.interact accepts keyItems (P2.5.M6.2) so a bump into a locked
+        // door checks for a matching keycard in the campaign inventory.
         const result =
           occupant instanceof Door
             ? occupant.interact(world, player, ctx.keyItems)
@@ -253,9 +253,9 @@ function doMove(intent: Intent, ctx: ApplyIntentContext) {
 }
 
 /**
- * Walk-onto loot for the player's current tile — objective pickups (M2.5),
- * consumable pickups (M4.3), and lootable corpses (M4.1). Shared by normal
- * moves, Vault, and Slide so perk landings behave like stepping onto the tile.
+ * Walk-onto loot for the player's current tile — objective pickups, consumable
+ * pickups, and lootable corpses. Shared by normal moves, Vault, and Slide so
+ * perk landings behave like stepping onto the tile.
  */
 function collectTileLoot(ctx: ApplyIntentContext) {
   const { world, player, log } = ctx;
@@ -270,7 +270,7 @@ function collectTileLoot(ctx: ApplyIntentContext) {
     world.removeEntity(consumablePickup.id);
     log(`> ${entityLabel(player)} picks up ${consumablePickup.label}.`);
   }
-  // M6.2: walk-onto keycard collection. siteId determines scope:
+  // Walk-onto keycard collection (P2.5.M6.2). siteId determines scope:
   //   - siteId set → campaign-scoped (persists across runs)
   //   - no siteId  → run-scoped (discarded on run end)
   const keycard = player.alive ? world.keycardAt(player.x, player.y) : null;
@@ -317,8 +317,8 @@ function doSpecial(intent: Intent, ctx: ApplyIntentContext) {
   const { player, log } = ctx;
   // The dispatch order is fixed (deploy before vault before slide) so an
   // archetype mix-up surfaces here rather than silently picking the wrong
-  // perk. Only Tech exposes canDeploy in M1; only Merc exposes canVault;
-  // only Razor exposes canSlide.
+  // perk. Only Tech exposes canDeploy; only Merc exposes canVault; only
+  // Razor exposes canSlide.
   if (typeof (player as Tech).canDeploy === 'function') {
     return doDeploy(intent, ctx);
   }
@@ -344,7 +344,7 @@ function doDeploy(intent: Intent, ctx: ApplyIntentContext) {
     gateOnApExhausted(ctx);
     return;
   }
-  // M3: if the pre-built turret is spent, try an improvised turret from salvage.
+  // If the pre-built turret is spent, try an improvised turret from salvage.
   if (check.reason === 'no-turret' && typeof tech.canImproviseTurret === 'function') {
     const impCheck = tech.canImproviseTurret(world, intent.dx!, intent.dy!);
     if (impCheck.ok) {
@@ -492,7 +492,7 @@ function doInventory(ctx: ApplyIntentContext) {
 }
 
 /**
- * Thrown-consumable resolution (M4.3). The keymap emits `use-item { dx, dy }`
+ * Thrown-consumable resolution. The keymap emits `use-item { dx, dy }`
  * from `MODE.AIM` / `aimKind: 'use-item'`; the shell stashes the pending `itemId` when it
  * entered that mode (so the keymap can stay item-agnostic, mirroring the
  * `special` intent's archetype-agnostic shape). We delegate to the shell's

@@ -2,6 +2,8 @@
 
 Living plan for Phase 2 of Kernel Panic. Source of truth for milestone scope, current progress, and decisions locked in during design. See [phase-1-plan.md](phase-1-plan.md) for Phase 1 history, [kernel-panic-v1-blueprint.md](kernel-panic-v1-blueprint.md) for the overall design vision, and [game-overview.md](game-overview.md) for the elevator pitch. Post–M8 Meatspace depth (M1–M6) lives in [phase-2.5-plan.md](phase-2.5-plan.md) (**target `v0.2.5`**).
 
+**Phase prefix:** `P2` — use `P2.MN` when referencing milestones from this phase in other documents.
+
 ## Current status
 
 | Milestone | Status |

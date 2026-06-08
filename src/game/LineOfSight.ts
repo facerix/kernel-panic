@@ -58,7 +58,7 @@ export function tilesBetween(x0: number, y0: number, x1: number, y1: number): Gr
 /**
  * Euclidean (circular) range check. Shared by Combat, Vision, and harness
  * targeting so "can see / can shoot" use one geometry. Before this helper
- * the M4 harness was walking Chebyshev steps while Combat enforced
+ * a prior harness was walking Chebyshev steps while Combat enforced
  * Euclidean — produced "phantom" out-of-range denials on diagonals.
  */
 export function withinRange(

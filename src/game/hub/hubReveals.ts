@@ -1,5 +1,5 @@
 /**
- * M5.4 — Progressive Hub feature introductions.
+ * P2.5.M5.4 — Progressive Hub feature introductions.
  *
  * Reveal definitions are ordered: the first unseen entry whose trigger
  * qualifies fires once per `enterHub`, sets its flag, and returns Curator copy

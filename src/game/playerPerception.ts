@@ -1,8 +1,8 @@
 /**
  * Player-perception helpers — what the deployed crew can see and target.
  * Hostile AI uses its own acquisition rules; these gates only affect the
- * shell (renderer, crew ranged/melee). Sniper range conceal (M3.2) and
- * Flanker cover/slide conceal (M4.3) live here.
+ * shell (renderer, crew ranged/melee). Sniper range conceal and Flanker
+ * cover/slide conceal live here.
  */
 
 import { SNIPER_CONCEAL_MIN_RANGE } from './constants.js';

@@ -3,7 +3,7 @@
  * left, detail pane on the right showing the selected member's stats, gear,
  * and consumables.
  *
- * M6: Extended with an "Available Recruits" section below the crew list.
+ * Extended with an "Available Recruits" section below the crew list.
  * When recruits are available and the player hasn't recruited this visit,
  * recruit rows appear with a RECRUIT confirmation button. Emits `recruit`
  * CustomEvent with `{ recruitId }` on confirmation.
@@ -383,7 +383,7 @@ class CrewRoster extends HTMLElement {
 
   /**
    * @param crew — array of Crew instances (or snapshot objects).
-   * @param options — salvage balance + optional M6 recruit data.
+   * @param options — salvage balance + optional recruit data.
    */
   setCrew(
     crew: CrewMember[],
@@ -404,8 +404,7 @@ class CrewRoster extends HTMLElement {
     this.#recruitsRaw = availableRecruits;
     this.#recruitedThisVisit = recruitedThisVisit;
     this.#salvage = salvage;
-    // M4.2: show typed breakdown + total. Until M5 redesigns the shop, this
-    // surface is information-only — there's no per-type sell flow here yet.
+    // Show typed breakdown + total
     const total = totalSalvage(this.#salvage);
     this.#balanceEl!.textContent = `SALVAGE ${total} · ${formatSalvageCompact(this.#salvage)}`;
     this.#recruitFocused = false;
@@ -571,7 +570,7 @@ class CrewRoster extends HTMLElement {
     this.#detailEl!.appendChild(consSection);
   }
 
-  // ─── Recruitment (M6) ─────────────────────────────────────────────────────
+  // ─── Recruitment ─────────────────────────────────────────────────────
 
   #renderRecruits() {
     while (this.#recruitRowsEl!.firstChild) {

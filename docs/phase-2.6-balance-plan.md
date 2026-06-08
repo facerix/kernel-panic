@@ -1,6 +1,8 @@
-# Phase 2.6.5 Plan — Pre–2.7 balance & help UX
+# Phase 2.6-balance Plan — Pre–2.7 balance & help UX
 
 Living plan for a small slice between Phase 2.6 (resilience) and Phase 2.7 (enemy roles): **player-facing balance** and **help panel structure** that do not depend on the new hostile roster. **Target release: `v0.2.6-bal`** (`package.json`: `0.2.6-balance.1`). See [phase-2.6-plan.md](phase-2.6-plan.md), [phase-2.7-plan.md](phase-2.7-plan.md).
+
+**Phase prefix:** `P2.6b` — use `P2.6b.MN` when referencing milestones from this phase in other documents.
 
 ## Why this phase exists
 

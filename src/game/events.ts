@@ -6,8 +6,8 @@
  * Why a bus and not direct calls?
  *   - Drones investigate noise without being wired into Combat.
  *   - The harness recomputes player vision when *any* corp entity moves, not
- *     only on player input. (Closes the M4 deferred fix.)
- *   - M7 telemetry (kill log, run summary) can subscribe without the gameplay
+ *     only on player input.
+ *   - Telemetry (kill log, run summary) can subscribe without the gameplay
  *     code knowing.
  *
  * Design rules:
@@ -38,7 +38,7 @@ export const EVENT = Object.freeze({
 const KNOWN_TYPES = new Set<string>(Object.values(EVENT));
 
 /**
- * Discriminator on the `ALARM` event payload (Phase 2.7 M3.1). Both kinds force
+ * Discriminator on the `ALARM` event payload (P2.7.M3.1). Both kinds force
  * subscribed patrol hostiles to ENGAGE on the shared target, but they differ in
  * provenance and side effects:
  *

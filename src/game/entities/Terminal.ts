@@ -10,7 +10,7 @@ export interface TerminalInit extends Omit<InteractableInit, 'glyph' | 'label'> 
   unlocksId?: string | null;
 }
 
-/** M6.2: Terminal snapshot `extra`. */
+/** P2.7.M6.2: Terminal snapshot `extra`. */
 export type TerminalSnapshot = {
   label: string;
   sliced: boolean;

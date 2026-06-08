@@ -37,9 +37,9 @@ type AsciiRendererOptions = {
 type DrawOptions = BuildFrameOptions & {
   camera?: Camera;
   /**
-   * M7.2: persistent location chip painted top-left of the canvas — the
-   * site flavor label in combat, "Safe House" in the Hub. Trains the player
-   * to read the corner as "where am I". Omitted = no chip this frame.
+   * Persistent location chip painted top-left of the canvas (P2.5.M7.2) —
+   * the site flavor label in combat, "Safe House" in the Hub. Trains the
+   * player to read the corner as "where am I". Omitted = no chip this frame.
    */
   locationLabel?: string;
   /** Renderer-owned canvas chrome rows, painted after the map and flashes. */
@@ -135,7 +135,7 @@ export class AsciiRenderer {
     this.glow = options.glow ?? 6;
 
     /**
-     * Captured camera from the most recent `draw()` so M0's muzzle-flash
+     * Captured camera from the most recent `draw()` so the muzzle-flash
      * overlay (`flashCell`) can translate world coords back into screen
      * pixels without re-doing `cameraFor`. Cleared until the first draw.
      */
@@ -186,7 +186,7 @@ export class AsciiRenderer {
   }
 
   /**
-   * Register a single-cell flash overlay — the M0 muzzle-flash effect.
+   * Register a single-cell flash overlay — the muzzle-flash effect.
    * The next `draw()` paints it on top of the regular frame; the flash
    * is dropped automatically once `expiresAt` passes (the shell schedules
    * a `paint()` at expiry via `animations.runMuzzleFlash`).

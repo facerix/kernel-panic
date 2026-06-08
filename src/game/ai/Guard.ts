@@ -6,7 +6,7 @@
  * No armor, no knockback, no kiting — a guard trades HP openly. At T1 stats it
  * dies in two player-phase melee swings. It exists so T1 encounters can mix
  * ranged and melee pressure without importing T3 defensive mechanics (those
- * land with `CorpBruiser` in M4).
+ * live on `CorpBruiser`).
  */
 
 import { PatrolHostile, type PatrolHostileInit, type EngageSteps } from './PatrolHostile.js';

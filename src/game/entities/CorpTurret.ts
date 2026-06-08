@@ -41,7 +41,7 @@ export interface CorpTurretInit extends Omit<HostileInit, 'faction' | 'glyph'> {
   attackDamage?: number;
 }
 
-/** M6.2: CorpTurret snapshot `extra` — tuned range/damage (no owner). */
+/** P2.7.M6.2: CorpTurret snapshot `extra` — tuned range/damage (no owner). */
 export type CorpTurretSnapshot = {
   range: number;
   attackDamage: number;

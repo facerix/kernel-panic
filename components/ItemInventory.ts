@@ -4,9 +4,9 @@
  * Shows two sections:
  *
  *   1. **SALVAGE** — typed-salvage wallet rendered with full bucket names
- *      (Scrap / Chips / Bio / Data). Per M4.2 design feedback, the compact
+ *      (Scrap / Chips / Bio / Data). Per design feedback, the compact
  *      `S:N C:N B:N D:N` status-bar tag was too dense — players want to read
- *      the bucket they own, not decode an initial. M4.2 also extended this
+ *      the bucket they own, not decode an initial. Also extended this
  *      overlay to be the Hub's wallet surface so the player can audit
  *      typed totals without opening the shop.
  *   2. **CONSUMABLES** — the deployed crew member's item list (Stim, Smoke
@@ -239,7 +239,7 @@ const ITEM_LABELS = {
 };
 
 /**
- * Human-readable labels for typed-salvage buckets. Matches the M4.2 docs:
+ * Human-readable labels for typed-salvage buckets. Matches the P2.5.M4.2 docs:
  * Scrap = mechanical, Chips = electronics, Bio = organic, Data = informational.
  */
 const SALVAGE_LABELS: Record<SalvageType, string> = {
@@ -296,15 +296,14 @@ class ItemInventory extends HTMLElement {
   }
 
   /**
-   * M4.2: combined contents API — both the typed-salvage wallet and the
+   * Combined contents API — both the typed-salvage wallet and the
    * consumables list. Callers always pass both; in Hub state consumables is
    * typically `[]` (no deployed crew member) but salvage is the campaign
    * wallet; in combat consumables is the deployed crew member's items and
    * salvage is their job-scoped pickup wallet.
    *
    * The salvage section is informational only — there's no per-bucket action
-   * here yet (M5 owns the per-type Finn shop UI). Cursor navigation skips
-   * the salvage rows and stays on the consumable list.
+   * here yet. Cursor navigation skips the salvage rows and stays on the consumable list.
    */
   setContents({
     salvage = emptySalvage(),
@@ -332,7 +331,7 @@ class ItemInventory extends HTMLElement {
 
   /**
    * Legacy single-arg API kept for back-compat with callers that only had a
-   * consumables list (pre-M4.2). New callers should prefer `setContents`.
+   * consumables list. New callers should prefer `setContents`.
    */
   setItems(consumables: Item[]) {
     this.setContents({ consumables });

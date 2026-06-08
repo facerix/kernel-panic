@@ -10,7 +10,7 @@
  * - FLOOR: passable, transparent.
  * - WALL: blocks movement and line of sight.
  * - COVER: blocks movement (Vault perk hops it), does NOT block LOS — instead
- *   grants a defender hit-modifier (applied in M4 combat).
+ *   grants a defender hit-modifier (applied in combat).
  * - EXIT: passable, transparent; same walk rules as FLOOR but painted so the
  *   objective tile is visible. `Run` still tracks `exitTile` for transitions.
  * - RUBBLE: passable debris left by breaching charges; costs more AP to enter.
@@ -123,9 +123,9 @@ export const RANGED_DAMAGE = 1;
 export const MERC_RANGED_DAMAGE = 2;
 
 /**
- * Melee combat. M7 adds a defender dodge roll so point-blank attacks keep
- * tension without becoming mushy. Default crew melee is {@link MELEE_DAMAGE};
- * Razor and elite corp melee override with {@link HEAVY_MELEE_DAMAGE}.
+ * Melee combat. Defenders get a dodge roll so point-blank attacks keep tension
+ * without becoming mushy. Default crew melee is {@link MELEE_DAMAGE}; Razor
+ * and elite corp melee override with {@link HEAVY_MELEE_DAMAGE}.
  */
 export const DODGE_CHANCE = 0.2;
 export const COVER_DODGE_BONUS = 0.1;
@@ -291,12 +291,11 @@ export const STIM_HEAL = 2;
 export const SMOKE_RADIUS = 2;
 export const SMOKE_DURATION_TURNS = 1;
 /**
- * Incendiary bomb (M4.3): thrown along an aim direction (dx, dy) selected via
- * `MODE.AIM` with `aimKind: 'use-item'`. The target tile is `thrower + dir * INCENDIARY_THROW_DIST`;
- * LOS from thrower → target must be clear (no lobbing through walls). The
- * hazard cluster shape and size come from `placeHazardCluster` (M2.3 — a
- * 5–9 tile diamond/cross of `TILE.HAZARD`), so we don't need a separate
- * radius constant. Damage per tile is `HAZARD_DAMAGE`.
+ * Incendiary bomb: thrown along an aim direction (dx, dy) selected via
+ * `MODE.AIM` with `aimKind: 'use-item'`. The target tile is `thrower + dir *
+ * INCENDIARY_THROW_DIST`; LOS from thrower → target must be clear (no lobbing
+ * through walls). Hazard cluster shape and size come from `placeHazardCluster`
+ * (5–9 tile diamond/cross of `TILE.HAZARD`). Damage per tile: `HAZARD_DAMAGE`.
  */
 export const INCENDIARY_THROW_DIST = 3;
 /** Breaching charges are placed against an adjacent tile/entity. */
@@ -312,7 +311,7 @@ export const DODGE_BONUS = 0.1;
 export const SALVAGE_TO_CRED_RATE = 10;
 
 /**
- * M5.2: per-type salvage sell rates. Each salvage type has a distinct
+ * Per-type salvage sell rates (P2.5.M5.2). Each type has a distinct
  * Cred-per-unit value — makes typed salvage economically meaningful.
  *   Scrap  8 — common, lowest value (drone drops)
  *   Chips 12 — electronics (terminals, turrets, relays)
@@ -337,11 +336,11 @@ export const SHOP_COST = Object.freeze({
   BALLISTICS_COIL: 80,
 });
 
-/** M5.3: Patch clinic — Creds per HP restored (partial heal not offered). */
+/** Patch clinic — Creds per HP restored (partial heal not offered). */
 export const CLINIC_COST_PER_HP = 15;
 
 /**
- * Curator contract tiers (M8). `threatCount` is stored directly on each
+ * Curator contract difficulty tiers. `threatCount` is stored directly on each
  * generated contract; difficulty drives civilian caps and patrol pressure.
  */
 export const CONTRACT_DIFFICULTY = Object.freeze({
@@ -477,7 +476,7 @@ export const NOISE_RADIUS = Object.freeze({
  * Rep meter parameters. Campaign-level social standing — 0 (BURNED) to 100
  * (TRUSTED), starting at 50 (UNKNOWN). Adjusted by in-job events (kills,
  * alarms) and clean contract completions. Gates NeutralCivilian behaviour
- * (M5) and recruitment (M6).
+ * and recruitment.
  */
 export const REP = Object.freeze({
   MIN: 0,
@@ -486,7 +485,7 @@ export const REP = Object.freeze({
   /** Rep thresholds for NeutralCivilian behaviour. */
   NEUTRAL_IDLE_THRESHOLD: 70,
   NEUTRAL_FLEE_THRESHOLD: 30,
-  /** Rep threshold for recruitment (M6). */
+  /** Rep threshold for recruitment. */
   RECRUIT_THRESHOLD: 65,
   /** Rep adjustments. */
   CLEAN_COMPLETION_BONUS: 10,
@@ -497,8 +496,8 @@ export const REP = Object.freeze({
 });
 
 /**
- * Recruitment parameters (M6). Controls candidate pool size, campaign-start
- * picks, and archetype weight distribution.
+ * Recruitment parameters. Controls candidate pool size, campaign-start picks,
+ * and archetype weight distribution.
  */
 export const RECRUIT = Object.freeze({
   /** Mid-campaign: minimum recruits offered per hub visit (when Rep gate met). */
@@ -516,8 +515,8 @@ export const RECRUIT = Object.freeze({
  * difficulty pool that the Curator uses when rolling contracts. Ordered from
  * highest to lowest so `repTierForRep(rep)` can do a simple first-match scan.
  *
- * M5.1: Replaces the old `better-contracts` meta upgrade. The player's
- * current Rep now determines the contract difficulty pool directly.
+ * Replaces the old `better-contracts` meta upgrade (removed in P2.5.M5.1).
+ * The player's current Rep determines the contract difficulty pool directly.
  */
 export const REP_TIER = Object.freeze({
   BURNED: 'BURNED',

@@ -1,5 +1,5 @@
 /**
- * Combat feedback animations — the DOM-side helpers for M0.
+ * Combat feedback animations.
  *
  * Three effects, all wired to bus events in the game shell:
  *
@@ -31,7 +31,7 @@ import type { AsciiRenderer } from './AsciiRenderer.js';
 export const ANIMATION_DURATIONS = Object.freeze({
   SHAKE: 150,
   DAMAGE_FLASH: 300,
-  // M0 plan suggests "~80ms" but at 60fps that's ~5 frames — perceptually
+  // Original plan suggested "~80ms" but at 60fps that's ~5 frames — perceptually
   // borderline, especially with the shooter's own glyph sitting underneath.
   // 120ms (~7 frames) is still snappy and reads clearly as a burst.
   MUZZLE_FLASH: 120,
@@ -89,7 +89,7 @@ export function triggerDamageFlash(stageEl: HTMLElement, timers = defaultTimers)
  * Create an animation-lock token. The shell pushes durations onto it from
  * each listener; `isLocked()` returns true while any pushed window is still
  * in flight. Overlapping pushes don't extend by addition — the longest
- * outstanding deadline wins (per the M0 plan: "queued or overlapped, not
+ * outstanding deadline wins ("queued or overlapped, not
  * stacked in duration").
  */
 export function createAnimationLock(timers = defaultTimers) {

@@ -1,8 +1,8 @@
 /**
- * Shop item catalog for Finn's shop (M4).
+ * Shop item catalog for Finn's shop.
  *
  * Items are plain descriptor objects — no class hierarchy. The catalog is a
- * static array; meta upgrades were removed in M5.1 (Rep tiers replace them).
+ * static array; meta upgrades were removed in P2.5.M5.1 (Rep tiers replace them).
  *
  * Two persistence scopes:
  *   - `job`      — consumable, stored in `Crew.inventory.consumables`,
@@ -42,15 +42,15 @@ export type Item = {
    */
   needsTarget: boolean;
   /**
-   * In-combat aim flag (M4.3). `true` for thrown consumables that resolve
-   * along a (dx, dy) direction selected via `MODE.AIM` / `aimKind: 'use-item'`
+   * In-combat aim flag. `true` for thrown consumables that resolve along a
+   * (dx, dy) direction selected via `MODE.AIM` / `aimKind: 'use-item'`.
    * Default `false` — stim self-targets, smoke auto-centers on the thrower.
    * The inventory overlay reads this to decide whether to emit a plain
    * `use-item` event or hand control to direction picking.
    */
   needsAim?: boolean;
   /**
-   * M5.2: minimum Rep tier required for this item to appear in Finn's shop.
+   * Minimum Rep tier required for this item to appear in Finn's shop (P2.5.M5.2).
    * Items below the player's current tier are hidden. Progression:
    *   BURNED  → Stim only
    *   UNKNOWN → + Smoke Charge, Incendiary Bomb
@@ -213,7 +213,7 @@ export function getItemById(itemId: string) {
 }
 
 /**
- * Map an item ID to its meta-state key. M5.1 removed all meta-scope items
+ * Map an item ID to its meta-state key. P2.5.M5.1 removed all meta-scope items
  * (Rep tiers replace them), so this always returns `undefined`. Retained for
  * backward compat with `Campaign.purchase` — a future meta item would add
  * a case here.

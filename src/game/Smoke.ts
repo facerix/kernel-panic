@@ -1,5 +1,5 @@
 /**
- * Smoke cloud placement and cleanup for the Smoke Charge consumable (M4).
+ * Smoke cloud placement and cleanup for the Smoke Charge consumable.
  *
  * Smoke is a grid overlay — FLOOR tiles under the cloud are temporarily
  * replaced with `TILE.SMOKE`, which is passable but blocks LOS. The overlay

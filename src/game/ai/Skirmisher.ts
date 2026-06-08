@@ -3,7 +3,7 @@
  * machine with all `PatrolHostile`s; its identity is the ENGAGE behaviour:
  *
  * - **Fire** at a target in LOS + range when AP allows.
- * - **Kite** (M2.1): if a target closes inside `preferredMin`, step to the
+ * - **Kite**: if a target closes inside `preferredMin`, step to the
  *   distance-maximising neighbour that still holds LOS instead of firing —
  *   "maintain distance or die at melee range." Cornered (no legal retreat that
  *   keeps LOS) → fall back to firing. A unit that already fired may lack the
@@ -57,7 +57,7 @@ export class Skirmisher extends PatrolHostile {
   }
 
   /**
-   * Ranged engage with M2.1 kiting. Kite first (if too close and a retreat tile
+   * Ranged engage with kiting. Kite first (if too close and a retreat tile
    * holding LOS exists), else fire, else close.
    */
   protected override *engageSteps(world: World, rng: Rng, target: Entity): EngageSteps {

@@ -1,5 +1,5 @@
 /**
- * Phase 2.7 M1.5 - combat footprint selection.
+ * P2.7.M1.5 — combat footprint selection.
  *
  * Map dimensions are part of the contract/site identity, not a transient
  * render choice. The resolver is pure over `(seed, difficulty)` and uses its
@@ -72,7 +72,7 @@ export function resolveMapDimensions({
 
 /**
  * Normalize contract/site dimensions. Both fields missing is the legacy path
- * (pre-M1.5 contracts and roster sites); a partial pair is corrupt data.
+ * (pre-P2.7.M1.5 contracts and roster sites); a partial pair is corrupt data.
  */
 export function normalizeMapDimensions(
   width: unknown,

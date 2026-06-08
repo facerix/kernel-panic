@@ -1,7 +1,8 @@
 /**
- * Walk-onto KeyCard pickup (M6.2). A passable neutral entity placed on the
- * combat grid as an alternative to unlock terminals. The player auto-collects
- * it by stepping onto its tile (same pattern as ConsumablePickup / Pickup).
+ * Walk-onto KeyCard pickup (P2.5.M6.2). A passable neutral entity placed on
+ * the combat grid as an alternative to unlock terminals. The player
+ * auto-collects it by stepping onto its tile (same pattern as
+ * ConsumablePickup / Pickup).
  *
  * Key shape choices:
  *   - `passable: true` — actors walk over it; `World.entityAt` and
@@ -29,13 +30,13 @@ export interface KeyCardInit extends Omit<
   label: string;
   /**
    * Optional site id. When set, the keycard is *campaign-scoped* — it persists
-   * in `Campaign.keyItems` across runs (M7.2 location memory). When absent the
+   * in `Campaign.keyItems` across runs (P2.5.M7.2 location memory). When absent the
    * keycard is *run-scoped* and lives only in `Run.keyItems`.
    */
   siteId?: string;
 }
 
-/** M6.2: KeyCard snapshot `extra`. Bag-hygienic — `siteId` is `null`, not absent. */
+/** P2.7.M6.2: KeyCard snapshot `extra`. Bag-hygienic — `siteId` is `null`, not absent. */
 export type KeyCardSnapshot = {
   doorId: string;
   label: string;

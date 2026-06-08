@@ -36,7 +36,7 @@ export type Archetype = Merc | Razor | Tech;
 export const ARCHETYPE_IDS = Object.freeze(['merc', 'razor', 'tech']);
 
 /**
- * Weighted archetype pool for recruitment (M6). 40% Merc, 40% Razor, 20% Tech.
+ * Weighted archetype pool for recruitment. 40% Merc, 40% Razor, 20% Tech.
  * Expressed as a flat array so `rng.pick()` gives the correct distribution.
  */
 export const RECRUIT_ARCHETYPE_POOL = Object.freeze(['merc', 'merc', 'razor', 'razor', 'tech']);
@@ -86,7 +86,7 @@ const BUILDERS = Object.freeze({
 /**
  * Per-archetype callsign pool, mirrored from each archetype module. Kept as a
  * single map so `buildCrewMember` doesn't need a per-archetype branch — and
- * so `Campaign.buildCrew` (M2) can iterate archetypes and dedupe across the
+ * so `Campaign.buildCrew` can iterate archetypes and dedupe across the
  * union in one pass.
  */
 export const CALLSIGNS_BY_ARCHETYPE = Object.freeze({
@@ -103,7 +103,7 @@ export function isArchetypeId(value: string) {
  * Pick a callsign for `archetypeId` using `rng`, excluding any names in
  * `excludeCallsigns` (a Set). Throws if the pool is empty after filtering —
  * we'd rather crash than silently hand back a duplicate or a placeholder.
- * Pure helper so M2's `Campaign.buildCrew` can call it directly when seeding
+ * Pure helper so `Campaign.buildCrew` can call it directly when seeding
  * the starter trio.
  */
 export function pickCallsign(archetypeId: string, rng: Rng, excludeCallsigns = new Set()) {
@@ -130,7 +130,7 @@ export function pickCallsign(archetypeId: string, rng: Rng, excludeCallsigns = n
 /**
  * Build a named crew member. Threads a campaign-scoped `Rng` so the callsign
  * is reproducible from the campaign seed, and accepts an `excludeCallsigns`
- * Set so callers (`Campaign.buildCrew`, future recruitment in M6) can dedupe
+ * Set so callers (`Campaign.buildCrew`, `Campaign.generateRecruits`) can dedupe
  * against campaign history.
  */
 type BuildCrewMemberOptions = {

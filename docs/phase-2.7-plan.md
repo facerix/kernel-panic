@@ -2,6 +2,8 @@
 
 Plan for the post–Phase 2.6, pre–Phase 3 slice of Kernel Panic: turn the enemy roster from a single-verb stat block (skirmisher-only) into a **role taxonomy** with a **tier doctrine** that controls encounter composition and per-tier stat scaling. **Released `v0.2.7`.** See [phase-2.6-plan.md](phase-2.6-plan.md) for resilience/placement foundations this builds on, [phase-2.5-plan.md](phase-2.5-plan.md) for the completed Meatspace-depth slice, [phase-3-plan.md](phase-3-plan.md) for the campaign arc + Cyberspace this feeds into, [kernel-panic-v1-blueprint.md](kernel-panic-v1-blueprint.md) for the overall vision, and [cyberpunk-2077-enemy-list.md](cyberpunk-2077-enemy-list.md) for the source inspiration that seeded this work.
 
+**Phase prefix:** `P2.7` — use `P2.7.MN` (e.g. `P2.7.M1.5`) when referencing milestones from this phase in other documents.
+
 ## Why this phase exists
 
 Playtesting after Phase 2.5 surfaced four problems. **The first three are symptoms of the fourth:**

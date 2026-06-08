@@ -1,7 +1,7 @@
 /**
  * Pure input dispatcher. Maps `(key, mode, aimKind)` to `{ intent, nextMode, aimKind }`
  * so the game loop is input-source agnostic — the same intent stream powers both
- * the keyboard controller and the M7 on-screen touch pad (which synthesizes
+ * the keyboard controller and the on-screen touch pad (which synthesizes
  * keystrokes via `src/input/touchpad.js`).
  *
  * The dispatcher is a small mode machine. IDLE is the default; pressing an
@@ -70,7 +70,7 @@ const DIRECTION_KEYS = {
   e: [1, -1],
   z: [-1, 1],
   c: [1, 1],
-  // WASD as an alternative orthogonal scheme (per the M3 plan).
+  // WASD as an alternative orthogonal scheme.
   w: [0, -1],
   s: [0, 1],
   a: [-1, 0],

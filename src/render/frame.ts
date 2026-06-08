@@ -32,7 +32,7 @@ import type { FactionId, TileId } from '../game/constants.js';
  * aren't memorised, so a drone that ducked behind a wall vanishes.
  *
  * Corpses render via `glyphForCorpse` when their tile is currently visible.
- * M3 added **corpse memorisation**: when a kill occurs within current LOS,
+ * **Corpse memorisation**: when a kill occurs within current LOS,
  * the shell calls `vision.memoriseCorpse(entity)`, and the memory pass here
  * renders memorised corpses at `MEMORY_DIM` (dimmer than a live corpse in
  * LOS). This lets the player navigate back to loot. Live entities moving

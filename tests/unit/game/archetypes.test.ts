@@ -53,7 +53,7 @@ test('ARCHETYPE_IDS lists every registered id, in display order', () => {
 });
 
 test('each archetype exports a CALLSIGNS list of 10–15 unique entries', () => {
-  // M1 plan: 10–15 curated callsigns per archetype. Uniqueness inside a list
+  // P1.M1 plan: 10–15 curated callsigns per archetype. Uniqueness inside a list
   // matters because `pickCallsign` filters by exclusion — two identical
   // entries would silently double the odds of either being picked.
   for (const [id, list] of Object.entries(CALLSIGNS_BY_ARCHETYPE)) {

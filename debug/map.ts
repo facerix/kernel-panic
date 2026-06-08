@@ -1,5 +1,5 @@
 /**
- * M8 map builder debug harness — full procgen map in one view (no camera follow,
+ * Map builder debug harness — full procgen map in one view (no camera follow,
  * no fog). Matches Run.enterCombat placement: player + corp fodder on the grid.
  */
 import { Grid } from '/src/game/Grid.js';

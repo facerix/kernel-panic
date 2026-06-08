@@ -2,8 +2,7 @@
  * Per-viewer visibility + memory.
  *
  * `visible` — tiles with a clean LOS to the viewer right now. Recomputed
- *   every time the viewer moves (or the grid mutates, which won't happen
- *   until destruction lands in M7).
+ *   every time the viewer moves (or the grid mutates e.g. via destruction).
  * `seen` — every tile that has ever been visible. Persistent so the renderer
  *   can dim previously-explored areas — classic roguelike fog of war.
  *
@@ -101,10 +100,9 @@ export class VisionField {
    * trace endpoints so it won't block the viewer's own visibility.
    *
    * The module itself is pure — it doesn't subscribe to anything. The harness
-   * (and the eventual game-loop owner) wires this to the M5 `EventBus`:
-   * recompute on the player's own moves, *and* on `entity:moved` for non-
-   * player factions, so a drone walking into LOS becomes visible without
-   * waiting for the player to step.
+   * wires this to the `EventBus`: recompute on the player's own moves, *and*
+   * on `entity:moved` for non-player factions, so a drone walking into LOS
+   * becomes visible without waiting for the player to step.
    */
   recompute(grid: Grid, viewer: Entity, range = SIGHT_RANGE, options: RecomputeOptions = {}) {
     if (!Number.isInteger(range) || range < 0) {

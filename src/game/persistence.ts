@@ -24,9 +24,9 @@
  * record. Anything missing or out of bounds throws — silent fallback would
  * resurrect a corrupt run instead of crashing on the spot.
  *
- * The plain-array grid encoding (vs. base64 of a `Uint8Array`) is the user's
- * pick for M8: ~3× larger on disk than base64 but trivially portable across
- * browser + `node --test`, and a 24×16 grid is 384 bytes either way.
+ * The plain-array grid encoding (vs. base64 of a `Uint8Array`) is ~3× larger
+ * on disk but trivially portable across browser + `node --test`, and a 24×16
+ * grid is 384 bytes either way.
  */
 
 import { Rng } from '../rng.js';
@@ -224,7 +224,7 @@ function isPatrolArchetype(archetype: EntityArchetypeId): archetype is PatrolArc
 }
 
 // ---------------------------------------------------------------------------
-// M6.2: Data-Mapper entity restore registry.
+// P2.7.M6.2 — Data-Mapper entity restore registry.
 //
 // The on-disk entity layout is a slim common record plus a single opaque
 // `extra` property bag (see `RunEntitySnapshot`). `normalizeEntityExtra`
@@ -234,7 +234,7 @@ function isPatrolArchetype(archetype: EntityArchetypeId): archetype is PatrolArc
 // `SNAPSHOT_EXTRACTORS` is the symmetric write path.
 // ---------------------------------------------------------------------------
 
-/** Pre-M6.2 named sub-block key for each non-crew/non-patrol archetype. */
+/** Pre-P2.7.M6.2 named sub-block key for each non-crew/non-patrol archetype. */
 const LEGACY_EXTRA_KEY: Partial<Record<EntityArchetypeId, string>> = Object.freeze({
   turret: 'turret',
   'corp-turret': 'corpTurret',
@@ -257,8 +257,8 @@ function asObjectBag(value: unknown): EntitySnapshotExtra | null {
 }
 
 /**
- * Reconstruct the `extra` bag from a *legacy* (pre-M6.2) record that still
- * stores per-archetype slices as named top-level sub-blocks (`drone`,
+ * Reconstruct the `extra` bag from a *legacy* (pre-P2.7.M6.2) record that
+ * still stores per-archetype slices as named top-level sub-blocks (`drone`,
  * `terminal`, …) and crew fields at the top level. New saves carry `extra`
  * directly and never reach here.
  */
@@ -701,38 +701,38 @@ export type CampaignSnapshot = {
   rng: { seed: number; state: number };
   crew: CampaignCrewSnapshot[];
   /**
-   * M4.2: typed salvage wallet. Pre-M4.2 saves stored a legacy `number` here
-   * (generic salvage units); `restoreCampaign` / `migrateSalvage` buckets
-   * those into `scrap` on load. New saves write the typed shape directly.
+   * Typed salvage wallet. Pre-P2.5.M4.2 saves stored a legacy `number` here
+   * (generic units); `restoreCampaign` / `migrateSalvage` buckets those into
+   * `scrap` on load. New saves write the typed shape directly.
    */
   salvage: number | TypedSalvage;
-  /** M8+: campaign money. Defaults to 0 for pre-Creds saves. */
+  /** Campaign money. Defaults to 0 for pre-P2.M8 saves. */
   credits?: number;
   rep: number;
   meta: CampaignMeta;
   deployedMemberId: string | null;
   activeRun: CampaignActiveRunSnapshot | null;
-  /** M6: recruit candidates available this hub visit. Defaults to [] for pre-M6 saves. */
+  /** Recruit candidates available this hub visit. Defaults to [] for pre-P2.M6 saves. */
   availableRecruits?: CampaignCrewSnapshot[];
-  /** M6: true if the player already recruited this hub visit. Defaults to false. */
+  /** True if the player already recruited this hub visit. Defaults to false for pre-P2.M6 saves. */
   recruitedThisVisit?: boolean;
-  /** M8: contract reward waiting to produce one recruit on next Hub entry. */
+  /** Contract reward waiting to produce one recruit on next Hub entry. Defaults to false for pre-P2.M8 saves. */
   pendingRecruitReward?: boolean;
-  /** M8: available recruit ids that bypass the Rep gate because they were job rewards. */
+  /** Recruit ids that bypass the Rep gate because they were job rewards. Defaults to [] for pre-P2.M8 saves. */
   rewardRecruitIds?: string[];
-  /** M5.3: crew member ids healed at Patch's clinic this Hub visit. */
+  /** Crew member ids healed at Patch's clinic this Hub visit. Defaults to [] for pre-P2.5.M5.3 saves. */
   healedThisVisit?: string[];
-  /** M5.4: progressive Hub introduction flags. Defaults to {} for pre-M5.4 saves. */
+  /** Progressive Hub introduction flags. Defaults to {} for pre-P2.5.M5.4 saves. */
   hubReveals?: HubRevealsSnapshot;
-  /** M5.4: count of jobs ended with EXIT (extract). Defaults to 0. */
+  /** Count of jobs ended with EXIT (extract). Defaults to 0 for pre-P2.5.M5.4 saves. */
   completedJobs?: number;
-  /** M6.2: persistent key-item inventory (keycards). Defaults to []. */
+  /** Persistent key-item inventory (keycards). Defaults to [] for pre-P2.5.M6.2 saves. */
   keyItems?: KeyItemSnapshot[];
-  /** M7.2: remembered combat locations (site roster). Defaults to []. */
+  /** Remembered combat locations (site roster). Defaults to [] for pre-P2.5.M7.2 saves. */
   siteRoster?: LocationSite[];
 };
 
-/** M6.2: Serializable key item. */
+/** Serializable key item (P2.5.M6.2). */
 export type KeyItemSnapshot = {
   id: string;
   label: string;
@@ -789,7 +789,7 @@ export function snapshotCampaign(campaign: Campaign): CampaignSnapshot {
   };
 }
 
-/** M7.2: deep-clone a roster site (including its delta list) for serialization. */
+/** Deep-clone a roster site (including its delta list) for serialization. */
 function snapshotLocationSite(site: LocationSite): LocationSite {
   return {
     id: site.id,
@@ -936,8 +936,8 @@ export function restoreCampaign(record: unknown, options: RestoreCampaignOptions
   campaign.rng = new Rng(record.rng.seed);
   campaign.rng.setState(record.rng.state);
 
-  // Restore M6 recruitment state (overrides whatever enterHub() generated
-  // during construction — the constructor's rng state was wrong until above).
+  // Restore recruitment state (overrides whatever enterHub() generated during
+  // construction — the constructor's rng state was wrong until above).
   campaign.availableRecruits = (record.availableRecruits ?? []).map(restoreCrewMember);
   campaign.recruitedThisVisit = record.recruitedThisVisit ?? false;
   campaign.pendingRecruitReward = record.pendingRecruitReward ?? false;
@@ -1209,11 +1209,10 @@ function restoreCrewMember(rec: CampaignCrewSnapshot): Crew {
   if (typeof rec.id !== 'string' || rec.id.length === 0) {
     throw new TypeError('restoreCampaign: crew member id must be a non-empty string');
   }
-  // M4.2: migrate legacy `inventory.salvage: number` into the typed wallet
-  // before the archetype factory consumes it. Snapshots written before M4.2
-  // store a plain integer; new saves store a TypedSalvage object. The
-  // `migrateSalvage` helper handles both shapes and crashes on anything
-  // else (silent fallback would corrupt the wallet on every reload).
+  // Migrate legacy `inventory.salvage: number` (pre-P2.5.M4.2) into the typed
+  // wallet before the archetype factory consumes it. `migrateSalvage` handles
+  // both shapes and crashes on anything else — silent fallback would corrupt
+  // the wallet on every reload.
   let inventory = rec.inventory ?? null;
   if (inventory && 'salvage' in inventory) {
     inventory = {
@@ -1421,8 +1420,8 @@ function normalizeObjectiveProgress(progress: unknown): ObjectiveProgressSnapsho
 }
 
 /**
- * M6.2: Normalize run-scoped key items from a snapshot (or undefined for
- * pre-M6.2 saves). Validates structure. Crashes on malformed entries.
+ * Normalize run-scoped key items from a snapshot (or undefined for
+ * pre-P2.5.M6.2 saves). Validates structure. Crashes on malformed entries.
  */
 function normalizeRunKeyItems(raw: unknown): KeyItem[] {
   if (raw === undefined || raw === null) return [];
@@ -1547,7 +1546,7 @@ function validateCampaignRecord(record: unknown): asserts record is CampaignSnap
     delete legacy.vouch;
   }
   const rep = candidate.rep;
-  // M4.2: accept either a legacy non-negative integer (pre-M4.2 saves) or a
+  // Accept either a legacy non-negative integer (pre-P2.5.M4.2 saves) or a
   // structurally valid TypedSalvage wallet. The Campaign constructor runs
   // `migrateSalvage` to normalize the field; here we only ensure the shape
   // is one of the two recognized forms — anything else is data corruption
@@ -1578,7 +1577,7 @@ function validateCampaignRecord(record: unknown): asserts record is CampaignSnap
   if (candidate.state === CAMPAIGN_STATE.COMBAT && !candidate.activeRun) {
     throw new Error('restoreCampaign: COMBAT state requires activeRun');
   }
-  // M6 fields are optional for backwards compat with pre-M6 saves.
+  // Recruitment fields are optional for backwards compat with pre-P2.M6 saves.
   if (candidate.availableRecruits !== undefined && !Array.isArray(candidate.availableRecruits)) {
     throw new TypeError('restoreCampaign: availableRecruits must be an array when present');
   }
