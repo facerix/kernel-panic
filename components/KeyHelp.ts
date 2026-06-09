@@ -568,9 +568,13 @@ class KeyHelp extends HTMLElement {
       if (groupRows.length === 0) continue;
       const dl = h('dl', { className: 'rows' });
       for (const r of groupRows) {
-        const label = r.label.includes('{perkLabel}')
-          ? r.label.replace('{perkLabel}', this.#archetypeInfo?.perkLabel ?? '')
-          : r.label;
+        let label = r.label;
+        if (label.includes('{perkName}')) {
+          label = label.replace('{perkName}', this.#archetypeInfo?.perkName ?? '');
+        }
+        if (label.includes('{perkLabel}')) {
+          label = label.replace('{perkLabel}', this.#archetypeInfo?.perkLabel ?? '');
+        }
         dl.appendChild(h('dt', { textContent: joinKeys(r.keys as string[]) }));
         dl.appendChild(h('dd', { textContent: label }));
       }

@@ -135,10 +135,11 @@ export const MELEE_DAMAGE = 2;
 export const HEAVY_MELEE_DAMAGE = 3;
 
 /**
- * Vault (Merc perk). Breach-and-clear slam: hop over cover, body-check a
- * hostile on the landing tile for VAULT_DAMAGE, knock them back 1 tile in
- * the vault direction. Repeatable (no one-shot gate). Damage matches melee
- * — the positional cost of lining up a clear knockback lane is the gate.
+ * Vault (Merc perk). Breach-and-clear slam in two modes:
+ *   - **Hop:** vault over cover; body-check a hostile on the landing tile.
+ *   - **Shove:** adjacent body-check; knock the target back and step away when clear.
+ * Both deal VAULT_DAMAGE and knock the target back 1 tile in the aim direction
+ * when the knockback lane is clear. Repeatable — AP cost is the gate.
  */
 export const VAULT_DAMAGE = 2;
 

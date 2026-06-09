@@ -294,7 +294,7 @@ function logModeChange(state: { mode: Mode; aimKind: AimKind | null }) {
     // even though the keystroke and mode are now shared.
     const verb =
       archetype === 'merc'
-        ? 'VAULT'
+        ? 'BREAK'
         : archetype === 'razor'
           ? 'SLIDE'
           : archetype === 'tech'
