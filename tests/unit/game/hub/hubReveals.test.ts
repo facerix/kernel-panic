@@ -125,6 +125,34 @@ test('terminal recruitment reveal when Rep meets threshold', () => {
   assert.ok(campaign.hubReveals.terminalRecruitmentExplained);
 });
 
+test('Score reveal presents the target and assigns a Decker when Act 2 opens', () => {
+  const campaign = hubCampaign({
+    rep: 60,
+    completedJobs: 4,
+    hubReveals: {
+      terminalExplained: true,
+      finnIntroduced: true,
+      clinicIntroduced: true,
+      terminalRecruitmentExplained: true,
+    },
+  });
+  assert.equal(campaign.arc.arcStage, 'act-2');
+  assert.equal(campaign.lastHubReveal?.id, 'score-reveal');
+  assert.equal(campaign.hubReveals.scoreBriefingPresented, true);
+  const revealText = campaign.lastHubReveal?.lines.join('\n') ?? '';
+  assert.match(revealText, /SCORE SITE/);
+  assert.match(revealText, /Decker/);
+
+  // Decker was assigned as part of the same transition beat
+  assert.equal(campaign.arc.deckerRecruited, true);
+  const decker = campaign.crew.find(m => m.archetype === 'Decker');
+  assert.ok(decker, 'Decker should be on the crew after Act 2 entry');
+  assert.ok(decker!.callsign, 'Decker should have a callsign');
+
+  campaign.enterHub();
+  assert.equal(campaign.lastHubReveal, null);
+});
+
 test('terminal recruitment reveal when pendingRecruitReward even below Rep', () => {
   const campaign = hubCampaign({
     rep: REP.START,
@@ -180,6 +208,7 @@ test('hubReveals and completedJobs round-trip in campaign snapshot', () => {
       terminalExplained: true,
       finnIntroduced: true,
       clinicIntroduced: true,
+      scoreBriefingPresented: true,
     },
   });
   const snap = snapshotCampaign(campaign);

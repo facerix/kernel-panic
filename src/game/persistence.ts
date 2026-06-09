@@ -791,6 +791,7 @@ export type HubRevealsSnapshot = {
   terminalExplained?: boolean;
   terminalRecruitmentExplained?: boolean;
   clinicIntroduced?: boolean;
+  scoreBriefingPresented?: boolean;
 };
 
 /**

@@ -13,13 +13,13 @@ The campaign is a **Neuromancer-shaped arc**: a crew of operators assembles over
 
 ### Campaign shape
 
-| Arc | Runs | What happens | Systems |
-|-----|------|-------------|---------|
-| **Act 1: Street level** | 1–5 | Build rep, learn combat, recruit crew. Pure Meatspace gigs. Unconnected contracts from P2.5.M2.10 recipes. | P2.5.M2 objectives, P2.5.M5 economy, P2.5.M7 site roster begins |
-| **Turning point** | ~5 | Reach top rep tier. Offered the Score (or discover it). Recruit the Decker. | Decker joins crew; Score target site designated |
-| **Act 2: Casing** | 6–10 | Prep runs at/near the target site + resource building. Cyberspace available on some contracts. Learning the flip. Curator biases toward Score-adjacent contracts. | P2.5.M7 persistence (casing), Cyberspace, simstim flip |
+| Stage | Runs | What happens | Systems |
+|-------|------|-------------|---------|
+| **Stage 1: Street level** | 1–5 | Build rep, learn combat, recruit crew. Pure Meatspace gigs. Unconnected contracts from P2.5.M2.10 recipes. | P2.5.M2 objectives, P2.5.M5 economy, P2.5.M7 site roster begins |
+| **Turning point** | ~5 | Reach KNOWN rep tier. Curator reveals the Score and assigns the Decker in one beat. | Decker joins crew; Score target synthesized (always new, CRITICAL-tier) |
+| **Stage 2: Casing** | 6–10 | Prep runs targeting the Score principal's org + resource building. Cyberspace available on some contracts. Learning the flip. Curator biases toward same-principal contracts. | P2.5.M7 persistence (casing), Cyberspace, simstim flip |
 | **The Clock starts** | ~8 | Pressure mounts — rival crew, corp heat, neural degradation. Contracts get harder; delay has cost. | Clock mechanic |
-| **Act 3: The Score** | 11–13 | Final prep runs, then the big job. Dual-layer climax: Meatspace breach + Cyberspace penetration. | Everything converges |
+| **Stage 3: The Score** | 11–13 | Final prep runs, then the big job. Dual-layer climax: Meatspace breach + Cyberspace penetration. | Everything converges |
 
 ### The simstim flip
 
@@ -41,7 +41,7 @@ A new **player archetype** recruited mid-campaign (late Act 1 / start of Act 2),
 
 | Milestone | Status |
 |---|---|
-| P3.M1 — Campaign arc structure | 🚧 In progress — P3.M1.1–P3.M1.3 done; Hub arc surface next |
+| P3.M1 — Campaign arc structure | 🚧 In progress — P3.M1.1–P3.M1.4 done |
 | P3.M2 — The Decker archetype | 🚧 In progress — class + Drone Override Hack done; recruitment flow pending |
 | P3.M3 — Cyberspace grid + ICE | 🔲 Planned |
 | P3.M4 — Simstim flip (dual-deploy) | 🔲 Planned |
@@ -63,7 +63,7 @@ Phase 3 should start from the shipped Phase 2.5 surface, not rebuild it:
 - `LocationSite` already reserves `tier: 'score'` and `scoreTarget`; P2.5.M7 never sets them, so P3.M1 owns designation.
 - `Curator.generateContracts(rng, campaign)` already accepts `arcStage` and stores it into `contract.context.arcStage`; P3.M1 owns deriving the stage from campaign state and using it for real recipe weighting / Score targeting.
 - P2.7.M6.2 landed: entity snapshot `extra` property bags and campaign-scoped key items are available for Decker / Cyberspace state instead of expanding the old top-level snapshot union.
-- Hub reveal plumbing already exists (`applyFirstHubReveal`, Finn, Clinic, Terminal), so Decker recruitment should use the same progressive reveal pattern rather than adding a parallel modal.
+- Hub reveal plumbing already exists (`applyFirstHubReveal`, Finn, Clinic, Terminal). The Score reveal and Decker recruitment share a single `score-reveal` Hub reveal beat rather than using a separate modal.
 
 ## Phase 2.5 foundations (prerequisites)
 
@@ -72,12 +72,12 @@ Phase 3 depends on specific hooks built into Phase 2.5 milestones:
 | 2.5 Milestone | Phase 3 hook | Notes |
 |---|---|---|
 | **P2.5.M2.10** (recipes) | Recipe context accepts **arc stage** input | Phase 3 uses this to bias contract generation toward Score-adjacent objectives in Acts 2–3 |
-| **P2.5.M5** (economy/rep) | Top rep tier defined and reachable | Phase 3 gates Decker recruitment and Score access at this tier |
-| **P2.5.M7** (persistence) | Location schema includes `scoreTarget` flag; site roster + mutation deltas | Phase 3 designates one roster site as the Score target; player "cases" it across visits |
+| **P2.5.M5** (economy/rep) | KNOWN rep tier defined and reachable | Phase 3 gates Decker recruitment and Score access at KNOWN (50) |
+| **P2.5.M7** (persistence) | Location schema includes `scoreTarget` flag; site roster + mutation deltas | Phase 3 synthesizes a new CRITICAL-tier Score target; player "cases" it across visits. Roster sites for the same principal provide recon value |
 
 ### Score target identification
 
-Score-target sites always use roster-stored dimensions (P2.7.M1.5: `mapWidth`, `mapHeight`, `seed`, mutation deltas); contract `difficulty` scales encounter composition only, not footprint.
+The Score target is always a newly synthesized CRITICAL-tier site, never promoted from the roster. This ensures the map is large enough to support escalated hostile placement as heat grows. Act 2 Curator bias weights toward the same principal (same corp, different sites) so the player learns the organization before the climax. The synthesized site uses roster-stored dimensions (P2.7.M1.5: `mapWidth`, `mapHeight`, `seed`, mutation deltas from visits); contract `difficulty` scales encounter composition only, not footprint.
 
 ## Milestones — detail
 
@@ -91,16 +91,17 @@ Score-target sites always use roster-stored dimensions (P2.7.M1.5: `mapWidth`, `
 
 - **Arc state:** Campaign save tracks `arcStage` (`act-1` / `act-2` / `act-3` / `score`), run count, and arc-specific flags (`deckerRecruited`, `scoreRevealed`, `clockStarted`, `scoreAttempted`, `scoreCompleted`). Prefer a typed `Campaign.arc` record over stuffing more opaque keys into `Campaign.meta`; legacy saves can normalize from absent `arc` into Act 1.
 - **Act transitions:** Define triggers for act boundaries:
-  - Act 1 → Act 2: reach top rep tier + minimum successful job count (recommended: `completedJobs >= 4`). Triggers Score reveal and Decker recruitment opportunity.
-  - Act 2 → Act 3: Decker recruited + Score target site visited at least once + Clock threshold (recommended: `completedJobs >= 9`). Triggers "final prep" phase.
+  - Act 1 → Act 2: reach `KNOWN` rep tier (50) + minimum successful job count (recommended: `completedJobs >= 4`). Triggers Score reveal and Decker recruitment (same beat).
+  - Act 2 → Act 3: `completedJobs >= 9` + at least 4 **living** (non-flatlined) crew + at least 3 visited sites sharing the Score target's principal (including the Score target itself). The Decker gate is gone — the Decker is always assigned at Act 2 entry. The crew gate rewards keeping people alive; the principal-sites gate is the "casing" payoff — you've hit enough of the org's facilities to know how they operate. Triggers "final prep" phase.
   - Score available: Act 3 + player-initiated (choose to attempt the Score from the Hub).
-- **Score target designation:** At Act 2 entry, choose exactly one remembered or newly seeded `LocationSite`, set `scoreTarget: true`, and promote `tier: 'score'` so P2.5.M7 eviction preserves it. If no roster site exists yet, synthesize a site identity from the Curator lexicon and add it to the roster; do not silently defer the Score reveal.
+- **Score target designation:** At Act 2 entry, always synthesize a new CRITICAL-tier `LocationSite` from Curator lexicon as the Score target. The Score is a location the player hasn't seen — Act 2 contracts bias toward the same principal so the player learns about the organization before hitting the crown jewel. Existing roster sites are never promoted; they serve as intel and casing prep. Multiple persisted score targets, or score-tier sites missing `scoreTarget`, throw during Hub-entry arc evaluation.
+- **Decker recruitment:** Same narrative beat as the Score reveal. The Curator assigns a named Decker — no player choice modal. The crew gains a specialist as part of the Score pitch ("here's the job, and here's the person who can open it"). Future phases may differentiate Decker stats and offer a choice; for now the assignment is the narrative.
 - **Arc-aware Curator:** Current code already passes through `arcStage`; P3.M1 must make it behaviorally meaningful:
   - Act 1 = broad pool, unconnected gigs, no Score-target pinning.
-  - Act 2 = at least one board slot biased toward the Score target or its principal/site identity when available.
+  - Act 2 = at least one board slot biased toward the Score target's principal (same corp, different sites) so the player learns the org before the climax.
   - Act 3 = board mostly prep contracts at or near the Score target, plus a separate player-initiated Score action instead of a random roll.
   - Score = special contract build path; not part of the normal three-card job board.
-- **Hub surface:** Hub status / Terminal shows current act, Clock pressure, and Score target label once revealed. The Score reveal uses progressive Hub reveal plumbing so the Curator can present the target as a campaign beat instead of leaving the player to infer it from state changes.
+- **Hub surface:** Hub status / Terminal shows current stage, Clock pressure, and Score target label once revealed. User-facing labels use "Stage" (STAGE 1, STAGE 2, etc.) — code and persistence keep `arc`/`arcStage` naming. The Score reveal uses progressive Hub reveal plumbing so the Curator can present the target and the Decker together as a single campaign beat.
 - **Win/loss conditions:**
   - **Win:** Complete the Score (extract with objective satisfied from the final mission).
   - **Loss (flatline):** Entire crew wiped during any run (existing behavior, but now with arc context for the chronicle).
@@ -131,17 +132,19 @@ Neural degradation is deferred until Cyberspace is fun enough to deserve a jack-
 |---|---|---|---|
 | **P3.M1.1 Arc record** | ✅ Done | Add `Campaign.arc`, derive `arcStage`, persist/restore, normalize old saves to Act 1 | constructor validation, snapshot round-trip, invalid stage throws |
 | **P3.M1.2 Transitions** | ✅ Done | Advance acts from `rep`, `completedJobs`, Decker flag, Score-site visit | boundary tests around job counts and rep tier |
-| **P3.M1.3 Score target** | ✅ Done | Promote one roster site to `tier: 'score'`; preserve through eviction | exactly-one target, no eviction at roster cap, synthetic target when roster empty |
-| **P3.M1.4 Hub arc surface** | 🔲 Planned | Curator presents the Score reveal; Hub / Terminal shows act and Score target; contract selection labels Score-site jobs | one-shot reveal, status render, Score-site badge |
+| **P3.M1.3 Score target** | ✅ Done | Always synthesize a new CRITICAL-tier Score target; preserve through eviction | exactly-one target, no eviction at roster cap, always synthesized (never promoted) |
+| **P3.M1.4 Hub arc surface** | ✅ Done | Curator presents Score + Decker reveal; Hub / Terminal shows stage and Score target; contract selection labels Score-site jobs | one-shot reveal, status render, Score-site badge |
 | **P3.M1.5 Clock** | 🔲 Planned | Start heat after threshold; hard loss at deadline; show status | heat math, deadline loss, no loss after Score attempt |
-| **P3.M1.6 Curator bias** | 🔲 Planned | Pass campaign-derived arc context; bias board slots by act and score target | seeded boards show expected `arcStage` and target-site frequency |
+| **P3.M1.6 Curator bias** | 🔲 Planned | Pass campaign-derived arc context; bias board slots by act and score target's principal | seeded boards show expected `arcStage` and same-principal frequency in Act 2+ |
 | **P3.M1.7 Score entry** | 🔲 Planned | Hub action creates the special Score contract in Act 3 only | availability gates, deployment path, attempted flag |
 
 **P3.M1.1 implementation note:** `Campaign` now owns a typed `arc` record (`arcStage`, `deckerRecruited`, `scoreRevealed`, `clockStarted`, `scoreAttempted`, `scoreCompleted`) plus an `arcStage` getter for Curator context. New snapshots serialize the record; pre-P3 snapshots normalize to Act 1; malformed persisted arc data throws during restore instead of being silently repaired.
 
-**P3.M1.2 implementation note:** Hub entry now runs a monotonic arc transition evaluator. Act 1 advances to Act 2 at `TRUSTED` Rep plus `completedJobs >= 4` and sets `scoreRevealed`; successful extractions increment `completedJobs`, abort extractions do not. Act 2 advances to Act 3 once a Decker has joined the crew, `completedJobs >= 9`, and a score-target roster site has a prior visit marker (`lastVisitedJob > 0`). M1.2 does not synthesize or promote the Score target — that remains P3.M1.3.
+**P3.M1.2 implementation note:** Hub entry now runs a monotonic arc transition evaluator. Act 1 advances to Act 2 at `KNOWN` Rep (50) plus `completedJobs >= 4`, sets `scoreRevealed`, and auto-assigns a Decker to the crew. Act 2 advances to Act 3 once `completedJobs >= 9`, at least 4 non-flatlined crew, and at least 3 visited roster sites sharing the Score target's principal (including the target itself). The crew gate counts living members only — attrition blocks advancement. Successful extractions increment `completedJobs`, abort extractions do not. M1.2 does not synthesize the Score target — that remains P3.M1.3.
 
-**P3.M1.3 implementation note:** Score reveal now guarantees exactly one Score target. If a roster site exists at Act 2 entry, the most recently visited site is promoted to `tier: 'score'` with `scoreTarget: true`, preserving its seed, dimensions, mutation deltas, and exploration memory. If the roster is empty, Campaign synthesizes a CRITICAL-footprint score site from Curator lexicon principal/site tokens instead of deferring reveal. Multiple persisted score targets, or score-tier sites missing `scoreTarget`, throw during Hub-entry arc evaluation.
+**P3.M1.3 implementation note:** Score reveal always synthesizes a new CRITICAL-tier site from Curator lexicon `corp` principal and `corp/data/security/infrastructure/hidden` site tokens. Existing roster sites are never promoted — the Score is always a location the player hasn't visited yet. The synthesized site gets `scoreTarget: true`, `tier: 'score'`, and CRITICAL-footprint dimensions to support escalated hostile placement. Multiple persisted score targets, or score-tier sites missing `scoreTarget`, throw during Hub-entry arc evaluation.
+
+**P3.M1.4 implementation note:** Score reveal is now player-visible. A one-shot `score-reveal` Hub reveal lets the Curator name the target, introduce the Decker, and teach the `SCORE SITE` board badge — all in a single narrative beat. The Hub status row and Terminal crew roster show the current stage label (user-facing "STAGE N") plus Score target once revealed, and `<contract-select>` highlights contracts whose `locationSiteId` matches the campaign Score target. Shared `arcSurface` helpers own the copy and invariant checks so multiple Score targets, or revealed Score state without a target, fail loud instead of rendering misleading UI.
 
 **Acceptance:**
 
@@ -166,7 +169,7 @@ Neural degradation is deferred until Cyberspace is fun enough to deserve a jack-
 - **Archetype definition:** Stats, AP costs, base loadout. Comparable to Merc/Razor/Tech in Meatspace capability but not optimized for it.
 - **Signature ability — Drone Override Hack:** Target a corp drone within range; spend AP to attempt override. On success, drone switches to PLAYER faction for N turns (or until destroyed). Reuses existing drone AI with faction flip. Failure may trigger alarm (P2.5.M2.1 cadence).
 - **Cyberspace stats:** The Decker has Cyberspace-specific attributes (e.g. RAM, intrusion strength, ICE resistance) used in P3.M3. Other archetypes cannot jack in (or can with severe penalties — TBD).
-- **Recruitment flow:** Triggered at Act 1 → Act 2 transition. Uses the **progressive Hub reveal** system from P2.5.M5: Curator message introduces the Decker on Hub entry when rep threshold is met and `arc.deckerRecruited` is false. Same pattern as Finn's introduction and Terminal explanation — the Hub grows with the campaign.
+- **Recruitment flow:** Same narrative beat as the Score reveal — triggered at Act 1 → Act 2 transition. The Curator assigns a named Decker (no player choice modal); the `score-reveal` Hub reveal introduces both the Score target and the Decker in one moment. Same progressive Hub reveal pattern as Finn's introduction and Terminal explanation — the Hub grows with the campaign. Future phases may differentiate Decker stats and offer a choice; for now the assignment is the narrative.
 - **Deployment:** The Decker is deployable as a solo operator on any contract (Meatspace only on non-Cyberspace contracts). On Cyberspace contracts, the Decker is one of the dual-deploy pair (see P3.M4).
 - **Roster rule:** The Decker is a named crew member, not a temporary ability unlock. Recruitment should add them to `Campaign.crew` through the existing recruit/callsign machinery or a deliberately separate `recruitDecker()` path with the same validation guarantees. Do not let normal random recruitment roll a Decker before Act 2.
 - **Jack-in authority:** Only a living Decker can start P3.M3 jack-in. If a contract has a Cyberspace requirement and no living Decker is available, deployment should fail loudly at the Hub selection layer rather than starting an unwinnable run.
@@ -175,7 +178,7 @@ Neural degradation is deferred until Cyberspace is fun enough to deserve a jack-
 
 - ✅ Decker archetype playable in Meatspace: move, attack, interact — comparable to other archetypes (`Decker` extends `Crew`, `baseHitChance` 0.7, `@` glyph).
 - ✅ Drone Override Hack: golden-path test — target drone, override succeeds, drone attacks corp allies for N turns, reverts or is destroyed (`droneOverride.ts`, `Decker.test.ts`). Failed roll burns AP and trips the alarm.
-- 🔲 Recruitment: gated by arc state; not available in Act 1; golden-path test for recruitment flow. **Ready after P3.M1.4 confirms the shared Hub reveal surface.** Decker is registered but excluded from `ARCHETYPE_IDS` and `RECRUIT_ARCHETYPE_POOL` so random recruitment can't roll one early.
+- 🔲 Recruitment: same beat as Score reveal (Act 1 → Act 2 transition); Curator assigns a named Decker, no choice modal. Not available in Act 1; golden-path test for recruitment flow. Decker is registered but excluded from `ARCHETYPE_IDS` and `RECRUIT_ARCHETYPE_POOL` so random recruitment can't roll one early.
 - ✅ Snapshot: Decker state persists (campaign + run round-trip); live drone-override state round-trips through the patrol snapshot. Cyberspace attributes deferred to P3.M3.
 - ✅ Key help: Decker glyph (`@`) and OVERRIDE ability description via shared `ARCHETYPES[id].perkLabel`.
 

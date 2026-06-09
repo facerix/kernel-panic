@@ -74,6 +74,7 @@ import { hasLineOfSight } from '/src/game/LineOfSight.js';
 import { ITEM_ID, getItemById } from '/src/game/items.js';
 import type { CampaignSnapshot } from '/src/game/persistence.js';
 import type { Contract } from '/src/game/hub/Curator.js';
+import { formatHubArcStatus, scoreTargetSiteId } from '/src/game/hub/arcSurface.js';
 import { isTerminalAccessible } from '/src/game/hub/hubReveals.js';
 import type { Crew } from '/src/game/Crew.js';
 import { resolveEntityLabel, type Entity } from '/src/game/Entity.js';
@@ -125,6 +126,7 @@ type RunBriefingElement = ModalElement & {
 };
 type ContractSelectElement = ModalElement & {
   setContracts(contracts: Contract[]): void;
+  setScoreTargetSiteId(siteId: string | null): void;
 };
 type CrashDumpElement = ModalElement & {
   setTelemetry(telemetry: Record<string, unknown>): void;
@@ -146,6 +148,7 @@ type CrewRosterElement = ModalElement & {
     crew: Crew[],
     opts?: {
       salvage?: TypedSalvage;
+      campaignStatus?: string;
       availableRecruits?: Crew[];
       recruitedThisVisit?: boolean;
     }
@@ -712,6 +715,7 @@ function presentCrewRoster() {
   campaign.backfillRecruitsIfEligible();
   crewRosterEl.setCrew(campaign.crew, {
     salvage: campaign.salvage,
+    campaignStatus: formatHubArcStatus(campaign),
     availableRecruits: campaign.availableRecruits,
     recruitedThisVisit: campaign.recruitedThisVisit,
   });
@@ -740,6 +744,7 @@ function presentBriefing(contract: Contract) {
 }
 
 function presentContractSelect(contracts: Contract[]) {
+  contractSelectEl.setScoreTargetSiteId(campaign ? scoreTargetSiteId(campaign) : null);
   contractSelectEl.setContracts(contracts);
   contractSelectEl.show();
 }
@@ -2006,6 +2011,22 @@ function buildCombatHudSnapshot(scene: ShellScene | null): CombatHudSummaryInput
   };
 }
 
+function buildHubHudRows(scene: ShellScene | null) {
+  if (!campaign || scene?.state !== CAMPAIGN_STATE.HUB) return undefined;
+  return [
+    {
+      text: formatHubArcStatus(campaign),
+      anchor: 'top-left' as const,
+      row: 1,
+      color: '#ffd166',
+      glowColor: '#ffd166',
+      accentColor: 'rgba(255, 209, 102, 0.5)',
+      uppercase: true,
+      maxWidth: 520,
+    },
+  ];
+}
+
 function paint(stateHint: InputState = activeInputState()): void {
   const run = currentScene();
   if (canvas.hidden) {
@@ -2031,6 +2052,7 @@ function paint(stateHint: InputState = activeInputState()): void {
     lookCursor,
     principalId,
     locationLabel: currentLocationLabel(),
+    hudRows: buildHubHudRows(run),
     combatHud: buildCombatHudSnapshot(run),
   });
   crt.alertTint = run.state === RUN_STATE.COMBAT && run.world.alarmActive;
@@ -2079,6 +2101,7 @@ function statusLine(state: InputState): string {
   } else {
     if (!campaign) return stateLabel();
     const repLabel = REP_LABEL.find(b => campaign!.rep >= b.min)?.label ?? 'UNKNOWN';
+    context = escapeHtml(formatHubArcStatus(campaign));
     // Hub identity drops the typed-salvage compact tag —
     // the inventory overlay (`i` in Hub) is the canonical wallet view with
     // full bucket names. Total Cred / Rep / crew counts stay on this line.

@@ -650,24 +650,30 @@ test('restoreCampaign rejects corrupt Phase 3 arc snapshots', () => {
 });
 
 test('P3.M1.2: Act 1 does not advance until Rep and completed job gates both qualify', () => {
-  const lowRep = new Campaign({ seed: 42, rep: 79, completedJobs: 4 });
+  const lowRep = new Campaign({ seed: 42, rep: 49, completedJobs: 4 });
   assert.equal(lowRep.arcStage, 'act-1');
   assert.equal(lowRep.arc.scoreRevealed, false);
 
-  const lowJobs = new Campaign({ seed: 43, rep: 80, completedJobs: 3 });
+  const lowJobs = new Campaign({ seed: 43, rep: 60, completedJobs: 3 });
   assert.equal(lowJobs.arcStage, 'act-1');
   assert.equal(lowJobs.arc.scoreRevealed, false);
 });
 
-test('P3.M1.2: Act 1 advances to Act 2 at TRUSTED Rep plus four completed jobs', () => {
-  const campaign = new Campaign({ seed: 42, rep: 80, completedJobs: 4 });
+test('P3.M1.2: Act 1 advances to Act 2 at KNOWN Rep plus four completed jobs and assigns Decker', () => {
+  const campaign = new Campaign({ seed: 42, rep: 60, completedJobs: 4 });
 
   assert.equal(campaign.arcStage, 'act-2');
   assert.equal(campaign.arc.scoreRevealed, true);
+  assert.equal(campaign.arc.deckerRecruited, true);
+
+  const decker = campaign.crew.find(m => m.archetype === 'Decker');
+  assert.ok(decker, 'Decker should join crew at Act 2 entry');
+  assert.ok(decker!.callsign, 'Decker should have a unique callsign');
+  assert.match(decker!.id, /^crew-decker-/);
 });
 
 test('P3.M1.2: successful extraction advances Act 2 when the final gate is crossed', () => {
-  const campaign = new Campaign({ seed: 42, rep: 79, completedJobs: 3 });
+  const campaign = new Campaign({ seed: 42, rep: 49, completedJobs: 3 });
   const member = campaign.crew[0];
   const run = campaign.deployCrewMember(
     member.id,
@@ -678,9 +684,14 @@ test('P3.M1.2: successful extraction advances Act 2 when the final gate is cross
   campaign.onJobEnd({ outcome: OUTCOME.EXIT, completed: true });
 
   assert.equal(campaign.completedJobs, 4);
-  assert.equal(campaign.rep, 80);
+  assert.equal(campaign.rep, 50);
   assert.equal(campaign.arcStage, 'act-2');
   assert.equal(campaign.arc.scoreRevealed, true);
+  assert.equal(campaign.arc.deckerRecruited, true);
+  assert.ok(
+    campaign.crew.some(m => m.archetype === 'Decker'),
+    'Decker should join crew when Act 2 gate is crossed'
+  );
 });
 
 test('P3.M1.2: abort extraction does not count as a completed arc job', () => {
@@ -696,80 +707,147 @@ test('P3.M1.2: abort extraction does not count as a completed arc job', () => {
   assert.equal(campaign.arc.scoreRevealed, false);
 });
 
-test('P3.M1.2: Act 2 waits for Decker recruitment, Score-site visit, and nine jobs', () => {
-  const decker = buildCrewMember('decker', { x: 0, y: 0 }, new Rng(101), {
-    id: 'crew-decker',
-  });
-  const missingDecker = new Campaign({
-    seed: 42,
-    rep: 80,
-    completedJobs: 9,
-    siteRoster: [
-      validSite({
-        id: 'score',
-        seed: '12345',
-        tier: 'score',
-        scoreTarget: true,
-        lastVisitedJob: 5,
-      }),
-    ],
-  });
-  assert.equal(missingDecker.arcStage, 'act-2');
+test('P3.M1.2: Act 2 gates — each Act 3 condition checked independently', () => {
+  // Act 3 requires: completedJobs >= 9, 4 living crew, and 3 visited same-principal sites.
+  // Default test crew: buildCrew() trio + auto-Decker = 4 living.
+  const scorePrincipal = { id: 'matsuda', label: 'Matsuda', groups: ['corp'] };
 
-  const missingTargetVisit = new Campaign({
-    seed: 43,
-    rep: 80,
-    completedJobs: 9,
-    crew: [decker],
-  });
-  assert.equal(missingTargetVisit.arcStage, 'act-2');
-
+  // Gate: not enough jobs (crew and sites satisfied by default)
   const tooFewJobs = new Campaign({
     seed: 44,
-    rep: 80,
+    rep: 60,
     completedJobs: 8,
-    crew: [decker],
     siteRoster: [
       validSite({
         id: 'score',
-        seed: '12345',
+        seed: '100',
         tier: 'score',
         scoreTarget: true,
         lastVisitedJob: 5,
+        principal: scorePrincipal,
       }),
+      validSite({ id: 'case-1', seed: '101', lastVisitedJob: 6, principal: scorePrincipal }),
+      validSite({ id: 'case-2', seed: '102', lastVisitedJob: 7, principal: scorePrincipal }),
     ],
   });
-  assert.equal(tooFewJobs.arcStage, 'act-2');
+  assert.equal(tooFewJobs.arcStage, 'act-2', 'blocks on job count');
+
+  // Gate: not enough living crew (need 4 non-flatlined).
+  // Start in Act 1 (low rep), flatline a member, then cross the Act 2 threshold
+  // so the Act 3 check sees only 3 living crew.
+  const attrition = new Campaign({
+    seed: 45,
+    rep: 20,
+    completedJobs: 9,
+    siteRoster: [
+      validSite({
+        id: 'score',
+        seed: '100',
+        tier: 'score',
+        scoreTarget: true,
+        lastVisitedJob: 5,
+        principal: scorePrincipal,
+      }),
+      validSite({ id: 'case-1', seed: '101', lastVisitedJob: 6, principal: scorePrincipal }),
+      validSite({ id: 'case-2', seed: '102', lastVisitedJob: 7, principal: scorePrincipal }),
+    ],
+  });
+  assert.equal(attrition.arcStage, 'act-1', 'starts in Act 1 with low rep');
+  attrition.crew[0].flatlined = true;
+  attrition.rep = 60;
+  attrition.enterHub();
+  assert.equal(attrition.crew.length, 4, 'buildCrew trio + auto-Decker');
+  assert.equal(attrition.crew.filter(m => !m.flatlined).length, 3, 'only 3 living');
+  assert.equal(attrition.arcStage, 'act-2', 'blocks on living crew count');
+
+  // Gate: not enough same-principal visited sites (2 of 3 required)
+  const tooCasual = new Campaign({
+    seed: 46,
+    rep: 60,
+    completedJobs: 9,
+    siteRoster: [
+      validSite({
+        id: 'score',
+        seed: '100',
+        tier: 'score',
+        scoreTarget: true,
+        lastVisitedJob: 5,
+        principal: scorePrincipal,
+      }),
+      validSite({ id: 'case-1', seed: '101', lastVisitedJob: 6, principal: scorePrincipal }),
+      // Only 2 visited sites for this principal — need 3
+    ],
+  });
+  assert.equal(tooCasual.arcStage, 'act-2', 'blocks on principal site visits');
+
+  // Gate: score target never visited (synthesized, lastVisitedJob: 0)
+  const noTargetVisit = new Campaign({
+    seed: 47,
+    rep: 60,
+    completedJobs: 9,
+  });
+  const scoreTarget = noTargetVisit.siteRoster.find(s => s.scoreTarget);
+  assert.ok(scoreTarget);
+  assert.equal(scoreTarget!.lastVisitedJob, 0, 'synthesized target starts unvisited');
+  assert.equal(noTargetVisit.arcStage, 'act-2', 'blocks when score target unvisited');
 });
 
-test('P3.M1.2: Act 2 advances to Act 3 once Decker, Score-site visit, and nine jobs qualify', () => {
+test('P3.M1.2: Act 2 advances to Act 3 with 4 living crew and 3 visited same-principal sites', () => {
+  const scorePrincipal = { id: 'matsuda', label: 'Matsuda', groups: ['corp'] };
+  const campaign = new Campaign({
+    seed: 42,
+    rep: 60,
+    completedJobs: 9,
+    siteRoster: [
+      validSite({
+        id: 'score',
+        seed: '100',
+        tier: 'score',
+        scoreTarget: true,
+        lastVisitedJob: 5,
+        principal: scorePrincipal,
+      }),
+      validSite({ id: 'case-1', seed: '101', lastVisitedJob: 6, principal: scorePrincipal }),
+      validSite({ id: 'case-2', seed: '102', lastVisitedJob: 7, principal: scorePrincipal }),
+    ],
+  });
+
+  const living = campaign.crew.filter(m => !m.flatlined).length;
+  assert.ok(living >= 4, `need 4 living crew, have ${living}`);
+  assert.equal(campaign.arcStage, 'act-3');
+});
+
+test('P3.M2: Decker assignment is idempotent — restored save with existing Decker does not duplicate', () => {
   const decker = buildCrewMember('decker', { x: 0, y: 0 }, new Rng(102), {
     id: 'crew-decker',
   });
   const campaign = new Campaign({
     seed: 42,
-    rep: 80,
-    completedJobs: 9,
+    rep: 60,
+    completedJobs: 4,
     crew: [decker],
-    siteRoster: [
-      validSite({
-        id: 'score',
-        seed: '12345',
-        tier: 'score',
-        scoreTarget: true,
-        lastVisitedJob: 5,
-      }),
-    ],
   });
 
-  assert.equal(campaign.arc.deckerRecruited, true);
-  assert.equal(campaign.arcStage, 'act-3');
+  assert.equal(campaign.arcStage, 'act-2');
+  const deckers = campaign.crew.filter(m => m.archetype === 'Decker');
+  assert.equal(deckers.length, 1, 'should not duplicate Decker when one already exists');
 });
 
-test('P3.M1.3: Act 2 entry promotes one remembered site as the Score target', () => {
+test('P3.M2: Decker callsign does not collide with existing crew', () => {
+  const campaign = new Campaign({ seed: 42, rep: 60, completedJobs: 4 });
+  const decker = campaign.crew.find(m => m.archetype === 'Decker');
+  assert.ok(decker);
+  const otherCallsigns = campaign.crew.filter(m => m.archetype !== 'Decker').map(m => m.callsign);
+  assert.ok(
+    !otherCallsigns.includes(decker!.callsign!),
+    `Decker callsign "${decker!.callsign}" should not collide with existing crew`
+  );
+});
+
+test('P3.M1.3: Act 2 entry always synthesizes a new CRITICAL-tier Score target', () => {
   const campaign = new Campaign({
     seed: 42,
-    rep: 80,
+    rep: 60,
     completedJobs: 4,
     siteRoster: [
       validSite({
@@ -786,35 +864,22 @@ test('P3.M1.3: Act 2 entry promotes one remembered site as the Score target', ()
     ],
   });
 
-  const target = campaign.findRosterSite('remembered');
-  assert.ok(target);
-  assert.equal(target!.scoreTarget, true);
+  const remembered = campaign.findRosterSite('remembered');
+  assert.ok(remembered);
+  assert.equal(remembered!.scoreTarget, false, 'existing roster site is not promoted');
+  assert.notEqual(remembered!.tier, 'score');
+
+  const target = campaign.siteRoster.find(site => site.scoreTarget);
+  assert.ok(target, 'synthesized Score target exists');
+  assert.match(target!.id, /^score-/);
   assert.equal(target!.tier, 'score');
-  assert.equal(target!.mapWidth, 30);
-  assert.equal(target!.mapHeight, 18);
-  assert.deepEqual(target!.seenKeys, ['1,1']);
-  assert.equal(target!.mutationDeltas.length, 1);
+  assert.ok(target!.mapWidth >= 28, 'Score target uses CRITICAL-tier dimensions');
+  assert.ok(target!.mapHeight >= 18);
   assert.equal(campaign.siteRoster.filter(site => site.scoreTarget).length, 1);
 });
 
-test('P3.M1.3: remembered Score target selection prefers the most recently visited site', () => {
-  const campaign = new Campaign({
-    seed: 42,
-    rep: 80,
-    completedJobs: 4,
-    siteRoster: [
-      validSite({ id: 'older', seed: '101', lastVisitedJob: 1 }),
-      validSite({ id: 'newest', seed: '202', lastVisitedJob: 7 }),
-      validSite({ id: 'middle', seed: '303', lastVisitedJob: 3 }),
-    ],
-  });
-
-  assert.equal(campaign.siteRoster.find(site => site.scoreTarget)?.id, 'newest');
-  assert.equal(campaign.findRosterSite('newest')?.tier, 'score');
-});
-
-test('P3.M1.3: Act 2 entry synthesizes a Score target when the roster is empty', () => {
-  const campaign = new Campaign({ seed: 42, rep: 80, completedJobs: 4 });
+test('P3.M1.3: Act 2 entry synthesizes a Score target even when roster is empty', () => {
+  const campaign = new Campaign({ seed: 42, rep: 60, completedJobs: 4 });
 
   assert.equal(campaign.arcStage, 'act-2');
   assert.equal(campaign.arc.scoreRevealed, true);
@@ -831,7 +896,7 @@ test('P3.M1.3: Act 2 entry synthesizes a Score target when the roster is empty',
 });
 
 test('P3.M1.3: designated Score target survives roster eviction at cap', () => {
-  const campaign = new Campaign({ seed: 42, rep: 80, completedJobs: 4 });
+  const campaign = new Campaign({ seed: 42, rep: 60, completedJobs: 4 });
   const targetId = campaign.siteRoster.find(site => site.scoreTarget)!.id;
 
   for (let i = 0; i < SITE_ROSTER_CAP; i++) {
@@ -848,7 +913,7 @@ test('P3.M1.3: multiple persisted Score targets crash instead of being normalize
     () =>
       new Campaign({
         seed: 42,
-        rep: 80,
+        rep: 60,
         completedJobs: 4,
         siteRoster: [
           validSite({ id: 'score-a', seed: '111', tier: 'score', scoreTarget: true }),

@@ -206,8 +206,7 @@ export type LocationToken = { id: string; label: string; groups: string[] };
  * (objective/asset/action) is rolled fresh. `label` is the name from the most
  * recent generation.
  *
- * `tier` / `scoreTarget` reserve one slot for Phase 3's "Score target" site;
- * `scoreTarget` is always false until Phase 3.
+ * `tier` / `scoreTarget` reserve one slot for Phase 3's "Score target" site.
  */
 export type LocationSite = {
   /** Stable, seed-derived id — the roster key. */
@@ -222,7 +221,7 @@ export type LocationSite = {
   label: string;
   /** Roster tier — `'score'` is reserved for Phase 3 and never evicted. */
   tier: 'score' | 'roster';
-  /** Phase 3 hook — always false until Phase 3. */
+  /** Phase 3 hook — true for the single campaign Score target. */
   scoreTarget: boolean;
   /** Accumulated terrain mutations replayed on revisit. */
   mutationDeltas: TileDelta[];

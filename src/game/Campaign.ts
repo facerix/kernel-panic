@@ -61,6 +61,10 @@ import type { RunResult, Outcome } from './Run.js';
 export const SITE_ROSTER_CAP = 6;
 export const ARC_ACT_2_MIN_COMPLETED_JOBS = 4;
 export const ARC_ACT_3_MIN_COMPLETED_JOBS = 9;
+/** Minimum *living* crew size before the Score's final-prep stage unlocks. Starter 2 + Decker = 3, so 4 requires at least one additional recruit who hasn't flatlined. */
+export const ARC_ACT_3_MIN_CREW_ALIVE = 4;
+/** Visited sites sharing the Score target's principal required for Act 3. Includes the target itself. */
+export const ARC_ACT_3_MIN_PRINCIPAL_SITES_VISITED = 3;
 const SYNTHETIC_SCORE_TARGET_DIFFICULTY = CONTRACT_DIFFICULTY.CRITICAL;
 
 export const CAMPAIGN_STATE = Object.freeze({
@@ -999,7 +1003,11 @@ export class Campaign {
       this.arc.scoreRevealed = true;
     }
 
+    // Invariant: once the Score is revealed, the Curator's Decker is on the
+    // crew. Holds for fresh act-2 transitions and for restores/constructs that
+    // land in a revealed state with a crew that's missing the operative.
     if (this.arc.scoreRevealed) {
+      this.#assignDecker();
       this.#ensureScoreTargetDesignated();
     }
 
@@ -1010,17 +1018,44 @@ export class Campaign {
 
   #qualifiesForAct2(): boolean {
     return (
-      repTierForRep(this.rep).id === REP_TIER.TRUSTED &&
+      repTierForRep(this.rep).id === REP_TIER.KNOWN &&
       this.completedJobs >= ARC_ACT_2_MIN_COMPLETED_JOBS
     );
   }
 
   #qualifiesForAct3(): boolean {
-    return (
-      this.arc.deckerRecruited &&
-      this.completedJobs >= ARC_ACT_3_MIN_COMPLETED_JOBS &&
-      this.siteRoster.some(site => site.scoreTarget && site.lastVisitedJob > 0)
-    );
+    if (this.completedJobs < ARC_ACT_3_MIN_COMPLETED_JOBS) return false;
+    const livingCrew = this.crew.filter(m => !m.flatlined).length;
+    if (livingCrew < ARC_ACT_3_MIN_CREW_ALIVE) return false;
+
+    const scoreTarget = this.siteRoster.find(site => site.scoreTarget);
+    if (!scoreTarget?.principal?.id) return false;
+
+    const principalId = scoreTarget.principal.id;
+    const visitedPrincipalSites = this.siteRoster.filter(
+      site => site.principal?.id === principalId && site.lastVisitedJob > 0
+    ).length;
+    return visitedPrincipalSites >= ARC_ACT_3_MIN_PRINCIPAL_SITES_VISITED;
+  }
+
+  /**
+   * Assign a Decker to the crew as part of the Act 2 narrative beat. The Curator
+   * "finds" a Decker for the player — no choice modal, just a named operative.
+   * Callsign is deduped against existing crew. Idempotent: skips if a Decker is
+   * already on the roster (e.g. from a restored save that already transitioned).
+   */
+  #assignDecker(): void {
+    // Guard on the actual roster, not the `deckerRecruited` flag: a restored
+    // save (or a constructed campaign) can carry the flag while the crew lacks
+    // the operative, and the Score reveal requires a real Decker present.
+    if (this.crew.some(member => member.archetype === 'Decker')) return;
+
+    const decker = buildCrewMember('decker', { x: 0, y: 0 }, this.rng, {
+      id: `crew-decker-${this.rng.intRange(0, 0xffff).toString(16)}`,
+      excludeCallsigns: this.allUsedCallsigns(),
+    });
+    this.crew.push(decker);
+    this.arc.deckerRecruited = true;
   }
 
   #ensureScoreTargetDesignated(): void {
@@ -1039,16 +1074,9 @@ export class Campaign {
       return;
     }
 
-    const target = this.#selectRememberedScoreTarget() ?? this.#synthesizeScoreTarget();
+    const target = this.#synthesizeScoreTarget();
     target.scoreTarget = true;
     target.tier = 'score';
-  }
-
-  #selectRememberedScoreTarget(): LocationSite | null {
-    if (this.siteRoster.length === 0) return null;
-    return [...this.siteRoster].sort(
-      (a, b) => b.lastVisitedJob - a.lastVisitedJob || a.id.localeCompare(b.id)
-    )[0]!;
   }
 
   #synthesizeScoreTarget(): LocationSite {

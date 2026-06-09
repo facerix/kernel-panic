@@ -15,6 +15,7 @@
 import { h } from '/src/domUtils.js';
 
 const STORAGE_KEY = 'kp:data';
+/* eslint-disable-next-line no-unused-vars */
 const CREW_ARCHETYPES = ['merc', 'razor', 'tech', 'decker'] as const;
 const ARC_STAGES = ['act-1', 'act-2', 'act-3', 'score'] as const;
 const CAMPAIGN_STATES = ['HUB', 'COMBAT', 'ENDED'] as const;
@@ -79,6 +80,7 @@ function toast(msg: string): void {
 // ---------------------------------------------------------------------------
 
 /** Walk a dotted path like "campaign.crew.0.hp" into the data tree. */
+/* eslint-disable-next-line no-unused-vars */
 function getByPath(obj: unknown, path: string): unknown {
   const parts = path.split('.');
   let cur: unknown = obj;
@@ -196,11 +198,7 @@ function qeNumberField(
   return h('label', null, [document.createTextNode(label), input]);
 }
 
-function qeBoolField(
-  label: string,
-  obj: Record<string, unknown>,
-  key: string
-): HTMLElement {
+function qeBoolField(label: string, obj: Record<string, unknown>, key: string): HTMLElement {
   const cur = !!obj[key];
   const input = h('input', { type: 'checkbox', checked: cur }) as HTMLInputElement;
   input.addEventListener('change', () => {
@@ -250,12 +248,7 @@ function renderTree(): void {
   root.appendChild(container);
 }
 
-function buildNode(
-  key: string,
-  value: unknown,
-  path: string,
-  startOpen = false
-): HTMLElement {
+function buildNode(key: string, value: unknown, path: string, startOpen = false): HTMLElement {
   if (value === null || value === undefined) {
     return leafNode(key, value, path);
   }
@@ -290,12 +283,7 @@ function objectNode(
   return details;
 }
 
-function arrayNode(
-  key: string,
-  arr: unknown[],
-  path: string,
-  startOpen: boolean
-): HTMLElement {
+function arrayNode(key: string, arr: unknown[], path: string, startOpen: boolean): HTMLElement {
   const details = h('details', startOpen ? { open: true } : {}) as HTMLDetailsElement;
   const summary = h('summary', null, [
     h('span', { className: 'key' }, [document.createTextNode(key)]),
@@ -313,30 +301,22 @@ function arrayNode(
 
 function leafNode(key: string, value: unknown, path: string): HTMLElement {
   const row = h('div', { className: 'leaf' });
-  row.appendChild(
-    h('span', { className: 'key' }, [document.createTextNode(`${key}: `)])
-  );
+  row.appendChild(h('span', { className: 'key' }, [document.createTextNode(`${key}: `)]));
 
   if (value === null || value === undefined) {
-    row.appendChild(
-      h('span', { className: 'val-null' }, [document.createTextNode('null')])
-    );
+    row.appendChild(h('span', { className: 'val-null' }, [document.createTextNode('null')]));
     return row;
   }
 
   if (typeof value === 'boolean') {
-    const select = h(
-      'select',
-      { className: 'inline-edit' },
-      [
-        h('option', { value: 'true', selected: value === true }, [
-          document.createTextNode('true'),
-        ]) as HTMLOptionElement,
-        h('option', { value: 'false', selected: value === false }, [
-          document.createTextNode('false'),
-        ]) as HTMLOptionElement,
-      ]
-    ) as HTMLSelectElement;
+    const select = h('select', { className: 'inline-edit' }, [
+      h('option', { value: 'true', selected: value === true }, [
+        document.createTextNode('true'),
+      ]) as HTMLOptionElement,
+      h('option', { value: 'false', selected: value === false }, [
+        document.createTextNode('false'),
+      ]) as HTMLOptionElement,
+    ]) as HTMLSelectElement;
     select.classList.add('val-bool');
     select.addEventListener('change', () => {
       setByPath(data, path.replace(/^data\./, ''), select.value === 'true');
@@ -390,9 +370,7 @@ function renderToolbar(): void {
   const bar = document.getElementById('toolbar')!;
   bar.innerHTML = '';
 
-  const saveBtn = h('button', null, [
-    document.createTextNode(dirty ? '● Save' : 'Save'),
-  ]);
+  const saveBtn = h('button', null, [document.createTextNode(dirty ? '● Save' : 'Save')]);
   saveBtn.addEventListener('click', saveToStorage);
 
   const revertBtn = h('button', null, [document.createTextNode('Revert')]);
@@ -434,9 +412,7 @@ function renderToolbar(): void {
     }
   });
 
-  const nukeBtn = h('button', { className: 'danger' }, [
-    document.createTextNode('Nuke save'),
-  ]);
+  const nukeBtn = h('button', { className: 'danger' }, [document.createTextNode('Nuke save')]);
   nukeBtn.addEventListener('click', () => {
     if (!confirm('Delete ALL save data from localStorage? This cannot be undone.')) return;
     window.localStorage.removeItem(STORAGE_KEY);

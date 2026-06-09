@@ -6,6 +6,7 @@
 
 import { h } from '/src/domUtils.js';
 import { encounterHostileCount } from '/src/game/encounters.js';
+import { isScoreSiteContract } from '/src/game/hub/arcSurface.js';
 import { cloneObjective } from '/src/game/hub/Curator.js';
 import type { Contract } from '/src/game/hub/Curator.js';
 
@@ -149,6 +150,12 @@ const CSS = `
   white-space: nowrap;
 }
 
+.known.score-site {
+  color: #020403;
+  background: var(--board-warn);
+  border-color: var(--board-warn);
+}
+
 .meta {
   color: var(--board-dim);
   font-size: 0.84rem;
@@ -185,6 +192,7 @@ const CSS = `
 
 class ContractSelect extends HTMLElement {
   #contracts: Contract[] = [];
+  #scoreTargetSiteId: string | null = null;
   #selectedIndex = 0;
   #ready = false;
   #listEl: HTMLElement | null = null;
@@ -235,6 +243,14 @@ class ContractSelect extends HTMLElement {
     if (this.#ready) this.#render();
   }
 
+  setScoreTargetSiteId(siteId: string | null) {
+    if (siteId !== null && (typeof siteId !== 'string' || siteId.length === 0)) {
+      throw new TypeError('<contract-select>.setScoreTargetSiteId requires a site id or null');
+    }
+    this.#scoreTargetSiteId = siteId;
+    if (this.#ready) this.#render();
+  }
+
   show() {
     this.setAttribute('open', '');
     queueMicrotask(() => this.#focusSelected());
@@ -273,7 +289,7 @@ class ContractSelect extends HTMLElement {
               }),
               h('span', { className: 'target', textContent: jobTitleCopy(contract) }),
             ]),
-            h('div', { className: 'location' }, locationLine(contract)),
+            h('div', { className: 'location' }, locationLine(contract, this.#scoreTargetSiteId)),
             h('div', { className: 'meta', textContent: rewardCopy(contract) }),
           ]),
           h('div', { className: 'take', textContent: 'TAKE THE JOB' }),
@@ -352,12 +368,14 @@ function jobTitleCopy(contract: Contract): string {
   return `// ${contract.objective.title}${window}`;
 }
 
-function locationLine(contract: Contract): HTMLElement[] {
+function locationLine(contract: Contract, scoreTargetSiteId: string | null): HTMLElement[] {
   const { principal, site, siteState, locationSiteId } = contract.context;
   const place = site ? `${principal.label} ${site.label}` : principal.label;
   const state = siteState ? ` [${siteState.label}]` : '';
   const nodes: HTMLElement[] = [h('span', { textContent: `Location: ${place}${state}` })];
-  if (locationSiteId) {
+  if (isScoreSiteContract(contract, scoreTargetSiteId)) {
+    nodes.push(h('span', { className: 'known score-site', textContent: 'SCORE SITE' }));
+  } else if (locationSiteId) {
     nodes.push(h('span', { className: 'known', textContent: '// known site' }));
   }
   return nodes;

@@ -8,6 +8,7 @@
 
 import { REP } from '../constants.js';
 import { totalSalvage } from '../salvage.js';
+import { scoreRevealLines } from './arcSurface.js';
 import type { Campaign } from '../Campaign.js';
 
 export type HubReveals = {
@@ -17,9 +18,11 @@ export type HubReveals = {
   /** Rep-gated recruitment channel on the terminal. */
   terminalRecruitmentExplained?: boolean;
   clinicIntroduced?: boolean;
+  /** Curator has presented the Phase 3 Score target reveal. */
+  scoreBriefingPresented?: boolean;
 };
 
-export type HubRevealId = 'finn' | 'terminal' | 'terminal-recruit' | 'clinic';
+export type HubRevealId = 'finn' | 'terminal' | 'terminal-recruit' | 'clinic' | 'score-reveal';
 
 export type HubRevealMessage = {
   id: HubRevealId;
@@ -34,7 +37,7 @@ type HubRevealDefinition = {
   flag: HubRevealFlag;
   title: string;
   qualifies: (campaign: Campaign) => boolean;
-  lines: readonly string[];
+  lines: readonly string[] | ((campaign: Campaign) => readonly string[]);
 };
 
 const HUB_REVEAL_DEFINITIONS: readonly HubRevealDefinition[] = [
@@ -49,6 +52,15 @@ const HUB_REVEAL_DEFINITIONS: readonly HubRevealDefinition[] = [
       "CURATOR: Terminal's online — crew readout.",
       'CURATOR: [Space] at the ‡ glyph to review operatives, gear, and salvage.',
     ],
+  },
+  {
+    id: 'score-reveal',
+    flag: 'scoreBriefingPresented',
+    title: '── THE SCORE / THE DECKER ──',
+    qualifies(campaign) {
+      return campaign.arc.scoreRevealed;
+    },
+    lines: scoreRevealLines,
   },
   {
     id: 'finn',
@@ -106,6 +118,7 @@ export function normalizeHubReveals(raw: unknown, context = 'hubReveals'): HubRe
     'terminalExplained',
     'terminalRecruitmentExplained',
     'clinicIntroduced',
+    'scoreBriefingPresented',
   ] as const) {
     if (record[key] === undefined) continue;
     if (typeof record[key] !== 'boolean') {
@@ -148,6 +161,7 @@ export function snapshotHubReveals(reveals: HubReveals): HubReveals {
   if (reveals.finnIntroduced) out.finnIntroduced = true;
   if (reveals.terminalExplained) out.terminalExplained = true;
   if (reveals.clinicIntroduced) out.clinicIntroduced = true;
+  if (reveals.scoreBriefingPresented) out.scoreBriefingPresented = true;
   return out;
 }
 
@@ -176,7 +190,8 @@ export function applyFirstHubReveal(campaign: Campaign): HubRevealMessage | null
     if (campaign.hubReveals[def.flag]) continue;
     if (!def.qualifies(campaign)) continue;
     campaign.hubReveals[def.flag] = true;
-    return { id: def.id, title: def.title, lines: def.lines };
+    const lines = typeof def.lines === 'function' ? def.lines(campaign) : def.lines;
+    return { id: def.id, title: def.title, lines };
   }
   return null;
 }

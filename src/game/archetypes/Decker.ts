@@ -11,16 +11,16 @@ import type { Rng } from '../../rng.js';
  * match the Cyberspace specialist fantasy (Phase 3).
  */
 export const CALLSIGNS = Object.freeze([
-  'Case',
+  'Phreak',
   'Jack',
   'Flatline',
   'Blitz',
   'Is0bel',
   'Bytesize',
-  'Crash',
+  'AcidBurn',
   'Ang3l',
   'Z0ne',
-  'Neo',
+  'Tr1nity',
 ]);
 
 /**

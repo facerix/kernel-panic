@@ -89,6 +89,7 @@ const CacheConfig = {
       '/src/game/Grid.js',
       '/src/game/Hostile.js',
       '/src/game/hub/Curator.js',
+      '/src/game/hub/arcSurface.js',
       '/src/game/hub/Clinic.js',
       '/src/game/hub/Finn.js',
       '/src/game/hub/hubReveals.js',
