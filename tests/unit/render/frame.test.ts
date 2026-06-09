@@ -15,8 +15,13 @@ import {
   dimColor,
   dimGlyph,
   glyphForTile,
+  glyphForEntity,
+  INTERACTABLE_SECURED_FG,
 } from '../../../src/render/palette.js';
 import { ConsumablePickup } from '../../../src/game/entities/ConsumablePickup.js';
+import { Terminal } from '../../../src/game/entities/Terminal.js';
+import { SyncPad } from '../../../src/game/entities/SyncPad.js';
+import { Contact } from '../../../src/game/entities/Contact.js';
 import { VisionField } from '../../../src/game/Vision.js';
 import { Sniper } from '../../../src/game/ai/Sniper.js';
 
@@ -55,6 +60,31 @@ test('buildFrame renders entities on top of their tile', () => {
   const frame = buildFrame(world, { x: 0, y: 0, width: 6, height: 4 });
   assert.equal(cellAt(frame, 1, 1).char, '@', 'player overrides floor');
   assert.equal(cellAt(frame, 4, 2).char, 'd', 'drone overrides floor');
+});
+
+test('buildFrame: secured interactables render in mint (pending stay neutral lavender)', () => {
+  const g = new Grid(6, 4);
+  const w = new World(g);
+  const pending = new Terminal({ id: 'term-p', x: 0, y: 0, sliced: false });
+  const sliced = new Terminal({ id: 'term-s', x: 1, y: 0, sliced: true });
+  const unsynced = new SyncPad({ id: 'pad-u', x: 2, y: 0, synced: false });
+  const synced = new SyncPad({ id: 'pad-s', x: 3, y: 0, synced: true });
+  const waiting = new Contact({ id: 'con-w', x: 4, y: 0, handoffComplete: false });
+  const handed = new Contact({ id: 'con-h', x: 5, y: 0, handoffComplete: true });
+  for (const entity of [pending, sliced, unsynced, synced, waiting, handed]) {
+    w.addEntity(entity);
+  }
+  const frame = buildFrame(w, { x: 0, y: 0, width: 6, height: 1 });
+  const neutralFg = glyphForEntity(pending).fg;
+  assert.equal(cellAt(frame, 0, 0).fg, neutralFg, 'pending terminal stays neutral');
+  assert.equal(cellAt(frame, 1, 0).fg, INTERACTABLE_SECURED_FG, 'sliced terminal is mint');
+  assert.equal(cellAt(frame, 2, 0).fg, neutralFg, 'unsynced pad stays neutral');
+  assert.equal(cellAt(frame, 3, 0).fg, INTERACTABLE_SECURED_FG, 'synced pad is mint');
+  assert.equal(cellAt(frame, 4, 0).fg, neutralFg, 'pending contact stays neutral');
+  assert.equal(cellAt(frame, 5, 0).fg, INTERACTABLE_SECURED_FG, 'handed-off contact is mint');
+  assert.equal(cellAt(frame, 1, 0).char, sliced.glyph);
+  assert.equal(cellAt(frame, 3, 0).char, synced.glyph);
+  assert.equal(cellAt(frame, 5, 0).char, handed.glyph);
 });
 
 test('buildFrame renders dead entities as a dimmed corpse glyph (faction-coloured)', () => {

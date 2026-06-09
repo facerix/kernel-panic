@@ -56,10 +56,12 @@ import { CrtFilter } from '/src/render/CrtFilter.js';
 import {
   ANIMATION_DURATIONS,
   createAnimationLock,
+  runInteractSecuredFlash,
   runMuzzleFlash,
   triggerDamageFlash,
   triggerShake,
 } from '/src/render/animations.js';
+import { Interactable } from '/src/game/entities/Interactable.js';
 import { KeyboardController } from '/src/input/KeyboardController.js';
 import { AIM_KIND, MODE, aimKindLabel } from '/src/input/keymap.js';
 import { applyIntent, PLAYER_ACTIONS } from '/src/input/applyIntent.js';
@@ -1363,6 +1365,7 @@ function handleIntent(intent: Intent): void {
         (run as Run).addKeyItem({ id: kc.id, label: kc.label, doorId: kc.doorId });
       }
     },
+    onSecuredInteract: handleSecuredInteract,
     onPlayerAction: (actionName: string) => {
       switch (actionName) {
         case PLAYER_ACTIONS.INVENTORY:
@@ -1641,6 +1644,26 @@ function handleInteract(): void {
  * If found: call `player.collectSalvage`, flash result, auto-end turn on AP
  * exhaustion. If not found: show a no-loot hint.
  */
+function pulseSecuredInteractable(entity: Entity): boolean {
+  if (!(entity instanceof Interactable) || !entity.secured || !entity.alive) return false;
+  const fired = runInteractSecuredFlash(renderer, paint, entity.x, entity.y, entity.glyph);
+  if (fired) animLock.push(ANIMATION_DURATIONS.INTERACT_SECURED_FLASH);
+  return fired;
+}
+
+function handleSecuredInteract(
+  entity: Interactable,
+  { apExhausted }: { apExhausted: boolean }
+): void {
+  const fired = pulseSecuredInteractable(entity);
+  if (!apExhausted) return;
+  if (fired) {
+    scheduleCombatPump(() => advanceTurn(), ANIMATION_DURATIONS.INTERACT_SECURED_FLASH);
+  } else {
+    advanceTurn();
+  }
+}
+
 function handleCombatInteract(): void {
   if (!campaign) return;
   const run = campaign.activeRun;
@@ -1679,10 +1702,17 @@ function handleCombatInteract(): void {
   if (interactable) {
     const result = interactable.interact(run.world, player);
     flash(result.message);
-    paint();
-    if (result.ok && player.ap === 0) {
+    if (
+      result.ok &&
+      interactable instanceof Interactable &&
+      interactable.secured &&
+      interactable.alive
+    ) {
+      handleSecuredInteract(interactable, { apExhausted: player.ap === 0 });
+    } else if (result.ok && player.ap === 0) {
       advanceTurn();
     }
+    paint();
     return;
   }
 

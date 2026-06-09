@@ -9,7 +9,9 @@ import {
   UNSEEN_GLYPH,
   CORPSE_GLYPH_CHAR,
   MEMORY_DIM,
+  INTERACTABLE_SECURED_FG,
 } from './palette.js';
+import { Interactable } from '../game/entities/Interactable.js';
 import type { World } from '../game/World.js';
 import type { Entity } from '../game/Entity.js';
 import type { VisionField } from '../game/Vision.js';
@@ -209,10 +211,18 @@ function glyphForCell(
 ): Glyph {
   const entity = entityIndex.get(`${wx},${wy}`);
   if (entity) {
-    return entity.alive ? glyphForEntity(entity) : glyphForCorpse(entity);
+    return glyphForEntityCell(entity);
   }
   const tileGlyph = glyphForTile(world.grid.tileAt(wx, wy) as TileId, principalId);
   return blastTerrainOverlay(wx, wy, blastOverlayKeys, tileGlyph);
+}
+
+function glyphForEntityCell(entity: Entity): Glyph {
+  if (!entity.alive) return glyphForCorpse(entity);
+  if (entity instanceof Interactable && entity.secured) {
+    return { char: entity.glyph, fg: INTERACTABLE_SECURED_FG };
+  }
+  return glyphForEntity(entity);
 }
 
 function blastTerrainOverlay(

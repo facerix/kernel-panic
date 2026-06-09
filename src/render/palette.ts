@@ -37,6 +37,9 @@ const FACTION_FG = {
   [FACTION.RIVAL]: '#ff9e3d',
 };
 
+/** NEUTRAL interactables after the player has triggered them (slice, sync, handoff). */
+export const INTERACTABLE_SECURED_FG = FACTION_FG[FACTION.PLAYER];
+
 /**
  * Sentinel glyph for cells outside the world (camera near the map edge).
  * We render *something* rather than leaving holes so the playfield always
