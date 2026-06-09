@@ -7,11 +7,9 @@ import {
   CONTRACT_DIFFICULTY,
   FACTION,
   REP,
-  REP_TIER,
   RECRUIT,
   SALVAGE_SELL_RATE,
   CLINIC_COST_PER_HP,
-  repTierForRep,
 } from './constants.js';
 import {
   SALVAGE_TYPES,
@@ -59,6 +57,8 @@ import type { RunResult, Outcome } from './Run.js';
 
 /** Max remembered combat locations (P2.5.M7.2). One slot is reserved for Phase 3's score target. */
 export const SITE_ROSTER_CAP = 6;
+/** Minimum Rep to leave Act 1 — matches KNOWN tier floor (50). Higher tiers qualify too. */
+export const ARC_ACT_2_MIN_REP = 50;
 export const ARC_ACT_2_MIN_COMPLETED_JOBS = 4;
 export const ARC_ACT_3_MIN_COMPLETED_JOBS = 9;
 /** Minimum *living* crew size before the Score's final-prep stage unlocks. Starter 2 + Decker = 3, so 4 requires at least one additional recruit who hasn't flatlined. */
@@ -1017,10 +1017,7 @@ export class Campaign {
   }
 
   #qualifiesForAct2(): boolean {
-    return (
-      repTierForRep(this.rep).id === REP_TIER.KNOWN &&
-      this.completedJobs >= ARC_ACT_2_MIN_COMPLETED_JOBS
-    );
+    return this.rep >= ARC_ACT_2_MIN_REP && this.completedJobs >= ARC_ACT_2_MIN_COMPLETED_JOBS;
   }
 
   #qualifiesForAct3(): boolean {

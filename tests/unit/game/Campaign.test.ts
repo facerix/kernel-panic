@@ -672,6 +672,18 @@ test('P3.M1.2: Act 1 advances to Act 2 at KNOWN Rep plus four completed jobs and
   assert.match(decker!.id, /^crew-decker-/);
 });
 
+test('P3.M1.2: Act 1 advances to Act 2 at TRUSTED Rep when job gate is met', () => {
+  const campaign = new Campaign({ seed: 42, rep: 100, completedJobs: 9 });
+
+  assert.equal(campaign.arcStage, 'act-2');
+  assert.equal(campaign.arc.scoreRevealed, true);
+  assert.equal(campaign.arc.deckerRecruited, true);
+  assert.ok(
+    campaign.crew.some(m => m.archetype === 'Decker'),
+    'TRUSTED Rep should not block Act 2 after overshooting KNOWN'
+  );
+});
+
 test('P3.M1.2: successful extraction advances Act 2 when the final gate is crossed', () => {
   const campaign = new Campaign({ seed: 42, rep: 49, completedJobs: 3 });
   const member = campaign.crew[0];

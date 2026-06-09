@@ -40,6 +40,9 @@ type HubRevealDefinition = {
   lines: readonly string[] | ((campaign: Campaign) => readonly string[]);
 };
 
+/** Reveal flags committed when the shell dismisses the Curator briefing, not when queued. */
+const HUB_REVEAL_DEFER_FLAG_COMMIT = new Set<HubRevealId>(['score-reveal']);
+
 const HUB_REVEAL_DEFINITIONS: readonly HubRevealDefinition[] = [
   {
     id: 'terminal',
@@ -181,17 +184,52 @@ export function isTerminalRecruitmentUnlocked(reveals: HubReveals): boolean {
   return !!reveals.terminalRecruitmentExplained;
 }
 
+function buildHubRevealMessage(
+  def: HubRevealDefinition,
+  campaign: Campaign,
+  commitFlag: boolean
+): HubRevealMessage {
+  if (commitFlag) {
+    campaign.hubReveals[def.flag] = true;
+  }
+  const lines = typeof def.lines === 'function' ? def.lines(campaign) : def.lines;
+  return { id: def.id, title: def.title, lines };
+}
+
+export function hubRevealCommitsOnDismiss(id: HubRevealId): boolean {
+  return HUB_REVEAL_DEFER_FLAG_COMMIT.has(id);
+}
+
+/** Persist a Hub reveal flag after the player dismisses its Curator briefing. */
+export function commitHubReveal(campaign: Campaign, id: HubRevealId): void {
+  const def = HUB_REVEAL_DEFINITIONS.find(entry => entry.id === id);
+  if (!def) {
+    throw new Error(`hubReveals: unknown reveal id "${id}"`);
+  }
+  campaign.hubReveals[def.flag] = true;
+}
+
 /**
  * Evaluate reveal triggers in definition order. Sets the first qualifying
  * unseen flag on `campaign.hubReveals` and returns its message. Does not persist.
+ * Score reveal is checked first so Act 2 openings are not crowded out by lower
+ * priority intros on the same visit. Score briefing flags commit on dismiss.
  */
 export function applyFirstHubReveal(campaign: Campaign): HubRevealMessage | null {
+  const scoreReveal = HUB_REVEAL_DEFINITIONS.find(def => def.id === 'score-reveal');
+  if (scoreReveal && !campaign.hubReveals[scoreReveal.flag] && scoreReveal.qualifies(campaign)) {
+    return buildHubRevealMessage(
+      scoreReveal,
+      campaign,
+      !HUB_REVEAL_DEFER_FLAG_COMMIT.has(scoreReveal.id)
+    );
+  }
+
   for (const def of HUB_REVEAL_DEFINITIONS) {
+    if (def.id === 'score-reveal') continue;
     if (campaign.hubReveals[def.flag]) continue;
     if (!def.qualifies(campaign)) continue;
-    campaign.hubReveals[def.flag] = true;
-    const lines = typeof def.lines === 'function' ? def.lines(campaign) : def.lines;
-    return { id: def.id, title: def.title, lines };
+    return buildHubRevealMessage(def, campaign, true);
   }
   return null;
 }

@@ -5,7 +5,9 @@ import { Campaign } from '../../../../src/game/Campaign.js';
 import { REP } from '../../../../src/game/constants.js';
 import { OUTCOME } from '../../../../src/game/Run.js';
 import {
+  commitHubReveal,
   emptyHubReveals,
+  hubRevealCommitsOnDismiss,
   isTerminalAccessible,
   isTerminalRecruitmentUnlocked,
   migrateLegacyHubReveals,
@@ -138,7 +140,8 @@ test('Score reveal presents the target and assigns a Decker when Act 2 opens', (
   });
   assert.equal(campaign.arc.arcStage, 'act-2');
   assert.equal(campaign.lastHubReveal?.id, 'score-reveal');
-  assert.equal(campaign.hubReveals.scoreBriefingPresented, true);
+  assert.equal(campaign.hubReveals.scoreBriefingPresented, undefined);
+  assert.ok(hubRevealCommitsOnDismiss('score-reveal'));
   const revealText = campaign.lastHubReveal?.lines.join('\n') ?? '';
   assert.match(revealText, /SCORE SITE/);
   assert.match(revealText, /Decker/);
@@ -149,8 +152,58 @@ test('Score reveal presents the target and assigns a Decker when Act 2 opens', (
   assert.ok(decker, 'Decker should be on the crew after Act 2 entry');
   assert.ok(decker!.callsign, 'Decker should have a callsign');
 
+  commitHubReveal(campaign, 'score-reveal');
+  assert.equal(campaign.hubReveals.scoreBriefingPresented, true);
+
   campaign.enterHub();
   assert.equal(campaign.lastHubReveal, null);
+});
+
+test('Score reveal takes priority over clinic when Act 2 opens with injured crew', () => {
+  const campaign = hubCampaign({
+    rep: 60,
+    completedJobs: 4,
+    hubReveals: {
+      terminalExplained: true,
+      finnIntroduced: true,
+      terminalRecruitmentExplained: true,
+    },
+  });
+  campaign.crew[0].hp = 1;
+  campaign.enterHub();
+  assert.equal(campaign.lastHubReveal?.id, 'score-reveal');
+  assert.equal(campaign.hubReveals.clinicIntroduced, undefined);
+});
+
+test('restoreCampaign leaves Score briefing pending until the shell dismisses it', () => {
+  const snap = snapshotCampaign(
+    new Campaign({
+      seed: 42,
+      rep: 100,
+      completedJobs: 9,
+      hubReveals: {
+        terminalExplained: true,
+        finnIntroduced: true,
+        clinicIntroduced: true,
+        terminalRecruitmentExplained: true,
+      },
+      arc: {
+        arcStage: 'act-1',
+        deckerRecruited: false,
+        scoreRevealed: false,
+        clockStarted: false,
+        scoreAttempted: false,
+        scoreCompleted: false,
+      },
+    })
+  );
+  delete snap.arc;
+
+  const restored = restoreCampaign(snap);
+  assert.equal(restored.arcStage, 'act-2');
+  assert.equal(restored.arc.scoreRevealed, true);
+  assert.equal(restored.lastHubReveal?.id, 'score-reveal');
+  assert.equal(restored.hubReveals.scoreBriefingPresented, undefined);
 });
 
 test('terminal recruitment reveal when pendingRecruitReward even below Rep', () => {

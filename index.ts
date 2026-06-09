@@ -75,7 +75,12 @@ import { ITEM_ID, getItemById } from '/src/game/items.js';
 import type { CampaignSnapshot } from '/src/game/persistence.js';
 import type { Contract } from '/src/game/hub/Curator.js';
 import { formatHubArcStatus, scoreTargetSiteId } from '/src/game/hub/arcSurface.js';
-import { isTerminalAccessible } from '/src/game/hub/hubReveals.js';
+import {
+  commitHubReveal,
+  hubRevealCommitsOnDismiss,
+  isTerminalAccessible,
+  type HubRevealId,
+} from '/src/game/hub/hubReveals.js';
 import type { Crew } from '/src/game/Crew.js';
 import { resolveEntityLabel, type Entity } from '/src/game/Entity.js';
 import type { RunResult, RunTelemetry, Outcome } from '/src/game/Run.js';
@@ -254,6 +259,8 @@ let systemStartEl: SystemStartElement;
 let curatorBriefingEl: CuratorBriefingElement;
 /** Status line to flash after the player dismisses a Hub reveal briefing. */
 let hubRevealFollowUpFlash: string | null = null;
+/** Score reveal (and future deferred reveals) commit their flag on dismiss. */
+let pendingHubRevealId: HubRevealId | null = null;
 let initialRecruitEl: InitialRecruitElement;
 let confirmationModalEl: ConfirmationModalElement;
 let touchPadEl: TouchPadElement;
@@ -608,6 +615,7 @@ function abortShellForFault(): void {
   invalidateCombatPumps();
   pendingJobResult = null;
   hubRevealFollowUpFlash = null;
+  pendingHubRevealId = null;
   corpToneActivityBody = null;
   clearBreachBlastOverlay(false);
   resetInputModes();
@@ -681,6 +689,7 @@ function presentHubRevealIfAny(followUpFlash: string): boolean {
   const reveal = campaign.lastHubReveal;
   campaign.lastHubReveal = null;
   hubRevealFollowUpFlash = followUpFlash;
+  pendingHubRevealId = hubRevealCommitsOnDismiss(reveal.id) ? reveal.id : null;
   curatorBriefingEl.setBriefing({ title: reveal.title, lines: reveal.lines });
   curatorBriefingEl.show();
   return true;
@@ -688,6 +697,11 @@ function presentHubRevealIfAny(followUpFlash: string): boolean {
 
 function onCuratorBriefingDismiss(): void {
   curatorBriefingEl.hide();
+  if (pendingHubRevealId && campaign) {
+    commitHubReveal(campaign, pendingHubRevealId);
+    pendingHubRevealId = null;
+    handlePersist();
+  }
   if (hubRevealFollowUpFlash) {
     flash(hubRevealFollowUpFlash);
     hubRevealFollowUpFlash = null;
@@ -1195,17 +1209,26 @@ function resumeCampaign(record: CampaignSnapshot | unknown) {
       briefingEl.setCrew(campaign.crew);
     }
     resumePendingCombatSliceIfNeeded();
+    const resumeFlashMessage = `RESUMED — crew ${campaign.crew.filter(member => !member.flatlined).length} active.`;
     if (campaign.state === CAMPAIGN_STATE.ENDED) {
       pendingJobResult = null;
       crashEl.setTelemetry(telemetryForEndedCampaign(campaign));
       flash('CAMPAIGN ENDED — no surviving crew in this save.');
+      renderShell();
     } else if (campaign.activeRun?.state === RUN_STATE.RESULT) {
       pushPendingJobResultOverlay({ ...campaign.activeRun.telemetry });
       flash('RESUMED — mission debrief.');
+      renderShell();
+    } else if (campaign.state === CAMPAIGN_STATE.HUB && campaign.curator) {
+      renderShell();
+      if (!presentHubRevealIfAny(resumeFlashMessage)) {
+        flash(resumeFlashMessage);
+      }
+      currentJobOptions = campaign.curator.generateContracts(campaign.rng, campaign);
     } else {
-      flash(`RESUMED — crew ${campaign.crew.filter(member => !member.flatlined).length} active.`);
+      flash(resumeFlashMessage);
+      renderShell();
     }
-    renderShell();
   } catch (err) {
     console.error('[shell] failed to restore saved campaign', err);
     dataStore.deleteCampaign();

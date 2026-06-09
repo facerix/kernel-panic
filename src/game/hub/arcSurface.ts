@@ -61,9 +61,9 @@ export function scoreRevealLines(campaign: ArcSurfaceCampaign): readonly string[
   const targetName = scoreTargetDisplayName(target);
   const deckerName = findDecker(campaign.crew).callsign;
   return [
-    `CURATOR: We found it. ${targetName}. The Score has a door.`,
+    `CURATOR: We found it: ${targetName}. The Score has a door.`,
     'CURATOR: Contracts touching that site are casing work now. Watch for SCORE SITE on the board.',
-    `CURATOR: You'll need a Decker to open the digital side. ${deckerName} just joined your crew.`,
+    `CURATOR: You'll need a Decker to crack the ICE; I've got ${deckerName} for you.`,
   ];
 }
 
