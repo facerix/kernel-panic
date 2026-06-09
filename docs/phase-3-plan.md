@@ -178,7 +178,7 @@ Neural degradation is deferred until Cyberspace is fun enough to deserve a jack-
 
 - ✅ Decker archetype playable in Meatspace: move, attack, interact — comparable to other archetypes (`Decker` extends `Crew`, `baseHitChance` 0.7, `@` glyph).
 - ✅ Drone Override Hack: golden-path test — target drone, override succeeds, drone attacks corp allies for N turns, reverts or is destroyed (`droneOverride.ts`, `Decker.test.ts`). Failed roll burns AP and trips the alarm.
-- 🔲 Recruitment: same beat as Score reveal (Act 1 → Act 2 transition); Curator assigns a named Decker, no choice modal. Not available in Act 1; golden-path test for recruitment flow. Decker is registered but excluded from `ARCHETYPE_IDS` and `RECRUIT_ARCHETYPE_POOL` so random recruitment can't roll one early.
+- ✅ Recruitment: same beat as Score reveal (Act 1 → Act 2 transition); Curator assigns a named Decker, no choice modal. Not available in Act 1; golden-path test for recruitment flow. Decker is registered but excluded from `ARCHETYPE_IDS` and `RECRUIT_ARCHETYPE_POOL` so random recruitment can't roll one early.
 - ✅ Snapshot: Decker state persists (campaign + run round-trip); live drone-override state round-trips through the patrol snapshot. Cyberspace attributes deferred to P3.M3.
 - ✅ Key help: Decker glyph (`@`) and OVERRIDE ability description via shared `ARCHETYPES[id].perkLabel`.
 
