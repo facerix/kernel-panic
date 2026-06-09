@@ -334,7 +334,7 @@ test('vault onto consumable succeeds when knockback lane beyond landing is a wal
   assert.equal(player.x, 4);
   assert.equal(player.y, 2);
   assert.equal(player.inventory?.consumables[0]?.id, ITEM_ID.STIM);
-  assert.ok(log.some(l => l.includes('vaulted')));
+  assert.ok(log.some(l => l.includes('broke through')));
   assert.ok(log.some(l => l.includes('picks up Stim')));
 });
 
@@ -515,7 +515,7 @@ test('vault on empty tile is pure repositioning (no damage log)', () => {
   applyIntent({ type: 'special', dx: 1, dy: 0 }, ctx);
   assert.equal(player.x, 4, 'vault still lands');
   assert.ok(
-    log.some(l => l.includes('vaulted to')),
+    log.some(l => l.includes('broke through to')),
     'log mentions the vault'
   );
   assert.ok(!log.some(l => l.includes('SLAMMED')), 'no slam logged');
@@ -529,7 +529,29 @@ test('vault denied when knockback lane is blocked', () => {
   ctx.world.grid.setTile(5, 2, TILE.WALL);
   applyIntent({ type: 'special', dx: 1, dy: 0 }, ctx);
   assert.equal(player.x, 2, 'Merc stays put');
-  assert.ok(log.some(l => l.includes('VAULT DENIED')));
+  assert.ok(log.some(l => l.includes('BREAK DENIED')));
+});
+
+test('vault adjacent shove deals VAULT_DAMAGE and steps Merc back when clear', () => {
+  const { ctx, log, player, world } = buildCtx({ archetype: 'merc', placeDrone: false });
+  // Clear the harness cover tile so hop fails and adjacent shove can fire.
+  world.grid.setTile(3, 2, TILE.FLOOR);
+  const drone = new Skirmisher({ id: 'd1', x: 3, y: 2, maxAp: 3 });
+  world.addEntity(drone);
+  const hpBefore = drone.hp;
+  applyIntent({ type: 'special', dx: 1, dy: 0 }, ctx);
+  assert.equal(player.x, 1, 'Merc steps back opposite the shove');
+  assert.equal(player.y, 2);
+  assert.equal(drone.x, 4, 'hostile knocked back');
+  assert.equal(drone.hp, hpBefore - 2);
+  assert.ok(
+    log.some(l => l.includes('shoved')),
+    'log mentions the shove'
+  );
+  assert.ok(
+    log.some(l => l.includes('SLAMMED')),
+    'log mentions the slam'
+  );
 });
 
 test('AP exhaustion triggers auto-end-turn during a move', () => {

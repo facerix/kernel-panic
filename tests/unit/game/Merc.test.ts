@@ -42,16 +42,16 @@ test('Merc.canVault rejects when AP < VAULT cost', () => {
   assert.equal(merc.canVault(world, 1, 0).reason, 'insufficient-ap');
 });
 
-test('Merc.canVault rejects if the hopped tile is FLOOR (nothing to vault)', () => {
+test('Merc.canVault rejects if the hopped tile is FLOOR and no adjacent hostile', () => {
   const { world, merc } = makeWorld(); // all floor
-  assert.equal(merc.canVault(world, 1, 0).reason, 'no-cover');
+  assert.equal(merc.canVault(world, 1, 0).reason, 'no-target');
 });
 
-test('Merc.canVault rejects if the hopped tile is a WALL', () => {
+test('Merc.canVault rejects if the hopped tile is a WALL and no adjacent hostile', () => {
   const g = new Grid(8, 8);
   g.setTile(4, 3, TILE.WALL);
   const { world, merc } = makeWorld({ grid: g });
-  assert.equal(merc.canVault(world, 1, 0).reason, 'no-cover');
+  assert.equal(merc.canVault(world, 1, 0).reason, 'no-target');
 });
 
 test('Merc.canVault rejects if the landing tile is out of bounds', () => {
@@ -133,6 +133,7 @@ test('Merc.canVault allows landing on a hostile when knockback lane is clear', (
   const { world, merc } = makeWorld({ grid: g, extraEntities: [drone] });
   const check = merc.canVault(world, 1, 0);
   assert.equal(check.ok, true);
+  assert.equal(check.mode, 'hop');
   assert.equal(check.occupant, drone);
 });
 
@@ -276,4 +277,66 @@ test('Merc.canVault allows landing on a consumable placed on a hazard tile', () 
   merc.vault(world, 1, 0);
   assert.equal(merc.x, 5);
   assert.equal(merc.y, 3);
+});
+
+// ---------------------------------------------------------------------------
+// Vault adjacent shove (no cover required)
+// ---------------------------------------------------------------------------
+
+test('Merc.canVault accepts adjacent shove when hop tile is floor and knockback is clear', () => {
+  const drone = new Entity({ id: 'd', x: 4, y: 3, faction: FACTION.CORP, glyph: 'd' });
+  const { world, merc } = makeWorld({ extraEntities: [drone] });
+  const check = merc.canVault(world, 1, 0);
+  assert.equal(check.ok, true);
+  assert.equal(check.mode, 'shove');
+  assert.equal(check.occupant, drone);
+});
+
+test('Merc.canVault rejects adjacent shove when knockback lane is blocked', () => {
+  const g = new Grid(8, 8);
+  g.setTile(5, 3, TILE.WALL);
+  const drone = new Entity({ id: 'd', x: 4, y: 3, faction: FACTION.CORP, glyph: 'd' });
+  const { world, merc } = makeWorld({ grid: g, extraEntities: [drone] });
+  assert.equal(merc.canVault(world, 1, 0).reason, 'knockback-blocked');
+});
+
+test('Merc.canVault rejects adjacent shove on a friendly entity', () => {
+  const ally = new Entity({ id: 'a', x: 4, y: 3, faction: FACTION.PLAYER, glyph: 't' });
+  const { world, merc } = makeWorld({ extraEntities: [ally] });
+  assert.equal(merc.canVault(world, 1, 0).reason, 'friendly-occupied');
+});
+
+test('Merc.vault shove knocks hostile back and Merc steps away when retreat is clear', () => {
+  const drone = new Entity({ id: 'd', x: 4, y: 3, faction: FACTION.CORP, glyph: 'd' });
+  const { world, merc } = makeWorld({ extraEntities: [drone] });
+  const apBefore = merc.ap;
+  const { occupant, mode } = merc.vault(world, 1, 0);
+  assert.equal(mode, 'shove');
+  assert.equal(occupant, drone);
+  assert.equal(merc.x, 2, 'Merc steps back opposite the shove');
+  assert.equal(merc.y, 3);
+  assert.equal(drone.x, 5, 'hostile knocked back 1 tile east');
+  assert.equal(drone.y, 3);
+  assert.equal(merc.ap, apBefore - AP_COST.VAULT);
+});
+
+test('Merc.vault shove still commits when retreat lane is blocked', () => {
+  const g = new Grid(8, 8);
+  g.setTile(2, 3, TILE.WALL);
+  const drone = new Entity({ id: 'd', x: 4, y: 3, faction: FACTION.CORP, glyph: 'd' });
+  const { world, merc } = makeWorld({ grid: g, extraEntities: [drone] });
+  merc.vault(world, 1, 0);
+  assert.equal(merc.x, 3, 'Merc holds position when retreat is blocked');
+  assert.equal(drone.x, 5);
+});
+
+test('Merc.vault prefers hop over shove when cover vault slam is legal', () => {
+  const g = new Grid(8, 8);
+  g.setTile(4, 3, TILE.COVER);
+  const landing = new Entity({ id: 'land', x: 5, y: 3, faction: FACTION.CORP, glyph: 'd' });
+  const { world, merc } = makeWorld({ grid: g, extraEntities: [landing] });
+  const { mode } = merc.vault(world, 1, 0);
+  assert.equal(mode, 'hop');
+  assert.equal(merc.x, 5);
+  assert.equal(landing.x, 6);
 });

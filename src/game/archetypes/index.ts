@@ -52,10 +52,10 @@ export const ARCHETYPES = Object.freeze({
   merc: Object.freeze({
     id: 'merc',
     name: 'MERC',
-    blurb: 'Long-range pressure. Vault repositions under fire.',
+    blurb: 'Long-range pressure. Break creates space under fire.',
     perks: Object.freeze(['vault']),
-    perkName: 'VAULT',
-    perkLabel: 'Mercs can VAULT: hop cover & knock enemies back',
+    perkName: 'BREAK',
+    perkLabel: 'Mercs can BREAK: hop cover / knock enemies back',
   }),
   razor: Object.freeze({
     id: 'razor',

@@ -2,7 +2,12 @@ import { Crew } from '../Crew.js';
 import { TILE, AP_COST, FACTION, MERC_RANGED_DAMAGE } from '../constants.js';
 import { canKnockbackByOffset } from '../knockback.js';
 import type { CrewInit } from '../Crew.js';
+import type { Entity } from '../Entity.js';
 import type { World } from '../World.js';
+
+export type VaultCheck =
+  | { ok: true; mode: 'hop' | 'shove'; occupant: Entity | null }
+  | { ok: false; reason: string };
 
 /**
  * Curated callsign pool for the Merc archetype. `buildCrewMember` in
@@ -30,30 +35,27 @@ export const CALLSIGNS = Object.freeze([
 /**
  * Merc — ranged-combat archetype. Perk: **Vault** (breach-and-clear slam).
  *
- * Vault hops a single COVER tile and lands two squares away in the same
- * direction. The hopped tile must be COVER (the whole point of the perk) and
- * the landing tile must be passable and in-bounds. Diagonal vaults are
- * allowed under the same Chebyshev rule the rest of movement uses.
+ * Vault has two modes, evaluated in order for a chosen direction `(dx, dy)`:
  *
- * Vault is repeatable (no one-shot gate) — the AP cost is the only limit.
+ * **Hop (cover vault):** hops a single COVER tile and lands two squares away.
+ * The hopped tile must be COVER; the landing tile must be passable and
+ * in-bounds. Diagonal vaults use the same Chebyshev rule as movement.
  *
- * If a hostile entity occupies the landing tile, the Merc body-checks them:
+ * If a hostile occupies the landing tile, the Merc body-checks them:
  *   - The hostile takes `VAULT_DAMAGE` (2).
  *   - The hostile is knocked back 1 tile in the vault direction.
  *   - The Merc lands on the tile the hostile vacated.
  *
- * Vault is denied when:
- *   - A hostile is on the landing tile but the knockback destination is
- *     blocked (wall, OOB, occupied) — the Merc needs a clear lane.
- *   - A friendly entity occupies the landing tile.
- *   - An impassable neutral prop (objective pickup, terminal, …) blocks
- *     the landing tile. Walk-onto consumable pickups (`*`) are passable and
- *     do not block — the Merc lands and collects them like a normal step.
- *   - The landing tile is not walkable terrain (same passability as a normal
- *     step: floor, exit, smoke, hazard — not cover or wall).
+ * An empty landing (or walk-onto consumable only) is pure repositioning.
  *
- * If the landing tile is empty (or only holds a walk-onto consumable), vault
- * is pure repositioning (no damage).
+ * **Shove (adjacent body-check):** when the hop path fails because there is
+ * no cover to vault over, Break can still fire if a hostile occupies the
+ * adjacent tile `(x+dx, y+dy)`. The Merc deals `VAULT_DAMAGE`, knocks the
+ * hostile back one tile in the same direction, and steps back one tile in
+ * the opposite direction when that retreat lane is clear. Blocked knockback
+ * destination means denial; blocked retreat still commits the shove.
+ *
+ * Vault is repeatable (no one-shot gate) — AP cost is the only limit.
  */
 export class Merc extends Crew {
   override archetype = 'Merc';
@@ -69,7 +71,7 @@ export class Merc extends Crew {
     super({ ...props, glyph: '@' });
   }
 
-  canVault(world: World, dx: number, dy: number) {
+  canVault(world: World, dx: number, dy: number): VaultCheck {
     if (dx === 0 && dy === 0) {
       return { ok: false, reason: 'no-op' };
     }
@@ -80,6 +82,16 @@ export class Merc extends Crew {
       return { ok: false, reason: 'insufficient-ap' };
     }
 
+    const hop = this.#canVaultHop(world, dx, dy);
+    if (hop.ok) return hop;
+    // Only fall through to adjacent shove when cover blocked the hop — a hop
+    // denied for knockback, allies, OOB, etc. is authoritative.
+    if (hop.reason !== 'no-cover') return hop;
+
+    return this.#canVaultShove(world, dx, dy);
+  }
+
+  #canVaultHop(world: World, dx: number, dy: number): VaultCheck {
     const hopX = this.x + dx;
     const hopY = this.y + dy;
     const landX = this.x + 2 * dx;
@@ -102,7 +114,7 @@ export class Merc extends Crew {
 
     let occupant = world.entityAt(landX, landY);
     if (!occupant && world.consumablePickupAt(landX, landY)) {
-      return { ok: true, occupant: null };
+      return { ok: true, mode: 'hop', occupant: null };
     }
     if (occupant) {
       if (occupant.faction === this.faction) {
@@ -123,17 +135,45 @@ export class Merc extends Crew {
       }
     }
 
-    return { ok: true, occupant: occupant ?? null };
+    return { ok: true, mode: 'hop', occupant: occupant ?? null };
+  }
+
+  #canVaultShove(world: World, dx: number, dy: number): VaultCheck {
+    const adjX = this.x + dx;
+    const adjY = this.y + dy;
+
+    if (!world.grid.inBounds(adjX, adjY)) {
+      return { ok: false, reason: 'no-target' };
+    }
+
+    const occupant = world.entityAt(adjX, adjY);
+    if (!occupant) {
+      return { ok: false, reason: 'no-target' };
+    }
+    if (occupant.faction === this.faction) {
+      return { ok: false, reason: 'friendly-occupied' };
+    }
+    if (occupant.passable || world.consumablePickupAt(adjX, adjY)) {
+      return { ok: false, reason: 'no-target' };
+    }
+    if (occupant.faction === FACTION.NEUTRAL) {
+      return { ok: false, reason: 'blocked' };
+    }
+
+    const knockback = canKnockbackByOffset(world, occupant, dx, dy);
+    if (!knockback.ok) return { ok: false, reason: knockback.reason };
+
+    return { ok: true, mode: 'shove', occupant };
   }
 
   /**
-   * Execute the vault. Moves the Merc, and if a hostile occupies the landing
-   * tile, knocks them back first. Damage is applied by `applyIntent.doVault`
-   * (not here) so that Merc.vault stays a pure movement+knockback operation
-   * and Combat event wiring remains in the intent layer.
+   * Execute the vault. Hop mode moves the Merc two tiles out; shove mode
+   * knocks an adjacent hostile back and steps the Merc away when the retreat
+   * lane is clear. Damage is applied by `applyIntent.doVault` (not here) so
+   * Combat event wiring remains in the intent layer.
    *
-   * Returns `{ occupant }` — the entity that was knocked back, or null.
-   * The caller uses this to apply VAULT_DAMAGE via the damage system.
+   * Returns `{ occupant, mode }` — the entity knocked back (if any) and which
+   * vault mode committed.
    */
   vault(world: World, dx: number, dy: number) {
     const check = this.canVault(world, dx, dy);
@@ -141,20 +181,36 @@ export class Merc extends Crew {
       throw new Error(`Illegal vault for ${this.id}: ${check.reason}`);
     }
 
-    const occupant = check.occupant;
+    const { occupant, mode } = check;
 
-    // Knockback hostile before Merc lands. `relocateEntity` validates
-    // bounds/passability/occupancy and emits ENTITY_MOVED — no silent
-    // bypasses. (#7 adversarial review)
+    // Knockback hostile before Merc lands (hop) or retreats (shove).
+    // `relocateEntity` validates bounds/passability/occupancy and emits
+    // ENTITY_MOVED — no silent bypasses. (#7 adversarial review)
     if (occupant) {
       world.relocateEntity(occupant, occupant.x + dx, occupant.y + dy, { allowCover: true });
     }
 
     this.spendAp(AP_COST.VAULT);
-    // Merc lands where the hostile was (or on the empty tile).
-    // `relocateEntity` handles bounds/occupancy checks + event emission.
-    world.relocateEntity(this, this.x + 2 * dx, this.y + 2 * dy);
 
-    return { occupant };
+    if (mode === 'hop') {
+      // Merc lands where the hostile was (or on the empty tile).
+      world.relocateEntity(this, this.x + 2 * dx, this.y + 2 * dy);
+    } else {
+      this.#tryShoveRetreat(world, dx, dy);
+    }
+
+    return { occupant, mode };
+  }
+
+  /** Step back one tile opposite the shove direction when the lane is clear. */
+  #tryShoveRetreat(world: World, dx: number, dy: number) {
+    const rx = this.x - dx;
+    const ry = this.y - dy;
+    if (!world.grid.inBounds(rx, ry) || !world.grid.isPassable(rx, ry)) return;
+
+    const blocker = world.entityAt(rx, ry);
+    if (blocker && !blocker.passable && !world.consumablePickupAt(rx, ry)) return;
+
+    world.relocateEntity(this, rx, ry);
   }
 }

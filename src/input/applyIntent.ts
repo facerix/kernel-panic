@@ -369,14 +369,14 @@ function doVault(intent: Intent, ctx: ApplyIntentContext) {
   const playerLabel = entityLabel(player);
   const check = merc.canVault(world, intent.dx!, intent.dy!);
   if (!check?.ok) {
-    log(`> ${playerLabel} VAULT DENIED: ${check?.reason}`);
+    log(`> ${playerLabel} BREAK DENIED: ${check?.reason}`);
     return;
   }
 
   // vault() handles the hop, knockback displacement, and AP debit.
   // It returns the occupant (if any) so we can apply damage here — keeping
   // Combat event wiring in the intent layer, not inside the archetype.
-  const { occupant } = merc.vault(world, intent.dx!, intent.dy!);
+  const { occupant, mode } = merc.vault(world, intent.dx!, intent.dy!);
 
   if (occupant) {
     // Body-check: guaranteed hit, VAULT_DAMAGE, no RNG roll.
@@ -396,13 +396,19 @@ function doVault(intent: Intent, ctx: ApplyIntentContext) {
       source: player,
       kind: 'vault',
     });
-    log(
-      `> ${playerLabel} vaulted to (${player.x}, ${player.y}) — SLAMMED ${entityLabel(occupant)} for ${VAULT_DAMAGE} damage!` +
-        (killed ? ` ${entityLabel(occupant).toUpperCase()} DOWN.` : '') +
-        ` — ${player.ap} AP left.`
-    );
+    const slamTail =
+      (killed ? ` ${entityLabel(occupant).toUpperCase()} DOWN.` : '') + ` — ${player.ap} AP left.`;
+    if (mode === 'shove') {
+      log(
+        `> ${playerLabel} shoved ${entityLabel(occupant)} back — SLAMMED for ${VAULT_DAMAGE} damage!${slamTail}`
+      );
+    } else {
+      log(
+        `> ${playerLabel} broke through to (${player.x}, ${player.y}) — SLAMMED ${entityLabel(occupant)} for ${VAULT_DAMAGE} damage!${slamTail}`
+      );
+    }
   } else {
-    log(`> ${playerLabel} vaulted to (${player.x}, ${player.y}) — ${player.ap} AP left.`);
+    log(`> ${playerLabel} broke through to (${player.x}, ${player.y}) — ${player.ap} AP left.`);
   }
 
   collectTileLoot(ctx);
