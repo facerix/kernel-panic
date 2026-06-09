@@ -7,6 +7,7 @@ import {
   SHAKE_CLASS,
   createAnimationLock,
   restartCssAnimation,
+  runInteractSecuredFlash,
   runMuzzleFlash,
   triggerDamageFlash,
   triggerShake,
@@ -238,4 +239,31 @@ test('runMuzzleFlash: when the renderer cannot paint, returns false and does not
 test('runMuzzleFlash: rejects malformed arguments', () => {
   assert.throws(() => runMuzzleFlash({}, () => {}, 0, 0), /flashCell/);
   assert.throws(() => runMuzzleFlash({ flashCell: () => true }, null, 0, 0), /repaint/);
+});
+
+test('runInteractSecuredFlash: paints the prop glyph in white and schedules repaint', () => {
+  const timers = makeTimers();
+  const calls = [];
+  const renderer = {
+    flashCell: (wx, wy, opts) => {
+      calls.push(['flash', wx, wy, opts]);
+      return true;
+    },
+  };
+  const repaint = () => calls.push(['repaint']);
+
+  const fired = runInteractSecuredFlash(renderer, repaint, 2, 5, '‡', { timers });
+  assert.equal(fired, true);
+  assert.deepEqual(calls[0], [
+    'flash',
+    2,
+    5,
+    {
+      duration: ANIMATION_DURATIONS.INTERACT_SECURED_FLASH,
+      char: '‡',
+      color: '#ffffff',
+    },
+  ]);
+  timers.advance(ANIMATION_DURATIONS.INTERACT_SECURED_FLASH);
+  assert.deepEqual(calls[1], ['repaint']);
 });

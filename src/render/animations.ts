@@ -8,9 +8,12 @@
  *   - **Damage reddening** — a red radial vignette overlaid on the stage
  *     (~300ms). Same trigger as shake.
  *   - **Muzzle flash** — a single-cell overpaint on the canvas via
- *     `AsciiRenderer.flashCell` (~80ms). Fires on `noise` events whose
+ *     `AsciiRenderer.flashCell` (~120ms). Fires on `noise` events whose
  *     `kind` is `ranged` or `melee` (i.e. a committed attack), regardless
  *     of which faction shot — players want to see drones shoot at them too.
+ *   - **Interact secured flash** — same overlay path, brief white burst on
+ *     the interactable's glyph when a secured flip succeeds (slice, sync,
+ *     handoff, escort link).
  *
  * The lock is the shared "input is animating" gate. The shell pushes
  * durations onto it from each listener; the longest outstanding window
@@ -35,6 +38,8 @@ export const ANIMATION_DURATIONS = Object.freeze({
   // borderline, especially with the shooter's own glyph sitting underneath.
   // 120ms (~7 frames) is still snappy and reads clearly as a burst.
   MUZZLE_FLASH: 120,
+  /** Brief burst when an interactable flips to its secured / activated colour. */
+  INTERACT_SECURED_FLASH: 150,
   /** Hazard-glyph breaching-charge blast overlay (presentation only). */
   BREACH_BLAST_OVERLAY: 100,
 });
@@ -130,10 +135,9 @@ export function createAnimationLock(timers = defaultTimers) {
 type RunMuzzleFlashOptions = {
   duration?: number;
   timers?: typeof defaultTimers;
-  flashOpts?: {
-    color?: string;
-    glyph?: string;
-  };
+  char?: string;
+  color?: string;
+  fontScale?: number;
 };
 export function runMuzzleFlash(
   renderer: AsciiRenderer,
@@ -161,4 +165,35 @@ export function runMuzzleFlash(
   if (!painted) return false;
   timers.setTimeout(() => repaint(), duration);
   return true;
+}
+
+type RunInteractSecuredFlashOptions = {
+  duration?: number;
+  timers?: typeof defaultTimers;
+  color?: string;
+};
+
+/**
+ * Success pulse on a secured interactable — white overpaint of the prop's own
+ * glyph so it reads on both neutral lavender and post-activate mint.
+ */
+export function runInteractSecuredFlash(
+  renderer: AsciiRenderer,
+  repaint: () => void,
+  worldX: number,
+  worldY: number,
+  glyphChar: string,
+  options: RunInteractSecuredFlashOptions = {}
+) {
+  const {
+    duration = ANIMATION_DURATIONS.INTERACT_SECURED_FLASH,
+    timers = defaultTimers,
+    color = '#ffffff',
+  } = options;
+  return runMuzzleFlash(renderer, repaint, worldX, worldY, {
+    duration,
+    timers,
+    char: glyphChar,
+    color,
+  });
 }

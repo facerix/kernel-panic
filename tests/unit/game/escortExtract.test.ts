@@ -107,6 +107,7 @@ describe('EscortNpc', () => {
 
     assert.equal(result.ok, true);
     assert.equal(escort.activated, true);
+    assert.equal(escort.secured, true);
     assert.equal(escort.armed, false);
     assert.equal(player.ap, player.maxAp - AP_COST.INTERACT);
   });

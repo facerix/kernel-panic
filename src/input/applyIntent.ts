@@ -105,6 +105,12 @@ export type ApplyIntentContext = {
    * bump-interact. Optional — tests that don't exercise keycards can omit it.
    */
   keyItems?: KeyItem[];
+  /**
+   * Bump- or space-interact secured an objective prop (slice, sync, handoff,
+   * escort). Shell paints the flash and may defer `advanceTurn` so the burst
+   * survives the player→corp handoff.
+   */
+  onSecuredInteract?: (entity: Interactable, opts: { apExhausted: boolean }) => void;
 };
 
 const KNOWN_INTENT_TYPES = new Set([
@@ -134,6 +140,19 @@ function gateOnApExhausted(ctx: ApplyIntentContext) {
   if (player.ap === 0) {
     advanceTurn();
   }
+}
+
+function finishBumpInteract(
+  ctx: ApplyIntentContext,
+  entity: Interactable,
+  result: { ok: boolean }
+): void {
+  if (!result.ok) return;
+  if (entity.secured && entity.alive) {
+    ctx.onSecuredInteract?.(entity, { apExhausted: ctx.player.ap === 0 });
+    return;
+  }
+  gateOnApExhausted(ctx);
 }
 
 /**
@@ -226,7 +245,7 @@ function doMove(intent: Intent, ctx: ApplyIntentContext) {
             ? occupant.interact(world, player, ctx.keyItems)
             : occupant.interact(world, player);
         if (result.message) log(result.message);
-        if (result.ok) gateOnApExhausted(ctx);
+        finishBumpInteract(ctx, occupant, result);
         return;
       }
       return doInteract(ctx);

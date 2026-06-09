@@ -1,4 +1,4 @@
-import { ESCORT_NPC_GLYPH, FACTION } from '../constants.js';
+import { AP_COST, ESCORT_NPC_GLYPH, FACTION } from '../constants.js';
 import { Interactable, type InteractableInit, type InteractResult } from './Interactable.js';
 import type { Entity } from '../Entity.js';
 import type { World } from '../World.js';
@@ -47,9 +47,18 @@ export class EscortNpc extends Interactable {
         message: `${this.label}: already moving.`,
       };
     }
-    const result = super.interact(world, actor);
-    if (!result.ok) return result;
+    const check = this.canInteract(actor);
+    if (!check.ok) {
+      return {
+        ok: false,
+        reason: check.reason,
+        message: `${this.label}: ${check.reason}.`,
+      };
+    }
+    actor.spendAp(AP_COST.INTERACT);
     this.activated = true;
+    this.secured = true;
+    this.armed = false;
     return { ok: true, message: `${this.label}: escort linked. Keep them close.` };
   }
 }

@@ -21,6 +21,7 @@ import { Skirmisher } from '../../../src/game/ai/Skirmisher.js';
 import { ConsumablePickup } from '../../../src/game/entities/ConsumablePickup.js';
 import { Pickup } from '../../../src/game/entities/Pickup.js';
 import { Door } from '../../../src/game/entities/Door.js';
+import { Terminal } from '../../../src/game/entities/Terminal.js';
 import { ITEM_ID } from '../../../src/game/items.js';
 import { Rng } from '../../../src/rng.js';
 import { applyIntent, pickFireTarget, PLAYER_ACTIONS } from '../../../src/input/applyIntent.js';
@@ -68,6 +69,7 @@ function buildCtx({ archetype = 'merc', placeDrone = true } = {}) {
     inventory: 0,
     reachedExit: 0,
     corpseSalvaged: 0,
+    securedInteract: 0,
   };
   const ctx = {
     world,
@@ -81,6 +83,10 @@ function buildCtx({ archetype = 'merc', placeDrone = true } = {}) {
     },
     resetInputModes: () => {
       calls.resetInputModes++;
+    },
+    onSecuredInteract: (_entity, { apExhausted }) => {
+      calls.securedInteract++;
+      if (apExhausted) calls.advanceTurn++;
     },
     onPlayerAction: actionName => {
       switch (actionName) {
@@ -121,6 +127,23 @@ test('move into a wall is denied (logs MOVE DENIED, no mutation)', () => {
   assert.equal(player.x, 1);
   assert.equal(player.y, 1);
   assert.ok(log.some(l => l.includes('MOVE DENIED')));
+});
+
+test('move into a terminal bumps interact and notifies onSecuredInteract', () => {
+  const { ctx, log, calls, player, world } = buildCtx({ placeDrone: false });
+  const terminal = new Terminal({ id: 'term-0', x: 4, y: 2, raisesAlarm: false });
+  world.addEntity(terminal);
+  player.x = 3;
+  player.y = 2;
+
+  applyIntent({ type: 'move', dx: 1, dy: 0 }, ctx);
+
+  assert.equal(player.x, 3, 'bump does not enter the terminal tile');
+  assert.equal(terminal.sliced, true);
+  assert.equal(terminal.secured, true);
+  assert.equal(calls.securedInteract, 1);
+  assert.equal(calls.interact, 0, 'bump must not route through the Space interact handler');
+  assert.ok(log.some(l => l.includes('sliced')));
 });
 
 test('move into a locked door gives door feedback without routing generic interact', () => {
