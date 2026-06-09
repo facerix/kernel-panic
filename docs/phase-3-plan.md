@@ -18,8 +18,8 @@ The campaign is a **Neuromancer-shaped arc**: a crew of operators assembles over
 | **Stage 1: Street level** | 1–5 | Build rep, learn combat, recruit crew. Pure Meatspace gigs. Unconnected contracts from P2.5.M2.10 recipes. | P2.5.M2 objectives, P2.5.M5 economy, P2.5.M7 site roster begins |
 | **Turning point** | ~5 | Reach KNOWN rep tier. Curator reveals the Score and assigns the Decker in one beat. | Decker joins crew; Score target synthesized (always new, CRITICAL-tier) |
 | **Stage 2: Casing** | 6–10 | Prep runs targeting the Score principal's org + resource building. Cyberspace available on some contracts. Learning the flip. Curator biases toward same-principal contracts. | P2.5.M7 persistence (casing), Cyberspace, simstim flip |
-| **The Clock starts** | ~8 | Pressure mounts — rival crew, corp heat, neural degradation. Contracts get harder; delay has cost. | Clock mechanic |
-| **Stage 3: The Score** | 11–13 | Final prep runs, then the big job. Dual-layer climax: Meatspace breach + Cyberspace penetration. | Everything converges |
+| **The Clock starts** | Act 2+ | After a grace period of Act 2/3 **deploys** (not completed jobs), corp heat mounts — more hostiles, tighter alarms, visible deadline pressure. | Clock mechanic + `clock-reveal` Hub beat |
+| **Stage 3: Final prep** | ~9+ jobs | Casing gates satisfied; Curator `act-3-reveal` beat; prep board + player-initiated **THE SCORE**. | Everything converges toward the climax |
 
 ### The simstim flip
 
@@ -41,8 +41,8 @@ A new **player archetype** recruited mid-campaign (late Act 1 / start of Act 2),
 
 | Milestone | Status |
 |---|---|
-| P3.M1 — Campaign arc structure | 🚧 In progress — P3.M1.1–P3.M1.4 done |
-| P3.M2 — The Decker archetype | 🚧 In progress — class + Drone Override Hack done; recruitment flow pending |
+| P3.M1 — Campaign arc structure | ✅ Done |
+| P3.M2 — The Decker archetype | ✅ Done |
 | P3.M3 — Cyberspace grid + ICE | 🔲 Planned |
 | P3.M4 — Simstim flip (dual-deploy) | 🔲 Planned |
 | P3.M5 — The Score (climactic mission) | 🔲 Planned |
@@ -63,7 +63,7 @@ Phase 3 should start from the shipped Phase 2.5 surface, not rebuild it:
 - `LocationSite` already reserves `tier: 'score'` and `scoreTarget`; P2.5.M7 never sets them, so P3.M1 owns designation.
 - `Curator.generateContracts(rng, campaign)` already accepts `arcStage` and stores it into `contract.context.arcStage`; P3.M1 owns deriving the stage from campaign state and using it for real recipe weighting / Score targeting.
 - P2.7.M6.2 landed: entity snapshot `extra` property bags and campaign-scoped key items are available for Decker / Cyberspace state instead of expanding the old top-level snapshot union.
-- Hub reveal plumbing already exists (`applyFirstHubReveal`, Finn, Clinic, Terminal). The Score reveal and Decker recruitment share a single `score-reveal` Hub reveal beat rather than using a separate modal.
+- Hub reveal plumbing already exists (`applyFirstHubReveal`, Finn, Clinic, Terminal). Phase 3 arc beats use deferred Curator briefings: `score-reveal` (Score + Decker), `clock-reveal` (heat + deadline), and `act-3-reveal` (THE SCORE available). Flags commit on briefing dismiss, not on queue.
 
 ## Phase 2.5 foundations (prerequisites)
 
@@ -72,7 +72,7 @@ Phase 3 depends on specific hooks built into Phase 2.5 milestones:
 | 2.5 Milestone | Phase 3 hook | Notes |
 |---|---|---|
 | **P2.5.M2.10** (recipes) | Recipe context accepts **arc stage** input | Phase 3 uses this to bias contract generation toward Score-adjacent objectives in Acts 2–3 |
-| **P2.5.M5** (economy/rep) | KNOWN rep tier defined and reachable | Phase 3 gates Decker recruitment and Score access at KNOWN (50) |
+| **P2.5.M5** (economy/rep) | KNOWN rep tier defined and reachable | Phase 3 gates Decker recruitment and Score access at `rep >= 50` (KNOWN floor; TRUSTED qualifies) |
 | **P2.5.M7** (persistence) | Location schema includes `scoreTarget` flag; site roster + mutation deltas | Phase 3 synthesizes a new CRITICAL-tier Score target; player "cases" it across visits. Roster sites for the same principal provide recon value |
 
 ### Score target identification
@@ -81,7 +81,7 @@ The Score target is always a newly synthesized CRITICAL-tier site, never promote
 
 ## Milestones — detail
 
-### P3.M1 — Campaign arc structure 🔲
+### P3.M1 — Campaign arc structure ✅
 
 **Depends on:** Phase 2.5 complete (P2.5.M2.10 recipe hooks, P2.5.M5 rep tiers, P2.5.M7 site roster).
 
@@ -89,11 +89,11 @@ The Score target is always a newly synthesized CRITICAL-tier site, never promote
 
 **Scope:**
 
-- **Arc state:** Campaign save tracks `arcStage` (`act-1` / `act-2` / `act-3` / `score`), run count, and arc-specific flags (`deckerRecruited`, `scoreRevealed`, `clockStarted`, `scoreAttempted`, `scoreCompleted`). Prefer a typed `Campaign.arc` record over stuffing more opaque keys into `Campaign.meta`; legacy saves can normalize from absent `arc` into Act 1.
+- **Arc state:** Campaign save tracks `arcStage` (`act-1` / `act-2` / `act-3` / `score`), `completedJobs`, `clockJobsTaken` (Act 2/3 deploys that drive the Clock — incremented on deploy, not on extract), and arc-specific flags (`deckerRecruited`, `scoreRevealed`, `clockStarted`, `scoreAttempted`, `scoreCompleted`). Hub reveal flags (`scoreBriefingPresented`, `clockBriefingPresented`, `act3BriefingPresented`) persist separately. Prefer a typed `Campaign.arc` record over stuffing more opaque keys into `Campaign.meta`; legacy saves can normalize from absent `arc` into Act 1.
 - **Act transitions:** Define triggers for act boundaries:
-  - Act 1 → Act 2: reach `KNOWN` rep tier (50) + minimum successful job count (recommended: `completedJobs >= 4`). Triggers Score reveal and Decker recruitment (same beat).
-  - Act 2 → Act 3: `completedJobs >= 9` + at least 4 **living** (non-flatlined) crew + at least 3 visited sites sharing the Score target's principal (including the Score target itself). The Decker gate is gone — the Decker is always assigned at Act 2 entry. The crew gate rewards keeping people alive; the principal-sites gate is the "casing" payoff — you've hit enough of the org's facilities to know how they operate. Triggers "final prep" phase.
-  - Score available: Act 3 + player-initiated (choose to attempt the Score from the Hub).
+  - Act 1 → Act 2: reach at least `KNOWN` rep tier (`rep >= 50`) + minimum successful job count (recommended: `completedJobs >= 4`). Triggers Score reveal and Decker recruitment (same beat).
+  - Act 2 → Act 3: `completedJobs >= 9` + at least 4 **living** (non-flatlined) crew + at least 3 visited sites sharing the Score target's principal (including the Score target itself). The Decker gate is gone — the Decker is always assigned at Act 2 entry. The crew gate rewards keeping people alive; the principal-sites gate is the "casing" payoff — you've hit enough of the org's facilities to know how they operate. Triggers "final prep" phase and the `act-3-reveal` Hub beat on first qualifying Hub entry.
+  - Score available: Act 3 + player-initiated (choose **THE SCORE** from the Hub job board after the Act 3 briefing).
 - **Score target designation:** At Act 2 entry, always synthesize a new CRITICAL-tier `LocationSite` from Curator lexicon as the Score target. The Score is a location the player hasn't seen — Act 2 contracts bias toward the same principal so the player learns about the organization before hitting the crown jewel. Existing roster sites are never promoted; they serve as intel and casing prep. Multiple persisted score targets, or score-tier sites missing `scoreTarget`, throw during Hub-entry arc evaluation.
 - **Decker recruitment:** Same narrative beat as the Score reveal. The Curator assigns a named Decker — no player choice modal. The crew gains a specialist as part of the Score pitch ("here's the job, and here's the person who can open it"). Future phases may differentiate Decker stats and offer a choice; for now the assignment is the narrative.
 - **Arc-aware Curator:** Current code already passes through `arcStage`; P3.M1 must make it behaviorally meaningful:
@@ -101,21 +101,26 @@ The Score target is always a newly synthesized CRITICAL-tier site, never promote
   - Act 2 = at least one board slot biased toward the Score target's principal (same corp, different sites) so the player learns the org before the climax.
   - Act 3 = board mostly prep contracts at or near the Score target, plus a separate player-initiated Score action instead of a random roll.
   - Score = special contract build path; not part of the normal three-card job board.
-- **Hub surface:** Hub status / Terminal shows current stage, Clock pressure, and Score target label once revealed. User-facing labels use "Stage" (STAGE 1, STAGE 2, etc.) — code and persistence keep `arc`/`arcStage` naming. The Score reveal uses progressive Hub reveal plumbing so the Curator can present the target and the Decker together as a single campaign beat.
+- **Hub surface:** Hub status / Terminal shows current stage and Score target label once revealed. Clock HUD (`CLOCK: HEAT X / Y JOBS LEFT`) appears **only after** the player dismisses the `clock-reveal` briefing and heat has actually started — no "dormant" or countdown-to-heat lines before then. User-facing labels use "Stage" (STAGE 1, STAGE 2, etc.) — code and persistence keep `arc`/`arcStage` naming. Arc beats use progressive Hub reveal plumbing (`score-reveal`, `clock-reveal`, `act-3-reveal`); see P3.M1.4–M1.5 notes.
 - **Win/loss conditions:**
-  - **Win:** Complete the Score (extract with objective satisfied from the final mission).
+  - **Win:** Complete the Score (extract with objective satisfied from the final mission). Terminal debrief: `*** SCORE COMPLETE ***`.
   - **Loss (flatline):** Entire crew wiped during any run (existing behavior, but now with arc context for the chronicle).
-  - **Loss (clock):** Clock expires before Score is attempted (if hard deadline chosen — see Clock mechanic below).
+  - **Loss (clock):** `clockJobsTaken >= CLOCK_ACT2_DEADLINE_JOBS` (8) before `scoreAttempted`. Terminal debrief: `*** WINDOW CLOSED ***` — not a status-line footnote. Attempted Score keeps the deadline from retroactively killing the save.
 
 **The Clock mechanic:**
 
-The Clock creates mounting pressure that discourages indefinite grinding. **Recommended first implementation:** combine escalating global difficulty as soft pressure with an operational window as the hard campaign deadline. It is easy to communicate, test, and tune:
+The Clock creates mounting pressure that discourages indefinite grinding in Act 2/3. **Shipped implementation:** Act 2/3 **deploys taken** (successful or not) drive heat and the hard deadline — not global `completedJobs`, so entering Act 2 with a high job count from Stage 1 does not immediately start the Clock.
 
-- `clockStartsAtJob = 8`
-- `scoreDeadlineJob = 13`
-- `heat = max(0, completedJobs - clockStartsAtJob)`
-- Each point of heat nudges contract threat / alarm sensitivity upward, capped by difficulty tier.
-- If the player returns to Hub with `completedJobs >= scoreDeadlineJob` and `scoreAttempted` is false, campaign ends with clock loss.
+- `CLOCK_ACT2_GRACE_JOBS = 3` — first three Act 2/3 deploys are grace (no heat, no `clockStarted`)
+- `CLOCK_HEAT_WINDOW_JOBS = 5` — deploys after grace before the window closes
+- `CLOCK_ACT2_DEADLINE_JOBS = 8` — total Act 2/3 deploys (`grace + window`)
+- `clockJobsTaken` increments on `deployCrewMember` while `arcStage` is `act-2` or `act-3` (Score deploy excluded — it sets `scoreAttempted`)
+- `clockStarted` when `scoreRevealed && clockJobsTaken >= CLOCK_ACT2_GRACE_JOBS`
+- `clockHeat = max(0, clockJobsTaken - CLOCK_ACT2_GRACE_JOBS)` once started
+- Heat nudges Curator threat counts upward, capped per difficulty tier
+- Returning to Hub at the deadline without `scoreAttempted` sets `Campaign.state` to `ENDED` with `endReason: 'clock-expired'` and presents the terminal game-over screen
+
+**Hub narrative beats (priority order on `enterHub`):** `score-reveal` → `clock-reveal` → `act-3-reveal`. Each defers its `hubReveals` flag until the player dismisses the Curator briefing modal.
 
 Other Clock variants remain useful later, but should not block P3.M1:
 
@@ -131,28 +136,34 @@ Neural degradation is deferred until Cyberspace is fun enough to deserve a jack-
 | Slice | Status | Change | Tests |
 |---|---|---|---|
 | **P3.M1.1 Arc record** | ✅ Done | Add `Campaign.arc`, derive `arcStage`, persist/restore, normalize old saves to Act 1 | constructor validation, snapshot round-trip, invalid stage throws |
-| **P3.M1.2 Transitions** | ✅ Done | Advance acts from `rep`, `completedJobs`, Decker flag, Score-site visit | boundary tests around job counts and rep tier |
+| **P3.M1.2 Transitions** | ✅ Done | Advance acts from `rep`, `completedJobs`, Decker flag, Score-site visit | boundary tests around job counts; rep floor (incl. TRUSTED) |
 | **P3.M1.3 Score target** | ✅ Done | Always synthesize a new CRITICAL-tier Score target; preserve through eviction | exactly-one target, no eviction at roster cap, always synthesized (never promoted) |
-| **P3.M1.4 Hub arc surface** | ✅ Done | Curator presents Score + Decker reveal; Hub / Terminal shows stage and Score target; contract selection labels Score-site jobs | one-shot reveal, status render, Score-site badge |
-| **P3.M1.5 Clock** | 🔲 Planned | Start heat after threshold; hard loss at deadline; show status | heat math, deadline loss, no loss after Score attempt |
-| **P3.M1.6 Curator bias** | 🔲 Planned | Pass campaign-derived arc context; bias board slots by act and score target's principal | seeded boards show expected `arcStage` and same-principal frequency in Act 2+ |
-| **P3.M1.7 Score entry** | 🔲 Planned | Hub action creates the special Score contract in Act 3 only | availability gates, deployment path, attempted flag |
+| **P3.M1.4 Hub arc surface** | ✅ Done | Curator arc briefings; Hub / Terminal stage + Score target; `<contract-select>` CASING + SCORE SITE badges | deferred-commit reveals, resume briefing, casing tag |
+| **P3.M1.5 Clock** | ✅ Done | Act 2/3 deploy-driven heat + deadline; `clock-reveal`; HUD gated on briefing; clock loss game-over screen | heat math, grace deploys, deadline loss, endReason |
+| **P3.M1.6 Curator bias** | ✅ Done | Pass campaign-derived arc context; bias board slots by act and score target's principal | seeded boards show expected `arcStage` and same-principal frequency in Act 2+ |
+| **P3.M1.7 Score entry** | ✅ Done | Hub action creates the special Score contract in Act 3 only | availability gates, deployment path, attempted flag |
 
 **P3.M1.1 implementation note:** `Campaign` now owns a typed `arc` record (`arcStage`, `deckerRecruited`, `scoreRevealed`, `clockStarted`, `scoreAttempted`, `scoreCompleted`) plus an `arcStage` getter for Curator context. New snapshots serialize the record; pre-P3 snapshots normalize to Act 1; malformed persisted arc data throws during restore instead of being silently repaired.
 
-**P3.M1.2 implementation note:** Hub entry now runs a monotonic arc transition evaluator. Act 1 advances to Act 2 at `KNOWN` Rep (50) plus `completedJobs >= 4`, sets `scoreRevealed`, and auto-assigns a Decker to the crew. Act 2 advances to Act 3 once `completedJobs >= 9`, at least 4 non-flatlined crew, and at least 3 visited roster sites sharing the Score target's principal (including the target itself). The crew gate counts living members only — attrition blocks advancement. Successful extractions increment `completedJobs`, abort extractions do not. M1.2 does not synthesize the Score target — that remains P3.M1.3.
+**P3.M1.2 implementation note:** Hub entry now runs a monotonic arc transition evaluator. Act 1 advances to Act 2 at `rep >= ARC_ACT_2_MIN_REP` (50 — the KNOWN tier floor) plus `completedJobs >= 4`, sets `scoreRevealed`, and auto-assigns a Decker to the crew. Higher rep tiers qualify too: a save that overshoots KNOWN into TRUSTED before the job gate is crossed must not stall in Act 1 (an early implementation checked for the KNOWN tier band exactly, which blocked TRUSTED saves). Act 2 advances to Act 3 once `completedJobs >= 9`, at least 4 non-flatlined crew, and at least 3 visited roster sites sharing the Score target's principal (including the target itself). The crew gate counts living members only — attrition blocks advancement. Successful extractions increment `completedJobs`, abort extractions do not. M1.2 does not synthesize the Score target — that remains P3.M1.3.
 
 **P3.M1.3 implementation note:** Score reveal always synthesizes a new CRITICAL-tier site from Curator lexicon `corp` principal and `corp/data/security/infrastructure/hidden` site tokens. Existing roster sites are never promoted — the Score is always a location the player hasn't visited yet. The synthesized site gets `scoreTarget: true`, `tier: 'score'`, and CRITICAL-footprint dimensions to support escalated hostile placement. Multiple persisted score targets, or score-tier sites missing `scoreTarget`, throw during Hub-entry arc evaluation.
 
-**P3.M1.4 implementation note:** Score reveal is now player-visible. A one-shot `score-reveal` Hub reveal lets the Curator name the target, introduce the Decker, and teach the `SCORE SITE` board badge — all in a single narrative beat. The Hub status row and Terminal crew roster show the current stage label (user-facing "STAGE N") plus Score target once revealed, and `<contract-select>` highlights contracts whose `locationSiteId` matches the campaign Score target. Shared `arcSurface` helpers own the copy and invariant checks so multiple Score targets, or revealed Score state without a target, fail loud instead of rendering misleading UI.
+**P3.M1.4 implementation note:** Score reveal is player-visible. A one-shot `score-reveal` Hub reveal lets the Curator name the target, introduce the Decker, and teach the **CASING** job-board badge (same-principal org jobs during Act 2+). **SCORE SITE** still marks contracts whose `locationSiteId` matches the synthesized Score target. Arc briefings (`score-reveal`, `clock-reveal`, `act-3-reveal`) are priority Hub reveals: they are evaluated before lower-priority intros (Finn, clinic, terminal-recruit) so a mid-save act transition is not crowded out on the same visit. Their `hubReveals` flags commit on Curator briefing **dismiss** (`commitHubReveal` in the shell), not when `enterHub` queues the copy — so a missed modal can retry on the next Hub entry, and pre-P3 saves that qualify for Act 2 on first load under 3.0 are not silently bumped without the narrative beat. The shell resume path presents any pending `lastHubReveal` when restoring a HUB save. The Hub status row and Terminal crew roster show the current stage label (user-facing "STAGE N") plus Score target once revealed. Shared `arcSurface` helpers own the copy and invariant checks so multiple Score targets, or revealed Score state without a target, fail loud instead of rendering misleading UI.
+
+**P3.M1.5 implementation note:** The Clock is driven by `clockJobsTaken` (Act 2/3 deploys), not `completedJobs` — entering Act 2 with many Stage 1 extractions does not start heat immediately. Grace: `CLOCK_ACT2_GRACE_JOBS` (3) deploys; then `clockStarted` and heat accrue until `CLOCK_ACT2_DEADLINE_JOBS` (8). A `clock-reveal` Hub briefing explains heat, the operational window, and what happens when it closes (copy in `clockRevealLines`). Clock HUD text appears only after `clockBriefingPresented` **and** `clockStarted`: `CLOCK: HEAT X / Y JOBS LEFT` on the canvas HUD, Terminal roster, and status bar. No "dormant" or "N jobs to heat" lines before the player has seen the briefing. Heat raises Curator threat counts without changing difficulty tier, capped per tier. Deadline loss sets `Campaign.endReason` to `clock-expired` and shows a dedicated terminal game-over screen (`*** WINDOW CLOSED ***` via `<crash-dump>`), not a clock status footnote. Score win uses `*** SCORE COMPLETE ***`; crew wipe keeps the existing campaign-terminal death path. An attempted Score keeps the deadline from retroactively killing the save.
+
+**P3.M1.6 implementation note:** `Curator.generateContracts` now uses campaign-derived arc context behaviorally. Act 2 guarantees at least one fresh same-principal casing job for the Score target's organization. Act 3 guarantees a mostly same-principal prep board. The normal board avoids rolling the Score target itself so the finale stays a deliberate Hub action.
+
+**P3.M1.7 implementation note:** Act 3 exposes a special `THE SCORE` contract through `Campaign.buildScoreContract()`, appended to the Hub job choices only when `Campaign.canAttemptScore()` passes. The first qualifying Hub visit also fires `act-3-reveal` ("You're ready… grab THE SCORE from the board while you can") before the player sees the fourth board slot. Deploying THE SCORE marks `scoreAttempted`, moves `arcStage` to `score`, uses the persisted Score target dimensions/memory, and completing it marks `scoreCompleted` and ends the campaign in a win state.
 
 **Acceptance:**
 
 - Arc state persists in campaign save; restore round-trip.
 - Act transitions fire at correct thresholds; tests for boundary conditions.
-- Score reveal is player-visible: Curator presents the target once, Hub / Terminal displays the current act and target label, and contract selection marks Score-site jobs.
+- Score reveal is player-visible: Curator presents the target once (including on legacy-save restore when Act 2 opens for the first time), Hub / Terminal displays the current act and target label, and contract selection marks **CASING** (same principal) and **SCORE SITE** (target location) jobs.
 - Curator generates arc-appropriate contracts per act (testable via seeded generation with arc context).
-- At least one Clock type implemented with visible feedback (Hub status, contract briefing, or log).
+- Clock: `clock-reveal` briefing, deploy-driven heat, HUD visible only post-briefing, clock loss reaches terminal game-over screen.
 - Exactly one Score target exists after Score reveal; it survives roster eviction and keeps its P2.5.M7 terrain memory.
 - Win/loss conditions reachable in golden-path test.
 

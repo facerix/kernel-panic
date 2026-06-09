@@ -771,6 +771,8 @@ export type CampaignSnapshot = {
   hubReveals?: HubRevealsSnapshot;
   /** Count of completed jobs. Abort extractions do not increment this arc counter. */
   completedJobs?: number;
+  /** Act-2/3 deploys that drive Clock heat. Defaults to 0 for pre-P3.M1.5 saves. */
+  clockJobsTaken?: number;
   /** Persistent key-item inventory (keycards). Defaults to [] for pre-P2.5.M6.2 saves. */
   keyItems?: KeyItemSnapshot[];
   /** Remembered combat locations (site roster). Defaults to [] for pre-P2.5.M7.2 saves. */
@@ -792,6 +794,8 @@ export type HubRevealsSnapshot = {
   terminalRecruitmentExplained?: boolean;
   clinicIntroduced?: boolean;
   scoreBriefingPresented?: boolean;
+  clockBriefingPresented?: boolean;
+  act3BriefingPresented?: boolean;
 };
 
 /**
@@ -831,6 +835,7 @@ export function snapshotCampaign(campaign: Campaign): CampaignSnapshot {
     healedThisVisit: [...campaign.healedThisVisit],
     hubReveals: snapshotHubReveals(campaign.hubReveals),
     completedJobs: campaign.completedJobs,
+    clockJobsTaken: campaign.clockJobsTaken,
     keyItems: campaign.keyItems.map(k => ({ ...k })),
     siteRoster: campaign.siteRoster.map(snapshotLocationSite),
   };
@@ -976,6 +981,7 @@ export function restoreCampaign(record: unknown, options: RestoreCampaignOptions
       'restoreCampaign hubReveals'
     ),
     completedJobs: record.completedJobs ?? 0,
+    clockJobsTaken: record.clockJobsTaken ?? 0,
     keyItems: record.keyItems,
     siteRoster: record.siteRoster,
     onPersist: options.onPersist,
@@ -1647,6 +1653,11 @@ function validateCampaignRecord(record: unknown): asserts record is CampaignSnap
   if (candidate.completedJobs !== undefined) {
     if (!Number.isInteger(candidate.completedJobs) || candidate.completedJobs < 0) {
       throw new RangeError('restoreCampaign: completedJobs must be a non-negative integer');
+    }
+  }
+  if (candidate.clockJobsTaken !== undefined) {
+    if (!Number.isInteger(candidate.clockJobsTaken) || candidate.clockJobsTaken < 0) {
+      throw new RangeError('restoreCampaign: clockJobsTaken must be a non-negative integer');
     }
   }
   if (candidate.siteRoster !== undefined) {

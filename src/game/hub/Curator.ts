@@ -488,6 +488,7 @@ type ContractCampaign =
       rep?: number;
       meta?: Record<string, unknown>;
       arcStage?: CampaignArcStage | null;
+      clockHeat?: number;
       /** Remembered combat locations the Curator may steer revisits toward (P2.5.M7.2). */
       siteRoster?: LocationSite[];
     }
@@ -540,6 +541,11 @@ export class Curator extends Entity {
     const revisitedSiteIds = new Set<string>();
     const context = contractRecipeContext(campaign);
     const roster = campaign?.siteRoster ?? [];
+    const scoreTarget = scoreTargetForArcBoard(roster);
+    const revisitRoster = scoreTarget ? roster.filter(site => site.id !== scoreTarget.id) : roster;
+    const biasedSlots =
+      scoreTarget && scoreTarget.principal ? biasedBoardSlots(context.arcStage) : 0;
+    const heat = campaignClockHeat(campaign);
 
     for (let i = 0; i < CONTRACTS_PER_VISIT; i++) {
       const difficulty = rng.pick([...pool]);
@@ -553,9 +559,14 @@ export class Curator extends Entity {
       // unchanged (no extra rng draws) and pre-P2.5.M7.2 determinism holds.
       let revisitSite: LocationSite | undefined;
       let built: RenderedContract | undefined;
+      let builtFreshBias = false;
       let seed: number;
-      if (roster.length > 0 && rng.chance(SITE_REVISIT_CHANCE)) {
-        const candidate = rng.pick(roster);
+      if (i < biasedSlots && scoreTarget) {
+        built = generatePrincipalBiasedContract(rng, labelsUsed, context, scoreTarget) ?? undefined;
+        builtFreshBias = !!built;
+      }
+      if (!built && revisitRoster.length > 0 && rng.chance(SITE_REVISIT_CHANCE)) {
+        const candidate = rng.pick(revisitRoster);
         // Pinnable only if it carries identity tokens and isn't already on this
         // board. Otherwise fall through to a fresh contract.
         if (candidate.principal && !revisitedSiteIds.has(candidate.id)) {
@@ -568,6 +579,8 @@ export class Curator extends Entity {
       }
       if (!built) {
         built = generateRecipeContract(rng, labelsUsed, context);
+        seed = rng.intRange(0, 0x7fffffff);
+      } else if (builtFreshBias) {
         seed = rng.intRange(0, 0x7fffffff);
       } else {
         seed = siteSeedToContractSeed(revisitSite!);
@@ -588,7 +601,7 @@ export class Curator extends Entity {
         mapHeight: dimensions.height,
         objective: applyDoorRoutingToObjective(built.objective, difficulty),
         difficulty,
-        threatCount: spec.threatCount,
+        threatCount: applyHeatToThreat(spec.threatCount, difficulty, heat),
         label: built.label,
         context: revisitSite ? { ...built.context, locationSiteId: revisitSite.id } : built.context,
         reward,
@@ -1023,6 +1036,56 @@ function generateRevisitContract(
   return null;
 }
 
+function generatePrincipalBiasedContract(
+  rng: Rng,
+  labelsUsed: Set<string>,
+  context: ContractRecipeContext,
+  scoreTarget: LocationSite
+): RenderedContract | null {
+  if (!scoreTarget.principal) return null;
+  const principal = lexiconTokenFrom(scoreTarget.principal);
+  const avoidedSiteId = scoreTarget.site?.id;
+  const candidates = CONTRACT_RECIPES.filter(recipe =>
+    groupsIntersect(principal.groups, recipe.principalGroups)
+  );
+  if (candidates.length === 0) return null;
+
+  for (let i = 0; i < MAX_UNIQUE_CONTRACT_ATTEMPTS; i++) {
+    const recipe = rng.pick(candidates);
+    const site = recipe.siteGroups
+      ? pickCompatibleTokenAvoiding(
+          rng,
+          CONTRACT_LEXICON.sites,
+          recipe.siteGroups,
+          avoidedSiteId,
+          recipe.id
+        )
+      : undefined;
+    const siteState = recipe.siteStateGroups
+      ? pickCompatibleToken(rng, CONTRACT_LEXICON.siteStates, recipe.siteStateGroups, recipe.id)
+      : undefined;
+    const asset = pickCompatibleToken(rng, CONTRACT_LEXICON.assets, recipe.assetGroups, recipe.id);
+    const action = pickCompatibleToken(
+      rng,
+      CONTRACT_LEXICON.actions,
+      recipe.actionGroups,
+      recipe.id
+    );
+    const tokens = {
+      principal,
+      ...(site ? { site } : {}),
+      ...(siteState ? { siteState } : {}),
+      asset,
+      action,
+    };
+    const contract = buildContractFromRecipe(recipe, tokens, context);
+    if (labelsUsed.has(contract.label)) continue;
+    labelsUsed.add(contract.label);
+    return contract;
+  }
+  return null;
+}
+
 /**
  * Contract label: `// <principal> <site> - <state?> <asset> <action>`.
  * Site is omitted when the recipe has no site token; transient site state
@@ -1046,6 +1109,61 @@ function lexiconTokenFrom(token: LocationToken): ContractToken {
 
 function groupsIntersect(groups: readonly string[], allowed: readonly string[]): boolean {
   return groups.some(group => allowed.includes(group));
+}
+
+function pickCompatibleTokenAvoiding(
+  rng: Rng,
+  tokens: readonly ContractToken[],
+  groups: readonly string[],
+  avoidId: string | undefined,
+  recipeId: string
+): ContractToken {
+  const compatible = tokens.filter(tokenValue => groupsIntersect(tokenValue.groups, groups));
+  if (compatible.length === 0) {
+    throw new Error(`Curator: recipe "${recipeId}" has no compatible token`);
+  }
+  const filtered =
+    avoidId && compatible.length > 1
+      ? compatible.filter(tokenValue => tokenValue.id !== avoidId)
+      : compatible;
+  return rng.pick(filtered.length > 0 ? filtered : compatible);
+}
+
+function scoreTargetForArcBoard(roster: readonly LocationSite[]): LocationSite | null {
+  const targets = roster.filter(site => site.scoreTarget);
+  if (targets.length > 1) {
+    throw new Error('Curator.generateContracts: multiple Score targets in site roster');
+  }
+  return targets[0] ?? null;
+}
+
+function biasedBoardSlots(arcStage: CampaignArcStage | undefined): number {
+  if (arcStage === 'act-2') return 1;
+  if (arcStage === 'act-3') return 2;
+  return 0;
+}
+
+function campaignClockHeat(campaign: ContractCampaign): number {
+  const heat = campaign?.clockHeat ?? 0;
+  if (!Number.isFinite(heat) || heat < 0) {
+    throw new RangeError(`Curator.generateContracts: clockHeat must be a non-negative number`);
+  }
+  return Math.floor(heat);
+}
+
+function applyHeatToThreat(
+  baseThreat: number,
+  difficulty: ContractDifficulty,
+  heat: number
+): number {
+  if (heat === 0) return baseThreat;
+  const cap =
+    difficulty === CONTRACT_DIFFICULTY.STANDARD
+      ? 3
+      : difficulty === CONTRACT_DIFFICULTY.ELEVATED
+        ? 5
+        : 6;
+  return Math.min(cap, baseThreat + heat);
 }
 
 function buildContractFromRecipe(

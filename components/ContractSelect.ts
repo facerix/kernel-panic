@@ -6,7 +6,7 @@
 
 import { h } from '/src/domUtils.js';
 import { encounterHostileCount } from '/src/game/encounters.js';
-import { isScoreSiteContract } from '/src/game/hub/arcSurface.js';
+import { isScorePrincipalContract, isScoreSiteContract } from '/src/game/hub/arcSurface.js';
 import { cloneObjective } from '/src/game/hub/Curator.js';
 import type { Contract } from '/src/game/hub/Curator.js';
 
@@ -140,6 +140,11 @@ const CSS = `
   background: var(--board-danger);
 }
 
+.badge.score {
+  background: #f8f7ff;
+  color: #020403;
+}
+
 .known {
   color: var(--board-dim);
   border: 1px solid rgba(106, 232, 200, 0.45);
@@ -154,6 +159,12 @@ const CSS = `
   color: #020403;
   background: var(--board-warn);
   border-color: var(--board-warn);
+}
+
+.known.casing {
+  color: #020403;
+  background: #9be7ff;
+  border-color: #9be7ff;
 }
 
 .meta {
@@ -193,6 +204,7 @@ const CSS = `
 class ContractSelect extends HTMLElement {
   #contracts: Contract[] = [];
   #scoreTargetSiteId: string | null = null;
+  #scorePrincipalId: string | null = null;
   #selectedIndex = 0;
   #ready = false;
   #listEl: HTMLElement | null = null;
@@ -251,6 +263,14 @@ class ContractSelect extends HTMLElement {
     if (this.#ready) this.#render();
   }
 
+  setScorePrincipalId(principalId: string | null) {
+    if (principalId !== null && (typeof principalId !== 'string' || principalId.length === 0)) {
+      throw new TypeError('<contract-select>.setScorePrincipalId requires a principal id or null');
+    }
+    this.#scorePrincipalId = principalId;
+    if (this.#ready) this.#render();
+  }
+
   show() {
     this.setAttribute('open', '');
     queueMicrotask(() => this.#focusSelected());
@@ -284,15 +304,22 @@ class ContractSelect extends HTMLElement {
           h('div', { className: 'primary' }, [
             h('div', { className: 'name' }, [
               h('span', {
-                className: `badge ${contract.difficulty}`,
+                className: `badge ${isScoreContract(contract) ? 'score' : contract.difficulty}`,
                 textContent: difficultyLabel(contract),
               }),
               h('span', { className: 'target', textContent: jobTitleCopy(contract) }),
             ]),
-            h('div', { className: 'location' }, locationLine(contract, this.#scoreTargetSiteId)),
+            h(
+              'div',
+              { className: 'location' },
+              locationLine(contract, this.#scoreTargetSiteId, this.#scorePrincipalId)
+            ),
             h('div', { className: 'meta', textContent: rewardCopy(contract) }),
           ]),
-          h('div', { className: 'take', textContent: 'TAKE THE JOB' }),
+          h('div', {
+            className: 'take',
+            textContent: isScoreContract(contract) ? 'TAKE THE SCORE' : 'TAKE THE JOB',
+          }),
         ]
       ) as HTMLButtonElement;
       if (index === this.#selectedIndex) button.setAttribute('selected', '');
@@ -353,28 +380,37 @@ class ContractSelect extends HTMLElement {
 }
 
 function difficultyLabel(contract: Contract): string {
+  if (isScoreContract(contract)) return 'SCORE';
   return DIFFICULTY_LABEL[contract.difficulty] ?? contract.difficulty.toUpperCase();
 }
 
 function rewardCopy(contract: Contract): string {
+  if (isScoreContract(contract)) return 'final run · no payout · campaign on the line';
   const recruit = contract.reward.recruit ? ' · recruit lead' : '';
   return `${encounterHostileCount(contract)} hostiles · Cr +${contract.reward.credits} · REP +${contract.reward.repDelta}${recruit}`;
 }
 
 function jobTitleCopy(contract: Contract): string {
+  if (isScoreContract(contract)) return '// The Score';
   const turnLimit = contract.objective.params?.turnLimit;
   const window =
     Number.isInteger(turnLimit) && Number(turnLimit) > 0 ? ` · WINDOW ${turnLimit} turns` : '';
   return `// ${contract.objective.title}${window}`;
 }
 
-function locationLine(contract: Contract, scoreTargetSiteId: string | null): HTMLElement[] {
+function locationLine(
+  contract: Contract,
+  scoreTargetSiteId: string | null,
+  scorePrincipalId: string | null
+): HTMLElement[] {
   const { principal, site, siteState, locationSiteId } = contract.context;
   const place = site ? `${principal.label} ${site.label}` : principal.label;
   const state = siteState ? ` [${siteState.label}]` : '';
   const nodes: HTMLElement[] = [h('span', { textContent: `Location: ${place}${state}` })];
   if (isScoreSiteContract(contract, scoreTargetSiteId)) {
     nodes.push(h('span', { className: 'known score-site', textContent: 'SCORE SITE' }));
+  } else if (isScorePrincipalContract(contract, scorePrincipalId, scoreTargetSiteId)) {
+    nodes.push(h('span', { className: 'known casing', textContent: 'CASING' }));
   } else if (locationSiteId) {
     nodes.push(h('span', { className: 'known', textContent: '// known site' }));
   }
@@ -387,6 +423,10 @@ function cloneContract(contract: Contract): Contract {
     objective: cloneObjective(contract.objective),
     reward: { ...contract.reward },
   };
+}
+
+function isScoreContract(contract: Contract): boolean {
+  return contract.context.tags.includes('score') && contract.context.recipeId === 'score-final';
 }
 
 customElements.define('contract-select', ContractSelect);

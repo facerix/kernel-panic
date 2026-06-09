@@ -74,7 +74,11 @@ import { hasLineOfSight } from '/src/game/LineOfSight.js';
 import { ITEM_ID, getItemById } from '/src/game/items.js';
 import type { CampaignSnapshot } from '/src/game/persistence.js';
 import type { Contract } from '/src/game/hub/Curator.js';
-import { formatHubArcStatus, scoreTargetSiteId } from '/src/game/hub/arcSurface.js';
+import {
+  formatHubArcStatusLines,
+  scorePrincipalId,
+  scoreTargetSiteId,
+} from '/src/game/hub/arcSurface.js';
 import {
   commitHubReveal,
   hubRevealCommitsOnDismiss,
@@ -132,6 +136,7 @@ type RunBriefingElement = ModalElement & {
 type ContractSelectElement = ModalElement & {
   setContracts(contracts: Contract[]): void;
   setScoreTargetSiteId(siteId: string | null): void;
+  setScorePrincipalId(principalId: string | null): void;
 };
 type CrashDumpElement = ModalElement & {
   setTelemetry(telemetry: Record<string, unknown>): void;
@@ -153,7 +158,7 @@ type CrewRosterElement = ModalElement & {
     crew: Crew[],
     opts?: {
       salvage?: TypedSalvage;
-      campaignStatus?: string;
+      campaignStatus?: string | readonly string[];
       availableRecruits?: Crew[];
       recruitedThisVisit?: boolean;
     }
@@ -721,7 +726,7 @@ function enterHubAndRender() {
     flash('HUB — Curator has contracts when you are adjacent [Space].');
   }
   // generate job options once on hub enter
-  currentJobOptions = campaign.curator.generateContracts(campaign.rng, campaign);
+  currentJobOptions = generateCurrentJobOptions();
 }
 
 function presentCrewRoster() {
@@ -729,7 +734,9 @@ function presentCrewRoster() {
   campaign.backfillRecruitsIfEligible();
   crewRosterEl.setCrew(campaign.crew, {
     salvage: campaign.salvage,
-    campaignStatus: formatHubArcStatus(campaign),
+    campaignStatus: formatHubArcStatusLines(campaign).filter(
+      (line): line is string => line !== null
+    ),
     availableRecruits: campaign.availableRecruits,
     recruitedThisVisit: campaign.recruitedThisVisit,
   });
@@ -759,8 +766,20 @@ function presentBriefing(contract: Contract) {
 
 function presentContractSelect(contracts: Contract[]) {
   contractSelectEl.setScoreTargetSiteId(campaign ? scoreTargetSiteId(campaign) : null);
+  contractSelectEl.setScorePrincipalId(campaign ? scorePrincipalId(campaign) : null);
   contractSelectEl.setContracts(contracts);
   contractSelectEl.show();
+}
+
+function generateCurrentJobOptions(): Contract[] {
+  if (!campaign?.curator) {
+    throw new Error('generateCurrentJobOptions: hub not entered — curator is missing.');
+  }
+  const contracts = campaign.curator.generateContracts(campaign.rng, campaign);
+  if (campaign.canAttemptScore()) {
+    contracts.push(campaign.buildScoreContract());
+  }
+  return contracts;
 }
 
 function onContractSelected(evt: Event) {
@@ -1140,8 +1159,10 @@ function crewMemberArchetypeId(member: Crew): string {
 }
 
 function telemetryForEndedCampaign(c: Campaign): Telemetry {
+  const reason = c.endReason ?? 'crew-wipe';
   return {
     outcome: 'campaign-over',
+    campaignEndReason: reason,
     seed: c.seed,
     salvage: c.salvage,
     crewRoster: c.crew.map(member => ({
@@ -1150,6 +1171,16 @@ function telemetryForEndedCampaign(c: Campaign): Telemetry {
       flatlined: !!member.flatlined,
     })),
   };
+}
+
+function presentCampaignEnd(c: Campaign): void {
+  crashEl.setTelemetry(telemetryForEndedCampaign(c));
+  renderShell();
+}
+
+function finishEndedCampaign(): void {
+  dataStore.deleteCampaign();
+  startFreshCampaign();
 }
 
 /**
@@ -1213,7 +1244,13 @@ function resumeCampaign(record: CampaignSnapshot | unknown) {
     if (campaign.state === CAMPAIGN_STATE.ENDED) {
       pendingJobResult = null;
       crashEl.setTelemetry(telemetryForEndedCampaign(campaign));
-      flash('CAMPAIGN ENDED — no surviving crew in this save.');
+      flash(
+        campaign.endReason === 'clock-expired'
+          ? 'WINDOW CLOSED — Score contract went cold.'
+          : campaign.endReason === 'score-complete'
+            ? 'SCORE COMPLETE — campaign archived.'
+            : 'CAMPAIGN ENDED — this save has reached a terminal state.'
+      );
       renderShell();
     } else if (campaign.activeRun?.state === RUN_STATE.RESULT) {
       pushPendingJobResultOverlay({ ...campaign.activeRun.telemetry });
@@ -1224,7 +1261,7 @@ function resumeCampaign(record: CampaignSnapshot | unknown) {
       if (!presentHubRevealIfAny(resumeFlashMessage)) {
         flash(resumeFlashMessage);
       }
-      currentJobOptions = campaign.curator.generateContracts(campaign.rng, campaign);
+      currentJobOptions = generateCurrentJobOptions();
     } else {
       flash(resumeFlashMessage);
       renderShell();
@@ -1662,9 +1699,13 @@ function handleInteract(): void {
     return;
   }
   if (currentJobOptions.length === 0) {
-    currentJobOptions = campaign.curator.generateContracts(campaign.rng, campaign);
+    currentJobOptions = generateCurrentJobOptions();
   }
-  flash('CURATOR: Three jobs on the board. Pick your trouble.');
+  flash(
+    currentJobOptions.some(contract => contract.context.recipeId === 'score-final')
+      ? 'CURATOR: Three jobs on the board. The Score is your call.'
+      : 'CURATOR: Three jobs on the board. Pick your trouble.'
+  );
   presentContractSelect(currentJobOptions);
 }
 
@@ -1776,8 +1817,12 @@ function onNewRunRequested(): void {
     }
     campaign.onJobEnd({ outcome, salvage, completed: objectiveComplete });
     if (campaign.state === CAMPAIGN_STATE.ENDED) {
-      dataStore.deleteCampaign();
-      startFreshCampaign();
+      pendingJobResult = null;
+      if (campaign.endReason === 'crew-wipe') {
+        finishEndedCampaign();
+        return;
+      }
+      presentCampaignEnd(campaign);
       return;
     } else {
       if (!presentHubRevealIfAny('HUB — choose the next job.')) {
@@ -1787,11 +1832,10 @@ function onNewRunRequested(): void {
       if (!campaign.curator) {
         throw new Error('onNewRunRequested: hub not entered — curator is missing.');
       }
-      currentJobOptions = campaign.curator.generateContracts(campaign.rng, campaign);
+      currentJobOptions = generateCurrentJobOptions();
     }
   } else if (campaign.state === CAMPAIGN_STATE.ENDED) {
-    dataStore.deleteCampaign();
-    startFreshCampaign();
+    finishEndedCampaign();
     return;
   }
   crashEl.hide();
@@ -2036,18 +2080,30 @@ function buildCombatHudSnapshot(scene: ShellScene | null): CombatHudSummaryInput
 
 function buildHubHudRows(scene: ShellScene | null) {
   if (!campaign || scene?.state !== CAMPAIGN_STATE.HUB) return undefined;
-  return [
+  const [summary, clock] = formatHubArcStatusLines(campaign);
+  const rows = [
     {
-      text: formatHubArcStatus(campaign),
+      text: summary,
       anchor: 'top-left' as const,
       row: 1,
       color: '#ffd166',
       glowColor: '#ffd166',
       accentColor: 'rgba(255, 209, 102, 0.5)',
       uppercase: true,
-      maxWidth: 520,
     },
   ];
+  if (clock) {
+    rows.push({
+      text: clock,
+      anchor: 'top-left' as const,
+      row: 2,
+      color: '#ffd166',
+      glowColor: '#ffd166',
+      accentColor: 'rgba(255, 209, 102, 0.5)',
+      uppercase: true,
+    });
+  }
+  return rows;
 }
 
 function paint(stateHint: InputState = activeInputState()): void {
@@ -2124,7 +2180,11 @@ function statusLine(state: InputState): string {
   } else {
     if (!campaign) return stateLabel();
     const repLabel = REP_LABEL.find(b => campaign!.rep >= b.min)?.label ?? 'UNKNOWN';
-    context = escapeHtml(formatHubArcStatus(campaign));
+    context = joinStatusParts(
+      formatHubArcStatusLines(campaign)
+        .filter((line): line is string => line !== null)
+        .map(escapeHtml)
+    );
     // Hub identity drops the typed-salvage compact tag —
     // the inventory overlay (`i` in Hub) is the canonical wallet view with
     // full bucket names. Total Cred / Rep / crew counts stay on this line.

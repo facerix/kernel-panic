@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import {
   Campaign,
   CAMPAIGN_STATE,
+  CLOCK_ACT2_DEADLINE_JOBS,
+  CLOCK_ACT2_GRACE_JOBS,
   SITE_ROSTER_CAP,
   buildCrew,
   defaultCampaignArc,
@@ -13,7 +15,12 @@ import { OUTCOME, RUN_STATE } from '../../../src/game/Run.js';
 import { Rng } from '../../../src/rng.js';
 import { OBJECTIVES } from '../../../src/game/hub/Curator.js';
 import { snapshotCampaign, restoreCampaign } from '../../../src/game/persistence.js';
-import { SALVAGE_SELL_RATE, SHOP_COST, TILE } from '../../../src/game/constants.js';
+import {
+  CONTRACT_DIFFICULTY,
+  SALVAGE_SELL_RATE,
+  SHOP_COST,
+  TILE,
+} from '../../../src/game/constants.js';
 import { emptySalvage, makeSalvage, totalSalvage } from '../../../src/game/salvage.js';
 import { testContractContext } from './contractTestUtils.js';
 import { buildCrewMember } from '../../../src/game/archetypes/index.js';
@@ -934,6 +941,165 @@ test('P3.M1.3: multiple persisted Score targets crash instead of being normalize
       }),
     /multiple Score targets/i
   );
+});
+
+test('P3.M1.5: Clock ignores completedJobs until act-2/3 deploys cross grace', () => {
+  const freshAct2 = new Campaign({ seed: 42, rep: 60, completedJobs: 9 });
+  assert.equal(freshAct2.arc.clockStarted, false);
+  assert.equal(freshAct2.clockHeat, 0);
+  assert.equal(freshAct2.scoreDeadlineJobsRemaining, CLOCK_ACT2_DEADLINE_JOBS);
+
+  const heating = new Campaign({
+    seed: 42,
+    rep: 60,
+    completedJobs: 9,
+    clockJobsTaken: CLOCK_ACT2_GRACE_JOBS + 2,
+  });
+  assert.equal(heating.arc.clockStarted, true);
+  assert.equal(heating.clockHeat, 2);
+  assert.equal(
+    heating.scoreDeadlineJobsRemaining,
+    CLOCK_ACT2_DEADLINE_JOBS - heating.clockJobsTaken
+  );
+  assert.equal(heating.state, CAMPAIGN_STATE.HUB);
+
+  const expired = new Campaign({
+    seed: 43,
+    rep: 60,
+    completedJobs: 4,
+    clockJobsTaken: CLOCK_ACT2_DEADLINE_JOBS,
+  });
+  assert.equal(expired.clockHeat, CLOCK_ACT2_DEADLINE_JOBS - CLOCK_ACT2_GRACE_JOBS);
+  assert.equal(expired.arc.clockStarted, true);
+  assert.equal(expired.state, CAMPAIGN_STATE.ENDED);
+  assert.equal(expired.endReason, 'clock-expired');
+});
+
+test('P3.M1.5: endReason distinguishes score win, clock loss, and crew wipe', () => {
+  const clockLoss = new Campaign({
+    seed: 43,
+    rep: 60,
+    completedJobs: 4,
+    clockJobsTaken: CLOCK_ACT2_DEADLINE_JOBS,
+  });
+  assert.equal(clockLoss.endReason, 'clock-expired');
+
+  const scoreWin = new Campaign({
+    seed: 44,
+    rep: 60,
+    completedJobs: 4,
+    arc: {
+      arcStage: 'score',
+      deckerRecruited: true,
+      scoreRevealed: true,
+      clockStarted: true,
+      scoreAttempted: true,
+      scoreCompleted: true,
+    },
+    siteRoster: [
+      validSite({ id: 'score', seed: '100', tier: 'score', scoreTarget: true, lastVisitedJob: 5 }),
+    ],
+  });
+  scoreWin.state = CAMPAIGN_STATE.ENDED;
+  assert.equal(scoreWin.endReason, 'score-complete');
+
+  const crewWipe = new Campaign({
+    seed: 45,
+    rep: 60,
+    completedJobs: 2,
+  });
+  crewWipe.crew.forEach(member => {
+    member.flatlined = true;
+  });
+  crewWipe.state = CAMPAIGN_STATE.ENDED;
+  assert.equal(crewWipe.endReason, 'crew-wipe');
+});
+
+test('P3.M1.5: Clock deadline does not end the campaign after the Score is attempted', () => {
+  const campaign = new Campaign({
+    seed: 42,
+    rep: 60,
+    completedJobs: 4,
+    clockJobsTaken: CLOCK_ACT2_DEADLINE_JOBS,
+    arc: {
+      arcStage: 'score',
+      deckerRecruited: true,
+      scoreRevealed: true,
+      clockStarted: true,
+      scoreAttempted: true,
+      scoreCompleted: false,
+    },
+    siteRoster: [
+      validSite({ id: 'score', seed: '100', tier: 'score', scoreTarget: true, lastVisitedJob: 5 }),
+    ],
+  });
+
+  assert.equal(campaign.state, CAMPAIGN_STATE.HUB);
+  assert.equal(campaign.clockHeat, CLOCK_ACT2_DEADLINE_JOBS - CLOCK_ACT2_GRACE_JOBS);
+});
+
+test('P3.M1.7: Score contract is gated to Act 3 and marks attempted on deployment', () => {
+  const scorePrincipal = { id: 'matsuda', label: 'Matsuda', groups: ['corp'] };
+  const campaign = new Campaign({
+    seed: 42,
+    rep: 60,
+    completedJobs: 9,
+    siteRoster: [
+      validSite({
+        id: 'score',
+        seed: '100',
+        tier: 'score',
+        scoreTarget: true,
+        lastVisitedJob: 5,
+        principal: scorePrincipal,
+        site: { id: 'server-farm', label: 'server farm', groups: ['corp', 'data'] },
+      }),
+      validSite({ id: 'case-1', seed: '101', lastVisitedJob: 6, principal: scorePrincipal }),
+      validSite({ id: 'case-2', seed: '102', lastVisitedJob: 7, principal: scorePrincipal }),
+    ],
+  });
+  assert.equal(campaign.arcStage, 'act-3');
+  assert.equal(campaign.canAttemptScore(), true);
+
+  const score = campaign.buildScoreContract();
+  assert.equal(score.difficulty, CONTRACT_DIFFICULTY.CRITICAL);
+  assert.equal(score.context.locationSiteId, 'score');
+  assert.ok(score.context.tags.includes('score'));
+  assert.match(score.label, /THE SCORE/);
+
+  const run = campaign.deployCrewMember(campaign.crew[0]!.id, score);
+  assert.equal(campaign.arc.scoreAttempted, true);
+  assert.equal(campaign.arcStage, 'score');
+  assert.equal(run.contract?.context.locationSiteId, 'score');
+});
+
+test('P3.M1.7: completed Score contract records campaign win state', () => {
+  const scorePrincipal = { id: 'matsuda', label: 'Matsuda', groups: ['corp'] };
+  const campaign = new Campaign({
+    seed: 42,
+    rep: 60,
+    completedJobs: 9,
+    siteRoster: [
+      validSite({
+        id: 'score',
+        seed: '100',
+        tier: 'score',
+        scoreTarget: true,
+        lastVisitedJob: 5,
+        principal: scorePrincipal,
+        site: { id: 'server-farm', label: 'server farm', groups: ['corp', 'data'] },
+      }),
+      validSite({ id: 'case-1', seed: '101', lastVisitedJob: 6, principal: scorePrincipal }),
+      validSite({ id: 'case-2', seed: '102', lastVisitedJob: 7, principal: scorePrincipal }),
+    ],
+  });
+  const run = campaign.deployCrewMember(campaign.crew[0]!.id, campaign.buildScoreContract());
+  run.enterCombat();
+
+  campaign.onJobEnd({ outcome: OUTCOME.EXIT, completed: true });
+
+  assert.equal(campaign.arc.scoreCompleted, true);
+  assert.equal(campaign.state, CAMPAIGN_STATE.ENDED);
 });
 
 // ─── Recruitment ────────────────────────────────────────────────────────

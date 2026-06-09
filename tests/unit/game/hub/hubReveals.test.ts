@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { Campaign } from '../../../../src/game/Campaign.js';
+import { Campaign, CLOCK_ACT2_GRACE_JOBS } from '../../../../src/game/Campaign.js';
 import { REP } from '../../../../src/game/constants.js';
 import { OUTCOME } from '../../../../src/game/Run.js';
 import {
@@ -28,6 +28,7 @@ function hubCampaign(
     rep?: number;
     hubReveals?: Record<string, boolean>;
     completedJobs?: number;
+    clockJobsTaken?: number;
   } = {}
 ) {
   const campaign = new Campaign({
@@ -37,6 +38,7 @@ function hubCampaign(
     rep: opts.rep ?? REP.START,
     hubReveals: opts.hubReveals,
     completedJobs: opts.completedJobs,
+    clockJobsTaken: opts.clockJobsTaken,
   });
   return campaign;
 }
@@ -143,7 +145,7 @@ test('Score reveal presents the target and assigns a Decker when Act 2 opens', (
   assert.equal(campaign.hubReveals.scoreBriefingPresented, undefined);
   assert.ok(hubRevealCommitsOnDismiss('score-reveal'));
   const revealText = campaign.lastHubReveal?.lines.join('\n') ?? '';
-  assert.match(revealText, /SCORE SITE/);
+  assert.match(revealText, /CASING/);
   assert.match(revealText, /Decker/);
 
   // Decker was assigned as part of the same transition beat
@@ -155,6 +157,106 @@ test('Score reveal presents the target and assigns a Decker when Act 2 opens', (
   commitHubReveal(campaign, 'score-reveal');
   assert.equal(campaign.hubReveals.scoreBriefingPresented, true);
 
+  campaign.enterHub();
+  assert.equal(campaign.lastHubReveal, null);
+});
+
+test('Clock reveal fires after grace deploys once Score briefing was dismissed', () => {
+  const campaign = hubCampaign({
+    rep: 60,
+    completedJobs: 4,
+    clockJobsTaken: CLOCK_ACT2_GRACE_JOBS,
+    hubReveals: {
+      terminalExplained: true,
+      finnIntroduced: true,
+      clinicIntroduced: true,
+      terminalRecruitmentExplained: true,
+      scoreBriefingPresented: true,
+    },
+  });
+  assert.equal(campaign.arc.clockStarted, true);
+  assert.equal(campaign.lastHubReveal?.id, 'clock-reveal');
+  assert.equal(campaign.hubReveals.clockBriefingPresented, undefined);
+  assert.ok(hubRevealCommitsOnDismiss('clock-reveal'));
+  const revealText = campaign.lastHubReveal?.lines.join('\n') ?? '';
+  assert.match(revealText, /heat/i);
+  assert.match(revealText, /window closes/i);
+
+  commitHubReveal(campaign, 'clock-reveal');
+  assert.equal(campaign.hubReveals.clockBriefingPresented, true);
+  campaign.enterHub();
+  assert.equal(campaign.lastHubReveal, null);
+});
+
+test('Act 3 reveal presents THE SCORE when final prep unlocks', () => {
+  const scorePrincipal = { id: 'matsuda', label: 'Matsuda', groups: ['corp'] as const };
+  const campaign = new Campaign({
+    seed: 42,
+    rep: 60,
+    completedJobs: 9,
+    hubReveals: {
+      terminalExplained: true,
+      finnIntroduced: true,
+      clinicIntroduced: true,
+      terminalRecruitmentExplained: true,
+      scoreBriefingPresented: true,
+      clockBriefingPresented: true,
+    },
+    siteRoster: [
+      {
+        id: 'score',
+        seed: '100',
+        mapWidth: 32,
+        mapHeight: 20,
+        label: '// Matsuda server farm - Score target',
+        tier: 'score',
+        scoreTarget: true,
+        mutationDeltas: [],
+        seenKeys: [],
+        lastVisitedJob: 5,
+        principal: scorePrincipal,
+        site: { id: 'server-farm', label: 'server farm', groups: ['corp', 'data'] },
+      },
+      {
+        id: 'case-1',
+        seed: '101',
+        mapWidth: 24,
+        mapHeight: 16,
+        label: '// Matsuda case site',
+        tier: 'roster',
+        scoreTarget: false,
+        mutationDeltas: [],
+        seenKeys: [],
+        lastVisitedJob: 6,
+        principal: scorePrincipal,
+      },
+      {
+        id: 'case-2',
+        seed: '102',
+        mapWidth: 24,
+        mapHeight: 16,
+        label: '// Matsuda case site 2',
+        tier: 'roster',
+        scoreTarget: false,
+        mutationDeltas: [],
+        seenKeys: [],
+        lastVisitedJob: 7,
+        principal: scorePrincipal,
+      },
+    ],
+  });
+  assert.equal(campaign.arc.arcStage, 'act-3');
+  assert.equal(campaign.canAttemptScore(), true);
+  assert.equal(campaign.lastHubReveal?.id, 'act-3-reveal');
+  assert.equal(campaign.hubReveals.act3BriefingPresented, undefined);
+  assert.ok(hubRevealCommitsOnDismiss('act-3-reveal'));
+  const revealText = campaign.lastHubReveal?.lines.join('\n') ?? '';
+  assert.match(revealText, /You're ready/i);
+  assert.match(revealText, /THE SCORE/i);
+  assert.match(revealText, /heat/i);
+
+  commitHubReveal(campaign, 'act-3-reveal');
+  assert.equal(campaign.hubReveals.act3BriefingPresented, true);
   campaign.enterHub();
   assert.equal(campaign.lastHubReveal, null);
 });

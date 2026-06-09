@@ -314,6 +314,86 @@ test('same seed plus same arc stage yields identical recipe contracts', () => {
   }
 });
 
+test('P3.M1.5: campaign Clock heat raises threat counts without changing difficulty', () => {
+  const baseline = new Curator().generateContracts(new Rng(999), { rep: 60, clockHeat: 0 });
+  const heated = new Curator().generateContracts(new Rng(999), { rep: 60, clockHeat: 2 });
+
+  assert.deepEqual(
+    heated.map(contract => contract.difficulty),
+    baseline.map(contract => contract.difficulty)
+  );
+  assert.ok(
+    heated.some((contract, index) => contract.threatCount > baseline[index]!.threatCount),
+    'expected at least one board slot to gain heat pressure'
+  );
+});
+
+test('P3.M1.6: Act 2 guarantees at least one same-principal casing contract', () => {
+  const roster = [
+    {
+      id: 'score',
+      seed: '100',
+      mapWidth: 32,
+      mapHeight: 20,
+      label: '// Matsuda server farm - Score target',
+      tier: 'score',
+      scoreTarget: true,
+      mutationDeltas: [],
+      seenKeys: [],
+      lastVisitedJob: 0,
+      principal: { id: 'matsuda', label: 'Matsuda', groups: ['corp', 'finance'] },
+      site: { id: 'server-farm', label: 'server farm', groups: ['corp', 'data'] },
+    },
+  ];
+
+  const contracts = new Curator().generateContracts(new Rng(777), {
+    rep: 60,
+    arcStage: 'act-2',
+    siteRoster: roster,
+  });
+
+  assert.equal(contracts.length, 3);
+  assert.ok(
+    contracts.some(contract => contract.context.principal.id === 'matsuda'),
+    'Act 2 board should include a same-principal casing job'
+  );
+  assert.ok(
+    contracts.every(contract => contract.context.locationSiteId !== 'score'),
+    'normal board should not roll the Score target as the final job'
+  );
+});
+
+test('P3.M1.6: Act 3 board is mostly same-principal prep contracts', () => {
+  const roster = [
+    {
+      id: 'score',
+      seed: '100',
+      mapWidth: 32,
+      mapHeight: 20,
+      label: '// Matsuda server farm - Score target',
+      tier: 'score',
+      scoreTarget: true,
+      mutationDeltas: [],
+      seenKeys: [],
+      lastVisitedJob: 5,
+      principal: { id: 'matsuda', label: 'Matsuda', groups: ['corp', 'finance'] },
+      site: { id: 'server-farm', label: 'server farm', groups: ['corp', 'data'] },
+    },
+  ];
+
+  const contracts = new Curator().generateContracts(new Rng(888), {
+    rep: 80,
+    arcStage: 'act-3',
+    siteRoster: roster,
+  });
+
+  assert.ok(
+    contracts.filter(contract => contract.context.principal.id === 'matsuda').length >= 2,
+    'Act 3 board should be mostly Score-principal prep'
+  );
+  assert.ok(contracts.every(contract => contract.context.locationSiteId !== 'score'));
+});
+
 test('different seeds vary compatible recipe output', () => {
   const labels = new Set<string>();
   for (let seed = 0; seed < 8; seed++) {

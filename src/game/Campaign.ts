@@ -22,6 +22,7 @@ import {
 } from './salvage.js';
 import { buildCrewMember, RECRUIT_ARCHETYPE_POOL } from './archetypes/index.js';
 import { CONTRACT_LEXICON, Curator } from './hub/Curator.js';
+import { OBJECTIVES } from './hub/Curator.js';
 import { Terminal } from './hub/Terminal.js';
 import { Finn } from './hub/Finn.js';
 import { Clinic } from './hub/Clinic.js';
@@ -47,6 +48,7 @@ import type { Contract } from './hub/Curator.js';
 import type { Crew } from './Crew.js';
 import type {
   CampaignArcStage,
+  CampaignEndReason,
   GridPoint,
   KeyItem,
   LocationSite,
@@ -65,6 +67,12 @@ export const ARC_ACT_3_MIN_COMPLETED_JOBS = 9;
 export const ARC_ACT_3_MIN_CREW_ALIVE = 4;
 /** Visited sites sharing the Score target's principal required for Act 3. Includes the target itself. */
 export const ARC_ACT_3_MIN_PRINCIPAL_SITES_VISITED = 3;
+/** Act-2/3 deploys taken before corp heat starts (successful or not). */
+export const CLOCK_ACT2_GRACE_JOBS = 3;
+/** Deploys after grace before the Score window closes. */
+export const CLOCK_HEAT_WINDOW_JOBS = 5;
+/** Total act-2/3 deploys allowed before clock loss (`grace + window`). */
+export const CLOCK_ACT2_DEADLINE_JOBS = CLOCK_ACT2_GRACE_JOBS + CLOCK_HEAT_WINDOW_JOBS;
 const SYNTHETIC_SCORE_TARGET_DIFFICULTY = CONTRACT_DIFFICULTY.CRITICAL;
 
 export const CAMPAIGN_STATE = Object.freeze({
@@ -114,6 +122,8 @@ export type CampaignOptions = {
   arc?: unknown;
   hubReveals?: unknown;
   completedJobs?: unknown;
+  /** Act-2/3 job deploys that drive the Clock (not completedJobs). */
+  clockJobsTaken?: unknown;
   keyItems?: unknown;
   siteRoster?: unknown;
   onPersist?: unknown;
@@ -185,6 +195,8 @@ export class Campaign {
   healedThisVisit: Set<string>;
   hubReveals: HubReveals;
   completedJobs: number;
+  /** Deploys taken during Act 2 / Act 3 casing prep — drives Clock heat and deadline. */
+  clockJobsTaken: number;
   /** Persistent key-item inventory (P2.5.M6.2) — keycards survive across runs. */
   keyItems: KeyItem[];
   /** Remembered combat locations / site roster (P2.5.M7.2), max `SITE_ROSTER_CAP`. */
@@ -204,6 +216,7 @@ export class Campaign {
     arc,
     hubReveals,
     completedJobs = 0,
+    clockJobsTaken = 0,
     keyItems,
     siteRoster,
     onPersist,
@@ -239,6 +252,14 @@ export class Campaign {
         `Campaign completedJobs must be a non-negative integer, got ${completedJobs}`
       );
     }
+    if (
+      clockJobsTaken !== undefined &&
+      (!Number.isInteger(clockJobsTaken) || (clockJobsTaken as number) < 0)
+    ) {
+      throw new RangeError(
+        `Campaign clockJobsTaken must be a non-negative integer, got ${clockJobsTaken}`
+      );
+    }
     if (onPersist !== undefined && typeof onPersist !== 'function') {
       throw new TypeError('Campaign: onPersist must be a function');
     }
@@ -257,6 +278,7 @@ export class Campaign {
     this.arc = normalizeCampaignArc(arc);
     this.hubReveals = normalizeHubReveals(hubReveals, 'Campaign hubReveals');
     this.completedJobs = (completedJobs as number) ?? 0;
+    this.clockJobsTaken = (clockJobsTaken as number) ?? 0;
     this.keyItems = normalizeKeyItems(keyItems);
     this.siteRoster = normalizeSiteRoster(siteRoster);
     this.state = CAMPAIGN_STATE.HUB;
@@ -294,11 +316,40 @@ export class Campaign {
     return this.arc.arcStage;
   }
 
+  get clockHeat(): number {
+    if (!this.arc.clockStarted) return 0;
+    return Math.max(0, this.clockJobsTaken - CLOCK_ACT2_GRACE_JOBS);
+  }
+
+  get scoreDeadlineJobsRemaining(): number {
+    return Math.max(0, CLOCK_ACT2_DEADLINE_JOBS - this.clockJobsTaken);
+  }
+
+  /** Set when `state === ENDED`; null while the campaign is still live. */
+  get endReason(): CampaignEndReason | null {
+    if (this.state !== CAMPAIGN_STATE.ENDED) return null;
+    if (this.arc.scoreCompleted) return 'score-complete';
+    if (
+      this.arc.scoreRevealed &&
+      this.clockJobsTaken >= CLOCK_ACT2_DEADLINE_JOBS &&
+      !this.arc.scoreAttempted
+    ) {
+      return 'clock-expired';
+    }
+    return 'crew-wipe';
+  }
+
   enterHub(): void {
     if (this.state !== CAMPAIGN_STATE.HUB && this.state !== CAMPAIGN_STATE.COMBAT) {
       throw new Error(`Campaign.enterHub: illegal transition from ${this.state}`);
     }
     this.#advanceArcTransitions();
+    if (this.arc.scoreCompleted || this.#clockExpired()) {
+      this.state = CAMPAIGN_STATE.ENDED;
+      this.#tearDownHubWorld();
+      this.#persist();
+      return;
+    }
     this.recruitedThisVisit = false;
     this.healedThisVisit = new Set();
     this.lastHubReveal = null;
@@ -381,6 +432,11 @@ export class Campaign {
     if (member.flatlined) {
       throw new Error(`Campaign.deployCrewMember: ${member.callsign ?? member.id} is flatlined`);
     }
+    if (isScoreContract(contract)) {
+      this.#beginScoreAttempt(contract);
+    } else if (this.arc.arcStage === 'act-2' || this.arc.arcStage === 'act-3') {
+      this.clockJobsTaken += 1;
+    }
     const deployedContract = this.#contractWithRememberedDimensions(contract);
     this.#tearDownHubWorld();
     this.deployedMemberId = member.id;
@@ -442,6 +498,12 @@ export class Campaign {
       throw new TypeError(`Campaign.onJobEnd: completed must be boolean`);
     }
 
+    const completedScoreRun =
+      this.activeRun.contract !== null &&
+      isScoreContract(this.activeRun.contract) &&
+      outcome === OUTCOME.EXIT &&
+      completed;
+
     if (outcome === OUTCOME.DEATH) {
       this.flatlineMember(this.deployedMemberId);
     } else {
@@ -479,8 +541,76 @@ export class Campaign {
       return;
     }
 
+    if (completedScoreRun) {
+      this.arc.scoreCompleted = true;
+      this.arc.arcStage = 'score';
+      this.state = CAMPAIGN_STATE.ENDED;
+      this.#tearDownHubWorld();
+      this.#persist();
+      return;
+    }
+
     this.state = CAMPAIGN_STATE.HUB;
     this.enterHub();
+  }
+
+  canAttemptScore(): boolean {
+    if (this.state !== CAMPAIGN_STATE.HUB) return false;
+    if (this.arc.arcStage !== 'act-3') return false;
+    if (this.arc.scoreAttempted || this.arc.scoreCompleted) return false;
+    return this.#scoreTargetSiteOrNull() !== null;
+  }
+
+  buildScoreContract(): Contract {
+    if (!this.canAttemptScore()) {
+      throw new Error('Campaign.buildScoreContract: Score is not available');
+    }
+    const target = this.#scoreTargetSiteOrNull();
+    if (!target) {
+      throw new Error('Campaign.buildScoreContract: no Score target designated');
+    }
+    if (!target.principal) {
+      throw new Error('Campaign.buildScoreContract: Score target is missing principal identity');
+    }
+    const seed = Number(target.seed);
+    if (!Number.isInteger(seed) || seed < 0) {
+      throw new Error(`Campaign.buildScoreContract: Score target seed "${target.seed}" is invalid`);
+    }
+    const principal = locationContextToken(target.principal);
+    const site = target.site ? locationContextToken(target.site) : undefined;
+    const heatThreat = Math.min(6, 4 + this.clockHeat);
+    return {
+      seed,
+      mapWidth: target.mapWidth,
+      mapHeight: target.mapHeight,
+      objective: {
+        kind: OBJECTIVES.REACH_EXIT,
+        title: 'The Score',
+        briefing: `Hit ${target.label
+          .replace(/^\/\//, '')
+          .replace(/\s+-\s+Score target$/i, '')
+          .trim()} and extract with the crew alive.`,
+      },
+      difficulty: CONTRACT_DIFFICULTY.CRITICAL,
+      threatCount: heatThreat,
+      label: `${target.label.replace(/\s+-\s+Score target$/i, '')} - THE SCORE`,
+      context: {
+        recipeId: 'score-final',
+        principal,
+        ...(site ? { site } : {}),
+        asset: { id: 'score-target', label: 'Score target', groups: ['score'] },
+        action: { id: 'score-run', label: 'run', groups: ['score'] },
+        tags: [
+          'score',
+          'meatspace',
+          `objective:${OBJECTIVES.REACH_EXIT}`,
+          `principal:${principal.id}`,
+        ],
+        arcStage: 'score',
+        locationSiteId: target.id,
+      },
+      reward: { credits: 0, repDelta: 0 },
+    };
   }
 
   flatlineMember(memberId: string): void {
@@ -1014,6 +1144,10 @@ export class Campaign {
     if (this.arc.arcStage === 'act-2' && this.#qualifiesForAct3()) {
       this.arc.arcStage = 'act-3';
     }
+
+    if (this.arc.scoreRevealed && this.clockJobsTaken >= CLOCK_ACT2_GRACE_JOBS) {
+      this.arc.clockStarted = true;
+    }
   }
 
   #qualifiesForAct2(): boolean {
@@ -1074,6 +1208,44 @@ export class Campaign {
     const target = this.#synthesizeScoreTarget();
     target.scoreTarget = true;
     target.tier = 'score';
+  }
+
+  #scoreTargetSiteOrNull(): LocationSite | null {
+    const scoreTargets = this.siteRoster.filter(site => site.scoreTarget);
+    if (scoreTargets.length > 1) {
+      throw new Error('Campaign arc: multiple Score targets in site roster');
+    }
+    if (this.siteRoster.some(site => site.tier === 'score' && !site.scoreTarget)) {
+      throw new Error('Campaign arc: score-tier roster site missing scoreTarget');
+    }
+    return scoreTargets[0] ?? null;
+  }
+
+  #beginScoreAttempt(contract: Contract): void {
+    if (this.arc.arcStage !== 'act-3') {
+      throw new Error('Campaign.deployCrewMember: Score can only be attempted from Act 3');
+    }
+    if (this.arc.scoreAttempted) {
+      throw new Error('Campaign.deployCrewMember: Score has already been attempted');
+    }
+    if (this.arc.scoreCompleted) {
+      throw new Error('Campaign.deployCrewMember: Score is already complete');
+    }
+    const target = this.#scoreTargetSiteOrNull();
+    if (!target || contract.context.locationSiteId !== target.id) {
+      throw new Error('Campaign.deployCrewMember: Score contract does not target the Score site');
+    }
+    this.arc.scoreAttempted = true;
+    this.arc.arcStage = 'score';
+  }
+
+  #clockExpired(): boolean {
+    return (
+      this.arc.scoreRevealed &&
+      this.clockJobsTaken >= CLOCK_ACT2_DEADLINE_JOBS &&
+      !this.arc.scoreAttempted &&
+      !this.arc.scoreCompleted
+    );
   }
 
   #synthesizeScoreTarget(): LocationSite {
@@ -1222,6 +1394,18 @@ function locationTokenFromLexicon(token: {
     label: token.label,
     groups: [...token.groups],
   };
+}
+
+function locationContextToken(token: LocationToken) {
+  return {
+    id: token.id,
+    label: token.label,
+    groups: [...token.groups],
+  };
+}
+
+function isScoreContract(contract: Contract): boolean {
+  return contract.context.tags.includes('score') && contract.context.recipeId === 'score-final';
 }
 
 function makeCampaignId(seed: number): string {

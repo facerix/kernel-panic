@@ -168,6 +168,14 @@ function campaignOverTitle() {
   return '*** CAMPAIGN TERMINATED ***';
 }
 
+function clockExpiredTitle() {
+  return '*** WINDOW CLOSED ***';
+}
+
+function scoreCompleteTitle() {
+  return '*** SCORE COMPLETE ***';
+}
+
 function deathFault() {
   return ['fault:  unhandled_exception_in_meatspace', 'addr:   0x00000@meatspace', 'trace:'].join(
     '\n'
@@ -184,6 +192,18 @@ function campaignOverFault() {
     'addr:   0x00000@campaign_layer',
     'trace:',
   ].join('\n');
+}
+
+function clockExpiredFault() {
+  return [
+    'fault:  score_operational_window_expired',
+    'addr:   0x00000@campaign_layer',
+    'trace:',
+  ].join('\n');
+}
+
+function scoreCompleteFault() {
+  return ['status: score_extracted', 'addr:   0x00000@campaign_layer', 'trace:'].join('\n');
 }
 
 function campaignTerminalFault() {
@@ -206,8 +226,41 @@ function buildCampaignOverTraceLines(crewRoster: CrewMemberStub[]) {
   });
 }
 
+function buildClockExpiredTraceLines() {
+  return [
+    { text: '  0x01  arc::clock_deadline_reached()', tag: '<expired>' },
+    { text: '  0x02  curator::score_contract_cold()', tag: '' },
+    { text: '  0x03  campaign::terminate(window_closed)', tag: '' },
+  ];
+}
+
+function buildScoreCompleteTraceLines(crewRoster: CrewMemberStub[]) {
+  const survivors = crewRoster.filter(op => !op.flatlined);
+  const lead = survivors[0];
+  const lines = [
+    {
+      text: `  0x01  score::extract_success(${lead?.callsign ?? 'crew'})`,
+      tag: '<ok>',
+    },
+    { text: '  0x02  arc::score_completed()', tag: '' },
+  ];
+  if (survivors.length > 1) {
+    lines.push({
+      text: `  0x03  roster::survivors(${survivors.length})`,
+      tag: '',
+    });
+  }
+  return lines;
+}
+
 function buildTraceLines(telemetry: Telemetry) {
   if (telemetry.outcome === 'campaign-over') {
+    if (telemetry.campaignEndReason === 'clock-expired') {
+      return buildClockExpiredTraceLines();
+    }
+    if (telemetry.campaignEndReason === 'score-complete') {
+      return buildScoreCompleteTraceLines(telemetry.crewRoster ?? []);
+    }
     return buildCampaignOverTraceLines(telemetry.crewRoster ?? []);
   }
 
@@ -360,8 +413,19 @@ class CrashDump extends HTMLElement {
     const isCampaignTerminalDeath = isDeath && t.campaignTerminal;
 
     if (isCampaignOver || isCampaignTerminalDeath) {
-      this.#els.title.textContent = campaignOverTitle();
-      this.#els.fault.textContent = isCampaignOver ? campaignOverFault() : campaignTerminalFault();
+      if (isCampaignOver && t.campaignEndReason === 'clock-expired') {
+        this.#els.title.textContent = clockExpiredTitle();
+        this.#els.fault.textContent = clockExpiredFault();
+      } else if (isCampaignOver && t.campaignEndReason === 'score-complete') {
+        this.#els.title.textContent = scoreCompleteTitle();
+        this.#els.fault.textContent = scoreCompleteFault();
+        this.setAttribute('outcome', 'exit');
+      } else {
+        this.#els.title.textContent = campaignOverTitle();
+        this.#els.fault.textContent = isCampaignOver
+          ? campaignOverFault()
+          : campaignTerminalFault();
+      }
     } else if (isDeath) {
       this.#els.title.textContent = deathTitle();
       this.#els.fault.textContent = deathFault();
@@ -382,7 +446,12 @@ class CrashDump extends HTMLElement {
       if (line.tag) {
         this.#els!.trace.appendChild(document.createTextNode('   '));
         const span = h('span', {
-          className: line.tag.includes('killed') ? 'killed' : '',
+          className:
+            line.tag.includes('killed') ||
+            line.tag.includes('flatlined') ||
+            line.tag.includes('expired')
+              ? 'killed'
+              : '',
           textContent: line.tag,
         });
         this.#els!.trace.appendChild(span);
@@ -396,10 +465,16 @@ class CrashDump extends HTMLElement {
     if (isCampaignOver) {
       this.#els.turnDd.textContent = '—';
       this.#els.killsDd.textContent = '—';
-      this.#els.causeDd.textContent =
-        Number.isInteger(t.salvage) && Number(t.salvage) >= 0
-          ? `pool salvage ${t.salvage} (lost with run)`
-          : 'no-surviving-crew';
+      if (t.campaignEndReason === 'clock-expired') {
+        this.#els.causeDd.textContent = 'Score window closed — contract cold';
+      } else if (t.campaignEndReason === 'score-complete') {
+        this.#els.causeDd.textContent = 'Score extracted — campaign complete';
+      } else {
+        this.#els.causeDd.textContent =
+          Number.isInteger(t.salvage) && Number(t.salvage) >= 0
+            ? `pool salvage ${t.salvage} (lost with run)`
+            : 'no-surviving-crew';
+      }
     } else {
       this.#els.turnDd.textContent = Number.isInteger(t.turn) ? String(t.turn) : '?';
       this.#els.killsDd.textContent = Number.isInteger(t.kills) ? String(t.kills) : '0';

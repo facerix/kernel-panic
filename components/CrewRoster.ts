@@ -11,7 +11,7 @@
  * Usage:
  *   rosterEl.setCrew(campaign.crew, {
  *     salvage: campaign.salvage,
- *     campaignStatus: 'ACT 2: CASING | SCORE: Matsuda server farm',
+ *     campaignStatus: ['ACT 2: CASING | SCORE: Matsuda server farm', 'CLOCK: HEAT 1 / 4 JOBS LEFT'],
  *     availableRecruits: campaign.availableRecruits,
  *     recruitedThisVisit: campaign.recruitedThisVisit,
  *   });
@@ -119,10 +119,19 @@ const CSS = `
 
 .campaign-status {
   margin: -0.35rem 0 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
   text-align: center;
   color: #ffd166;
   font-size: 0.82rem;
   letter-spacing: 0.08em;
+}
+
+.campaign-status__line {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .body {
@@ -339,7 +348,7 @@ class CrewRoster extends HTMLElement {
 
     this.#titleEl = h('h2', { className: 'title', textContent: '── CREW ROSTER ──' });
     this.#balanceEl = h('p', { className: 'balance' });
-    this.#campaignStatusEl = h('p', { className: 'campaign-status' });
+    this.#campaignStatusEl = h('div', { className: 'campaign-status' });
 
     this.#listEl = document.createElement('crew-list') as CrewList;
     this.#listEl.addEventListener('select', evt =>
@@ -406,7 +415,7 @@ class CrewRoster extends HTMLElement {
       recruitedThisVisit = false,
     }: {
       salvage?: TypedSalvage;
-      campaignStatus?: string;
+      campaignStatus?: string | readonly string[];
       availableRecruits?: CrewMember[];
       recruitedThisVisit?: boolean;
     } = {}
@@ -421,13 +430,23 @@ class CrewRoster extends HTMLElement {
     // Show typed breakdown + total
     const total = totalSalvage(this.#salvage);
     this.#balanceEl!.textContent = `SALVAGE ${total} · ${formatSalvageCompact(this.#salvage)}`;
-    this.#campaignStatusEl!.textContent = campaignStatus;
-    this.#campaignStatusEl!.style.display = campaignStatus ? '' : 'none';
+    this.#renderCampaignStatus(campaignStatus);
     this.#recruitFocused = false;
     this.#selectedRecruitIndex = -1;
     // Crew list handles its own rendering; selection triggers detail update.
     this.#listEl!.setCrew(crew);
     this.#renderRecruits();
+  }
+
+  #renderCampaignStatus(status: string | readonly string[]) {
+    const lines = typeof status === 'string' ? status.split('\n') : status;
+    const normalized = lines.map(line => line.trim()).filter(Boolean);
+    this.#campaignStatusEl!.replaceChildren(
+      ...normalized.map(line =>
+        h('span', { className: 'campaign-status__line', textContent: line })
+      )
+    );
+    this.#campaignStatusEl!.style.display = normalized.length > 0 ? '' : 'none';
   }
 
   show() {

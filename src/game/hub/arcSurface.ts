@@ -1,10 +1,19 @@
 import type { Contract } from './Curator.js';
 import type { Campaign } from '../Campaign.js';
+import type { HubReveals } from './hubReveals.js';
+import { CLOCK_ACT2_DEADLINE_JOBS, CLOCK_ACT2_GRACE_JOBS } from '../Campaign.js';
 import type { CampaignArcStage, LocationSite } from '../../types.js';
 import type { Decker } from '../archetypes/Decker.js';
 import type { Crew } from '../Crew.js';
 
-type ArcSurfaceCampaign = Pick<Campaign, 'arc' | 'siteRoster' | 'crew'>;
+type ArcSurfaceCampaign = Pick<Campaign, 'arc' | 'siteRoster' | 'crew'> &
+  Partial<
+    Pick<Campaign, 'completedJobs' | 'clockJobsTaken' | 'clockHeat' | 'scoreDeadlineJobsRemaining'>
+  > & {
+    hubReveals?: HubReveals;
+  };
+
+export type HubArcStatusLines = readonly [summary: string, clock: string | null];
 
 const ARC_STAGE_LABELS: Record<CampaignArcStage, string> = Object.freeze({
   'act-1': 'STAGE 1: STREET LEVEL',
@@ -39,6 +48,12 @@ export function formatArcStageLabel(stage: CampaignArcStage): string {
 }
 
 export function formatHubArcStatus(campaign: ArcSurfaceCampaign): string {
+  return formatHubArcStatusLines(campaign)
+    .filter((line): line is string => line !== null)
+    .join('\n');
+}
+
+export function formatHubArcStatusLines(campaign: ArcSurfaceCampaign): HubArcStatusLines {
   const parts = [formatArcStageLabel(campaign.arc.arcStage)];
   if (campaign.arc.scoreRevealed) {
     const target = findScoreTargetSite(campaign.siteRoster);
@@ -47,7 +62,22 @@ export function formatHubArcStatus(campaign: ArcSurfaceCampaign): string {
     }
     parts.push(`SCORE: ${scoreTargetDisplayName(target)}`);
   }
-  return parts.join(' | ');
+  return [parts.join(' | '), formatClockStatus(campaign)];
+}
+
+/** Clock HUD line — only after the Curator briefing, and only while heat is active. */
+export function formatClockStatus(campaign: ArcSurfaceCampaign): string | null {
+  if (!campaign.hubReveals?.clockBriefingPresented) return null;
+  if (!campaign.arc.clockStarted) return null;
+  if (campaign.arc.scoreAttempted || campaign.arc.scoreCompleted) return null;
+
+  const clockJobsTaken = campaign.clockJobsTaken ?? 0;
+  if (clockJobsTaken >= CLOCK_ACT2_DEADLINE_JOBS) return null;
+
+  const heat = campaign.clockHeat ?? Math.max(0, clockJobsTaken - CLOCK_ACT2_GRACE_JOBS);
+  const jobsRemaining =
+    campaign.scoreDeadlineJobsRemaining ?? Math.max(0, CLOCK_ACT2_DEADLINE_JOBS - clockJobsTaken);
+  return `CLOCK: HEAT ${heat} / ${jobsRemaining} JOBS LEFT`;
 }
 
 export function scoreRevealLines(campaign: ArcSurfaceCampaign): readonly string[] {
@@ -62,8 +92,27 @@ export function scoreRevealLines(campaign: ArcSurfaceCampaign): readonly string[
   const deckerName = findDecker(campaign.crew).callsign;
   return [
     `CURATOR: We found it: ${targetName}. The Score has a door.`,
-    'CURATOR: Contracts touching that site are casing work now. Watch for SCORE SITE on the board.',
+    'CURATOR: Jobs tagged CASING on the board hit the Score org — take those to learn the target.',
     `CURATOR: You'll need a Decker to crack the ICE; I've got ${deckerName} for you.`,
+  ];
+}
+
+export function clockRevealLines(campaign: ArcSurfaceCampaign): readonly string[] {
+  if (!campaign.arc.clockStarted) {
+    throw new Error('arcSurface: cannot build Clock reveal copy before clockStarted');
+  }
+  const principal = scorePrincipalLabel(campaign);
+  return [
+    'CURATOR: The Score window is live — corp security is tracking the org.',
+    `CURATOR: Every job you take from here adds heat: more hostiles, tighter alarms.`,
+    `CURATOR: Run ${principal} before the window closes or the contract goes cold.`,
+  ];
+}
+
+export function act3RevealLines(): readonly string[] {
+  return [
+    "CURATOR: You're ready. Our window is open, but it's tight.",
+    'CURATOR: Do your final prep, watch your heat, and grab THE SCORE from the board while you can.',
   ];
 }
 
@@ -82,8 +131,31 @@ export function isScoreSiteContract(
   return !!scoreTargetSiteId && contract.context.locationSiteId === scoreTargetSiteId;
 }
 
+export function isScorePrincipalContract(
+  contract: Contract,
+  scorePrincipalId: string | null | undefined,
+  scoreTargetSiteId: string | null | undefined
+): boolean {
+  if (!scorePrincipalId || contract.context.principal?.id !== scorePrincipalId) return false;
+  if (isScoreSiteContract(contract, scoreTargetSiteId)) return false;
+  if (contract.context.recipeId === 'score-final') return false;
+  return true;
+}
+
 export function scoreTargetSiteId(campaign: ArcSurfaceCampaign): string | null {
   return findScoreTargetSite(campaign.siteRoster)?.id ?? null;
+}
+
+export function scorePrincipalId(campaign: ArcSurfaceCampaign): string | null {
+  return findScoreTargetSite(campaign.siteRoster)?.principal?.id ?? null;
+}
+
+function scorePrincipalLabel(campaign: ArcSurfaceCampaign): string {
+  const target = findScoreTargetSite(campaign.siteRoster);
+  if (!target) {
+    throw new Error('arcSurface: cannot build Clock reveal copy without a Score target');
+  }
+  return cleanLabel(target.principal?.label) || scoreTargetDisplayName(target);
 }
 
 function cleanLabel(label: string | undefined): string {

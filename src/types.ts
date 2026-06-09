@@ -16,6 +16,9 @@ export type GridPoint = { x: number; y: number };
 /** Phase 3 campaign arc stage, shared by Campaign saves and Curator contract context. */
 export type CampaignArcStage = 'act-1' | 'act-2' | 'act-3' | 'score';
 
+/** Why a campaign reached `ENDED` — drives terminal debrief copy in the shell. */
+export type CampaignEndReason = 'crew-wipe' | 'clock-expired' | 'score-complete';
+
 /**
  * A JSON-safe value. The persistence layer's opaque entity property bag
  * (`EntitySnapshotExtra`) is keyed to this so anything stashed in a snapshot
@@ -240,6 +243,7 @@ export type LocationSite = {
 
 export type Telemetry = {
   outcome: 'death' | 'exit' | 'campaign-over';
+  campaignEndReason?: CampaignEndReason;
   campaignTerminal?: boolean;
   crewRoster?: { callsign: string; archetype: string; flatlined: boolean }[];
   /** Typed-salvage wallet snapshot at the moment the run/campaign ends. */

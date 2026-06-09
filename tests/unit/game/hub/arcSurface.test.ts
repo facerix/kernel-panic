@@ -4,10 +4,14 @@ import assert from 'node:assert/strict';
 import { CONTRACT_DIFFICULTY } from '../../../../src/game/constants.js';
 import { buildContractRecipeFixture } from '../../../../src/game/hub/Curator.js';
 import {
+  act3RevealLines,
   findDecker,
   findScoreTargetSite,
   formatArcStageLabel,
+  formatClockStatus,
   formatHubArcStatus,
+  formatHubArcStatusLines,
+  isScorePrincipalContract,
   isScoreSiteContract,
   scoreRevealLines,
   scoreTargetDisplayName,
@@ -15,6 +19,7 @@ import {
 } from '../../../../src/game/hub/arcSurface.js';
 import { Decker } from '../../../../src/game/archetypes/Decker.js';
 import { Merc } from '../../../../src/game/archetypes/Merc.js';
+import { CLOCK_ACT2_DEADLINE_JOBS, CLOCK_ACT2_GRACE_JOBS } from '../../../../src/game/Campaign.js';
 import type { CampaignArc } from '../../../../src/game/Campaign.js';
 import type { LocationSite, LocationToken } from '../../../../src/types.js';
 
@@ -55,12 +60,37 @@ function scoreSite(overrides: Partial<LocationSite> = {}): LocationSite {
   };
 }
 
-test('formatHubArcStatus shows act label and Score target once revealed', () => {
+test('formatHubArcStatusLines omits clock until the Curator briefing is dismissed', () => {
   const campaign = {
-    arc: arc({ arcStage: 'act-2', scoreRevealed: true }),
+    arc: arc({ arcStage: 'act-2', scoreRevealed: true, clockStarted: true }),
     siteRoster: [scoreSite()],
+    crew: [],
+    hubReveals: {},
+    clockJobsTaken: CLOCK_ACT2_GRACE_JOBS + 1,
+    clockHeat: 1,
+    scoreDeadlineJobsRemaining: 4,
   };
+  assert.deepEqual(formatHubArcStatusLines(campaign), [
+    'STAGE 2: CASING | SCORE: Matsuda server farm',
+    null,
+  ]);
   assert.equal(formatHubArcStatus(campaign), 'STAGE 2: CASING | SCORE: Matsuda server farm');
+});
+
+test('formatHubArcStatusLines shows active heat only after clock briefing', () => {
+  const campaign = {
+    arc: arc({ arcStage: 'act-2', scoreRevealed: true, clockStarted: true }),
+    siteRoster: [scoreSite()],
+    crew: [],
+    hubReveals: { clockBriefingPresented: true },
+    clockJobsTaken: CLOCK_ACT2_GRACE_JOBS + 2,
+    clockHeat: 2,
+    scoreDeadlineJobsRemaining: 3,
+  };
+  assert.deepEqual(formatHubArcStatusLines(campaign), [
+    'STAGE 2: CASING | SCORE: Matsuda server farm',
+    'CLOCK: HEAT 2 / 3 JOBS LEFT',
+  ]);
 });
 
 test('formatHubArcStatus throws when revealed state has no Score target', () => {
@@ -69,9 +99,60 @@ test('formatHubArcStatus throws when revealed state has no Score target', () => 
       formatHubArcStatus({
         arc: arc({ arcStage: 'act-2', scoreRevealed: true }),
         siteRoster: [],
+        crew: [],
       }),
     /score revealed without a Score target/i
   );
+});
+
+test('formatClockStatus stays hidden before briefing, during grace, and after deadline', () => {
+  assert.equal(
+    formatClockStatus({
+      arc: arc({ scoreRevealed: true }),
+      siteRoster: [scoreSite()],
+      crew: [],
+      hubReveals: {},
+      clockJobsTaken: 1,
+    }),
+    null
+  );
+  assert.equal(
+    formatClockStatus({
+      arc: arc({ scoreRevealed: true, clockStarted: false }),
+      siteRoster: [scoreSite()],
+      crew: [],
+      hubReveals: { clockBriefingPresented: true },
+      clockJobsTaken: 1,
+    }),
+    null
+  );
+  assert.equal(
+    formatClockStatus({
+      arc: arc({ scoreRevealed: true, clockStarted: true, scoreAttempted: true }),
+      siteRoster: [scoreSite()],
+      crew: [],
+      hubReveals: { clockBriefingPresented: true },
+      clockJobsTaken: CLOCK_ACT2_DEADLINE_JOBS,
+    }),
+    null
+  );
+  assert.equal(
+    formatClockStatus({
+      arc: arc({ scoreRevealed: true, clockStarted: true }),
+      siteRoster: [scoreSite()],
+      crew: [],
+      hubReveals: { clockBriefingPresented: true },
+      clockJobsTaken: CLOCK_ACT2_DEADLINE_JOBS,
+    }),
+    null
+  );
+});
+
+test('act3 reveal copy points at THE SCORE on the job board', () => {
+  const lines = act3RevealLines();
+  assert.match(lines.join('\n'), /You're ready/i);
+  assert.match(lines.join('\n'), /THE SCORE/i);
+  assert.match(lines.join('\n'), /heat/i);
 });
 
 test('Score target helpers reject multiple targets instead of guessing', () => {
@@ -87,7 +168,7 @@ test('score reveal copy names the target and points at job-board badges', () => 
     crew: [new Decker({ id: 'decker', x: 0, y: 0, callsign: 'Case' })],
   });
   assert.match(lines.join('\n'), /Matsuda server farm/);
-  assert.match(lines.join('\n'), /SCORE SITE/);
+  assert.match(lines.join('\n'), /CASING/);
   assert.match(lines.join('\n'), /Case/);
 });
 
@@ -118,17 +199,28 @@ test('isScoreSiteContract matches contract locationSiteId to the Score target id
 
   assert.equal(isScoreSiteContract(contract, 'score-site'), true);
   assert.equal(isScoreSiteContract(contract, 'other-site'), false);
-  assert.equal(isScoreSiteContract(contract, null), false);
 });
 
-test('findDecker throws when no Decker is present', () => {
-  const merc = new Merc({ id: 'merc', x: 0, y: 0, callsign: 'Glitch' });
-  assert.throws(() => findDecker([merc]), /without a Decker/i);
-  assert.throws(() => findDecker([]), /without a Decker/i);
+test('isScorePrincipalContract matches same-principal jobs but not the Score site', () => {
+  const contract = buildContractRecipeFixture({
+    recipeId: 'terminal-slice',
+    principalId: 'matsuda',
+    siteId: 'server-farm',
+    assetId: 'identity-spool',
+    actionId: 'slice',
+    difficulty: CONTRACT_DIFFICULTY.STANDARD,
+    seed: 11,
+  });
+  contract.context.locationSiteId = 'case-site';
+
+  assert.equal(isScorePrincipalContract(contract, 'matsuda', 'score-site'), true);
+  contract.context.locationSiteId = 'score-site';
+  assert.equal(isScorePrincipalContract(contract, 'matsuda', 'score-site'), false);
 });
 
-test('findDecker returns the Decker when one is present', () => {
-  const decker = new Decker({ id: 'decker', x: 0, y: 0, callsign: 'Case' });
-  const crew = [new Merc({ id: 'merc', x: 1, y: 1, callsign: 'Glitch' }), decker];
-  assert.equal(findDecker(crew), decker);
+test('findDecker throws when crew has no Decker', () => {
+  assert.throws(
+    () => findDecker([new Merc({ id: 'merc', x: 0, y: 0, callsign: 'Wraith' })]),
+    /without a Decker/i
+  );
 });
