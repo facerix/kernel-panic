@@ -1,5 +1,5 @@
 // Service Worker for Kernel Panic - Development Version
-const VERSION = '0.2.9-dev';
+const VERSION = '0.2.9a-dev';
 importScripts(`/sw-core.js?v=${VERSION}`);
 
 const cacheConfig = CacheConfig.create(VERSION);
