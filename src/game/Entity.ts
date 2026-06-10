@@ -274,6 +274,9 @@ function kindFromId(id: string): string {
   if (id.startsWith('relay-node')) return 'Relay';
   if (id.startsWith('escort-npc')) return 'Escort';
   if (id.startsWith('keycard')) return 'Keycard';
+  if (id.startsWith('jack-in')) return 'Jack-in Port';
+  if (id.startsWith('cyber-avatar')) return 'Avatar';
+  if (id.startsWith('entry-port')) return 'Exit Port';
   if (id.includes('turret')) return 'Turret';
   if (id.startsWith('crew')) return 'Operative';
   return id;

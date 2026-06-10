@@ -79,6 +79,9 @@ import { ConsumablePickup } from './entities/ConsumablePickup.js';
 import { EscortNpc } from './entities/EscortNpc.js';
 import { KeyCard } from './entities/KeyCard.js';
 import { JackInPoint } from './entities/JackInPoint.js';
+import { CyberspaceLayer } from './cyber/CyberspaceLayer.js';
+import { CyberAvatar } from './cyber/CyberAvatar.js';
+import { EntryPort } from './cyber/EntryPort.js';
 import { applyMutationDeltas } from './locations.js';
 import { BreachingCharge } from './entities/BreachingCharge.js';
 import { ITEM_ID, getItemById } from './items.js';
@@ -123,6 +126,9 @@ import type { ConsumablePickupSnapshot } from './entities/ConsumablePickup.js';
 import type { EscortNpcSnapshot } from './entities/EscortNpc.js';
 import type { JackInPointSnapshot } from './entities/JackInPoint.js';
 import type { KeyCardSnapshot } from './entities/KeyCard.js';
+import type { CyberAvatarSnapshot } from './cyber/CyberAvatar.js';
+import type { EntryPortSnapshot } from './cyber/EntryPort.js';
+import type { DeckerSnapshot } from './archetypes/Decker.js';
 import type { AlarmState } from './World.js';
 
 export const RUN_STATE = Object.freeze({
@@ -167,6 +173,8 @@ export type EntityArchetypeId =
   | 'keycard'
   | 'breaching-charge'
   | 'jack-in-point'
+  | 'cyber-avatar'
+  | 'entry-port'
   | 'entity';
 
 export type RunTelemetry = {
@@ -286,23 +294,37 @@ export type RunSnapshot = {
 };
 
 /**
- * P3.M3: serialized Cyberspace layer state. The `dormant` phase carries no
- * payload — the layer spawns fresh on jack-in. P3.M3.3 extends this with the
- * `active` (grid + entities) and `resolved` (objective latch) phases.
+ * P3.M3: serialized Cyberspace layer state.
+ *
+ *   - `dormant` — cyber contract, not yet jacked in. No payload; the layer
+ *     spawns fresh (and deterministically) on jack-in.
+ *   - `active` — the live layer: its grid, entities (avatar, exit port, and
+ *     later data nodes + ICE), alarm cadence, and fog memory. All fields are
+ *     required together; a partial block is corrupt and throws on restore.
+ *   - `resolved` — jacked out; only the objective latch survives.
  */
-export type RunCyberspaceSnapshot = {
-  phase: 'dormant';
-};
+export type RunCyberspaceSnapshot =
+  | { phase: 'dormant' }
+  | {
+      phase: 'active';
+      grid: { w: number; h: number; tiles: number[] };
+      entities: RunEntitySnapshot[];
+      entryTile: GridPoint;
+      alarm: AlarmState;
+      mapMemory: MapMemorySnapshot;
+    }
+  | { phase: 'resolved'; objectiveComplete: boolean };
 
 /**
  * P3.M3: live Cyberspace state machine on the Run. `null` ⇔ the contract has
- * no Cyberspace component. P3.M3.3 extends the union with
- * `{ phase: 'active'; layer: CyberspaceLayer }` and
- * `{ phase: 'resolved'; objectiveComplete: boolean }`.
+ * no Cyberspace component. Transitions: dormant → active (`jackIn`) →
+ * resolved (`jackOut` / P3.M4 forced jack-out). Resolved is a latch — the
+ * link is burned; re-entry is refused.
  */
-export type CyberspaceState = {
-  phase: 'dormant';
-};
+export type CyberspaceState =
+  | { phase: 'dormant' }
+  | { phase: 'active'; layer: CyberspaceLayer }
+  | { phase: 'resolved'; objectiveComplete: boolean };
 
 /** Serializable run-scoped key item (P2.5.M6.2). */
 type KeyItemSnapshot = {
@@ -349,6 +371,12 @@ type EntityDamagedPayload = {
 type EntityMovedPayload = {
   entity: Entity;
   to: GridPoint;
+};
+
+type TurnEndedPayload = {
+  previous: FactionId;
+  next: FactionId;
+  turn: number;
 };
 
 export class Run {
@@ -779,6 +807,89 @@ export class Run {
     return this.world?.mutationDeltas ?? [];
   }
 
+  // ------------------------------------------------------------------
+  // P3.M3.3 — Cyberspace layer bridge
+  // ------------------------------------------------------------------
+
+  /** True while the Decker is jacked in and the cyber layer is live. */
+  get cyberActive(): boolean {
+    return this.cyberspace?.phase === 'active';
+  }
+
+  /** The world the shell should render/drive: cyber while jacked in, else meat. */
+  get activeWorld(): World | null {
+    return this.cyberspace?.phase === 'active' ? this.cyberspace.layer.world : this.world;
+  }
+
+  /** The actor the shell should control: the avatar while jacked in, else the player. */
+  get activeActor(): Crew | CyberAvatar | null {
+    return this.cyberspace?.phase === 'active' ? this.cyberspace.layer.avatar : this.player;
+  }
+
+  /**
+   * Dormant → active: spawn the Cyberspace layer. Driven by the meat-bus
+   * `EVENT.JACK_IN` emission from a `JackInPoint` link. The layer derives
+   * from the *contract* seed, so the layout is independent of the jack-in
+   * turn. Every precondition violation throws — a JACK_IN emission outside a
+   * dormant cyber run is corrupt state, not a recoverable refusal.
+   */
+  jackIn(point: JackInPoint): void {
+    if (this.state !== RUN_STATE.COMBAT) {
+      throw new Error(`Run.jackIn: illegal from state ${this.state} (COMBAT only)`);
+    }
+    if (!this.contract) {
+      throw new Error('Run.jackIn: COMBAT state without a contract');
+    }
+    if (!this.cyberspace) {
+      throw new Error('Run.jackIn: contract has no Cyberspace component');
+    }
+    if (this.cyberspace.phase !== 'dormant') {
+      throw new Error(`Run.jackIn: illegal from cyberspace phase "${this.cyberspace.phase}"`);
+    }
+    if (!(point instanceof JackInPoint) || !point.linked) {
+      throw new Error('Run.jackIn: requires a linked jack-in point');
+    }
+    if (!(this.player instanceof Decker)) {
+      throw new Error('Run.jackIn: only a Decker can enter the grid');
+    }
+    const layer = CyberspaceLayer.build({
+      contractSeed: this.contract.seed,
+      difficulty: this.contract.difficulty,
+      decker: this.player,
+    });
+    this.cyberspace = { phase: 'active', layer };
+    this.#wireCyberLayerListeners(layer);
+    // The latch transition must never be lost — autosave explicitly.
+    if (this.onPersist) {
+      this.onPersist(this.snapshot());
+    }
+  }
+
+  /**
+   * Active → resolved: the avatar routed out through the exit port (cyber-bus
+   * `EVENT.JACK_OUT`). Latches the objective outcome and tears the layer
+   * down; the link is burned — re-entry is refused. P3.M4.6 adds the forced
+   * variant (body under fire).
+   */
+  jackOut(): void {
+    if (this.state !== RUN_STATE.COMBAT) {
+      throw new Error(`Run.jackOut: illegal from state ${this.state} (COMBAT only)`);
+    }
+    if (this.cyberspace?.phase !== 'active') {
+      throw new Error(
+        `Run.jackOut: illegal from cyberspace phase "${this.cyberspace?.phase ?? 'none'}"`
+      );
+    }
+    const layer = this.cyberspace.layer;
+    // TODO(P3.M3.4): derive from sliced data-node count once nodes exist.
+    const objectiveComplete = false;
+    layer.teardown();
+    this.cyberspace = { phase: 'resolved', objectiveComplete };
+    if (this.onPersist) {
+      this.onPersist(this.snapshot());
+    }
+  }
+
   /**
    * Phase 2.9: the single hostile faction for this run, derived from the
    * contract principal's groups (rival-group → `RIVAL`, corp/civic → `CORP`).
@@ -891,12 +1002,18 @@ export class Run {
     this.#unwireCombatListeners();
     const bus = this.bus;
     this._busUnsubs.push(
-      bus.on(EVENT.TURN_ENDED, () => this.#onTurnEnded()),
+      bus.on(EVENT.TURN_ENDED, payload => this.#onTurnEnded(payload as TurnEndedPayload)),
       bus.on(EVENT.ENTITY_DAMAGED, payload =>
         this.#onEntityDamaged(payload as EntityDamagedPayload)
       ),
-      bus.on(EVENT.ENTITY_MOVED, payload => this.#onEntityMoved(payload as EntityMovedPayload))
+      bus.on(EVENT.ENTITY_MOVED, payload => this.#onEntityMoved(payload as EntityMovedPayload)),
+      // P3.M3.3: a Decker linking a JackInPoint opens the cyber layer.
+      bus.on(EVENT.JACK_IN, payload => this.jackIn((payload as { point: JackInPoint }).point))
     );
+    // Restored mid-jack-in: re-wire the cyber-layer listeners on the same seam.
+    if (this.cyberspace?.phase === 'active') {
+      this.#wireCyberLayerListeners(this.cyberspace.layer);
+    }
   }
 
   // ------------------------------------------------------------------
@@ -924,15 +1041,69 @@ export class Run {
     this._busUnsubs = [];
   }
 
-  #onTurnEnded(): void {
+  #onTurnEnded(payload: TurnEndedPayload): void {
     if (this.state !== RUN_STATE.COMBAT) return;
     if (!this.queue) {
       throw new Error('Run.#onTurnEnded: COMBAT state without a TurnQueue');
     }
+    if (!payload || typeof payload.next !== 'string') {
+      throw new Error('Run.#onTurnEnded: TURN_ENDED payload missing the incoming faction');
+    }
     this.telemetry.turn = this.queue.turnNumber;
+    // P3.M3.3: both worlds tick on the single meat queue — refresh the
+    // incoming faction's AP on the cyber grid (and its alarm on round
+    // advance) before the autosave below captures the post-state.
+    if (this.cyberspace?.phase === 'active') {
+      this.cyberspace.layer.onTurnEnded(payload.next);
+    }
     this.#refreshObjectiveTimerState();
     if (!this.onPersist) return;
     this.onPersist(this.snapshot());
+  }
+
+  /**
+   * P3.M3.3: cyber-bus listeners, wired on jack-in and re-wired through
+   * `_reattachCombatListeners` after a mid-jack-in restore. Unsubs join
+   * `_busUnsubs`, so `enterResult`/re-wiring clears them with the meat set.
+   */
+  #wireCyberLayerListeners(layer: CyberspaceLayer): void {
+    this._busUnsubs.push(
+      layer.bus.on(EVENT.ENTITY_DAMAGED, payload =>
+        this.#onCyberEntityDamaged(payload as EntityDamagedPayload)
+      ),
+      layer.bus.on(EVENT.JACK_OUT, () => this.jackOut())
+    );
+  }
+
+  /**
+   * The cyber twin of {@link #onEntityDamaged}. Avatar death is real death
+   * (scope decision #3): black ICE burning the last RAM routes through the
+   * existing DEATH path, and `Campaign.onJobEnd` flatlines the Decker.
+   */
+  #onCyberEntityDamaged({ attacker, target, damage, killed, source }: EntityDamagedPayload): void {
+    if (this.state !== RUN_STATE.COMBAT) return;
+    if (this.cyberspace?.phase !== 'active') return;
+    const layer = this.cyberspace.layer;
+    if (damage <= 0 && !killed) return;
+    if (target === layer.avatar) {
+      this.telemetry.lastDamageSource = source ?? null;
+      this.telemetry.lastAttacker = attacker?.id ?? null;
+      this.telemetry.hpAtDamage = layer.avatar.hp;
+      if (killed) {
+        this.telemetry.hpAtDeath = 0;
+        this.telemetry.cause = `${attacker?.id ?? 'unknown'}::${source ?? 'unknown'}(${damage})`;
+        this.enterResult({ outcome: OUTCOME.DEATH });
+      }
+      return;
+    }
+    if (attacker === layer.avatar && killed) {
+      this.telemetry.kills = (this.telemetry.kills ?? 0) + 1;
+    }
+    // Unbind dead ICE patrols immediately (P3.M3.5 spawns them) — mirror of
+    // the meat-side PatrolHostile unbind.
+    if (killed && target instanceof PatrolHostile) {
+      target.unbind();
+    }
   }
 
   #onEntityDamaged({ attacker, target, damage, killed, source }: EntityDamagedPayload): void {
@@ -1695,7 +1866,17 @@ const SNAPSHOT_EXTRACTORS: Partial<Record<EntityArchetypeId, (e: Entity) => Enti
   {
     merc: e => crewSnapshotExtra(e as Crew) as unknown as EntitySnapshotExtra,
     razor: e => crewSnapshotExtra(e as Crew) as unknown as EntitySnapshotExtra,
-    decker: e => crewSnapshotExtra(e as Crew) as unknown as EntitySnapshotExtra,
+    decker: e => {
+      const d = e as Decker;
+      return {
+        ...crewSnapshotExtra(d),
+        // P3.M3.3: named cyber stats ride the run-entity path too, so a
+        // mid-job save can't lose a stat upgrade.
+        ram: d.ram,
+        intrusionStrength: d.intrusionStrength,
+        iceResistance: d.iceResistance,
+      } satisfies DeckerSnapshot as unknown as EntitySnapshotExtra;
+    },
     tech: e =>
       ({
         ...crewSnapshotExtra(e as Crew),
@@ -1790,14 +1971,44 @@ const SNAPSHOT_EXTRACTORS: Partial<Record<EntityArchetypeId, (e: Entity) => Enti
       const p = e as JackInPoint;
       return { label: p.label, linked: p.linked } satisfies JackInPointSnapshot;
     },
+    'cyber-avatar': e => {
+      const a = e as CyberAvatar;
+      return {
+        intrusionStrength: a.intrusionStrength,
+        callsign: a.callsign,
+      } satisfies CyberAvatarSnapshot;
+    },
+    'entry-port': e => {
+      return { label: (e as EntryPort).label } satisfies EntryPortSnapshot;
+    },
   };
 
 /**
  * P3.M3: serialize the Cyberspace state machine. Dormant carries no payload;
- * P3.M3.3 adds the active-layer grid/entities and the resolved latch.
+ * active serializes the live layer (grid + entities + alarm + fog memory)
+ * with the same entity codec as the meat world; resolved keeps only its
+ * objective latch.
  */
 function snapshotCyberspace(state: CyberspaceState): RunCyberspaceSnapshot {
   if (state.phase === 'dormant') return { phase: 'dormant' };
+  if (state.phase === 'active') {
+    const layer = state.layer;
+    return {
+      phase: 'active',
+      grid: {
+        w: layer.world.grid.width,
+        h: layer.world.grid.height,
+        tiles: Array.from(layer.world.grid.tiles),
+      },
+      entities: Array.from(layer.world.entities.values()).map(snapshotEntity),
+      entryTile: { ...layer.entryTile },
+      alarm: layer.world.snapshotAlarm(),
+      mapMemory: { seen: layer.mapSeenKeys() },
+    };
+  }
+  if (state.phase === 'resolved') {
+    return { phase: 'resolved', objectiveComplete: state.objectiveComplete };
+  }
   throw new Error(`Run.snapshot: unknown cyberspace phase "${(state as { phase: string }).phase}"`);
 }
 
@@ -1856,6 +2067,8 @@ function archetypeOf(entity: Entity): EntityArchetypeId {
   if (entity instanceof EscortNpc) return 'escort-npc';
   if (entity instanceof KeyCard) return 'keycard';
   if (entity instanceof JackInPoint) return 'jack-in-point';
+  if (entity instanceof CyberAvatar) return 'cyber-avatar';
+  if (entity instanceof EntryPort) return 'entry-port';
   if (entity instanceof BreachingCharge) return 'breaching-charge';
   if (entity instanceof Entity) return 'entity';
   throw new Error(`archetypeOf: cannot classify entity ${(entity as Entity | undefined)?.id}`);

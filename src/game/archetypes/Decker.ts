@@ -1,6 +1,11 @@
 import { Crew } from '../Crew.js';
 import { canOverride, overrideDrone } from '../droneOverride.js';
-import type { CrewInit } from '../Crew.js';
+import {
+  DECKER_BASE_ICE_RESISTANCE,
+  DECKER_BASE_INTRUSION,
+  DECKER_BASE_RAM,
+} from '../constants.js';
+import type { CrewInit, CrewSnapshot } from '../Crew.js';
 import type { Entity } from '../Entity.js';
 import type { World } from '../World.js';
 import type { Rng } from '../../rng.js';
@@ -33,9 +38,27 @@ export const CALLSIGNS = Object.freeze([
  * Phase-3 perk: **Override**. Reaches across a clean LOS lane to hijack a corp
  * drone's allegiance for a few turns (`droneOverride.ts`). It is a *targeted*
  * perk — the intent layer resolves a drone along the aim ray, then calls
- * `overrideDrone`. Cyberspace attributes (RAM, intrusion strength, ICE
- * resistance) are deferred to P3.M3, when the Cyberspace grid consumes them.
+ * `overrideDrone`.
+ *
+ * Cyberspace attributes (P3.M3.3) are named stats with real effects: `ram`
+ * is the avatar HP pool, `intrusionStrength` the slice progress per data-node
+ * interact, `iceResistance` the avatar's `damageReduction`. They persist
+ * through both crew paths (campaign crew snapshot + run-entity extra).
  */
+
+export interface DeckerInit extends CrewInit {
+  ram?: number;
+  intrusionStrength?: number;
+  iceResistance?: number;
+}
+
+/** P2.7.M6.2-style snapshot `extra` for the Decker — crew slice + cyber stats. */
+export type DeckerSnapshot = CrewSnapshot & {
+  ram: number;
+  intrusionStrength: number;
+  iceResistance: number;
+};
+
 export class Decker extends Crew {
   override archetype = 'Decker';
 
@@ -45,12 +68,40 @@ export class Decker extends Crew {
    */
   readonly canJackIn = true;
 
+  /** Avatar HP pool on the cyber grid (P3.M3.3). */
+  ram: number;
+  /** Slice progress per data-node interact (P3.M3.4 consumes it). */
+  intrusionStrength: number;
+  /** Avatar `damageReduction` against ICE (P3.M3.3). */
+  iceResistance: number;
+
   override get baseHitChance(): number {
     return 0.7;
   }
 
-  constructor(props: CrewInit) {
+  constructor({
+    ram = DECKER_BASE_RAM,
+    intrusionStrength = DECKER_BASE_INTRUSION,
+    iceResistance = DECKER_BASE_ICE_RESISTANCE,
+    ...props
+  }: DeckerInit) {
     super({ ...props, glyph: '@' });
+    if (!Number.isInteger(ram) || ram <= 0) {
+      throw new RangeError(`Decker ram must be a positive integer, got ${ram}`);
+    }
+    if (!Number.isInteger(intrusionStrength) || intrusionStrength <= 0) {
+      throw new RangeError(
+        `Decker intrusionStrength must be a positive integer, got ${intrusionStrength}`
+      );
+    }
+    if (!Number.isInteger(iceResistance) || iceResistance < 0) {
+      throw new RangeError(
+        `Decker iceResistance must be a non-negative integer, got ${iceResistance}`
+      );
+    }
+    this.ram = ram;
+    this.intrusionStrength = intrusionStrength;
+    this.iceResistance = iceResistance;
   }
 
   /**

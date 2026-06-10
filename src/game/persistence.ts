@@ -72,8 +72,14 @@ import { ConsumablePickup } from './entities/ConsumablePickup.js';
 import { EscortNpc } from './entities/EscortNpc.js';
 import { KeyCard } from './entities/KeyCard.js';
 import { JackInPoint } from './entities/JackInPoint.js';
+import { CyberspaceLayer } from './cyber/CyberspaceLayer.js';
+import { CyberAvatar } from './cyber/CyberAvatar.js';
+import { EntryPort } from './cyber/EntryPort.js';
 import { BreachingCharge } from './entities/BreachingCharge.js';
 import type { BreachingChargeInit } from './entities/BreachingCharge.js';
+import type { CyberAvatarInit, CyberAvatarSnapshot } from './cyber/CyberAvatar.js';
+import type { EntryPortInit, EntryPortSnapshot } from './cyber/EntryPort.js';
+import type { DeckerInit, DeckerSnapshot } from './archetypes/Decker.js';
 import { Run, RUN_STATE, PATROL_ARCHETYPE_IDS } from './Run.js';
 import { Campaign, CAMPAIGN_STATE, normalizeCampaignArc } from './Campaign.js';
 import {
@@ -170,7 +176,10 @@ type RestoreEntityProps = Partial<
     EscortNpcInit &
     KeyCardInit &
     BreachingChargeInit &
-    JackInPointInit
+    JackInPointInit &
+    CyberAvatarInit &
+    EntryPortInit &
+    DeckerInit
 > & {
   id: string;
   x: number;
@@ -188,7 +197,7 @@ const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) =
     merc: (props: RestoreEntityProps) => new Merc(props as CrewInit),
     razor: (props: RestoreEntityProps) => new Razor(props as CrewInit),
     tech: (props: RestoreEntityProps) => new Tech(props as CrewInit),
-    decker: (props: RestoreEntityProps) => new Decker(props as CrewInit),
+    decker: (props: RestoreEntityProps) => new Decker(props as DeckerInit),
     turret: (props: RestoreEntityProps) => new Turret(props as TurretInit),
     drone: (props: RestoreEntityProps) => new Skirmisher(props as SkirmisherProps),
     guard: (props: RestoreEntityProps) => new Guard(props as GuardProps),
@@ -214,6 +223,8 @@ const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) =
     'escort-npc': (props: RestoreEntityProps) => new EscortNpc(props as EscortNpcInit),
     keycard: (props: RestoreEntityProps) => new KeyCard(props as KeyCardInit),
     'jack-in-point': (props: RestoreEntityProps) => new JackInPoint(props as JackInPointInit),
+    'cyber-avatar': (props: RestoreEntityProps) => new CyberAvatar(props as CyberAvatarInit),
+    'entry-port': (props: RestoreEntityProps) => new EntryPort(props as EntryPortInit),
     'breaching-charge': (props: RestoreEntityProps) =>
       new BreachingCharge(props as BreachingChargeInit),
     // Generic fallback so a future `Entity` subclass (NPCs, items) doesn't break
@@ -357,6 +368,47 @@ function readJackInPoint(extra: EntitySnapshotExtra, id: string): JackInPointSna
   return {
     label: requireString(p.label, `restore: jack-in point ${id} label must be a non-empty string`),
     linked: requireBoolean(p.linked, `restore: jack-in point ${id} linked must be boolean`),
+  };
+}
+
+function readCyberAvatar(extra: EntitySnapshotExtra, id: string): CyberAvatarSnapshot {
+  if (hasNoState(extra)) {
+    throw new TypeError(`restore: cyber avatar entity ${id} requires avatar state`);
+  }
+  const a = extra as Partial<CyberAvatarSnapshot>;
+  if (!Number.isInteger(a.intrusionStrength) || (a.intrusionStrength as number) <= 0) {
+    throw new TypeError(`restore: cyber avatar ${id} intrusionStrength must be a positive integer`);
+  }
+  const callsign = a.callsign ?? null;
+  if (callsign !== null && (typeof callsign !== 'string' || callsign.length === 0)) {
+    throw new TypeError(`restore: cyber avatar ${id} callsign must be a non-empty string or null`);
+  }
+  return { intrusionStrength: a.intrusionStrength as number, callsign };
+}
+
+/**
+ * P3.M3.3: Decker named cyber stats from the run-entity `extra`. All three
+ * absent → pre-P3.M3.3 save, base stats apply (legacy normalization). Any
+ * present-but-malformed or half-populated set is corrupt and throws.
+ */
+function readDeckerCyberStats(extra: EntitySnapshotExtra, id: string): Partial<DeckerInit> {
+  const d = extra as Partial<DeckerSnapshot>;
+  if (d.ram === undefined && d.intrusionStrength === undefined && d.iceResistance === undefined) {
+    return {};
+  }
+  if (!Number.isInteger(d.ram) || (d.ram as number) <= 0) {
+    throw new TypeError(`restore: decker ${id} ram must be a positive integer`);
+  }
+  if (!Number.isInteger(d.intrusionStrength) || (d.intrusionStrength as number) <= 0) {
+    throw new TypeError(`restore: decker ${id} intrusionStrength must be a positive integer`);
+  }
+  if (!Number.isInteger(d.iceResistance) || (d.iceResistance as number) < 0) {
+    throw new TypeError(`restore: decker ${id} iceResistance must be a non-negative integer`);
+  }
+  return {
+    ram: d.ram as number,
+    intrusionStrength: d.intrusionStrength as number,
+    iceResistance: d.iceResistance as number,
   };
 }
 
@@ -547,6 +599,52 @@ type RestoreEntry = {
 };
 
 const ENTITY_RESTORE: Partial<Record<EntityArchetypeId, RestoreEntry>> = Object.freeze({
+  decker: {
+    // P3.M3.3: named cyber stats ride the crew extra. Absent on legacy saves
+    // (base stats apply); half-populated or malformed throws.
+    buildProps(extra, rec) {
+      return readDeckerCyberStats(extra, rec.id);
+    },
+    apply(entity, _extra, rec) {
+      if (!(entity instanceof Decker)) {
+        throw new Error(`restore: decker entity ${rec.id} did not restore as Decker`);
+      }
+    },
+  },
+  'cyber-avatar': {
+    buildProps(extra, rec) {
+      const a = readCyberAvatar(extra, rec.id);
+      // The HP pool rides the base entity record: maxHp IS the RAM pool,
+      // damageReduction IS the ICE resistance.
+      return {
+        ram: rec.maxHp,
+        iceResistance: rec.damageReduction ?? 0,
+        intrusionStrength: a.intrusionStrength,
+        callsign: a.callsign,
+      };
+    },
+    apply(entity, _extra, rec) {
+      if (!(entity instanceof CyberAvatar)) {
+        throw new Error(`restore: cyber avatar entity ${rec.id} did not restore as CyberAvatar`);
+      }
+    },
+  },
+  'entry-port': {
+    buildProps(extra, rec) {
+      const p = extra as Partial<EntryPortSnapshot>;
+      return {
+        label: requireString(
+          p.label,
+          `restore: entry port ${rec.id} label must be a non-empty string`
+        ),
+      };
+    },
+    apply(entity, _extra, rec) {
+      if (!(entity instanceof EntryPort)) {
+        throw new Error(`restore: entry port entity ${rec.id} did not restore as EntryPort`);
+      }
+    },
+  },
   tech: {
     // Re-apply the pre-built turret flag (default `true` from the Tech ctor when
     // a legacy record omits it — preserve that by only assigning when present).
@@ -752,6 +850,12 @@ type CampaignCrewSnapshot = {
   alive: boolean;
   inventory: Inventory | null;
   gear: Gear | null;
+  /**
+   * P3.M3.3: Decker named cyber stats — written for deckers only. Absent on
+   * legacy saves (base stats apply); half-populated/malformed throws; present
+   * on a non-decker throws.
+   */
+  cyber?: { ram: number; intrusion: number; iceResistance: number };
 };
 
 type CampaignActiveRunSnapshot = {
@@ -1001,9 +1105,9 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
  *
  * Invariant (both directions): a contract with a Cyberspace component
  * (`contractRequiresCyberspace`) carries a `cyberspace` block, and only such
- * contracts do. Any mismatch, unknown phase, or payload smuggled onto the
- * `dormant` phase is tier-1 corrupt state and throws. P3.M3.3 extends this
- * with the `active` (grid + entities) and `resolved` (latch) phases.
+ * contracts do. Any mismatch, unknown phase, payload smuggled onto the
+ * `dormant`/`resolved` phases, or a partial `active` block is tier-1 corrupt
+ * state and throws.
  */
 function restoreCyberspace(
   record: RunSnapshot,
@@ -1026,15 +1130,137 @@ function restoreCyberspace(
   }
   const phase = (block as { phase?: unknown }).phase;
   if (phase === 'dormant') {
-    const payloadKeys = Object.keys(block).filter(key => key !== 'phase');
-    if (payloadKeys.length > 0) {
-      throw new Error(
-        `restore: dormant cyberspace block must carry no payload, got [${payloadKeys.join(', ')}]`
-      );
-    }
+    assertCyberspaceBlockKeys(block, ['phase'], 'dormant');
     return { phase: 'dormant' };
   }
+  if (phase === 'resolved') {
+    assertCyberspaceBlockKeys(block, ['phase', 'objectiveComplete'], 'resolved');
+    const latch = (block as { objectiveComplete?: unknown }).objectiveComplete;
+    if (typeof latch !== 'boolean') {
+      throw new TypeError('restore: resolved cyberspace block requires boolean objectiveComplete');
+    }
+    return { phase: 'resolved', objectiveComplete: latch };
+  }
+  if (phase === 'active') {
+    assertCyberspaceBlockKeys(
+      block,
+      ['phase', 'grid', 'entities', 'entryTile', 'alarm', 'mapMemory'],
+      'active'
+    );
+    return {
+      phase: 'active',
+      layer: restoreCyberspaceLayer(
+        record,
+        block as Extract<NonNullable<RunSnapshot['cyberspace']>, { phase: 'active' }>
+      ),
+    };
+  }
   throw new Error(`restore: unknown cyberspace phase "${String(phase)}"`);
+}
+
+/** Cross-phase payload smuggling (e.g. a grid on `resolved`) is corrupt — throw. */
+function assertCyberspaceBlockKeys(block: object, allowed: readonly string[], phase: string): void {
+  const rogue = Object.keys(block).filter(key => !allowed.includes(key));
+  if (rogue.length > 0) {
+    throw new Error(
+      `restore: ${phase} cyberspace block carries illegal payload [${rogue.join(', ')}]`
+    );
+  }
+}
+
+/**
+ * P3.M3.3: rebuild the live cyber layer. Every field of the `active` block is
+ * required; entities are bounds-checked against the *cyber* grid via the same
+ * `restoreEntity` codec as the meat world. Exactly one avatar and one exit
+ * port must exist (the avatar must be alive while the run is mid-COMBAT —
+ * avatar death transitions to RESULT before the snapshot is cut).
+ */
+function restoreCyberspaceLayer(
+  record: RunSnapshot,
+  block: Extract<NonNullable<RunSnapshot['cyberspace']>, { phase: 'active' }>
+): CyberspaceLayer {
+  const gridRec = block.grid;
+  if (!gridRec || !Number.isInteger(gridRec.w) || !Number.isInteger(gridRec.h)) {
+    throw new TypeError('restore: active cyberspace block requires a grid with integer w/h');
+  }
+  if (!Array.isArray(gridRec.tiles)) {
+    throw new TypeError('restore: active cyberspace block requires a grid tiles array');
+  }
+  const grid = new Grid(gridRec.w, gridRec.h);
+  if (gridRec.tiles.length !== grid.tiles.length) {
+    throw new Error(
+      `restore: cyberspace grid tile count mismatch — record ${gridRec.tiles.length}, ` +
+        `expected ${grid.tiles.length}`
+    );
+  }
+  for (let i = 0; i < gridRec.tiles.length; i++) {
+    const tile = gridRec.tiles[i];
+    // Cyber maps are FLOOR/WALL only by construction (`buildCyberMap`); any
+    // other tile id is corruption, not an old save.
+    if (tile !== TILE.FLOOR && tile !== TILE.WALL) {
+      throw new Error(`restore: cyberspace grid tile ${i} has non-cyber tile id ${tile}`);
+    }
+    grid.tiles[i] = tile;
+  }
+
+  const entryTile = block.entryTile;
+  if (!entryTile || !Number.isInteger(entryTile.x) || !Number.isInteger(entryTile.y)) {
+    throw new TypeError('restore: active cyberspace block requires an integer entryTile');
+  }
+  if (!grid.inBounds(entryTile.x, entryTile.y) || !grid.isPassable(entryTile.x, entryTile.y)) {
+    throw new RangeError(
+      `restore: cyberspace entryTile (${entryTile.x}, ${entryTile.y}) is not a passable cyber tile`
+    );
+  }
+
+  if (!Array.isArray(block.entities)) {
+    throw new TypeError('restore: active cyberspace block requires an entities array');
+  }
+  if (!block.alarm) {
+    throw new Error('restore: active cyberspace block requires alarm state');
+  }
+  if (!block.mapMemory || !Array.isArray(block.mapMemory.seen)) {
+    throw new TypeError('restore: active cyberspace block requires mapMemory with a seen array');
+  }
+
+  const bus = new EventBus();
+  const world = new World(grid, { events: bus });
+  world.restoreAlarm(block.alarm);
+
+  let avatar: CyberAvatar | null = null;
+  let port: EntryPort | null = null;
+  for (const rec of block.entities) {
+    const entity = restoreEntity(rec, grid);
+    if (entity instanceof CyberAvatar) {
+      if (avatar) {
+        throw new Error('restore: active cyberspace block has multiple cyber-avatar entities');
+      }
+      avatar = entity;
+    }
+    if (entity instanceof EntryPort) {
+      if (port) {
+        throw new Error('restore: active cyberspace block has multiple entry-port entities');
+      }
+      port = entity;
+    }
+    world.addEntity(entity);
+    if (entity instanceof PatrolHostile) {
+      entity.bindToBus(bus);
+    }
+  }
+  if (!avatar) {
+    throw new Error('restore: active cyberspace block has no cyber-avatar');
+  }
+  if (record.state === RUN_STATE.COMBAT && !avatar.alive) {
+    throw new Error('restore: COMBAT snapshot carries a dead cyber-avatar in an active layer');
+  }
+  if (!port) {
+    throw new Error('restore: active cyberspace block has no entry-port');
+  }
+
+  const layer = new CyberspaceLayer({ bus, world, avatar, port, entryTile });
+  layer.recordSeen(block.mapMemory.seen);
+  return layer;
 }
 
 export function restoreCampaign(record: unknown, options: RestoreCampaignOptions = {}): Campaign {
@@ -1326,6 +1552,50 @@ function snapshotCrewMember(member: Crew): CampaignCrewSnapshot {
     alive: !!member.alive,
     inventory: member.inventory,
     gear: member.gear,
+    // P3.M3.3: Decker cyber stats persist through the campaign crew path too.
+    ...(member instanceof Decker
+      ? {
+          cyber: {
+            ram: member.ram,
+            intrusion: member.intrusionStrength,
+            iceResistance: member.iceResistance,
+          },
+        }
+      : {}),
+  };
+}
+
+/**
+ * P3.M3.3: validate + translate the campaign crew `cyber` block into Decker
+ * ctor props. Absent → `{}` (legacy save, base stats). Present on a
+ * non-decker, half-populated, or malformed → throw.
+ */
+function readCampaignCrewCyber(rec: CampaignCrewSnapshot): Partial<DeckerInit> {
+  const cyber = rec.cyber;
+  if (cyber === undefined || cyber === null) return {};
+  if (rec.archetype !== 'decker') {
+    throw new Error(`restoreCampaign: crew "${rec.id}" carries cyber stats but is not a decker`);
+  }
+  if (typeof cyber !== 'object' || Array.isArray(cyber)) {
+    throw new TypeError(`restoreCampaign: crew "${rec.id}" cyber block must be an object`);
+  }
+  if (!Number.isInteger(cyber.ram) || cyber.ram <= 0) {
+    throw new TypeError(`restoreCampaign: crew "${rec.id}" cyber.ram must be a positive integer`);
+  }
+  if (!Number.isInteger(cyber.intrusion) || cyber.intrusion <= 0) {
+    throw new TypeError(
+      `restoreCampaign: crew "${rec.id}" cyber.intrusion must be a positive integer`
+    );
+  }
+  if (!Number.isInteger(cyber.iceResistance) || cyber.iceResistance < 0) {
+    throw new TypeError(
+      `restoreCampaign: crew "${rec.id}" cyber.iceResistance must be a non-negative integer`
+    );
+  }
+  return {
+    ram: cyber.ram,
+    intrusionStrength: cyber.intrusion,
+    iceResistance: cyber.iceResistance,
   };
 }
 
@@ -1364,6 +1634,8 @@ function restoreCrewMember(rec: CampaignCrewSnapshot): Crew {
     gear: rec.gear ?? null,
     maxHp: rec.maxHp,
     maxAp: rec.maxAp,
+    // P3.M3.3: Decker cyber stats (validated; throws on a non-decker record).
+    ...readCampaignCrewCyber(rec),
   });
   if (!(member instanceof Crew)) {
     throw new Error(`restoreCampaign: crew archetype "${rec.archetype}" did not restore as Crew`);

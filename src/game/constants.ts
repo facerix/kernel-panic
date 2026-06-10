@@ -46,6 +46,8 @@ export const ESCORT_NPC_GLYPH = 'A';
 export const KEYCARD_GLYPH = 'κ';
 /** P3.M3.2: the Meatspace door into Cyberspace. */
 export const JACK_IN_GLYPH = 'Ω';
+/** P3.M3.3: the Cyberspace door back into Meatspace. */
+export const ENTRY_PORT_GLYPH = '▼';
 
 /** Numeric tile id — one of the `TILE` values. */
 export type TileId = (typeof TILE)[keyof typeof TILE];
@@ -96,6 +98,30 @@ export const AP_COST = Object.freeze({
 export const OVERRIDE_RANGE = 5;
 export const OVERRIDE_DURATION = 3;
 export const OVERRIDE_SUCCESS_CHANCE = 0.6;
+
+/**
+ * Decker cyber stats (P3.M3.3). Named stats with real effects from day one
+ * (scope decision #4):
+ *   - `DECKER_BASE_RAM` — the avatar's HP pool on the cyber grid. ICE damage
+ *     burns RAM; zero RAM = flatline (avatar death is real death).
+ *   - `DECKER_BASE_INTRUSION` — slice progress added per data-node interact
+ *     (P3.M3.4 consumes it).
+ *   - `DECKER_BASE_ICE_RESISTANCE` — the avatar's `damageReduction`; the
+ *     existing min-1 mitigation in `Combat.ts` applies unchanged.
+ * Per-Decker overrides validate in the `Decker` ctor (crash on bad data).
+ */
+export const DECKER_BASE_RAM = 8;
+export const DECKER_BASE_INTRUSION = 2;
+export const DECKER_BASE_ICE_RESISTANCE = 1;
+
+/**
+ * Cyberspace avatar tuning (P3.M3.3). The avatar keeps the player AP budget
+ * (4) and fights at the Merc's hit chance — the grid is the Decker's home
+ * turf. `Combat.resolveRanged` capability-sniffs `baseHitChance`, so the
+ * non-Crew avatar plugs into combat with zero combat-code changes.
+ */
+export const CYBER_AVATAR_MAX_AP = 4;
+export const CYBER_AVATAR_HIT_CHANCE = 0.8;
 
 /**
  * Tech turret parameters. The turret is a placed grid entity (peer of
