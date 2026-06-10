@@ -78,6 +78,7 @@ import { RelayNode } from './entities/RelayNode.js';
 import { ConsumablePickup } from './entities/ConsumablePickup.js';
 import { EscortNpc } from './entities/EscortNpc.js';
 import { KeyCard } from './entities/KeyCard.js';
+import { JackInPoint } from './entities/JackInPoint.js';
 import { applyMutationDeltas } from './locations.js';
 import { BreachingCharge } from './entities/BreachingCharge.js';
 import { ITEM_ID, getItemById } from './items.js';
@@ -93,6 +94,7 @@ import { VisionField } from './Vision.js';
 import {
   OBJECTIVES,
   cloneObjective,
+  contractRequiresCyberspace,
   isContractDifficulty,
   normalizeContractContext,
   normalizeObjective,
@@ -119,6 +121,7 @@ import type { SyncPadSnapshot } from './entities/SyncPad.js';
 import type { RelayNodeSnapshot } from './entities/RelayNode.js';
 import type { ConsumablePickupSnapshot } from './entities/ConsumablePickup.js';
 import type { EscortNpcSnapshot } from './entities/EscortNpc.js';
+import type { JackInPointSnapshot } from './entities/JackInPoint.js';
 import type { KeyCardSnapshot } from './entities/KeyCard.js';
 import type { AlarmState } from './World.js';
 
@@ -163,6 +166,7 @@ export type EntityArchetypeId =
   | 'escort-npc'
   | 'keycard'
   | 'breaching-charge'
+  | 'jack-in-point'
   | 'entity';
 
 export type RunTelemetry = {
@@ -273,6 +277,31 @@ export type RunSnapshot = {
   keyItems?: KeyItemSnapshot[];
   /** Terrain/entity mutations recorded during the run (P2.5.M7.1). Defaults to []. */
   mutationDeltas?: TileDelta[];
+  /**
+   * P3.M3: Cyberspace layer state. Present exactly when the contract requires
+   * Cyberspace (`contractRequiresCyberspace`) — a mismatch in either direction
+   * is corrupt and throws on restore.
+   */
+  cyberspace?: RunCyberspaceSnapshot;
+};
+
+/**
+ * P3.M3: serialized Cyberspace layer state. The `dormant` phase carries no
+ * payload — the layer spawns fresh on jack-in. P3.M3.3 extends this with the
+ * `active` (grid + entities) and `resolved` (objective latch) phases.
+ */
+export type RunCyberspaceSnapshot = {
+  phase: 'dormant';
+};
+
+/**
+ * P3.M3: live Cyberspace state machine on the Run. `null` ⇔ the contract has
+ * no Cyberspace component. P3.M3.3 extends the union with
+ * `{ phase: 'active'; layer: CyberspaceLayer }` and
+ * `{ phase: 'resolved'; objectiveComplete: boolean }`.
+ */
+export type CyberspaceState = {
+  phase: 'dormant';
 };
 
 /** Serializable run-scoped key item (P2.5.M6.2). */
@@ -335,6 +364,8 @@ export class Run {
   player: Crew | null;
   contract: Contract | null;
   exitTile: GridPoint | null;
+  /** P3.M3: Cyberspace state machine; `null` ⇔ no Cyberspace component. */
+  cyberspace: CyberspaceState | null;
   telemetry: RunTelemetry;
   objectiveTimer: ObjectiveTimerSnapshot;
   mapSeen: Set<string>;
@@ -402,6 +433,7 @@ export class Run {
     this.player = null;
     this.contract = null;
     this.exitTile = null;
+    this.cyberspace = null;
     this.telemetry = freshTelemetry(this.archetype, this.seed);
     this.objectiveTimer = freshObjectiveTimer();
     this.mapSeen = new Set();
@@ -428,6 +460,8 @@ export class Run {
       throw new Error(`Run.enterBriefing: illegal transition from ${this.state}`);
     }
     this.contract = normalizeContractForRun(contract);
+    // P3.M3: latch the Cyberspace state machine off the validated contract.
+    this.cyberspace = contractRequiresCyberspace(this.contract) ? { phase: 'dormant' } : null;
     this.objectiveTimer = freshObjectiveTimer();
     this.mapSeen.clear();
     this.state = RUN_STATE.BRIEFING;
@@ -731,6 +765,8 @@ export class Run {
       objectiveProgress: { securedPickups: world.securedPickupIds() },
       keyItems: this.keyItems.map(k => ({ id: k.id, label: k.label, doorId: k.doorId })),
       mutationDeltas: world.mutationDeltas.map(delta => ({ ...delta })),
+      // P3.M3: present exactly when the contract has a Cyberspace component.
+      ...(this.cyberspace ? { cyberspace: snapshotCyberspace(this.cyberspace) } : {}),
     };
   }
 
@@ -1151,6 +1187,18 @@ export class Run {
           label: this.contract.objective.title,
           raisesAlarm: true,
           unlocksId: linkedDoorId,
+        })
+      );
+    }
+    if (this.contract.objective.kind === OBJECTIVES.DATA_NODE_SLICE) {
+      // P3.M3.2: the Meatspace door into Cyberspace. One port per contract;
+      // the data nodes themselves live on the cyber grid (P3.M3.3+).
+      const anchor = findInteractableAnchor(this.world, this.player, this.exitTile, this.rng);
+      this.world.addEntity(
+        new JackInPoint({
+          id: 'jack-in-0',
+          x: anchor.x,
+          y: anchor.y,
         })
       );
     }
@@ -1738,7 +1786,22 @@ const SNAPSHOT_EXTRACTORS: Partial<Record<EntityArchetypeId, (e: Entity) => Enti
         siteId: k.siteId ?? null,
       } satisfies KeyCardSnapshot;
     },
+    'jack-in-point': e => {
+      const p = e as JackInPoint;
+      return { label: p.label, linked: p.linked } satisfies JackInPointSnapshot;
+    },
   };
+
+/**
+ * P3.M3: serialize the Cyberspace state machine. Dormant carries no payload;
+ * P3.M3.3 adds the active-layer grid/entities and the resolved latch.
+ */
+function snapshotCyberspace(state: CyberspaceState): RunCyberspaceSnapshot {
+  if (state.phase === 'dormant') return { phase: 'dormant' };
+  throw new Error(
+    `Run.snapshot: unknown cyberspace phase "${(state as { phase: string }).phase}"`
+  );
+}
 
 function snapshotEntity(entity: Entity): RunEntitySnapshot {
   const archetype = archetypeOf(entity);
@@ -1794,6 +1857,7 @@ function archetypeOf(entity: Entity): EntityArchetypeId {
   if (entity instanceof ConsumablePickup) return 'consumable-pickup';
   if (entity instanceof EscortNpc) return 'escort-npc';
   if (entity instanceof KeyCard) return 'keycard';
+  if (entity instanceof JackInPoint) return 'jack-in-point';
   if (entity instanceof BreachingCharge) return 'breaching-charge';
   if (entity instanceof Entity) return 'entity';
   throw new Error(`archetypeOf: cannot classify entity ${(entity as Entity | undefined)?.id}`);

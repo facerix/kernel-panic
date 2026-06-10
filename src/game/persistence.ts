@@ -71,11 +71,16 @@ import { RelayNode } from './entities/RelayNode.js';
 import { ConsumablePickup } from './entities/ConsumablePickup.js';
 import { EscortNpc } from './entities/EscortNpc.js';
 import { KeyCard } from './entities/KeyCard.js';
+import { JackInPoint } from './entities/JackInPoint.js';
 import { BreachingCharge } from './entities/BreachingCharge.js';
 import type { BreachingChargeInit } from './entities/BreachingCharge.js';
 import { Run, RUN_STATE, PATROL_ARCHETYPE_IDS } from './Run.js';
 import { Campaign, CAMPAIGN_STATE, normalizeCampaignArc } from './Campaign.js';
-import { normalizeContractContext, normalizeObjective } from './hub/Curator.js';
+import {
+  contractRequiresCyberspace,
+  normalizeContractContext,
+  normalizeObjective,
+} from './hub/Curator.js';
 import {
   migrateLegacyHubReveals,
   normalizeHubReveals,
@@ -97,6 +102,7 @@ import type { RelayNodeInit } from './entities/RelayNode.js';
 import type { ConsumablePickupInit } from './entities/ConsumablePickup.js';
 import type { EscortNpcInit } from './entities/EscortNpc.js';
 import type { KeyCardInit } from './entities/KeyCard.js';
+import type { JackInPointInit, JackInPointSnapshot } from './entities/JackInPoint.js';
 import type { EntityInit } from './Entity.js';
 import type { CampaignArc } from './Campaign.js';
 import type { FactionId } from './constants.js';
@@ -112,6 +118,7 @@ import type {
   ObjectiveTimerSnapshot,
   MapMemorySnapshot,
   ObjectiveProgressSnapshot,
+  CyberspaceState,
 } from './Run.js';
 import type { CrewSnapshot } from './Crew.js';
 import type { TechSnapshot } from './archetypes/Tech.js';
@@ -162,7 +169,8 @@ type RestoreEntityProps = Partial<
     ConsumablePickupInit &
     EscortNpcInit &
     KeyCardInit &
-    BreachingChargeInit
+    BreachingChargeInit &
+    JackInPointInit
 > & {
   id: string;
   x: number;
@@ -205,6 +213,7 @@ const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) =
       new ConsumablePickup(props as ConsumablePickupInit),
     'escort-npc': (props: RestoreEntityProps) => new EscortNpc(props as EscortNpcInit),
     keycard: (props: RestoreEntityProps) => new KeyCard(props as KeyCardInit),
+    'jack-in-point': (props: RestoreEntityProps) => new JackInPoint(props as JackInPointInit),
     'breaching-charge': (props: RestoreEntityProps) =>
       new BreachingCharge(props as BreachingChargeInit),
     // Generic fallback so a future `Entity` subclass (NPCs, items) doesn't break
@@ -337,6 +346,17 @@ function readTerminal(extra: EntitySnapshotExtra, id: string): TerminalSnapshot 
       `restore: terminal ${id} raisesAlarm must be boolean`
     ),
     unlocksId: (t.unlocksId as string | null | undefined) ?? null,
+  };
+}
+
+function readJackInPoint(extra: EntitySnapshotExtra, id: string): JackInPointSnapshot {
+  if (hasNoState(extra)) {
+    throw new TypeError(`restore: jack-in point entity ${id} requires jack-in state`);
+  }
+  const p = extra as Partial<JackInPointSnapshot>;
+  return {
+    label: requireString(p.label, `restore: jack-in point ${id} label must be a non-empty string`),
+    linked: requireBoolean(p.linked, `restore: jack-in point ${id} linked must be boolean`),
   };
 }
 
@@ -580,6 +600,17 @@ const ENTITY_RESTORE: Partial<Record<EntityArchetypeId, RestoreEntry>> = Object.
     buildProps(extra) {
       const r = extra as Partial<RelayNodeSnapshot>;
       return { label: typeof r.label === 'string' && r.label.length > 0 ? r.label : 'Relay node' };
+    },
+  },
+  'jack-in-point': {
+    buildProps(extra, rec) {
+      const p = readJackInPoint(extra, rec.id);
+      return { label: p.label, linked: p.linked };
+    },
+    apply(entity, _extra, rec) {
+      if (!(entity instanceof JackInPoint)) {
+        throw new Error(`restore: jack-in point entity ${rec.id} did not restore as JackInPoint`);
+      }
     },
   },
   terminal: {
@@ -906,6 +937,7 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
   run.rng = new Rng(record.rng.seed);
   run.rng.setState(record.rng.state);
   run.contract = normalizeContract(record.contract);
+  run.cyberspace = restoreCyberspace(record, run.contract !== null && contractRequiresCyberspace(run.contract));
   run.exitTile = record.exitTile ? { ...record.exitTile } : null;
   run.telemetry = { ...record.telemetry };
   run.objectiveTimer = normalizeObjectiveTimer(record.objectiveTimer);
@@ -959,6 +991,44 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
   }
 
   return { run, world: run.world, queue: run.queue, rng: run.rng, player: run.player };
+}
+
+/**
+ * P3.M3: rebuild the Cyberspace state machine from its snapshot block.
+ *
+ * Invariant (both directions): a contract with a Cyberspace component
+ * (`contractRequiresCyberspace`) carries a `cyberspace` block, and only such
+ * contracts do. Any mismatch, unknown phase, or payload smuggled onto the
+ * `dormant` phase is tier-1 corrupt state and throws. P3.M3.3 extends this
+ * with the `active` (grid + entities) and `resolved` (latch) phases.
+ */
+function restoreCyberspace(record: RunSnapshot, requiresCyberspace: boolean): CyberspaceState | null {
+  const block = record.cyberspace;
+  if (!requiresCyberspace) {
+    if (block !== undefined && block !== null) {
+      throw new Error(
+        'restore: cyberspace block present on a contract without a Cyberspace component'
+      );
+    }
+    return null;
+  }
+  if (block === undefined || block === null) {
+    throw new Error('restore: Cyberspace contract snapshot is missing its cyberspace block');
+  }
+  if (typeof block !== 'object' || Array.isArray(block)) {
+    throw new TypeError('restore: cyberspace block must be an object');
+  }
+  const phase = (block as { phase?: unknown }).phase;
+  if (phase === 'dormant') {
+    const payloadKeys = Object.keys(block).filter(key => key !== 'phase');
+    if (payloadKeys.length > 0) {
+      throw new Error(
+        `restore: dormant cyberspace block must carry no payload, got [${payloadKeys.join(', ')}]`
+      );
+    }
+    return { phase: 'dormant' };
+  }
+  throw new Error(`restore: unknown cyberspace phase "${String(phase)}"`);
 }
 
 export function restoreCampaign(record: unknown, options: RestoreCampaignOptions = {}): Campaign {

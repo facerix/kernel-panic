@@ -39,6 +39,12 @@ export const CALLSIGNS = Object.freeze([
 export class Decker extends Crew {
   override archetype = 'Decker';
 
+  /**
+   * P3.M3.2: capability sniffed by `JackInPoint.interact` — only an actor
+   * carrying a cyberdeck can open the digital layer.
+   */
+  readonly canJackIn = true;
+
   override get baseHitChance(): number {
     return 0.7;
   }

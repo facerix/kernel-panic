@@ -44,6 +44,8 @@ export const DENY_TARGET_GLYPH = '◆';
 export const SYNC_PAD_GLYPH = '§';
 export const ESCORT_NPC_GLYPH = 'A';
 export const KEYCARD_GLYPH = 'κ';
+/** P3.M3.2: the Meatspace door into Cyberspace. */
+export const JACK_IN_GLYPH = 'Ω';
 
 /** Numeric tile id — one of the `TILE` values. */
 export type TileId = (typeof TILE)[keyof typeof TILE];
