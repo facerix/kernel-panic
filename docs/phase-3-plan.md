@@ -142,6 +142,7 @@ Neural degradation is deferred until Cyberspace is fun enough to deserve a jack-
 | **P3.M1.5 Clock** | ✅ Done | Act 2/3 deploy-driven heat + deadline; `clock-reveal`; HUD gated on briefing; clock loss game-over screen | heat math, grace deploys, deadline loss, endReason |
 | **P3.M1.6 Curator bias** | ✅ Done | Pass campaign-derived arc context; bias board slots by act and score target's principal | seeded boards show expected `arcStage` and same-principal frequency in Act 2+ |
 | **P3.M1.7 Score entry** | ✅ Done | Hub action creates the special Score contract in Act 3 only | availability gates, deployment path, attempted flag |
+| **P3.M1.8 Game Over component** | ✅ Done | Dedicated component, separate from CrashDump, to be shown when Score window closes or crew are all flatlined |
 
 **P3.M1.1 implementation note:** `Campaign` now owns a typed `arc` record (`arcStage`, `deckerRecruited`, `scoreRevealed`, `clockStarted`, `scoreAttempted`, `scoreCompleted`) plus an `arcStage` getter for Curator context. New snapshots serialize the record; pre-P3 snapshots normalize to Act 1; malformed persisted arc data throws during restore instead of being silently repaired.
 
