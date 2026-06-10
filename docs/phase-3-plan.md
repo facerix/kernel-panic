@@ -170,7 +170,7 @@ Neural degradation is deferred until Cyberspace is fun enough to deserve a jack-
 
 ---
 
-### P3.M2 — The Decker archetype 🔲
+### P3.M2 — The Decker archetype ✅
 
 **Depends on:** P3.M1 (arc structure for recruitment gating). Can develop archetype mechanics in parallel, but recruitment integration requires arc state.
 
@@ -261,16 +261,16 @@ The first jack-in should prove the door between layers before shipping every ICE
 **Scope:**
 
 - **Dual-deploy:** On contracts with a Cyberspace component, the player selects two operators: one for Meatspace, one (the Decker) for Cyberspace. Both are placed on their respective grids at mission start (Meatspace operator at spawn, Decker at the jack-in terminal's Cyberspace entry node).
-  - **Pre–jack-in phase:** Both operators start in Meatspace. The Meatspace operator moves and acts normally. The Decker must reach a terminal and jack in (P2.5.M2.2 interact) to activate Cyberspace. Until jack-in, this is a normal single-grid mission.
-  - **Post–jack-in:** Cyberspace grid spawns. Flip mechanic activates. Decker's Meatspace body remains at the terminal — vulnerable, immobile, and targetable by corp hostiles (blueprint: "your physical body is a vegetable").
+  - **Pre–jack-in phase:** The Decker starts in Meatspace, where they move and act normally. The player must reach a terminal and jack in (P2.5.M2.2 interact) to activate Cyberspace. Until jack-in, this is a normal single-grid mission.
+  - **Post–jack-in:** Cyberspace grid spawns. Flip mechanic activates. Decker's Meatspace body remains at the terminal — vulnerable, immobile, and targetable by corp hostiles (blueprint: "your physical body is a vegetable"). Secondary operator now enters the Meatspace grid.
 - **The flip:** Switch active control between Meatspace operator and Decker. Active operator receives player input (move, attack, interact). Inactive operator holds position.
   - Cost: **free action** for the first implementation. AP cost can be revisited after playtesting, but the first version should make the new mental model easy to explore.
   - Can flip at any point during the active operator's turn (before or after spending AP).
 - **Turn structure:** Player turn → flip as desired → end turn → **both layers' hostile phases resolve** (corp drones move in Meatspace, ICE moves in Cyberspace). Both layers tick simultaneously.
 - **PIP / CCTV window:** The inactive layer renders in a small overlay (bottom right corner of the screen). Shows grid state, hostile positions, the other operator's status. Read-only — no input accepted in the PIP. The blueprint's "real-time CCTV showing your physical body's status" becomes this.
-- **Vulnerability:** While the Decker is jacked in, their Meatspace body is a valid target for corp hostiles. If the body is destroyed, the Decker is killed (flatline) and Cyberspace access is lost. The Meatspace operator's implicit job is to **protect the Decker's body** — or at least keep hostiles away from the terminal.
+- **Vulnerability:** While the Decker is jacked in, their Meatspace body is a valid target for corp hostiles. If the body is destroyed, the Decker is killed (flatline) and Cyberspace access is lost. The Meatspace operator's explicit job is to **protect the Decker's body** — or at least keep hostiles away from the terminal.
 - **Jack-out:** The Decker can voluntarily jack out (returns control to single-grid Meatspace). Or is forced out if their body takes critical damage. Jack-out despawns the Cyberspace grid (any unsatisfied Cyberspace objectives fail).
-- **Contracts without Cyberspace:** Single-deploy as today. The Decker deploys solo in Meatspace (no flip, no Cyberspace grid). Their drone override hack is their primary value.
+- **Contracts without Cyberspace:** Single-deploy as today. The Decker deploys solo in Meatspace (no flip, no Cyberspace grid). Their drone override hack is their primary value, but if they're flatlined, the campaign is over - no new Deckers can be recruited.
 - **Save invariant:** A run may be single-layer, pre-jack dual-deploy, or active dual-layer. Those states must be explicit. A save with `cyberspace.active = true` but no cyber grid/avatar, or with a Decker marked jacked-in but no Meatspace body anchor, is corrupt and must throw.
 
 **Integration slices:**
