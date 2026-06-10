@@ -31,7 +31,7 @@ Commits land **per green slice** (user-approved).
 |---|---|---|
 | **S1 — P3.M3.1 Contract flag + gates** | ✅ Done | `f436330` |
 | **S2 — P3.M3.2 Jack-in terminal** | ✅ Done | `05013f6` |
-| **S3 — P3.M3.3 Cyber layer model + avatar + persistence** | 🔨 In progress (research done, no code yet) | — |
+| **S3 — P3.M3.3 Cyber layer model + avatar + persistence** | ✅ Done | `39b357e` |
 | **S4 — P3.M3.4 Data node objective** | 🔲 Planned | — |
 | **S5 — Voluntary jack-out (M4.6 pull-forward)** | 🔲 Planned | — |
 | **S6 — P3.M3.5 Probe ICE** | 🔲 Planned | — |
@@ -98,6 +98,68 @@ Commits land **per green slice** (user-approved).
 - Tests: `tests/unit/game/jackInPoint.test.ts` (12 tests — interact behavior,
   placement determinism, round-trip, adversarial restore throws).
 
+### S3 implementation notes (shipped)
+
+- `src/game/cyber/cyberMapBuild.ts` — `buildCyberMap({rng, difficulty})`:
+  spanning random walk over a 4×2 cell lattice (29×15 grid), square rooms
+  (3–6) centered per cell, L-corridors along walk edges, clockwise perimeter
+  patrol rings. Node count by difficulty: standard 5 / elevated 6 / critical 8
+  (unknown difficulty throws). `entryTile` = entry room center;
+  **deviation: returns `portTile`** (Chebyshev-1 from entry) so layer build
+  doesn't re-derive placement. Connectivity flood
+  (`explorationReachableKeys`) validates every node + port reachable; throws
+  otherwise. Returned `nodeTiles`/`patrolRings` exclude the entry node.
+- `src/game/cyber/CyberAvatar.ts` — `Entity` subclass: `maxHp = ram`,
+  `damageReduction = iceResistance` (0 is legal), `intrusionStrength`,
+  `callsign`, maxAp 4, `baseHitChance` 0.8 (sniffed by `Combat.resolveRanged`
+  — zero combat changes needed). **Deviation: capability flag is
+  `readonly isCyberAvatar = true`**, not the planned `intrusionStrength`
+  sniff — the Decker now carries `intrusionStrength` too, so the stat sniff
+  would have let the meat body use cyber interactables.
+- `src/game/cyber/EntryPort.ts` — avatar-only interact (`'not-an-avatar'`
+  refusal), spends interact AP, emits `EVENT.JACK_OUT` once. Deliberately
+  does **not** latch — the resolve latch lives on `Run.cyberspace`.
+- `src/game/cyber/CyberspaceLayer.ts` — own bus + `World`;
+  `static build({contractSeed, difficulty, decker})` forks
+  `new Rng(contractSeed).fork('cyberspace')` (layout independent of jack-in
+  turn — regression-tested); plain ctor used by restore (restored layers have
+  empty `nodeTiles`/`patrolRings` — those are build-time spawn anchors only);
+  `onTurnEnded(next)` refreshes incoming-faction AP + ticks cyber alarm on
+  PLAYER; `recordSeen` bounds-validates (throws); `teardown()` unbinds patrol
+  hostiles (S6 seam). **Deviation: no `layer.snapshot()`** — serialization
+  lives in Run's `snapshotCyberspace` beside the entity extractor registry.
+- `Run.ts` — `CyberspaceState` active/resolved arms;
+  `cyberActive`/`activeWorld`/`activeActor` accessors (shell seam for S7);
+  `jackIn(point)` throws unless COMBAT + cyber contract + dormant + linked
+  `JackInPoint` + Decker player; `jackOut()` latches
+  `objectiveComplete: false` (**TODO(P3.M3.4)**: real value once nodes
+  exist); both autosave explicitly. `#onTurnEnded` now consumes the `{next}`
+  payload (throws if absent) and forwards to the layer before autosave. Cyber
+  `ENTITY_DAMAGED` listener mirrors the meat player-death handler — avatar
+  killed → telemetry cause → `enterResult(DEATH)` → existing flatline path
+  (scope decision #3).
+- `persistence.ts` — `restoreCyberspace` per-phase **allowed-keys checks**
+  (cross-phase payload smuggling throws); active block validates grid dims +
+  FLOOR/WALL-only tile values, entryTile in-bounds/passable, alarm,
+  mapMemory; entities restored via `restoreEntity(rec, grid)` against the
+  **cyber** grid; exactly one avatar and one port (duplicates throw).
+  **Deviation: a dead avatar is legal when `record.state !== COMBAT`** — a
+  RESULT-state death snapshot legitimately carries one; alive required only
+  for COMBAT records. **Deviation: no `seed` field in the active block** —
+  the serialized grid is authoritative. Decker cyber stats round-trip through
+  both crew paths (`CampaignCrewSnapshot.cyber?` + run-entity `decker`
+  extra): all-absent → `DECKER_BASE_*` defaults (legacy saves),
+  half-populated/malformed → throw, `cyber` on a non-decker throws.
+- `Decker.ts`/`constants.ts` — `ram` 8 / `intrusionStrength` 2 /
+  `iceResistance` 1 base constants, validated mutable fields (scope
+  decision #4).
+- Tests: 49 across `tests/unit/game/cyber/` — `cyberMapBuild.test.ts` (8),
+  `CyberspaceLayer.test.ts` (11), `runJackIn.test.ts` (10),
+  `cyberPersistence.test.ts` (20, the adversarial heart). Failing-first
+  verified; full suite 1604 green.
+- Playtest note (pre-S7): jack-in flips state internally but the shell still
+  renders Meatspace until the S7 render/input swap — expected, not a bug.
+
 ## Architecture decisions (approved plan)
 
 ### Cyber layer model — `CyberspaceLayer` owned by `Run`, single `TurnQueue`, both worlds tick
@@ -108,8 +170,8 @@ New `src/game/cyber/CyberspaceLayer.ts`: owns its own `EventBus`, `World`
 ```ts
 type CyberspaceState =
   | { phase: 'dormant' }                                // shipped (S2)
-  | { phase: 'active'; layer: CyberspaceLayer }         // S3
-  | { phase: 'resolved'; objectiveComplete: boolean };  // S3/S5
+  | { phase: 'active'; layer: CyberspaceLayer }         // shipped (S3)
+  | { phase: 'resolved'; objectiveComplete: boolean };  // shipped (S3); S5 finalizes
 Run.cyberspace: CyberspaceState | null;                 // null ⇔ no cyber component
 ```
 
@@ -277,7 +339,7 @@ subset; all throws, `restoreOverrideState` style):
   while jacked in — single queue); `jackIn`/`jackOut` call `onPersist`
   explicitly.
 
-## S3 detailed worklist (next up — research complete, no code yet)
+## S3 detailed worklist (shipped in `39b357e` — see implementation notes above for deviations)
 
 **Create:**
 - `src/game/cyber/cyberMapBuild.ts` — `buildCyberMap({rng, difficulty})` per
