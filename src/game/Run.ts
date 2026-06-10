@@ -1798,9 +1798,7 @@ const SNAPSHOT_EXTRACTORS: Partial<Record<EntityArchetypeId, (e: Entity) => Enti
  */
 function snapshotCyberspace(state: CyberspaceState): RunCyberspaceSnapshot {
   if (state.phase === 'dormant') return { phase: 'dormant' };
-  throw new Error(
-    `Run.snapshot: unknown cyberspace phase "${(state as { phase: string }).phase}"`
-  );
+  throw new Error(`Run.snapshot: unknown cyberspace phase "${(state as { phase: string }).phase}"`);
 }
 
 function snapshotEntity(entity: Entity): RunEntitySnapshot {

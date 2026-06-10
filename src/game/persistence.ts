@@ -937,7 +937,10 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
   run.rng = new Rng(record.rng.seed);
   run.rng.setState(record.rng.state);
   run.contract = normalizeContract(record.contract);
-  run.cyberspace = restoreCyberspace(record, run.contract !== null && contractRequiresCyberspace(run.contract));
+  run.cyberspace = restoreCyberspace(
+    record,
+    run.contract !== null && contractRequiresCyberspace(run.contract)
+  );
   run.exitTile = record.exitTile ? { ...record.exitTile } : null;
   run.telemetry = { ...record.telemetry };
   run.objectiveTimer = normalizeObjectiveTimer(record.objectiveTimer);
@@ -1002,7 +1005,10 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
  * `dormant` phase is tier-1 corrupt state and throws. P3.M3.3 extends this
  * with the `active` (grid + entities) and `resolved` (latch) phases.
  */
-function restoreCyberspace(record: RunSnapshot, requiresCyberspace: boolean): CyberspaceState | null {
+function restoreCyberspace(
+  record: RunSnapshot,
+  requiresCyberspace: boolean
+): CyberspaceState | null {
   const block = record.cyberspace;
   if (!requiresCyberspace) {
     if (block !== undefined && block !== null) {

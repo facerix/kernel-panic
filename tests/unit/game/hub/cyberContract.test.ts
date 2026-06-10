@@ -73,10 +73,7 @@ test('normalizeObjective throws on data-node-slice without requiresCyberspace', 
 });
 
 test('normalizeObjective throws on data-node-slice with a malformed count', () => {
-  assert.throws(
-    () => normalizeObjective(cyberObjective({ requiresCyberspace: true })),
-    /count/
-  );
+  assert.throws(() => normalizeObjective(cyberObjective({ requiresCyberspace: true })), /count/);
   assert.throws(
     () => normalizeObjective(cyberObjective({ requiresCyberspace: true, count: 0 })),
     /count/

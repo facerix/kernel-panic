@@ -710,7 +710,10 @@ export function normalizeObjective(value: unknown): ContractObjective {
  * other kind may carry the flag. Validated at generation, at
  * `Run.enterBriefing`, and on snapshot restore (all call `normalizeObjective`).
  */
-function validateCyberspaceObjective(kind: ObjectiveKind, params: ObjectiveParams | undefined): void {
+function validateCyberspaceObjective(
+  kind: ObjectiveKind,
+  params: ObjectiveParams | undefined
+): void {
   if (kind === OBJECTIVES.DATA_NODE_SLICE) {
     if (params?.requiresCyberspace !== true) {
       throw new Error(
