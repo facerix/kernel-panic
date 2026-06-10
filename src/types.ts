@@ -144,6 +144,13 @@ export type JuggernautTurnStep =
 /** Flanker SLIDE — a silent two-tile reposition that vanishes from player view. */
 export type FlankerTurnStep = { type: 'slide'; to: GridPoint };
 
+/**
+ * Probe ICE trace flare (P3.M3.5) — yielded the moment a probe's acquisition
+ * actually raises the cyber alarm (the raise self-gates while already ALERT),
+ * dragging every listening probe onto the avatar.
+ */
+export type ProbeIceTurnStep = { type: 'trace-alarm'; target: string };
+
 /** NeutralCivilian aftermath steps — yielded during the player aftermath phase. */
 export type NeutralCivilianTurnStep =
   | { type: 'neutral-idle' }
@@ -164,6 +171,7 @@ export type TurnActionStep =
   | SniperTurnStep
   | JuggernautTurnStep
   | FlankerTurnStep
+  | ProbeIceTurnStep
   | NeutralCivilianTurnStep;
 
 /**

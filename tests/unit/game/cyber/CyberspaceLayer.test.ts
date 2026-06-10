@@ -70,12 +70,18 @@ test('build spawns the avatar at the entry tile with stats from the Decker', () 
   assert.equal(avatar.baseHitChance, CYBER_AVATAR_HIT_CHANCE);
 });
 
-test('the cyber world contains exactly the avatar, the exit port, and the nodes', () => {
+test('the cyber world census: avatar, exit port, nodes, ring probes', () => {
   const layer = buildLayer();
   const entities = Array.from(layer.world.entities.values());
   assert.equal(entities.filter(e => e instanceof CyberAvatar).length, 1);
   assert.equal(entities.filter(e => e instanceof EntryPort).length, 1);
-  assert.equal(entities.length, 3, 'avatar + port + the contract data node (P3.M3.4)');
+  assert.equal(
+    entities.length,
+    // avatar + port + the contract data node (P3.M3.4) + one Probe per
+    // patrol ring (P3.M3.5).
+    3 + layer.patrolRings.length,
+    'no surprise entities on the cyber grid'
+  );
   const cheb = Math.max(
     Math.abs(layer.port.x - layer.avatar.x),
     Math.abs(layer.port.y - layer.avatar.y)

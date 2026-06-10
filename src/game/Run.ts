@@ -83,6 +83,7 @@ import { CyberspaceLayer } from './cyber/CyberspaceLayer.js';
 import { CyberAvatar } from './cyber/CyberAvatar.js';
 import { EntryPort } from './cyber/EntryPort.js';
 import { DataNode } from './cyber/DataNode.js';
+import { ProbeIce } from './cyber/ProbeIce.js';
 import { applyMutationDeltas } from './locations.js';
 import { BreachingCharge } from './entities/BreachingCharge.js';
 import { ITEM_ID, getItemById } from './items.js';
@@ -180,6 +181,7 @@ export type EntityArchetypeId =
   | 'cyber-avatar'
   | 'entry-port'
   | 'data-node'
+  | 'probe-ice'
   | 'entity';
 
 export type RunTelemetry = {
@@ -224,6 +226,8 @@ export const PATROL_ARCHETYPE_IDS = Object.freeze([
   'lookout',
   'sniper',
   'medic',
+  // P3.M3.5: Probe ICE shares the identical patrol state-machine block.
+  'probe-ice',
 ] as const);
 
 export type PatrolArchetypeId = (typeof PATROL_ARCHETYPE_IDS)[number];
@@ -2044,6 +2048,7 @@ const SNAPSHOT_EXTRACTORS: Partial<Record<EntityArchetypeId, (e: Entity) => Enti
         sliceProgress: n.sliceProgress,
       } satisfies DataNodeSnapshot;
     },
+    'probe-ice': e => patrolSnapshotExtra(e as PatrolHostile),
   };
 
 /**
@@ -2133,6 +2138,7 @@ function archetypeOf(entity: Entity): EntityArchetypeId {
   if (entity instanceof CyberAvatar) return 'cyber-avatar';
   if (entity instanceof EntryPort) return 'entry-port';
   if (entity instanceof DataNode) return 'data-node';
+  if (entity instanceof ProbeIce) return 'probe-ice';
   if (entity instanceof BreachingCharge) return 'breaching-charge';
   if (entity instanceof Entity) return 'entity';
   throw new Error(`archetypeOf: cannot classify entity ${(entity as Entity | undefined)?.id}`);

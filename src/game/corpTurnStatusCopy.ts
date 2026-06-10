@@ -223,6 +223,11 @@ export function formatCorpTurnStep(
       return `${actorLabel} abandons pursuit — resuming patrol.`;
     case 'alarm':
       return `${actorLabel} trips the facility alarm — corp net hot.`;
+    case 'trace-alarm': {
+      // P3.M3.5: Probe ICE trace flare on the cyber grid.
+      const targetLabel = resolve(step.target);
+      return `${actorLabel} flares a trace on ${targetLabel} — ICE converging.`;
+    }
     case 'spot': {
       const targetLabel = resolve(step.target);
       return `${actorLabel} marks ${targetLabel} — fire converging on your position.`;

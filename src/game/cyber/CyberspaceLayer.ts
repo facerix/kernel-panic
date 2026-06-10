@@ -26,6 +26,7 @@ import { buildCyberMap } from './cyberMapBuild.js';
 import { CyberAvatar } from './CyberAvatar.js';
 import { EntryPort } from './EntryPort.js';
 import { DataNode, sliceDifficultyFor } from './DataNode.js';
+import { ProbeIce } from './ProbeIce.js';
 import { PatrolHostile } from '../ai/PatrolHostile.js';
 import { FACTION, type ContractDifficulty, type FactionId } from '../constants.js';
 import { coordKey } from '../mapConnectivity.js';
@@ -159,6 +160,21 @@ export class CyberspaceLayer {
         })
       );
     }
+    // P3.M3.5: one Probe per patrol ring, spawned at a seed-picked ring tile
+    // (the rng has fully determined the map by here, so this stays a pure
+    // function of the contract seed). Probes bind to the layer bus at build —
+    // the restore path re-binds via `restoreCyberspaceLayer`.
+    map.patrolRings.forEach((ring, i) => {
+      const spawn = ring[rng.intRange(0, ring.length)];
+      const probe = new ProbeIce({
+        id: `probe-ice-${i}`,
+        x: spawn.x,
+        y: spawn.y,
+        patrolWaypoints: ring,
+      });
+      world.addEntity(probe);
+      probe.bindToBus(bus);
+    });
     return new CyberspaceLayer({
       bus,
       world,

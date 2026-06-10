@@ -81,6 +81,8 @@ import type { CyberAvatarInit, CyberAvatarSnapshot } from './cyber/CyberAvatar.j
 import type { EntryPortInit, EntryPortSnapshot } from './cyber/EntryPort.js';
 import { DataNode } from './cyber/DataNode.js';
 import type { DataNodeInit, DataNodeSnapshot } from './cyber/DataNode.js';
+import { ProbeIce } from './cyber/ProbeIce.js';
+import type { ProbeIceProps } from './cyber/ProbeIce.js';
 import type { DeckerInit, DeckerSnapshot } from './archetypes/Decker.js';
 import { Run, RUN_STATE, PATROL_ARCHETYPE_IDS } from './Run.js';
 import { Campaign, CAMPAIGN_STATE, normalizeCampaignArc } from './Campaign.js';
@@ -229,6 +231,7 @@ const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) =
     'cyber-avatar': (props: RestoreEntityProps) => new CyberAvatar(props as CyberAvatarInit),
     'entry-port': (props: RestoreEntityProps) => new EntryPort(props as EntryPortInit),
     'data-node': (props: RestoreEntityProps) => new DataNode(props as DataNodeInit),
+    'probe-ice': (props: RestoreEntityProps) => new ProbeIce(props as ProbeIceProps),
     'breaching-charge': (props: RestoreEntityProps) =>
       new BreachingCharge(props as BreachingChargeInit),
     // Generic fallback so a future `Entity` subclass (NPCs, items) doesn't break
