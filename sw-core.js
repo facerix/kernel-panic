@@ -30,6 +30,7 @@ const CacheConfig = {
       '/components/CuratorBriefing.js',
       '/components/ContractSelect.js',
       '/components/CrashDump.js',
+      '/components/GameOver.js',
       '/components/FaultScreen.js',
       '/components/CrewList.js',
       '/components/CrewRoster.js',

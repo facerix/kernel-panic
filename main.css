@@ -354,6 +354,7 @@ main {
 
 .game-stage > run-briefing,
 .game-stage > crash-dump,
+.game-stage > game-over,
 .game-stage > fault-screen,
 .game-stage > system-start,
 .game-stage > curator-briefing {

@@ -2,8 +2,8 @@
  * <fault-screen> — the top-level error boundary's user-facing surface.
  *
  * This is deliberately **non-diegetic**, and that distinction matters. The
- * sibling `<crash-dump>` is in-fiction: a faux "KERNEL PANIC" stack trace shown
- * when your operator *dies* — a normal, authored game outcome. Routing a real
+ * sibling `<crash-dump>` / `<game-over>` are in-fiction: per-job debrief and
+ * terminal campaign loss — normal, authored game outcomes. Routing a real
  * software bug through that screen would disguise the bug as an in-universe
  * death (the player shrugs and hits "new run"), which is exactly the silent
  * failure the project's error doctrine forbids (see `AGENTS.md` → "Error

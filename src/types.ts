@@ -241,17 +241,30 @@ export type LocationSite = {
   site?: LocationToken;
 };
 
+export type GameOverCrewStub = { callsign: string; archetype: string; flatlined: boolean };
+
+/** Terminal campaign loss — crew wipe, clock deadline, or last-operator death. */
+export type GameOverTelemetry = {
+  campaignEndReason?: Exclude<CampaignEndReason, 'score-complete'>;
+  campaignTerminal?: boolean;
+  crewRoster?: GameOverCrewStub[];
+  salvage?: import('./game/salvage.js').TypedSalvage;
+  seed?: number;
+  cause?: string | null;
+  archetype?: string;
+};
+
 export type Telemetry = {
   outcome: 'death' | 'exit' | 'campaign-over';
   campaignEndReason?: CampaignEndReason;
   campaignTerminal?: boolean;
-  crewRoster?: { callsign: string; archetype: string; flatlined: boolean }[];
+  crewRoster?: GameOverCrewStub[];
   /** Typed-salvage wallet snapshot at the moment the run/campaign ends. */
   salvage?: import('./game/salvage.js').TypedSalvage;
   archetype?: string;
   turn?: number;
   kills?: number;
-  cause?: string;
+  cause?: string | null;
   seed?: number;
   hpAtDeath?: number | null;
   hpAtDamage?: number | null;

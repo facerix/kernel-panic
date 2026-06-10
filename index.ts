@@ -93,7 +93,7 @@ import type { Intent } from '/src/input/applyIntent.js';
 import type { AimKind, Mode } from '/src/input/keymap.js';
 import { formatCombatHudA11ySummary } from '/src/render/combatHud.js';
 import type { CombatHudSummaryInput } from '/src/render/combatHud.js';
-import type { KeyItem, Telemetry, TurnActionStep } from '/src/types.js';
+import type { GameOverTelemetry, KeyItem, Telemetry, TurnActionStep } from '/src/types.js';
 import { installErrorBoundary, type FaultSignal } from '/src/errorBoundary.js';
 import { isDevelopmentMode } from '/src/domUtils.js';
 
@@ -103,6 +103,7 @@ import '/components/TouchPad.js';
 import '/components/ContractSelect.js';
 import '/components/RunBriefing.js';
 import '/components/CrashDump.js';
+import '/components/GameOver.js';
 import '/components/FaultScreen.js';
 import '/components/SystemStart.js';
 import '/components/CuratorBriefing.js';
@@ -139,7 +140,10 @@ type ContractSelectElement = ModalElement & {
   setScorePrincipalId(principalId: string | null): void;
 };
 type CrashDumpElement = ModalElement & {
-  setTelemetry(telemetry: Record<string, unknown>): void;
+  setTelemetry(telemetry: Telemetry): void;
+};
+type GameOverElement = ModalElement & {
+  setTelemetry(telemetry: GameOverTelemetry): void;
 };
 type FaultScreenElement = ModalElement & {
   show(detail: { code?: string }): void;
@@ -259,6 +263,9 @@ let stageEl: HTMLElement;
 let briefingEl: RunBriefingElement;
 let contractSelectEl: ContractSelectElement;
 let crashEl: CrashDumpElement;
+let gameOverEl: GameOverElement;
+/** Which overlay owns `RUN_STATE.RESULT` — set in `pushPendingJobResultOverlay`. */
+let resultOverlayTarget: 'crash' | 'game-over' = 'crash';
 let faultEl: FaultScreenElement;
 let systemStartEl: SystemStartElement;
 let curatorBriefingEl: CuratorBriefingElement;
@@ -427,6 +434,7 @@ async function boot() {
   contractSelectEl = mustGetElement<ContractSelectElement>('contract-select');
   briefingEl = mustGetElement<RunBriefingElement>('briefing');
   crashEl = mustGetElement<CrashDumpElement>('crash');
+  gameOverEl = mustGetElement<GameOverElement>('game-over');
   faultEl = mustGetElement<FaultScreenElement>('fault-screen');
   systemStartEl = mustGetElement<SystemStartElement>('system-start');
   curatorBriefingEl = mustGetElement<CuratorBriefingElement>('curator-briefing');
@@ -470,6 +478,7 @@ async function boot() {
   briefingEl.addEventListener('deploy', onBriefingDeploy);
   briefingEl.addEventListener('dismiss', onBriefingDismiss);
   crashEl.addEventListener('new-run', onNewRunRequested);
+  gameOverEl.addEventListener('new-run', onNewRunRequested);
   faultEl.addEventListener('return-to-hub', () => onFaultReturnToHub());
   systemStartEl.addEventListener('hub-enter', onSystemStartHubEnter);
   curatorBriefingEl.addEventListener('dismiss', onCuratorBriefingDismiss);
@@ -601,10 +610,15 @@ function onInitialRecruited(evt: Event) {
   flash(`CURATOR: ${names} on the board. Find me when you want work.`);
 }
 
+function hideResultOverlays(): void {
+  crashEl?.hide();
+  gameOverEl?.hide();
+}
+
 function hideBlockingShellModals(): void {
   keyHelpEl?.hide();
   briefingEl?.hide();
-  crashEl?.hide();
+  hideResultOverlays();
   contractSelectEl?.hide();
   systemStartEl?.hide();
   curatorBriefingEl?.hide();
@@ -1158,6 +1172,14 @@ function crewMemberArchetypeId(member: Crew): string {
   return 'op';
 }
 
+function crewRosterStubs(c: Campaign) {
+  return c.crew.map(member => ({
+    callsign: member.callsign ?? member.id,
+    archetype: crewMemberArchetypeId(member),
+    flatlined: !!member.flatlined,
+  }));
+}
+
 function telemetryForEndedCampaign(c: Campaign): Telemetry {
   const reason = c.endReason ?? 'crew-wipe';
   return {
@@ -1165,16 +1187,33 @@ function telemetryForEndedCampaign(c: Campaign): Telemetry {
     campaignEndReason: reason,
     seed: c.seed,
     salvage: c.salvage,
-    crewRoster: c.crew.map(member => ({
-      callsign: member.callsign ?? member.id,
-      archetype: crewMemberArchetypeId(member),
-      flatlined: !!member.flatlined,
-    })),
+    crewRoster: crewRosterStubs(c),
   };
 }
 
+function gameOverTelemetryForCampaign(c: Campaign): GameOverTelemetry {
+  const reason = c.endReason ?? 'crew-wipe';
+  if (reason === 'score-complete') {
+    throw new Error('[shell] score-complete is a win debrief, not game over');
+  }
+  return {
+    campaignEndReason: reason,
+    seed: c.seed,
+    salvage: c.salvage,
+    crewRoster: crewRosterStubs(c),
+  };
+}
+
+function presentEndedCampaignOverlay(c: Campaign): void {
+  if (c.endReason === 'score-complete') {
+    crashEl.setTelemetry(telemetryForEndedCampaign(c));
+  } else {
+    gameOverEl.setTelemetry(gameOverTelemetryForCampaign(c));
+  }
+}
+
 function presentCampaignEnd(c: Campaign): void {
-  crashEl.setTelemetry(telemetryForEndedCampaign(c));
+  presentEndedCampaignOverlay(c);
   renderShell();
 }
 
@@ -1184,9 +1223,9 @@ function finishEndedCampaign(): void {
 }
 
 /**
- * Drives `<crash-dump>` and `pendingJobResult` whenever the active job is in
+ * Drives result overlays and `pendingJobResult` whenever the active job is in
  * RESULT — both from a live `Run.onResult` callback and from a cold resume
- * (otherwise `renderShell` opens the overlay with no `setTelemetry` call).
+ * (otherwise `renderShell` opens an overlay with no `setTelemetry` call).
  */
 function pushPendingJobResultOverlay(telemetry: Partial<RunTelemetry> & { outcome?: unknown }) {
   const tel = { ...telemetry };
@@ -1200,11 +1239,29 @@ function pushPendingJobResultOverlay(telemetry: Partial<RunTelemetry> & { outcom
   };
   const campaignTerminal =
     outcome === 'death' && campaign ? willEndCampaignOnThisDeath(campaign) : false;
-  crashEl.setTelemetry({
-    ...tel,
-    outcome,
-    campaignTerminal,
-  });
+  if (campaignTerminal && campaign) {
+    const activeCampaign = campaign;
+    const deployedId = activeCampaign.deployedMemberId;
+    resultOverlayTarget = 'game-over';
+    gameOverEl.setTelemetry({
+      campaignTerminal: true,
+      seed: tel.seed,
+      cause: tel.cause,
+      archetype: tel.archetype,
+      crewRoster: activeCampaign.crew.map(member => ({
+        callsign: member.callsign ?? member.id,
+        archetype: crewMemberArchetypeId(member),
+        flatlined: !!member.flatlined || member.id === deployedId,
+      })),
+    });
+  } else {
+    resultOverlayTarget = 'crash';
+    crashEl.setTelemetry({
+      ...tel,
+      outcome,
+      cause: tel.cause ?? undefined,
+    });
+  }
 }
 
 function handleResult({ outcome, telemetry }: RunResult) {
@@ -1243,7 +1300,7 @@ function resumeCampaign(record: CampaignSnapshot | unknown) {
     const resumeFlashMessage = `RESUMED — crew ${campaign.crew.filter(member => !member.flatlined).length} active.`;
     if (campaign.state === CAMPAIGN_STATE.ENDED) {
       pendingJobResult = null;
-      crashEl.setTelemetry(telemetryForEndedCampaign(campaign));
+      presentEndedCampaignOverlay(campaign);
       flash(
         campaign.endReason === 'clock-expired'
           ? 'WINDOW CLOSED — Score contract went cold.'
@@ -1296,13 +1353,14 @@ function performQuitCampaign(): void {
   if (!campaign) return;
   keyHelpEl.hide();
   briefingEl.hide();
-  crashEl.hide();
+  hideResultOverlays();
   crewRosterEl.hide();
   finnShopEl.hide();
   clinicModalEl.hide();
   itemInventoryEl.hide();
 
   pendingJobResult = null;
+  resultOverlayTarget = 'crash';
   dataStore.deleteCampaign();
   startFreshCampaign();
   flash('Campaign deleted — new campaign.');
@@ -1838,7 +1896,7 @@ function onNewRunRequested(): void {
     finishEndedCampaign();
     return;
   }
-  crashEl.hide();
+  hideResultOverlays();
   attachVisionListener();
   attachAnimationListeners();
   attachRepListeners();
@@ -1988,7 +2046,7 @@ function renderShell(): void {
     case RUN_STATE.COMBAT:
       canvas.hidden = false;
       briefingEl.hide();
-      crashEl.hide();
+      hideResultOverlays();
       break;
     case RUN_STATE.BRIEFING:
       // The combined briefing modal handles its own show/hide. If we land
@@ -2003,17 +2061,29 @@ function renderShell(): void {
         briefingEl.setCrew(campaign.crew);
         briefingEl.show();
       }
-      crashEl.hide();
+      hideResultOverlays();
       break;
     case RUN_STATE.RESULT:
       canvas.hidden = true;
       briefingEl.hide();
-      crashEl.show();
+      if (resultOverlayTarget === 'game-over') {
+        crashEl.hide();
+        gameOverEl.show();
+      } else {
+        gameOverEl.hide();
+        crashEl.show();
+      }
       break;
     case CAMPAIGN_STATE.ENDED:
       canvas.hidden = true;
       briefingEl.hide();
-      crashEl.show();
+      if (campaign.endReason === 'score-complete') {
+        gameOverEl.hide();
+        crashEl.show();
+      } else {
+        crashEl.hide();
+        gameOverEl.show();
+      }
       break;
     default:
       throw new Error(`[shell] unknown state "${state}"`);
@@ -2480,6 +2550,7 @@ function isAnyBlockingModalOpen(): boolean {
   if (contractSelectEl?.isOpen) return true;
   if (briefingEl?.isOpen) return true;
   if (crashEl?.isOpen) return true;
+  if (gameOverEl?.isOpen) return true;
   if (systemStartEl?.isOpen) return true;
   if (curatorBriefingEl?.isOpen) return true;
   if (initialRecruitEl?.isOpen) return true;
