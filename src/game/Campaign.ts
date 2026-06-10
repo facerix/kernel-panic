@@ -21,7 +21,7 @@ import {
   type TypedSalvage,
 } from './salvage.js';
 import { buildCrewMember, RECRUIT_ARCHETYPE_POOL } from './archetypes/index.js';
-import { CONTRACT_LEXICON, Curator } from './hub/Curator.js';
+import { CONTRACT_LEXICON, Curator, contractRequiresCyberspace } from './hub/Curator.js';
 import { OBJECTIVES } from './hub/Curator.js';
 import { Terminal } from './hub/Terminal.js';
 import { Finn } from './hub/Finn.js';
@@ -321,6 +321,15 @@ export class Campaign {
     return Math.max(0, this.clockJobsTaken - CLOCK_ACT2_GRACE_JOBS);
   }
 
+  /**
+   * P3.M3.1: whether the roster carries a non-flatlined Decker. Gates
+   * Cyberspace-capable contract generation (`Curator` reads this through the
+   * `ContractCampaign` surface) and is the precondition for jack-in.
+   */
+  get hasLivingDecker(): boolean {
+    return this.crew.some(member => member.archetype === 'Decker' && !member.flatlined);
+  }
+
   get scoreDeadlineJobsRemaining(): number {
     return Math.max(0, CLOCK_ACT2_DEADLINE_JOBS - this.clockJobsTaken);
   }
@@ -431,6 +440,13 @@ export class Campaign {
     }
     if (member.flatlined) {
       throw new Error(`Campaign.deployCrewMember: ${member.callsign ?? member.id} is flatlined`);
+    }
+    // P3.M3.1: a Cyberspace contract is unwinnable without the one operator who
+    // can jack in — fail loudly at the Hub boundary instead of starting it.
+    if (contractRequiresCyberspace(contract) && member.archetype !== 'Decker') {
+      throw new Error(
+        `Campaign.deployCrewMember: contract "${contract.label}" requires a living Decker to jack in`
+      );
     }
     if (isScoreContract(contract)) {
       this.#beginScoreAttempt(contract);

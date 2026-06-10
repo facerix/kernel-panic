@@ -20,9 +20,10 @@
 import { h } from '/src/domUtils.js';
 import CrewList from '/components/CrewList.js';
 import { encounterHostileCount } from '/src/game/encounters.js';
-import { cloneObjective } from '/src/game/hub/Curator.js';
+import { cloneObjective, contractRequiresCyberspace } from '/src/game/hub/Curator.js';
 import type { Crew as CrewMember } from '/src/game/Crew.js';
 import type { Contract } from '/src/game/hub/Curator.js';
+import type { CrewRowGate } from '/components/CrewList.js';
 
 type BriefingCells = {
   target: HTMLElement;
@@ -206,6 +207,7 @@ function rewardCopy(contract: Partial<Contract>) {
 
 class RunBriefing extends HTMLElement {
   #contract: Contract | null = null;
+  #crew: CrewMember[] = [];
   #selectedMember: CrewMember | null = null;
   #ready = false;
   #cells: BriefingCells | null = null;
@@ -254,7 +256,7 @@ class RunBriefing extends HTMLElement {
     this.#listEl?.addEventListener('select', evt => {
       this.#selectedMember = (evt as CustomEvent<{ member: CrewMember }>).detail.member;
       if (this.#jackInBtn) {
-        this.#jackInBtn.disabled = !this.#selectedMember || this.#selectedMember.flatlined;
+        this.#jackInBtn.disabled = !this.#deployable(this.#selectedMember);
       }
     });
 
@@ -309,6 +311,9 @@ class RunBriefing extends HTMLElement {
     }
     this.#contract = cloneContract(contract);
     if (this.#ready) this.#renderContract();
+    // The deployment gate depends on the contract (P3.M3.1) — re-render any
+    // already-set crew so row gating cannot go stale on contract swap.
+    if (this.#crew.length > 0) this.#syncCrewList();
   }
 
   /**
@@ -319,9 +324,29 @@ class RunBriefing extends HTMLElement {
     if (!Array.isArray(crew)) {
       throw new TypeError('<run-briefing>.setCrew requires an array');
     }
+    this.#crew = crew;
+    this.#syncCrewList();
+  }
+
+  /**
+   * P3.M3.1: Cyberspace contracts can only deploy the Decker — every other
+   * row renders disabled with a NEEDS DECKER tag.
+   */
+  #rowGate(): CrewRowGate | null {
+    if (!this.#contract || !contractRequiresCyberspace(this.#contract)) return null;
+    return member => (member.archetype === 'Decker' ? null : 'NEEDS DECKER');
+  }
+
+  #deployable(member: CrewMember | null): boolean {
+    if (!member || member.flatlined) return false;
+    const gate = this.#rowGate();
+    return gate ? gate(member) === null : true;
+  }
+
+  #syncCrewList() {
     this.#selectedMember = null;
     if (this.#jackInBtn) this.#jackInBtn.disabled = true;
-    this.#listEl?.setCrew(crew);
+    this.#listEl?.setCrew(this.#crew, this.#rowGate());
   }
 
   show() {
@@ -382,10 +407,11 @@ class RunBriefing extends HTMLElement {
   }
 
   #commit() {
-    if (!this.#contract || !this.#selectedMember || this.#selectedMember.flatlined) return;
+    const member = this.#selectedMember;
+    if (!this.#contract || !member || !this.#deployable(member)) return;
     this.dispatchEvent(
       new CustomEvent('deploy', {
-        detail: { memberId: this.#selectedMember.id, contract: cloneContract(this.#contract) },
+        detail: { memberId: member.id, contract: cloneContract(this.#contract) },
       })
     );
   }

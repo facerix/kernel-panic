@@ -1508,6 +1508,11 @@ function isObjectiveFamilySatisfied(
       return isReconSatisfied(world, objectiveState);
     case OBJECTIVES.ESCORT_EXTRACT:
       return isEscortExtractSatisfied(world);
+    case OBJECTIVES.DATA_NODE_SLICE:
+      // P3.M3.1: satisfaction requires the Cyberspace layer (P3.M3.4 wires
+      // sliced-node counting through ObjectiveState). Until then a cyber
+      // contract is honestly unsatisfiable — extraction stays gated.
+      return false;
     default: {
       const exhaustive: never = kind;
       throw new Error(`Run.isObjectiveSatisfied: unknown objective kind "${exhaustive}"`);
