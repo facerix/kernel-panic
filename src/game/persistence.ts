@@ -369,9 +369,20 @@ function readJackInPoint(extra: EntitySnapshotExtra, id: string): JackInPointSna
     throw new TypeError(`restore: jack-in point entity ${id} requires jack-in state`);
   }
   const p = extra as Partial<JackInPointSnapshot>;
+  const linked = requireBoolean(p.linked, `restore: jack-in point ${id} linked must be boolean`);
+  // S5 added the burn latch; absent on pre-S5 records → unburned (legacy
+  // normalization). Present-but-malformed, or burned without linked, throws.
+  const burned =
+    p.burned === undefined
+      ? false
+      : requireBoolean(p.burned, `restore: jack-in point ${id} burned must be boolean`);
+  if (burned && !linked) {
+    throw new Error(`restore: jack-in point ${id} is burned but not linked — corrupt state`);
+  }
   return {
     label: requireString(p.label, `restore: jack-in point ${id} label must be a non-empty string`),
-    linked: requireBoolean(p.linked, `restore: jack-in point ${id} linked must be boolean`),
+    linked,
+    burned,
   };
 }
 
@@ -735,7 +746,7 @@ const ENTITY_RESTORE: Partial<Record<EntityArchetypeId, RestoreEntry>> = Object.
   'jack-in-point': {
     buildProps(extra, rec) {
       const p = readJackInPoint(extra, rec.id);
-      return { label: p.label, linked: p.linked };
+      return { label: p.label, linked: p.linked, burned: p.burned };
     },
     apply(entity, _extra, rec) {
       if (!(entity instanceof JackInPoint)) {

@@ -238,6 +238,8 @@ test('re-interacting the meat port after resolve stays refused (LINK BURNED)', (
   run.player!.refreshAp();
   const repeat = point.interact(run.world!, run.player!);
   assert.equal(repeat.ok, false);
-  assert.equal((repeat as { reason: string }).reason, 'already-linked');
+  // S5: jack-out burns the link — the refusal carries burn flavor, not the
+  // redundant-input 'already-linked'.
+  assert.equal((repeat as { reason: string }).reason, 'link-burned');
   assert.equal(run.cyberspace?.phase, 'resolved');
 });

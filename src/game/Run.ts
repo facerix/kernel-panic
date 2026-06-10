@@ -897,9 +897,22 @@ export class Run {
     const objectiveComplete = sliced >= objectiveCount(this.contract);
     layer.teardown();
     this.cyberspace = { phase: 'resolved', objectiveComplete };
+    // S5: the link is burned — re-jack-in refused for the rest of the run.
+    this.#meatJackInPoint().burn();
     if (this.onPersist) {
       this.onPersist(this.snapshot());
     }
+  }
+
+  /** The contract's single meat-side jack-in point. Missing on a cyber run is corrupt. */
+  #meatJackInPoint(): JackInPoint {
+    if (!this.world) {
+      throw new Error('Run.#meatJackInPoint: no live world');
+    }
+    for (const entity of this.world.entities.values()) {
+      if (entity instanceof JackInPoint) return entity;
+    }
+    throw new Error('Run.#meatJackInPoint: cyber contract has no jack-in point in the world');
   }
 
   /**
@@ -2011,7 +2024,7 @@ const SNAPSHOT_EXTRACTORS: Partial<Record<EntityArchetypeId, (e: Entity) => Enti
     },
     'jack-in-point': e => {
       const p = e as JackInPoint;
-      return { label: p.label, linked: p.linked } satisfies JackInPointSnapshot;
+      return { label: p.label, linked: p.linked, burned: p.burned } satisfies JackInPointSnapshot;
     },
     'cyber-avatar': e => {
       const a = e as CyberAvatar;

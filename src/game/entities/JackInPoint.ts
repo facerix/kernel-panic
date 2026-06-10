@@ -20,18 +20,31 @@ import type { World } from '../World.js';
 export interface JackInPointInit extends Omit<InteractableInit, 'glyph' | 'label'> {
   label?: string;
   linked?: boolean;
+  burned?: boolean;
 }
 
 /** P2.7.M6.2: JackInPoint snapshot `extra`. */
 export type JackInPointSnapshot = {
   label: string;
   linked: boolean;
+  burned: boolean;
 };
 
 export class JackInPoint extends Interactable {
   linked: boolean;
+  /**
+   * P3.M3 S5: latched by `Run.jackOut()` once the avatar routes back out —
+   * the link is dead and re-jack-in is refused with burn flavor. A burned
+   * port is always a linked port (`burn()` enforces it).
+   */
+  burned: boolean;
 
-  constructor({ label = 'Jack-in port', linked = false, ...props }: JackInPointInit) {
+  constructor({
+    label = 'Jack-in port',
+    linked = false,
+    burned = false,
+    ...props
+  }: JackInPointInit) {
     super({
       ...props,
       glyph: JACK_IN_GLYPH,
@@ -39,10 +52,29 @@ export class JackInPoint extends Interactable {
       secured: linked,
       armed: !linked,
     });
+    if (burned && !linked) {
+      throw new Error(`JackInPoint ${props.id}: burned without linked is corrupt state`);
+    }
     this.linked = !!linked;
+    this.burned = !!burned;
+  }
+
+  /** Kill the link after jack-out. Burning an unlinked port is corrupt state. */
+  burn(): void {
+    if (!this.linked) {
+      throw new Error(`JackInPoint ${this.id}: cannot burn an unlinked port`);
+    }
+    this.burned = true;
   }
 
   override interact(world: World, actor: Entity): InteractResult {
+    if (this.burned) {
+      return {
+        ok: false,
+        reason: 'link-burned',
+        message: `${this.label}: LINK BURNED — the connection is dead.`,
+      };
+    }
     if (this.linked) {
       return { ok: false, reason: 'already-linked', message: `${this.label}: already linked.` };
     }
