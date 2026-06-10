@@ -1295,6 +1295,7 @@ function handleLookMove(dx = 0, dy = 0): void {
   lookCursor = { x: tx, y: ty };
   const line = describeTileAt(run.world, tx, ty, {
     vision: run.state === RUN_STATE.COMBAT ? vision : undefined,
+    showStats: true,
   });
   if (line) flash(line);
 }

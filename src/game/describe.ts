@@ -17,6 +17,7 @@ import type { World } from './World.js';
 
 export type DescribeTileOptions = {
   vision?: VisionField;
+  showStats?: boolean;
 };
 
 export function describeTileAt(
@@ -30,7 +31,7 @@ export function describeTileAt(
   }
   if (!world.grid.inBounds(tx, ty)) return "You can't see anything there.";
 
-  const { vision } = options;
+  const { vision, showStats = false } = options;
   if (vision && !vision.isVisible(tx, ty)) {
     if (!vision.hasSeen(tx, ty)) return "You haven't seen that tile.";
     const corpseLine = describeMemorisedCorpse(world, tx, ty, vision);
@@ -39,7 +40,7 @@ export function describeTileAt(
   }
 
   const topmost = world.entitiesAt(tx, ty).at(-1);
-  if (topmost) return describeEntity(topmost, { visible: true });
+  if (topmost) return describeEntity(topmost, { visible: true, showStats });
   return describeTerrain(world.grid.tileAt(tx, ty) as TileId);
 }
 
@@ -55,7 +56,7 @@ function describeMemorisedCorpse(
   return `${describeCorpse(body, { visible: false })} (memory)`;
 }
 
-function describeEntity(entity: Entity, opts: { visible: boolean }): string {
+function describeEntity(entity: Entity, opts: { visible: boolean; showStats: boolean }): string {
   if (!entity.alive) return describeCorpse(entity, opts);
 
   const hub = describeHubEntity(entity);
@@ -81,7 +82,7 @@ function describeEntity(entity: Entity, opts: { visible: boolean }): string {
     return `${label(entity)} — ${entity.activated ? 'linked' : 'waiting'}`;
   if (entity instanceof DenyTarget) return label(entity);
 
-  return label(entity);
+  return label(entity, opts.showStats ?? false);
 }
 
 function describeCorpse(entity: Entity, opts: { visible: boolean }): string {
@@ -130,8 +131,8 @@ function describeTerrain(tile: TileId): string | null {
   }
 }
 
-function label(entity: Entity): string {
-  return entityLabel(entity).replace(']', '] ');
+function label(entity: Entity, showStats: boolean = false): string {
+  return entityLabel(entity, showStats).replace(']', '] ');
 }
 
 function neutralLabel(value: string): string {

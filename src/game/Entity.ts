@@ -294,6 +294,18 @@ function factionTag(faction: string): string {
   }
 }
 
+type LabelableEntity = {
+  id: string;
+  faction: string;
+  callsign?: string | null;
+  displayName?: string;
+  principalTag?: string;
+  maxAp: number;
+  hp: number;
+  maxHp: number;
+  shieldHp: number;
+};
+
 /**
  * Player-facing label for an entity, in priority order:
  *   1. `callsign` — crew members (e.g. `Vega`).
@@ -302,19 +314,14 @@ function factionTag(faction: string): string {
  *   3. Legacy `[Faction]Kind` from the id prefix (e.g. `[Corp]Drone`,
  *      `[Neutral]Civilian`, `Turret`) — un-aliased entities and pre-2.9 saves.
  */
-export function entityLabel(entity: {
-  id: string;
-  faction: string;
-  callsign?: string | null;
-  displayName?: string;
-  principalTag?: string;
-}): string {
+export function entityLabel(entity: LabelableEntity, showStats: boolean = false): string {
   if (entity.callsign) return entity.callsign;
+  const stats = `${entity.hp}/${entity.maxHp} HP, ${entity.maxAp} AP${entity.shieldHp > 0 ? `, ${entity.shieldHp} shield` : ''}`;
   if (entity.displayName) {
     const tag = entity.principalTag ? `[${entity.principalTag}]` : '';
-    return `${tag}${entity.displayName}`;
+    return `${tag}${entity.displayName}${showStats ? ` (${stats})` : ''}`;
   }
-  return `${factionTag(entity.faction)}${kindFromId(entity.id)}`;
+  return `${factionTag(entity.faction)}${kindFromId(entity.id)}${showStats ? ` (${stats})` : ''}`;
 }
 
 /**
