@@ -33,7 +33,7 @@ Commits land **per green slice** (user-approved).
 | **S2 — P3.M3.2 Jack-in terminal** | ✅ Done | `05013f6` |
 | **S3 — P3.M3.3 Cyber layer model + avatar + persistence** | ✅ Done | `39b357e` |
 | **S4 — P3.M3.4 Data node objective** | ✅ Done | `3923149` |
-| **S5 — Voluntary jack-out (M4.6 pull-forward)** | 🔲 Planned | — |
+| **S5 — Voluntary jack-out (M4.6 pull-forward)** | ✅ Done | `fab3bcb` |
 | **S6 — P3.M3.5 Probe ICE** | 🔲 Planned | — |
 | **S7 — P3.M3.6 Render/input swap + shell ICE phase** | 🔲 Planned | — |
 | **S8 — Docs + wrap-up** | 🔲 Planned | — |
@@ -199,6 +199,29 @@ Commits land **per green slice** (user-approved).
   determinism, satisfaction per phase, both latch directions, mid-slice
   round-trip, adversarial node-count/extra throws). Failing-first verified;
   suite 1629 green.
+
+### S5 implementation notes (shipped)
+
+- Most of the planned S5 core had already landed: the resolve latch,
+  teardown, autosave (S3) and the real `objectiveComplete` tally (S4). The
+  coverage audit confirmed resolved-latching-both-ways, post-jack-out
+  round-trip, and resolved-block payload smuggling were locked by S3/S4
+  tests; the genuinely missing rows were the dormant/non-cyber jackOut
+  throws (now in `jackOut.test.ts`).
+- **LINK BURNED is a real latch, not copy**: `JackInPoint.burned`, set by
+  `Run.jackOut()` via `burn()` on the meat-side port. A burned port refuses
+  *before* the linked check with its own reason (`link-burned`, "LINK BURNED
+  — the connection is dead"), distinct from the redundant-input
+  `already-linked`. `burn()` on an unlinked port throws — and so does
+  constructing one (burned ⇒ linked is an invariant).
+- Persistence: snapshot `extra` carries `burned`; absent on pre-S5 records →
+  unburned (legacy normalization, decker-stats pattern); non-boolean or
+  burned-without-linked throws.
+- Tests: 8 in `jackOut.test.ts` (illegal phases, burn-on-jack-out + refusal
+  flavor + no-AP, burn invariants, round-trip, legacy absence, adversarial
+  malformed/inconsistent flags). The S3 runJackIn LINK BURNED test was
+  updated from the placeholder `already-linked` expectation to the real
+  `link-burned`. Suite 1637 green.
 
 ## Architecture decisions (approved plan)
 
