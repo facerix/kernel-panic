@@ -34,7 +34,7 @@ Commits land **per green slice** (user-approved).
 | **S3 — P3.M3.3 Cyber layer model + avatar + persistence** | ✅ Done | `39b357e` |
 | **S4 — P3.M3.4 Data node objective** | ✅ Done | `3923149` |
 | **S5 — Voluntary jack-out (M4.6 pull-forward)** | ✅ Done | `fab3bcb` |
-| **S6 — P3.M3.5 Probe ICE** | 🔲 Planned | — |
+| **S6 — P3.M3.5 Probe ICE** | ✅ Done | `0a46878` |
 | **S7 — P3.M3.6 Render/input swap + shell ICE phase** | 🔲 Planned | — |
 | **S8 — Docs + wrap-up** | 🔲 Planned | — |
 
@@ -222,6 +222,43 @@ Commits land **per green slice** (user-approved).
   malformed/inconsistent flags). The S3 runJackIn LINK BURNED test was
   updated from the placeholder `already-linked` expectation to the real
   `link-burned`. Suite 1637 green.
+
+### S6 implementation notes (shipped)
+
+- `src/game/cyber/ProbeIce.ts` — `ProbeIce extends PatrolHostile`, glyph `¶`
+  (`PROBE_ICE_GLYPH`), displayName `Probe`. Explicit stats
+  (`PROBE_ICE_HP 3` / `PROBE_ICE_DAMAGE 1` via the `meleeDamage` sniff /
+  `PROBE_ICE_SIGHT_RANGE 6`); `resolveEnemyStats` tiers deliberately unused —
+  ICE scaling is its own axis for the Spark/Guardian follow-ups.
+- **Trace flare**: `engageSteps` raises the *cyber* world's alarm
+  (`repPenalty: false`) before striking; `raiseAlarm` self-gates while
+  ALERT so the `trace-alarm` step (new `ProbeIceTurnStep` in `types.ts`,
+  with corp-turn status copy) fires once per alarm window. Probes keep the
+  `PatrolHostile` default `listensForAlarm() === true` — one probe's flare
+  is every probe's heading (verified: a distant patroller flips to ENGAGE
+  with the avatar's coordinates).
+- Spawning: one probe per `buildCyberMap` patrol ring, at a seed-picked ring
+  tile (rng consumed *after* map generation, so layouts are untouched and
+  placement stays a pure function of the contract seed). Build binds probes
+  to the layer bus; restore re-binds via the existing
+  `restoreCyberspaceLayer` PatrolHostile path.
+- Persistence rode the generic machinery: adding `'probe-ice'` to
+  `PATROL_ARCHETYPE_IDS` bought waypoints/state/index round-trip wholesale;
+  only `ARCHETYPE_FACTORY` + extractor entries were new.
+- Death paths proven through the **real combat pipeline** (resolveMelee on
+  the cyber world's bus, no synthetic emits): probe kills avatar →
+  RESULT/DEATH with attacker in the cause; avatar kills probe → telemetry
+  kill count. Min-1 mitigation locked (dmg 1 vs iceResistance 1 → 1).
+- Decoupling verified: cyber alarm raises emit nothing on the meat bus and
+  leave the meat latch untouched; the cyber alarm cadence ticks once per
+  meat round advance (proves the single-TurnQueue wiring).
+- **Noted for later**: probes default `FACTION.CORP`. The `cyber-data-spike`
+  recipe locks principals to corp, so this matches `run.hostileFaction`
+  today — but a future rival-principal cyber recipe would leave ICE AP
+  unrefreshed (the queue ticks PLAYER/RIVAL only). Revisit when a second
+  cyber recipe lands (stamp `hostileFaction` onto ICE at `jackIn`, or
+  validate at build).
+- Tests: 9 in `ProbeIce.test.ts`. Failing-first verified; suite 1646 green.
 
 ## Architecture decisions (approved plan)
 
