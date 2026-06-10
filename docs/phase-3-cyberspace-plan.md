@@ -32,7 +32,7 @@ Commits land **per green slice** (user-approved).
 | **S1 — P3.M3.1 Contract flag + gates** | ✅ Done | `f436330` |
 | **S2 — P3.M3.2 Jack-in terminal** | ✅ Done | `05013f6` |
 | **S3 — P3.M3.3 Cyber layer model + avatar + persistence** | ✅ Done | `39b357e` |
-| **S4 — P3.M3.4 Data node objective** | 🔲 Planned | — |
+| **S4 — P3.M3.4 Data node objective** | ✅ Done | `3923149` |
 | **S5 — Voluntary jack-out (M4.6 pull-forward)** | 🔲 Planned | — |
 | **S6 — P3.M3.5 Probe ICE** | 🔲 Planned | — |
 | **S7 — P3.M3.6 Render/input swap + shell ICE phase** | 🔲 Planned | — |
@@ -159,6 +159,46 @@ Commits land **per green slice** (user-approved).
   verified; full suite 1604 green.
 - Playtest note (pre-S7): jack-in flips state internally but the shell still
   renders Meatspace until the S7 render/input swap — expected, not a bug.
+
+### S4 implementation notes (shipped)
+
+- `src/game/cyber/DataNode.ts` — `DataNode extends Interactable`, glyph `◈`
+  (`DATA_NODE_GLYPH`). Interact: sliced → `already-sliced` refusal; standard
+  adjacency/AP gates; **avatar-only via the `isCyberAvatar` sniff** (same S3
+  deviation rationale — the Decker body carries `intrusionStrength` too);
+  success spends interact AP and adds the avatar's `intrusionStrength` to
+  `sliceProgress`. Sliced at `sliceDifficulty` — `sliceDifficultyFor`:
+  standard 2 / elevated 3 / critical 4 (unknown throws). Progress is **raw,
+  never clamped**, so persistence loses nothing. Slicing is silent — the
+  cyber alarm belongs to ICE detection (S6), not the slice.
+- `CyberspaceLayer.build` gains **required `nodeCount`** (no default — a
+  count silently diverging from the contract would corrupt the objective;
+  `Run.jackIn` passes the objective's `count`). Nodes spawn on the
+  *farthest* node anchors from entry (Chebyshev sort, stable over generator
+  order → placement is a pure function of the contract seed);
+  `nodeCount > nodeTiles.length` throws.
+- `Run` — `ObjectiveState.cyber?: {sliced, required}` computed per phase by
+  `#cyberNodeProgress()`: live `dataNodeProgress(layer.world)` while active,
+  the resolved latch (`required`/0), zero while dormant, `undefined` on
+  non-cyber contracts. `DATA_NODE_SLICE` satisfaction: `sliced >= required`
+  (absent tally → honestly unsatisfiable). `jackOut()` latches
+  `objectiveComplete` from the real tally — the S3 TODO is gone; early
+  jack-out latches `false`, leaving extraction gated through the existing
+  abort-confirm flow (zero new extraction code).
+- `objectiveProgress.ts` — `CyberNodeProgress` type, `dataNodeProgress(world)`
+  tally, optional 4th `cyber` param, `NODES` chip case. The HUD chip pipeline
+  is kind-generic — **no shell copy changes were needed** (the planned
+  describe/combatHud grep came up empty).
+- Persistence — `data-node` codec in both registries (`label` /
+  `sliceDifficulty` / `sliceProgress`, malformed or half-populated throws);
+  `restoreCyberspaceLayer` now requires the active block to carry **exactly
+  the contract's node count** (nodes never despawn, so any drift is
+  corruption).
+- Tests: 25 across `dataNode.test.ts` (10 — entity behavior, difficulty
+  table, refusal matrix) and `dataNodeObjective.test.ts` (15 — spawn
+  determinism, satisfaction per phase, both latch directions, mid-slice
+  round-trip, adversarial node-count/extra throws). Failing-first verified;
+  suite 1629 green.
 
 ## Architecture decisions (approved plan)
 
