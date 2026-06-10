@@ -82,16 +82,19 @@ import { JackInPoint } from './entities/JackInPoint.js';
 import { CyberspaceLayer } from './cyber/CyberspaceLayer.js';
 import { CyberAvatar } from './cyber/CyberAvatar.js';
 import { EntryPort } from './cyber/EntryPort.js';
+import { DataNode } from './cyber/DataNode.js';
 import { applyMutationDeltas } from './locations.js';
 import { BreachingCharge } from './entities/BreachingCharge.js';
 import { ITEM_ID, getItemById } from './items.js';
 import { resetCorpTurnStatusCache } from './corpTurnStatusCopy.js';
 import {
   objectiveProgress as resolveObjectiveProgress,
+  dataNodeProgress,
   reconObjectiveProgress,
   sweepQuotaType,
   SWEEP_QUOTA,
 } from './objectiveProgress.js';
+import type { CyberNodeProgress } from './objectiveProgress.js';
 import { NeutralCivilian } from './entities/NeutralCivilian.js';
 import { VisionField } from './Vision.js';
 import {
@@ -128,6 +131,7 @@ import type { JackInPointSnapshot } from './entities/JackInPoint.js';
 import type { KeyCardSnapshot } from './entities/KeyCard.js';
 import type { CyberAvatarSnapshot } from './cyber/CyberAvatar.js';
 import type { EntryPortSnapshot } from './cyber/EntryPort.js';
+import type { DataNodeSnapshot } from './cyber/DataNode.js';
 import type { DeckerSnapshot } from './archetypes/Decker.js';
 import type { AlarmState } from './World.js';
 
@@ -175,6 +179,7 @@ export type EntityArchetypeId =
   | 'jack-in-point'
   | 'cyber-avatar'
   | 'entry-port'
+  | 'data-node'
   | 'entity';
 
 export type RunTelemetry = {
@@ -856,6 +861,7 @@ export class Run {
       contractSeed: this.contract.seed,
       difficulty: this.contract.difficulty,
       decker: this.player,
+      nodeCount: objectiveCount(this.contract),
     });
     this.cyberspace = { phase: 'active', layer };
     this.#wireCyberLayerListeners(layer);
@@ -880,9 +886,15 @@ export class Run {
         `Run.jackOut: illegal from cyberspace phase "${this.cyberspace?.phase ?? 'none'}"`
       );
     }
+    if (!this.contract) {
+      throw new Error('Run.jackOut: COMBAT state without a contract');
+    }
     const layer = this.cyberspace.layer;
-    // TODO(P3.M3.4): derive from sliced data-node count once nodes exist.
-    const objectiveComplete = false;
+    // P3.M3.4: the latch is the sliced-node tally at the moment the link
+    // drops. Jacking out early leaves the objective permanently unsatisfiable
+    // — extraction then routes through the existing abort-confirm flow.
+    const { sliced } = dataNodeProgress(layer.world);
+    const objectiveComplete = sliced >= objectiveCount(this.contract);
     layer.teardown();
     this.cyberspace = { phase: 'resolved', objectiveComplete };
     if (this.onPersist) {
@@ -987,7 +999,31 @@ export class Run {
 
   objectiveProgress() {
     if (!this.contract) return null;
-    return resolveObjectiveProgress(this.contract, this.world, this.mapSeen);
+    return resolveObjectiveProgress(
+      this.contract,
+      this.world,
+      this.mapSeen,
+      this.#cyberNodeProgress() ?? null
+    );
+  }
+
+  /**
+   * P3.M3.4: the data-node tally per cyberspace phase — live count while the
+   * layer is active, the latch once resolved, zero while dormant. `undefined`
+   * for contracts without a Cyberspace component.
+   */
+  #cyberNodeProgress(): CyberNodeProgress | undefined {
+    if (!this.contract || !this.cyberspace) return undefined;
+    if (this.contract.objective.kind !== OBJECTIVES.DATA_NODE_SLICE) return undefined;
+    const required = objectiveCount(this.contract);
+    switch (this.cyberspace.phase) {
+      case 'dormant':
+        return { sliced: 0, required };
+      case 'active':
+        return { sliced: dataNodeProgress(this.cyberspace.layer.world).sliced, required };
+      case 'resolved':
+        return { sliced: this.cyberspace.objectiveComplete ? required : 0, required };
+    }
   }
 
   /**
@@ -1625,6 +1661,7 @@ export class Run {
     const satisfied = isObjectiveSatisfied(this.contract, this.world, timing, {
       mapSeen: this.mapSeen,
       reconSeen: this.mapSeen,
+      cyber: this.#cyberNodeProgress(),
     });
     const limit = turnLimitForContract(this.contract);
     if (limit === null || !this.queue) return satisfied;
@@ -1681,6 +1718,8 @@ export type ObjectiveTiming = {
 export type ObjectiveState = {
   mapSeen?: ReadonlySet<string> | readonly string[];
   reconSeen?: ReadonlySet<string> | readonly string[];
+  /** P3.M3.4: data-node tally for `data-node-slice` contracts. */
+  cyber?: CyberNodeProgress;
 };
 
 export function isObjectiveSatisfied(
@@ -1727,11 +1766,14 @@ function isObjectiveFamilySatisfied(
       return isReconSatisfied(world, objectiveState);
     case OBJECTIVES.ESCORT_EXTRACT:
       return isEscortExtractSatisfied(world);
-    case OBJECTIVES.DATA_NODE_SLICE:
-      // P3.M3.1: satisfaction requires the Cyberspace layer (P3.M3.4 wires
-      // sliced-node counting through ObjectiveState). Until then a cyber
-      // contract is honestly unsatisfiable — extraction stays gated.
-      return false;
+    case OBJECTIVES.DATA_NODE_SLICE: {
+      // P3.M3.4: `Run` threads the per-phase node tally through
+      // `ObjectiveState.cyber` (live count / resolved latch / dormant zero).
+      // Without it — e.g. a bare `isObjectiveSatisfied` call — the objective
+      // is honestly unsatisfiable and extraction stays gated.
+      const cyber = objectiveState?.cyber;
+      return !!cyber && cyber.required > 0 && cyber.sliced >= cyber.required;
+    }
     default: {
       const exhaustive: never = kind;
       throw new Error(`Run.isObjectiveSatisfied: unknown objective kind "${exhaustive}"`);
@@ -1981,6 +2023,14 @@ const SNAPSHOT_EXTRACTORS: Partial<Record<EntityArchetypeId, (e: Entity) => Enti
     'entry-port': e => {
       return { label: (e as EntryPort).label } satisfies EntryPortSnapshot;
     },
+    'data-node': e => {
+      const n = e as DataNode;
+      return {
+        label: n.label,
+        sliceDifficulty: n.sliceDifficulty,
+        sliceProgress: n.sliceProgress,
+      } satisfies DataNodeSnapshot;
+    },
   };
 
 /**
@@ -2069,6 +2119,7 @@ function archetypeOf(entity: Entity): EntityArchetypeId {
   if (entity instanceof JackInPoint) return 'jack-in-point';
   if (entity instanceof CyberAvatar) return 'cyber-avatar';
   if (entity instanceof EntryPort) return 'entry-port';
+  if (entity instanceof DataNode) return 'data-node';
   if (entity instanceof BreachingCharge) return 'breaching-charge';
   if (entity instanceof Entity) return 'entity';
   throw new Error(`archetypeOf: cannot classify entity ${(entity as Entity | undefined)?.id}`);

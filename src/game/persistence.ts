@@ -79,6 +79,8 @@ import { BreachingCharge } from './entities/BreachingCharge.js';
 import type { BreachingChargeInit } from './entities/BreachingCharge.js';
 import type { CyberAvatarInit, CyberAvatarSnapshot } from './cyber/CyberAvatar.js';
 import type { EntryPortInit, EntryPortSnapshot } from './cyber/EntryPort.js';
+import { DataNode } from './cyber/DataNode.js';
+import type { DataNodeInit, DataNodeSnapshot } from './cyber/DataNode.js';
 import type { DeckerInit, DeckerSnapshot } from './archetypes/Decker.js';
 import { Run, RUN_STATE, PATROL_ARCHETYPE_IDS } from './Run.js';
 import { Campaign, CAMPAIGN_STATE, normalizeCampaignArc } from './Campaign.js';
@@ -179,6 +181,7 @@ type RestoreEntityProps = Partial<
     JackInPointInit &
     CyberAvatarInit &
     EntryPortInit &
+    DataNodeInit &
     DeckerInit
 > & {
   id: string;
@@ -225,6 +228,7 @@ const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) =
     'jack-in-point': (props: RestoreEntityProps) => new JackInPoint(props as JackInPointInit),
     'cyber-avatar': (props: RestoreEntityProps) => new CyberAvatar(props as CyberAvatarInit),
     'entry-port': (props: RestoreEntityProps) => new EntryPort(props as EntryPortInit),
+    'data-node': (props: RestoreEntityProps) => new DataNode(props as DataNodeInit),
     'breaching-charge': (props: RestoreEntityProps) =>
       new BreachingCharge(props as BreachingChargeInit),
     // Generic fallback so a future `Entity` subclass (NPCs, items) doesn't break
@@ -368,6 +372,24 @@ function readJackInPoint(extra: EntitySnapshotExtra, id: string): JackInPointSna
   return {
     label: requireString(p.label, `restore: jack-in point ${id} label must be a non-empty string`),
     linked: requireBoolean(p.linked, `restore: jack-in point ${id} linked must be boolean`),
+  };
+}
+
+function readDataNode(extra: EntitySnapshotExtra, id: string): DataNodeSnapshot {
+  if (hasNoState(extra)) {
+    throw new TypeError(`restore: data node entity ${id} requires slice state`);
+  }
+  const n = extra as Partial<DataNodeSnapshot>;
+  if (!Number.isInteger(n.sliceDifficulty) || (n.sliceDifficulty as number) <= 0) {
+    throw new TypeError(`restore: data node ${id} sliceDifficulty must be a positive integer`);
+  }
+  if (!Number.isInteger(n.sliceProgress) || (n.sliceProgress as number) < 0) {
+    throw new TypeError(`restore: data node ${id} sliceProgress must be a non-negative integer`);
+  }
+  return {
+    label: requireString(n.label, `restore: data node ${id} label must be a non-empty string`),
+    sliceDifficulty: n.sliceDifficulty as number,
+    sliceProgress: n.sliceProgress as number,
   };
 }
 
@@ -642,6 +664,16 @@ const ENTITY_RESTORE: Partial<Record<EntityArchetypeId, RestoreEntry>> = Object.
     apply(entity, _extra, rec) {
       if (!(entity instanceof EntryPort)) {
         throw new Error(`restore: entry port entity ${rec.id} did not restore as EntryPort`);
+      }
+    },
+  },
+  'data-node': {
+    buildProps(extra, rec) {
+      return readDataNode(extra, rec.id);
+    },
+    apply(entity, _extra, rec) {
+      if (!(entity instanceof DataNode)) {
+        throw new Error(`restore: data node entity ${rec.id} did not restore as DataNode`);
       }
     },
   },
@@ -1229,8 +1261,10 @@ function restoreCyberspaceLayer(
 
   let avatar: CyberAvatar | null = null;
   let port: EntryPort | null = null;
+  let dataNodes = 0;
   for (const rec of block.entities) {
     const entity = restoreEntity(rec, grid);
+    if (entity instanceof DataNode) dataNodes++;
     if (entity instanceof CyberAvatar) {
       if (avatar) {
         throw new Error('restore: active cyberspace block has multiple cyber-avatar entities');
@@ -1256,6 +1290,19 @@ function restoreCyberspaceLayer(
   }
   if (!port) {
     throw new Error('restore: active cyberspace block has no entry-port');
+  }
+  // P3.M3.4: nodes never despawn (sliced nodes stay in the world), so the
+  // entity count must equal the contract objective's count exactly.
+  const requiredNodes = (record.contract?.objective?.params as { count?: unknown } | undefined)
+    ?.count;
+  if (!Number.isInteger(requiredNodes) || (requiredNodes as number) <= 0) {
+    throw new TypeError('restore: cyber contract objective count must be a positive integer');
+  }
+  if (dataNodes !== requiredNodes) {
+    throw new Error(
+      `restore: active cyberspace block has ${dataNodes} data-node entities, ` +
+        `contract requires ${requiredNodes}`
+    );
   }
 
   const layer = new CyberspaceLayer({ bus, world, avatar, port, entryTile });

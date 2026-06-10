@@ -25,6 +25,7 @@ import { Rng } from '../../rng.js';
 import { buildCyberMap } from './cyberMapBuild.js';
 import { CyberAvatar } from './CyberAvatar.js';
 import { EntryPort } from './EntryPort.js';
+import { DataNode, sliceDifficultyFor } from './DataNode.js';
 import { PatrolHostile } from '../ai/PatrolHostile.js';
 import { FACTION, type ContractDifficulty, type FactionId } from '../constants.js';
 import { coordKey } from '../mapConnectivity.js';
@@ -47,6 +48,12 @@ export type CyberspaceLayerBuildOptions = {
   contractSeed: number;
   difficulty: ContractDifficulty;
   decker: Decker;
+  /**
+   * P3.M3.4: data nodes to spawn — the contract objective's `count`.
+   * Deliberately required (no default): a count silently diverging from the
+   * contract would corrupt the objective.
+   */
+  nodeCount: number;
 };
 
 export class CyberspaceLayer {
@@ -100,12 +107,26 @@ export class CyberspaceLayer {
    * Build a fresh layer for `decker` jacking into a contract. Layout is a
    * deterministic function of the contract seed (see module docstring).
    */
-  static build({ contractSeed, difficulty, decker }: CyberspaceLayerBuildOptions): CyberspaceLayer {
+  static build({
+    contractSeed,
+    difficulty,
+    decker,
+    nodeCount,
+  }: CyberspaceLayerBuildOptions): CyberspaceLayer {
     if (!Number.isFinite(contractSeed)) {
       throw new TypeError(`CyberspaceLayer.build requires a finite contractSeed`);
     }
+    if (!Number.isInteger(nodeCount) || nodeCount <= 0) {
+      throw new RangeError(`CyberspaceLayer.build nodeCount must be a positive integer`);
+    }
     const rng = new Rng(contractSeed).fork('cyberspace');
     const map = buildCyberMap({ rng, difficulty });
+    if (nodeCount > map.nodeTiles.length) {
+      throw new RangeError(
+        `CyberspaceLayer.build: nodeCount ${nodeCount} exceeds the map's ` +
+          `${map.nodeTiles.length} node tiles`
+      );
+    }
     const bus = new EventBus();
     const world = new World(map.grid, { events: bus });
     const avatar = new CyberAvatar({
@@ -120,6 +141,24 @@ export class CyberspaceLayer {
     const port = new EntryPort({ id: 'entry-port-0', x: map.portTile.x, y: map.portTile.y });
     world.addEntity(avatar);
     world.addEntity(port);
+    // P3.M3.4: data nodes claim the *farthest* node anchors from the entry —
+    // the avatar has to cross the lattice (and, from P3.M3.5, the ICE
+    // patrolling it). Chebyshev sort is stable over the deterministic
+    // generator order, so placement is a pure function of the contract seed.
+    const sliceDifficulty = sliceDifficultyFor(difficulty);
+    const anchors = [...map.nodeTiles].sort(
+      (a, b) => chebyshevFrom(map.entryTile, b) - chebyshevFrom(map.entryTile, a)
+    );
+    for (let i = 0; i < nodeCount; i++) {
+      world.addEntity(
+        new DataNode({
+          id: `data-node-${i}`,
+          x: anchors[i].x,
+          y: anchors[i].y,
+          sliceDifficulty,
+        })
+      );
+    }
     return new CyberspaceLayer({
       bus,
       world,
@@ -180,6 +219,10 @@ export class CyberspaceLayer {
       }
     }
   }
+}
+
+function chebyshevFrom(a: GridPoint, b: GridPoint): number {
+  return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
 }
 
 function parseCoordKey(key: string): GridPoint {

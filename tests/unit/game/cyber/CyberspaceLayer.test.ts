@@ -28,7 +28,8 @@ const makeDecker = (overrides = {}) =>
   new Decker({ id: 'crew-decker', x: 0, y: 0, callsign: 'Phreak', ...overrides });
 
 const buildLayer = (contractSeed = 12345, decker = makeDecker(), difficulty = 'standard') =>
-  CyberspaceLayer.build({ contractSeed, difficulty, decker });
+  // nodeCount 1 matches the `cyber-data-spike` recipe (P3.M3.4).
+  CyberspaceLayer.build({ contractSeed, difficulty, decker, nodeCount: 1 });
 
 // --- Decker cyber stats ------------------------------------------------------
 
@@ -69,12 +70,12 @@ test('build spawns the avatar at the entry tile with stats from the Decker', () 
   assert.equal(avatar.baseHitChance, CYBER_AVATAR_HIT_CHANCE);
 });
 
-test('the cyber world contains exactly the avatar and the exit port', () => {
+test('the cyber world contains exactly the avatar, the exit port, and the nodes', () => {
   const layer = buildLayer();
   const entities = Array.from(layer.world.entities.values());
   assert.equal(entities.filter(e => e instanceof CyberAvatar).length, 1);
   assert.equal(entities.filter(e => e instanceof EntryPort).length, 1);
-  assert.equal(entities.length, 2);
+  assert.equal(entities.length, 3, 'avatar + port + the contract data node (P3.M3.4)');
   const cheb = Math.max(
     Math.abs(layer.port.x - layer.avatar.x),
     Math.abs(layer.port.y - layer.avatar.y)

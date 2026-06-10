@@ -142,6 +142,7 @@ test('layer layout is independent of the jack-in turn', () => {
     contractSeed: 777,
     difficulty: 'standard',
     decker: makeDecker(),
+    nodeCount: 1,
   });
   assert.deepEqual(Array.from(fresh.world.grid.tiles), Array.from(immediate.world.grid.tiles));
 });

@@ -48,6 +48,8 @@ export const KEYCARD_GLYPH = 'κ';
 export const JACK_IN_GLYPH = 'Ω';
 /** P3.M3.3: the Cyberspace door back into Meatspace. */
 export const ENTRY_PORT_GLYPH = '▼';
+/** P3.M3.4: the slice target on the cyber grid (`◆` is DenyTarget's). */
+export const DATA_NODE_GLYPH = '◈';
 
 /** Numeric tile id — one of the `TILE` values. */
 export type TileId = (typeof TILE)[keyof typeof TILE];
