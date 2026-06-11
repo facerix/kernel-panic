@@ -21,6 +21,11 @@ the effort can be resumed cold.
    intrusion strength = slice progress per interact, ICE resistance =
    `damageReduction` (existing min-1 mitigation in `Combat.ts`). Persisted and
    validated in both crew persistence paths.
+5. **The Score is always a cyber run** (recorded 2026-06-11, Rylee):
+   `buildScoreContract` emits `DATA_NODE_SLICE` with
+   `{requiresCyberspace: true, count: 1}` — for now; revisit if a
+   meat-only Score variant is ever wanted. Deploy goes through the
+   living-Decker gate; objective shape locked in the P3.M1.7 tests.
 
 TDD throughout; malformed persisted state throws (no silent fallbacks).
 Commits land **per green slice** (user-approved).
@@ -35,8 +40,10 @@ Commits land **per green slice** (user-approved).
 | **S4 — P3.M3.4 Data node objective** | ✅ Done | `3923149` |
 | **S5 — Voluntary jack-out (M4.6 pull-forward)** | ✅ Done | `fab3bcb` |
 | **S6 — P3.M3.5 Probe ICE** | ✅ Done | `0a46878` |
-| **S7 — P3.M3.6 Render/input swap + shell ICE phase** | 🔲 Planned | — |
-| **S8 — Docs + wrap-up** | 🔲 Planned | — |
+| **S7 — P3.M3.6 Render/input swap + shell ICE phase** | ✅ Done | `dd17cb8` |
+| **— Score → cyber (scope decision #5)** | ✅ Done | `3c693dc` |
+| **S7.5 — Early jack-out confirmation** | ✅ Done | `2d668bd` |
+| **S8 — Docs + wrap-up** | ✅ Done | — |
 
 ### S1 implementation notes (shipped)
 
@@ -259,6 +266,74 @@ Commits land **per green slice** (user-approved).
   cyber recipe lands (stamp `hostileFaction` onto ICE at `jackIn`, or
   validate at build).
 - Tests: 9 in `ProbeIce.test.ts`. Failing-first verified; suite 1646 green.
+
+### S7 implementation notes (shipped)
+
+- `palette.ts` — `TilesetId = 'meat' | 'cyber'` axis; `CYBER_TILE_GLYPH`
+  (FLOOR `·` deep cyan `#0e6b66`, WALL `▒` magenta `#c23bd4`).
+  `glyphForTile(tile, principalId?, tileset?)` throws on an unknown tileset
+  *and* on a non-FLOOR/WALL tile reaching the cyber painter (cyber maps are
+  FLOOR/WALL-only by construction — corruption, not a style gap). Principal
+  terrain palettes are a Meatspace mood axis and never recolor the grid.
+- `frame.ts` — `BuildFrameOptions.tileset` (default `'meat'`) threaded
+  through `buildFrame`/`glyphForCell`; `combatHud.ts` — vitals pane label
+  axis (`HP` default, `RAM` on the grid).
+- `applyIntent.ts` — `ApplyIntentContext.player` widened to
+  `Archetype | CyberAvatar`; the avatar exposes no perk/inventory
+  capabilities, so every capability-sniffed branch (`doSpecial`, corpse
+  loot, consumable pickup) degrades to its existing refusal path.
+- `index.ts` — active-view seam (`run.activeWorld`/`run.activeActor`)
+  through vision, paint, look/describe, touch, and statusLine (location
+  reads `// THE GRID //`); module-level `cyberVision = new VisionField()`;
+  shell `JACK_IN`/`JACK_OUT` handlers depend on Run subscribing first
+  (recorded in kaizen — listener-order coupling); `attachCyberListeners`
+  called at every scene (re)wiring site plus the `JACK_IN` hook so a
+  mid-cyber resume re-attaches automatically.
+- **Dual-phase corp turn**: while jacked in, the corp slice chains two
+  `corpTurnDriver` passes — meat hostiles on the meat world (silent: the
+  canvas shows the grid), then ICE on `layer.world` — consuming the shared
+  `run.rng` in that fixed order. Body flatlined during the meat pass →
+  driver bails terminally and the ICE pass never runs.
+- Tests: `dualPhaseTurn.test.ts` (shared-rng order/determinism lock),
+  `cyberTileset.test.ts` (glyph table + throw matrix). kaizen.md gained the
+  index.ts complexity findings (ShellScene casts, statusLine extraction,
+  listener rewire dedupe, listener-order coupling, seam enforcement).
+
+### S7.5 implementation notes (shipped)
+
+- Gap found in Rylee's S7 smoke: jacking out early resolved instantly —
+  an **irreversible** step (LINK BURNED + objective latched unsatisfiable)
+  with zero warning, unlike the exit-abort flow.
+- `Run.onJackOutRequested` (ctor-validated, mirror of `onAbortRequested`):
+  `jackOut()` with the objective **incomplete** defers to the callback —
+  layer stays live, link unburned, nothing persisted; no callback
+  registered → resolve immediately (tests/harness posture). A complete
+  jack-out never asks. The port's interact AP is spent either way; a
+  re-request after cancel costs it again.
+- `run.confirmJackOut()` finalizes (teardown → resolved latch → burn →
+  autosave, shared `#finalizeJackOut`). **Throws** on illegal states —
+  unlike `confirmAbort`'s no-op there is no legal request-voiding race
+  (the modal blocks turn flow), so a stale confirm is a wiring bug.
+- Shell: modal context `jack-out-early` with link-burn copy;
+  `completeJackOutShellSwap()` shared by the immediate path (bus handler,
+  which now skips while the layer is still live) and the confirmed path.
+  `wireRunConfirmations(run)` extracted and called at deploy **and**
+  campaign resume — fixes a latent bug where a restored run lost
+  `onAbortRequested` entirely, silently skipping the abort confirm after
+  any mid-run reload.
+- `EntryPort` success copy neutralized (`routing out…`) — the port no
+  longer knows whether the link actually dropped.
+- Tests: +6 in `jackOut.test.ts` (defer/confirm matrix, complete-objective
+  immediacy, illegal-state throws, pending-confirmation persistence as a
+  live layer). Suite 1663 green.
+
+### S8 wrap-up
+
+- P3.M3 milestone status in `phase-3-plan.md` updated: first playable
+  slice shipped end-to-end; milestone stays open for Spark/Guardian ICE
+  (scope decision #1) and the deferred follow-ups noted in S6
+  (ICE faction stamping) and kaizen (index.ts cleanup).
+- Browser re-smoke of the S7.5 confirm flow: pending (Rylee).
 
 ## Architecture decisions (approved plan)
 

@@ -43,7 +43,7 @@ A new **player archetype** recruited mid-campaign (late Act 1 / start of Act 2),
 |---|---|
 | P3.M1 — Campaign arc structure | ✅ Done |
 | P3.M2 — The Decker archetype | ✅ Done |
-| P3.M3 — Cyberspace grid + ICE | 🔲 Planned |
+| P3.M3 — Cyberspace grid + ICE | 🟡 First playable slice shipped (Spark/Guardian ICE open) |
 | P3.M4 — Simstim flip (dual-deploy) | 🔲 Planned |
 | P3.M5 — The Score (climactic mission) | 🔲 Planned |
 | P3.M6 — Chronicle (campaign narrative memory) | 🔲 Planned |
@@ -198,7 +198,14 @@ Neural degradation is deferred until Cyberspace is fun enough to deserve a jack-
 
 ---
 
-### P3.M3 — Cyberspace grid + ICE 🔲
+### P3.M3 — Cyberspace grid + ICE 🟡
+
+> **Status (2026-06-11):** the first playable slice (M3.1–M3.6, plus voluntary
+> jack-out pulled forward from M4.6 and an early-jack-out confirmation) is
+> shipped end-to-end on `3.0-cyberspace` — see
+> [phase-3-cyberspace-plan.md](phase-3-cyberspace-plan.md) for slice notes and
+> recorded scope decisions. The milestone stays open for **Spark and Guardian
+> ICE**. The Score contract is now always a cyber run (scope decision #5).
 
 **Depends on:** P3.M2 (Decker as the Cyberspace avatar). Can prototype grid mechanics independently.
 
