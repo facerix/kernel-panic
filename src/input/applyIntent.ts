@@ -60,6 +60,7 @@ import { EVENT } from '../game/events.js';
 import { TILE } from '../game/constants.js';
 import type { KeyItem } from '../types.js';
 import type { Archetype } from '../game/archetypes/index.js';
+import type { CyberAvatar } from '../game/cyber/CyberAvatar.js';
 import type { World } from '../game/World.js';
 import type { TurnQueue } from '../game/TurnQueue.js';
 import type { Rng } from '../rng.js';
@@ -76,7 +77,13 @@ export type Intent = {
 
 export type ApplyIntentContext = {
   world: World;
-  player: Archetype;
+  /**
+   * P3.M3.6: the acting body — a crew archetype in Meatspace, the
+   * `CyberAvatar` on the grid. The avatar exposes none of the perk or
+   * inventory capabilities, so every capability-sniffed branch (`doSpecial`,
+   * loot, consumables) degrades to its existing refusal path.
+   */
+  player: Archetype | CyberAvatar;
   queue: TurnQueue;
   rng: Rng;
   log: (line: string) => void;
@@ -292,8 +299,11 @@ function collectTileLoot(ctx: ApplyIntentContext) {
     objectivePickup.secureWalkOnto(world);
     log(`> ${entityLabel(player)} secures ${objectivePickup.label}.`);
   }
-  const consumablePickup = player.alive ? world.consumablePickupAt(player.x, player.y) : null;
-  if (consumablePickup) {
+  // Capability sniff (P3.M3.6): the CyberAvatar carries no gear — pickups
+  // stay on the tile for whoever has pockets.
+  const consumablePickup =
+    'addConsumable' in player && player.alive ? world.consumablePickupAt(player.x, player.y) : null;
+  if (consumablePickup && 'addConsumable' in player) {
     player.addConsumable(consumablePickup.consumableId);
     world.removeEntity(consumablePickup.id);
     log(`> ${entityLabel(player)} picks up ${consumablePickup.label}.`);
@@ -313,8 +323,10 @@ function collectTileLoot(ctx: ApplyIntentContext) {
     log(`> ${entityLabel(player)} picks up ${keycard.label}.`);
   }
   const corpse =
-    player.inventory && player.alive ? world.lootableCorpseAt(player.x, player.y) : null;
-  if (corpse) {
+    'inventory' in player && player.inventory && player.alive
+      ? world.lootableCorpseAt(player.x, player.y)
+      : null;
+  if (corpse && 'inventory' in player) {
     const amount = totalSalvage(corpse.loot!.salvage);
     player.collectSalvage(world, corpse, { spendAp: false });
     ctx.onCorpseSalvaged?.(corpse);
@@ -432,7 +444,7 @@ function doDeploy(intent: Intent, ctx: ApplyIntentContext) {
       const turret = tech.improviseTurret(world, intent.dx!, intent.dy!);
       log(
         `> ${playerLabel} improvises ${entityLabel(turret)} at (${turret.x}, ${turret.y}) — ` +
-          `${player.inventory!.salvage.scrap} scrap left, ${player.ap} AP left.`
+          `${tech.inventory!.salvage.scrap} scrap left, ${player.ap} AP left.`
       );
       gateOnApExhausted(ctx);
       return;

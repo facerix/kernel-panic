@@ -25,6 +25,8 @@ export type CombatHudIdentityInput = Readonly<{
 export type CombatHudVitalInput = Readonly<{
   hp: number;
   maxHp: number;
+  /** P3.M3.6: pane label — `HP` (default) in Meatspace, `RAM` on the grid. */
+  label?: string;
 }>;
 
 export type CombatHudApInput = Readonly<{
@@ -116,7 +118,7 @@ export function formatIdentityHud(identity: CombatHudIdentityInput): string {
 
 export function formatHpSegments(vitals: CombatHudVitalInput): string {
   validateCounter(vitals.hp, vitals.maxHp, 'hp', 'maxHp');
-  return `HP ${rightFilledSegments(
+  return `${vitals.label ?? 'HP'} ${rightFilledSegments(
     vitals.hp,
     vitals.maxHp,
     COMBAT_HUD_GLYPHS.HP_FILLED,
@@ -155,7 +157,7 @@ export function formatCombatHudA11ySummary(summary: CombatHudSummaryInput): stri
   const parts = [
     name,
     archetype.toUpperCase(),
-    `${summary.hp.hp} of ${summary.hp.maxHp} HP`,
+    `${summary.hp.hp} of ${summary.hp.maxHp} ${summary.hp.label ?? 'HP'}`,
     `${summary.ap.ap} of ${summary.ap.maxAp} AP`,
     turnA11yText(summary.turn),
   ];

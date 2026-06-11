@@ -38,6 +38,19 @@ When an item lands, gets reclassified, or develops new context, edit it in place
   - **Clean constraints as modifiers:** no alarm, no civilian harm, no kills, under turn budget. Treat as bonus constraints / payout modifiers unless a future design proves one should be a base objective kind.
   - **Breach / demolition target:** place or detonate a breach charge at an authored wall or target. Mechanically adjacent to deny/destroy; Phase 2.5 M7 covers breaching foundations.
   - **Cyberspace / data-layer objectives:** jack in, slice data nodes, open locks, defeat or avoid ICE. Likely Phase 3 dual-layer objective work rather than plain Meatspace recipes.
+- **index.ts complexity:** Introduction of the Cyberspace layer pushed complexity of the core UI shell over a reasonable limit; candidates for cleanup / simplification identified:
+  - **ShellScene = Campaign | Run union** forces isRun() casts everywhere — ~15 sites narrow-and-cast; a SceneView
+  interface both classes implement would delete most of them.
+  - **statusLine()** is a ~110-line HTML string builder mixing a11y, alarm tags, hub identity, corp mood, and
+  activity-row layout — prime extraction target (pure function over a snapshot, like combatHud.ts already does).
+  - **Four duplicated attachVisionListener/Animation/Rep/Cyber blocks at every scene transition** — one
+  rewireSceneListeners() would collapse them and prevent the "forgot to add the new attach call" failure mode (I
+  had to touch all four for S7).
+  - **Listener-order coupling on the bus**: the shell's JACK_IN/JACK_OUT handlers depend on Run subscribing first
+  (true today, enforced nowhere). A bus.on(..., {priority}) or explicit shell callbacks on Run would make it
+  structural.
+  - **run.world/run.player direct reads remain legal** — the new active-view seam is convention, not
+  compiler-enforced; a lint rule or accessor deprecation would lock it in.
 
 ## ◇ Monitored
 

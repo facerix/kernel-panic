@@ -15,7 +15,7 @@ import { Interactable } from '../game/entities/Interactable.js';
 import type { World } from '../game/World.js';
 import type { Entity } from '../game/Entity.js';
 import type { VisionField } from '../game/Vision.js';
-import type { Glyph } from './palette.js';
+import type { Glyph, TilesetId } from './palette.js';
 import { isConcealedFromPlayer, sniperAimOverlayTiles } from '../game/playerPerception.js';
 import type { FactionId, TileId } from '../game/constants.js';
 
@@ -93,6 +93,8 @@ export type BuildFrameOptions = {
   lookCursor?: { x: number; y: number } | null;
   /** Combat terrain mood — `contract.context.principal.id` when in a job. */
   principalId?: string;
+  /** P3.M3.6: which look the terrain paints with. Default `'meat'`. */
+  tileset?: TilesetId;
 };
 
 /** Sniper telegraph overlay — red crosshair composited over the target glyph. */
@@ -107,7 +109,7 @@ const BLAST_OVERLAY_GLYPH = glyphForTile(TILE.HAZARD);
  */
 export function buildFrame(world: World, camera: Camera, options: BuildFrameOptions = {}): Frame {
   const { x: cx, y: cy, width, height } = camera;
-  const { vision, blastOverlayKeys, lookCursor, player, principalId } = options;
+  const { vision, blastOverlayKeys, lookCursor, player, principalId, tileset = 'meat' } = options;
   const cells: Glyph[] = Array.from({ length: width * height });
 
   const omitEntity = (e: Entity) => player && isConcealedFromPlayer(e, player, world);
@@ -139,7 +141,15 @@ export function buildFrame(world: World, camera: Camera, options: BuildFrameOpti
 
       if (vision) {
         if (vision.isVisible(wx, wy)) {
-          cells[idx] = glyphForCell(world, entityIndex, wx, wy, blastOverlayKeys, principalId);
+          cells[idx] = glyphForCell(
+            world,
+            entityIndex,
+            wx,
+            wy,
+            blastOverlayKeys,
+            principalId,
+            tileset
+          );
         } else if (vision.hasSeen(wx, wy)) {
           // Memory pass: tile only for live entities (we don't track where
           // they are). Memorised corpses render at MEMORY_DIM so the player
@@ -154,7 +164,7 @@ export function buildFrame(world: World, camera: Camera, options: BuildFrameOpti
             cells[idx] = { char: CORPSE_GLYPH_CHAR, fg: dimColor(fg, MEMORY_DIM) };
           } else {
             const tileGlyph = dimGlyph(
-              glyphForTile(world.grid.tileAt(wx, wy) as TileId, principalId)
+              glyphForTile(world.grid.tileAt(wx, wy) as TileId, principalId, tileset)
             );
             cells[idx] = blastTerrainOverlay(wx, wy, blastOverlayKeys, tileGlyph, { dim: true });
           }
@@ -164,7 +174,7 @@ export function buildFrame(world: World, camera: Camera, options: BuildFrameOpti
         continue;
       }
 
-      cells[idx] = glyphForCell(world, entityIndex, wx, wy, blastOverlayKeys, principalId);
+      cells[idx] = glyphForCell(world, entityIndex, wx, wy, blastOverlayKeys, principalId, tileset);
     }
   }
 
@@ -207,13 +217,14 @@ function glyphForCell(
   wx: number,
   wy: number,
   blastOverlayKeys: ReadonlySet<string> | undefined,
-  principalId?: string
+  principalId?: string,
+  tileset?: TilesetId
 ): Glyph {
   const entity = entityIndex.get(`${wx},${wy}`);
   if (entity) {
     return glyphForEntityCell(entity);
   }
-  const tileGlyph = glyphForTile(world.grid.tileAt(wx, wy) as TileId, principalId);
+  const tileGlyph = glyphForTile(world.grid.tileAt(wx, wy) as TileId, principalId, tileset);
   return blastTerrainOverlay(wx, wy, blastOverlayKeys, tileGlyph);
 }
 

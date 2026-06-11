@@ -59,7 +59,34 @@ export const OOB_GLYPH = Object.freeze({ char: ' ', fg: '#000000' });
  */
 export const UNSEEN_GLYPH = Object.freeze({ char: '·', fg: '#1a1a1a' });
 
-export function glyphForTile(tile: TileId, principalId?: string): Glyph {
+/**
+ * P3.M3.6: tileset axis. The cyber grid reuses the FLOOR/WALL tile ids
+ * (passability, LOS, pathfinding, persistence untouched) and swaps the look —
+ * data-line mid-dots on deep cyan, firewall static in magenta. Principal
+ * terrain palettes are a Meatspace mood axis and never recolor the grid.
+ */
+export type TilesetId = 'meat' | 'cyber';
+
+const CYBER_TILE_GLYPH: Partial<Record<TileId, Glyph>> = {
+  [TILE.FLOOR]: { char: '·', fg: '#0e6b66' },
+  [TILE.WALL]: { char: '▒', fg: '#c23bd4' },
+};
+
+export function glyphForTile(
+  tile: TileId,
+  principalId?: string,
+  tileset: TilesetId = 'meat'
+): Glyph {
+  if (tileset === 'cyber') {
+    const cyber = CYBER_TILE_GLYPH[tile];
+    // Cyber maps are FLOOR/WALL only by construction (`buildCyberMap`); any
+    // other id reaching the cyber painter is corruption, not a style gap.
+    if (!cyber) throw new Error(`palette: tile id ${tile} has no cyber tileset glyph`);
+    return cyber;
+  }
+  if (tileset !== 'meat') {
+    throw new Error(`palette: unknown tileset "${String(tileset)}"`);
+  }
   const g = TILE_GLYPH[tile];
   if (!g) throw new Error(`palette: unknown tile id ${tile}`);
   if (!principalId) return g;

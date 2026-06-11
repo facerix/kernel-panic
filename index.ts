@@ -51,6 +51,9 @@ import {
 import { EVENT, alarmPayloadTriggersRepPenalty } from '/src/game/events.js';
 import { VisionField } from '/src/game/Vision.js';
 import { describeTileAt } from '/src/game/describe.js';
+import type { CyberspaceLayer } from '/src/game/cyber/CyberspaceLayer.js';
+import type { World } from '/src/game/World.js';
+import type { TilesetId } from '/src/render/palette.js';
 import { AsciiRenderer } from '/src/render/AsciiRenderer.js';
 import { CrtFilter } from '/src/render/CrtFilter.js';
 import {
@@ -251,6 +254,14 @@ function maybeDevFault(site: string): void {
 
 let campaign: Campaign | null = null;
 let vision = new VisionField();
+/**
+ * P3.M3.6: the cyber grid's own fog field — `vision` stays Meatspace-truth
+ * for the body (aftermath visibility, meat corpse memory) while the avatar
+ * sees through this one. Rebuilt (and re-seeded from `layer.mapSeen`) every
+ * time the cyber listeners attach.
+ */
+let cyberVision = new VisionField();
+let cyberUnsubs: (() => void)[] = [];
 let visionMoveUnsub: (() => void) | null = null;
 let repUnsubs: (() => void)[] = [];
 let civilianHarmsThisJob = 0;
@@ -418,6 +429,40 @@ function errorMessage(err: unknown): string {
 
 function isRun(scene: ShellScene): scene is Run {
   return 'archetype' in scene;
+}
+
+// ---------------------------------------------------------------------------
+// P3.M3.6 — the active-view seam. While the Decker is jacked in, every
+// presentation/input surface looks *through* these helpers at the cyber
+// layer; in Meatspace (and the Hub) they are identity functions. This is the
+// single place the world/actor/vision/tileset swap happens — shell code
+// below should never reach for `run.world`/`run.player` directly on a
+// surface the player is looking at.
+// ---------------------------------------------------------------------------
+
+function cyberLayerOf(scene: ShellScene | null): CyberspaceLayer | null {
+  if (!scene || !isRun(scene)) return null;
+  return scene.cyberspace?.phase === 'active' ? scene.cyberspace.layer : null;
+}
+
+function isJackedIn(scene: ShellScene | null): boolean {
+  return cyberLayerOf(scene) !== null;
+}
+
+function activeWorldOf(scene: ShellScene): World | null {
+  return cyberLayerOf(scene)?.world ?? scene.world;
+}
+
+function activeActorOf(scene: ShellScene): Entity | null {
+  return cyberLayerOf(scene)?.avatar ?? scene.player;
+}
+
+function activeVisionField(scene: ShellScene | null): VisionField {
+  return isJackedIn(scene) ? cyberVision : vision;
+}
+
+function activeTileset(scene: ShellScene | null): TilesetId {
+  return isJackedIn(scene) ? 'cyber' : 'meat';
 }
 
 // ---------------------------------------------------------------------------
@@ -734,6 +779,7 @@ function enterHubAndRender() {
   attachVisionListener();
   attachAnimationListeners();
   attachRepListeners();
+  attachCyberListeners();
   recomputeVision();
   renderShell();
   if (!presentHubRevealIfAny('HUB — Curator has contracts when you are adjacent [Space].')) {
@@ -861,6 +907,7 @@ function onBriefingDeploy(evt: Event) {
   attachVisionListener();
   attachAnimationListeners();
   attachRepListeners();
+  attachCyberListeners();
   recomputeVision();
   flash('JACKED IN. Reach the exit tile (¤) before the corpos drop you.');
   renderShell();
@@ -1102,6 +1149,14 @@ function applyUseConsumableResult(
  */
 function resolveAimedUseItem(aim: { dx: number; dy: number }, run: Run): void {
   if (!run.world || !run.player) throw new Error('[shell] resolveAimedUseItem: no scene');
+  // P3.M3.6: items are meat gear; the inventory gate blocks new aims while
+  // jacked in, but an aim pending across the jack-in interact must also die.
+  if (isJackedIn(run)) {
+    pendingAimItemId = null;
+    flash('USE FAILED: jacked in — your gear is back in Meatspace.');
+    resetInputModes();
+    return;
+  }
   const itemId = pendingAimItemId;
   if (!itemId) {
     // Direction press arrived without a stashed item — shouldn't be reachable
@@ -1291,6 +1346,7 @@ function resumeCampaign(record: CampaignSnapshot | unknown) {
     attachVisionListener();
     attachAnimationListeners();
     attachRepListeners();
+    attachCyberListeners();
     recomputeVision();
     if (campaign.activeRun?.state === RUN_STATE.BRIEFING && campaign.activeRun.contract) {
       briefingEl.setContract(campaign.activeRun.contract);
@@ -1382,7 +1438,9 @@ function enterLookMode(): void {
   const run = currentScene();
   if (!run?.world || !run.player) return;
   if (lookCursor) return;
-  lookCursor = { x: run.player.x, y: run.player.y };
+  const actor = activeActorOf(run);
+  if (!actor) return;
+  lookCursor = { x: actor.x, y: actor.y };
   keyboard.mode = MODE.LOOK;
   keyboard.aimKind = null;
   if (touchPadEl.mode !== MODE.LOOK) touchPadEl.setMode(MODE.LOOK);
@@ -1406,18 +1464,23 @@ function handleLookMove(dx = 0, dy = 0): void {
   }
   const run = currentScene();
   if (!run?.world || !run.player) return;
+  // P3.M3.6: the look cursor roams whichever grid is on screen.
+  const world = activeWorldOf(run);
+  const actor = activeActorOf(run);
+  if (!world || !actor) return;
+  const fog = activeVisionField(run);
   if (!lookCursor) {
-    lookCursor = { x: run.player.x, y: run.player.y };
+    lookCursor = { x: actor.x, y: actor.y };
   }
-  const tx = Math.max(0, Math.min(run.world.grid.width - 1, lookCursor.x + dx));
-  const ty = Math.max(0, Math.min(run.world.grid.height - 1, lookCursor.y + dy));
-  if (run.state === RUN_STATE.COMBAT && !vision.hasSeen(tx, ty)) {
+  const tx = Math.max(0, Math.min(world.grid.width - 1, lookCursor.x + dx));
+  const ty = Math.max(0, Math.min(world.grid.height - 1, lookCursor.y + dy));
+  if (run.state === RUN_STATE.COMBAT && !fog.hasSeen(tx, ty)) {
     flash("You haven't seen that tile.");
     return;
   }
   lookCursor = { x: tx, y: ty };
-  const line = describeTileAt(run.world, tx, ty, {
-    vision: run.state === RUN_STATE.COMBAT ? vision : undefined,
+  const line = describeTileAt(world, tx, ty, {
+    vision: run.state === RUN_STATE.COMBAT ? fog : undefined,
     showStats: true,
   });
   if (line) flash(line);
@@ -1461,9 +1524,17 @@ function handleIntent(intent: Intent): void {
     throw new Error(`[shell] state "${run.state}" is missing playable scene wiring`);
   }
 
+  // P3.M3.6: intents drive whoever the player is being — the crew body in
+  // Meatspace, the avatar on the grid (same queue either way).
+  const intentWorld = activeWorldOf(run);
+  const intentActor = activeActorOf(run);
+  if (!intentWorld || !intentActor) {
+    throw new Error(`[shell] state "${run.state}" has no active world/actor for intents`);
+  }
+
   applyIntent(intent, {
-    world: run.world,
-    player: run.player as Parameters<typeof applyIntent>[1]['player'],
+    world: intentWorld,
+    player: intentActor as Parameters<typeof applyIntent>[1]['player'],
     queue: run.queue,
     rng: run.rng,
     // Capture the action line for the next paint(); see lastActionLine docs.
@@ -1474,7 +1545,7 @@ function handleIntent(intent: Intent): void {
       resolveAimedUseItem(aim, run as Run);
     },
     onCorpseSalvaged: entity => {
-      vision.forgetCorpse(entity);
+      activeVisionField(run).forgetCorpse(entity);
     },
     keyItems: [...(campaign?.keyItems ?? []), ...(run as Run).keyItems],
     onKeycardCollected: kc => {
@@ -1499,6 +1570,12 @@ function handleIntent(intent: Intent): void {
           if (campaign?.state === CAMPAIGN_STATE.COMBAT) {
             if (run.state !== RUN_STATE.COMBAT || run.queue?.currentFaction !== FACTION.PLAYER) {
               flash('Inventory is only available on your turn.');
+              return;
+            }
+            // P3.M3.6: the avatar has no pockets — gear stays with the body
+            // until the P3.M4 simstim flip makes split control real.
+            if (isJackedIn(run)) {
+              flash('Jacked in — your meatspace gear is out of reach.');
               return;
             }
           }
@@ -1568,7 +1645,11 @@ function driveCombatTurnPipeline(run: Run, options: { resumeFromCorpSlice?: bool
     onPlayerAftermathStep: step => {
       if (degrading) return;
       const scene = currentScene();
-      if (step.type === 'breach-detonate') {
+      // P3.M3.6: aftermath is a Meatspace phase — while jacked in it still
+      // *applies*, but the canvas is showing the grid, so skip its
+      // presentation (overlays/shake/log lines).
+      const jacked = isJackedIn(scene);
+      if (step.type === 'breach-detonate' && !jacked) {
         showBreachBlastOverlay(step.charge.x, step.charge.y);
         if (scene?.player && vision.isVisible(step.charge.x, step.charge.y)) {
           triggerShake(stageEl);
@@ -1576,6 +1657,7 @@ function driveCombatTurnPipeline(run: Run, options: { resumeFromCorpSlice?: bool
         }
       }
       if (
+        !jacked &&
         scene?.player &&
         isPlayerAftermathStepLogVisible(step, (x, y) => vision.isVisible(x, y), scene.player.id)
       ) {
@@ -1660,6 +1742,51 @@ function runCorpTurn(onFinish: () => void): void {
   if (!run.world) {
     throw new Error(`[shell] cannot drive corp turn without world in state "${run.state}"`);
   }
+  // P3.M3.6: while the Decker is jacked in, the corp slice chains two
+  // driver passes — meat hostiles on the meat world (silent: the canvas is
+  // showing the grid), then ICE on the cyber world. Both consume the shared
+  // run rng in this fixed order, keeping the turn deterministic. If the meat
+  // pass flatlines the body the driver bails terminally and the ICE pass
+  // (correctly) never runs.
+  const icePass = () => {
+    if (degrading) return;
+    const layer = cyberLayerOf(currentScene());
+    if (!layer) {
+      onFinish();
+      return;
+    }
+    driveCorpTurn({
+      run: { state: run.state ?? '', world: layer.world, rng: run.rng },
+      corpFaction: FACTION.CORP,
+      paint,
+      animLock,
+      actionDelayMs: CORP_ACTION_DELAY_MS,
+      lockMarginMs: ANIMATION_DURATIONS.MUZZLE_FLASH,
+      onFinish,
+      schedule: scheduleCombatPump,
+      shouldAnimateStep: (entityId: string, step: TurnActionStep) => {
+        if (degrading) return true;
+        return isCorpTurnStepVisibleToPlayer(layer.world, layer.avatar.id, entityId, step, (x, y) =>
+          cyberVision.isVisible(x, y)
+        );
+      },
+      onStep: (entityId: string, step: TurnActionStep) => {
+        if (degrading) return;
+        const resolve = (id: string) => resolveEntityLabel(id, layer.world.entities);
+        const line = formatCorpTurnStep(resolve(entityId), step, resolve);
+        if (
+          !line ||
+          !isCorpTurnStepLogVisibleToPlayer(layer.world, layer.avatar.id, entityId, step, (x, y) =>
+            cyberVision.isVisible(x, y)
+          )
+        ) {
+          return;
+        }
+        flash(line);
+      },
+    });
+  };
+
   driveCorpTurn({
     run: {
       state: run.state ?? '',
@@ -1671,12 +1798,15 @@ function runCorpTurn(onFinish: () => void): void {
     animLock,
     actionDelayMs: CORP_ACTION_DELAY_MS,
     lockMarginMs: ANIMATION_DURATIONS.MUZZLE_FLASH,
-    onFinish,
+    onFinish: icePass,
     schedule: scheduleCombatPump,
     shouldAnimateStep: (entityId: string, step: TurnActionStep) => {
       if (degrading) return true;
       const scene = currentScene();
       if (!scene?.world || !scene.player) return true;
+      // Jacked in: meat steps still *apply*, but the canvas is showing the
+      // grid — drain them silently rather than pacing invisible frames.
+      if (isJackedIn(scene)) return false;
       return isCorpTurnStepVisibleToPlayer(scene.world, scene.player.id, entityId, step, (x, y) =>
         vision.isVisible(x, y)
       );
@@ -1685,6 +1815,7 @@ function runCorpTurn(onFinish: () => void): void {
       if (degrading) return;
       const scene = currentScene();
       if (!scene?.world || !scene.player) return;
+      if (isJackedIn(scene)) return;
       const resolve = (id: string) => resolveEntityLabel(id, scene.world!.entities);
       const line = formatCorpTurnStep(resolve(entityId), step, resolve);
       if (
@@ -1797,38 +1928,49 @@ function handleCombatInteract(): void {
   const run = campaign.activeRun;
   if (!run || !run.player) return;
   if (!run.world) throw new Error('[shell] active combat run has no world');
-  const player = run.player;
-  if (!player.inventory) throw new Error('[shell] combat player inventory is not initialised');
-  // Scan the 8 neighbours plus the player's own tile for lootable corpses.
-  for (let dy = -1; dy <= 1; dy++) {
-    for (let dx = -1; dx <= 1; dx++) {
-      const tx = player.x + dx;
-      const ty = player.y + dy;
-      const entity = run.world.lootableCorpseAt(tx, ty);
-      if (entity && !entity.alive && entity.loot && totalSalvage(entity.loot.salvage) > 0) {
-        if (!player.canAfford(AP_COST.INTERACT)) {
-          flash('Insufficient AP to loot.');
+  // P3.M3.6: interact targets the world the player is being in — meat props
+  // for the body, data nodes / the exit port for the avatar.
+  const world = activeWorldOf(run);
+  const player = activeActorOf(run);
+  if (!world || !player) throw new Error('[shell] combat interact requires an active world/actor');
+  // Corpse looting needs pockets — the avatar (no inventory) skips straight
+  // to interactables. ICE leaves no salvage in this slice.
+  const inventory = 'inventory' in player ? (player as Crew).inventory : null;
+  if (!isJackedIn(run) && !inventory) {
+    throw new Error('[shell] combat player inventory is not initialised');
+  }
+  if (inventory) {
+    // Scan the 8 neighbours plus the player's own tile for lootable corpses.
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const tx = player.x + dx;
+        const ty = player.y + dy;
+        const entity = world.lootableCorpseAt(tx, ty);
+        if (entity && !entity.alive && entity.loot && totalSalvage(entity.loot.salvage) > 0) {
+          if (!player.canAfford(AP_COST.INTERACT)) {
+            flash('Insufficient AP to loot.');
+            return;
+          }
+          // Typed salvage — show pickup total + post-pickup compact wallet.
+          const amount = totalSalvage(entity.loot.salvage);
+          (player as Crew).collectSalvage(world, entity);
+          activeVisionField(run).forgetCorpse(entity);
+          flash(
+            `Salvaged +${amount} — carrying ${formatSalvageCompact(inventory.salvage)}. ${player.ap} AP left.`
+          );
+          paint();
+          if (player.ap === 0) {
+            advanceTurn();
+          }
           return;
         }
-        // Typed salvage — show pickup total + post-pickup compact wallet.
-        const amount = totalSalvage(entity.loot.salvage);
-        player.collectSalvage(run.world, entity);
-        vision.forgetCorpse(entity);
-        flash(
-          `Salvaged +${amount} — carrying ${formatSalvageCompact(player.inventory.salvage)}. ${player.ap} AP left.`
-        );
-        paint();
-        if (player.ap === 0) {
-          advanceTurn();
-        }
-        return;
       }
     }
   }
 
-  const interactable = run.world.adjacentInteractables(player)[0];
+  const interactable = world.adjacentInteractables(player)[0];
   if (interactable) {
-    const result = interactable.interact(run.world, player);
+    const result = interactable.interact(world, player);
     flash(result.message);
     if (
       result.ok &&
@@ -1900,6 +2042,7 @@ function onNewRunRequested(): void {
   attachVisionListener();
   attachAnimationListeners();
   attachRepListeners();
+  attachCyberListeners();
   recomputeVision();
   renderShell();
 }
@@ -1970,6 +2113,68 @@ function attachAnimationListeners(): void {
     run.bus.on(EVENT.DOOR_UNLOCKED, payload => {
       const { label = 'Door' } = (payload ?? {}) as DoorUnlockPayload;
       flash(`${label} unlocked — passage open.`);
+    }),
+    // P3.M3.6: Run's own JACK_IN listener (wired at enterCombat, so it runs
+    // first) has already spawned the layer by the time this fires — the
+    // shell just swaps its presentation onto the grid.
+    run.bus.on(EVENT.JACK_IN, () => {
+      attachCyberListeners();
+      if (!isJackedIn(currentScene())) return;
+      recomputeVision();
+      flash('LINK ESTABLISHED — entering // THE GRID //.');
+      paint();
+    })
+  );
+}
+
+/**
+ * P3.M3.6: subscribe avatar-side feedback to the *cyber* bus while a layer
+ * is active — combat shake/flash for the avatar, muzzle flashes for ICE
+ * strikes, corpse memory in `cyberVision`, vision refresh on movement, and
+ * the jack-out swap back to Meatspace. No-op (and cleanup) when dormant or
+ * resolved. Called from every scene (re)wiring site plus the JACK_IN hook,
+ * so a mid-jack-in resume re-attaches automatically.
+ */
+function attachCyberListeners(): void {
+  for (const off of cyberUnsubs) off();
+  cyberUnsubs = [];
+  const run = currentScene();
+  const layer = cyberLayerOf(run);
+  if (!run || !layer) return;
+  cyberVision = new VisionField();
+  cyberVision.restoreSeen(layer.mapSeenKeys());
+  cyberUnsubs.push(
+    layer.bus.on(EVENT.ENTITY_MOVED, () => recomputeVision()),
+    layer.bus.on(EVENT.ENTITY_DAMAGED, payload => {
+      const { target, damage = 0, killed, source } = (payload ?? {}) as EntityDamagedPayload;
+      if (target === layer.avatar && damage > 0) {
+        triggerShake(stageEl);
+        triggerDamageFlash(stageEl);
+        animLock.push(ANIMATION_DURATIONS.DAMAGE_FLASH);
+      }
+      if (source === 'melee' && target && damage > 0) {
+        const fired = runMuzzleFlash(renderer, paint, target.x, target.y);
+        if (fired) animLock.push(ANIMATION_DURATIONS.MUZZLE_FLASH);
+      }
+      if (killed && target && cyberVision.isVisible(target.x, target.y)) {
+        cyberVision.memoriseCorpse(target);
+      }
+    }),
+    layer.bus.on(EVENT.NOISE, payload => {
+      const noise = (payload ?? {}) as NoisePayload;
+      if (noise.kind !== 'ranged') return;
+      const origin = noise.origin;
+      if (!origin) return;
+      const fired = runMuzzleFlash(renderer, paint, origin.x, origin.y);
+      if (fired) animLock.push(ANIMATION_DURATIONS.MUZZLE_FLASH);
+    }),
+    layer.bus.on(EVENT.JACK_OUT, () => {
+      // Run.jackOut (subscribed first) has already resolved the layer.
+      for (const off of cyberUnsubs) off();
+      cyberUnsubs = [];
+      flash('LINK DROPPED — back in your body.');
+      recomputeVision();
+      paint();
     })
   );
 }
@@ -2024,12 +2229,23 @@ function attachRepListeners(): void {
 
 function recomputeVision(): void {
   const run = currentScene();
-  if (!run || !run.world || !run.player) return;
-  vision.recompute(run.world.grid, run.player, undefined, {
-    blockers: run.world.blockerKeys(),
-  });
-  if (isRun(run) && run.state === RUN_STATE.COMBAT) {
-    run.recordMapSeen(vision.visible);
+  if (!run) return;
+  // Meatspace vision stays live even while jacked in — the body still
+  // stands at the port and aftermath/corpse-memory checks read this field.
+  if (run.world && run.player) {
+    vision.recompute(run.world.grid, run.player, undefined, {
+      blockers: run.world.blockerKeys(),
+    });
+    if (isRun(run) && run.state === RUN_STATE.COMBAT) {
+      run.recordMapSeen(vision.visible);
+    }
+  }
+  const layer = cyberLayerOf(run);
+  if (layer) {
+    cyberVision.recompute(layer.world.grid, layer.avatar, undefined, {
+      blockers: layer.world.blockerKeys(),
+    });
+    layer.recordSeen(cyberVision.visible);
   }
 }
 
@@ -2098,6 +2314,9 @@ function renderShell(): void {
  */
 function currentLocationLabel(): string | undefined {
   if (!campaign) return undefined;
+  if (isJackedIn(currentScene())) {
+    return '// THE GRID //';
+  }
   if (campaign.state === CAMPAIGN_STATE.COMBAT && campaign.activeRun?.contract) {
     const { principal, site } = campaign.activeRun.contract.context;
     const siteName = site?.label ?? 'Location Unknown';
@@ -2128,23 +2347,41 @@ function buildCombatHudSnapshot(scene: ShellScene | null): CombatHudSummaryInput
             progress: scene.objectiveProgress(),
           }
         : null,
-    identity: {
-      callsign: scene.player.callsign,
-      archetype: scene.archetype,
-      stealthed: scene.player.stealthed,
-    },
-    hp: {
-      hp: scene.player.hp,
-      maxHp: scene.player.maxHp,
-    },
-    ap: {
-      ap: scene.player.ap,
-      maxAp: scene.player.maxAp,
-    },
+    ...combatHudBodyPanes(scene),
     turn: {
       currentFaction: scene.queue.currentFaction,
       turnNumber: scene.queue.turnNumber,
     },
+  };
+}
+
+/**
+ * P3.M3.6: identity/HP/AP panes track whoever the player is being right now —
+ * the crew body in Meatspace, the avatar (RAM pool) on the grid.
+ */
+function combatHudBodyPanes(scene: Run): Pick<CombatHudSummaryInput, 'identity' | 'hp' | 'ap'> {
+  const layer = cyberLayerOf(scene);
+  if (layer) {
+    const avatar = layer.avatar;
+    return {
+      identity: {
+        callsign: avatar.callsign,
+        archetype: 'Avatar',
+        stealthed: avatar.stealthed,
+      },
+      hp: { hp: avatar.hp, maxHp: avatar.maxHp, label: 'RAM' },
+      ap: { ap: avatar.ap, maxAp: avatar.maxAp },
+    };
+  }
+  const player = scene.player!;
+  return {
+    identity: {
+      callsign: player.callsign,
+      archetype: scene.archetype,
+      stealthed: player.stealthed,
+    },
+    hp: { hp: player.hp, maxHp: player.maxHp },
+    ap: { ap: player.ap, maxAp: player.maxAp },
   };
 }
 
@@ -2183,28 +2420,35 @@ function paint(stateHint: InputState = activeInputState()): void {
     return;
   }
   if (!run || !run.world || !run.player) return;
+  // P3.M3.6: the rendered pair — meat body in Meatspace, avatar on the grid.
+  const world = activeWorldOf(run);
+  const actor = activeActorOf(run);
+  if (!world || !actor) return;
+  const jacked = isJackedIn(run);
   // Hub is a safe space — no fog of war. Vision is only meaningful during
   // combat where LOS and drone stealth detection matter.
-  const activeVision = run.state === RUN_STATE.COMBAT ? vision : undefined;
+  const activeVision = run.state === RUN_STATE.COMBAT ? activeVisionField(run) : undefined;
+  // Breach blasts are a Meatspace effect — never painted onto the grid.
   const blastOverlayKeys =
-    run.state === RUN_STATE.COMBAT && activeBreachBlastOverlayKeys.size > 0
+    run.state === RUN_STATE.COMBAT && !jacked && activeBreachBlastOverlayKeys.size > 0
       ? activeBreachBlastOverlayKeys
       : undefined;
   const principalId =
-    run.state === RUN_STATE.COMBAT
+    run.state === RUN_STATE.COMBAT && !jacked
       ? campaign?.activeRun?.contract?.context?.principal?.id
       : undefined;
-  renderer.draw(run.world, run.player, {
+  renderer.draw(world, actor, {
     vision: activeVision,
-    player: run.player,
+    player: actor,
     blastOverlayKeys,
     lookCursor,
     principalId,
+    tileset: activeTileset(run),
     locationLabel: currentLocationLabel(),
     hudRows: buildHubHudRows(run),
     combatHud: buildCombatHudSnapshot(run),
   });
-  crt.alertTint = run.state === RUN_STATE.COMBAT && run.world.alarmActive;
+  crt.alertTint = run.state === RUN_STATE.COMBAT && world.alarmActive;
   crt.apply();
   setStatus(statusLine(stateHint));
 }
@@ -2234,7 +2478,10 @@ function statusLine(state: InputState): string {
     combatA11y = `<span class="u-sr-only">Combat status: ${escapeHtml(
       formatCombatHudA11ySummary(hudSnapshot)
     )}</span>`;
-    const alarm = run.world?.alarm;
+    // P3.M3.6: alarm + hazard read from the world the player is *being in*.
+    const statusWorld = activeWorldOf(run);
+    const statusActor = activeActorOf(run);
+    const alarm = statusWorld?.alarm;
     const alertTag =
       alarm?.phase === 'alert'
         ? `<span class="alert-tag">ALERT ${alarm.holdTurnsRemaining}</span>`
@@ -2242,7 +2489,9 @@ function statusLine(state: InputState): string {
           ? `<span class="alert-tag">COOL ${alarm.cooldownTurnsRemaining}</span>`
           : '';
     const onHazard =
-      run.world && run.player && run.world.grid.tileAt(run.player.x, run.player.y) === TILE.HAZARD;
+      statusWorld &&
+      statusActor &&
+      statusWorld.grid.tileAt(statusActor.x, statusActor.y) === TILE.HAZARD;
     const hazardTag = onHazard
       ? '<span class="hazard-tag">▓ HAZARD — move or take damage</span>'
       : '';
@@ -2280,15 +2529,19 @@ function statusLine(state: InputState): string {
     run.state === RUN_STATE.COMBAT &&
     run.queue.currentFaction === run.hostileFaction
   ) {
-    if (!run.world) throw new Error('[shell] combat status requires a world');
+    const corpWorld = activeWorldOf(run);
+    if (!corpWorld) throw new Error('[shell] combat status requires a world');
+    // P3.M3.6: while jacked in, the hostile mood row reads the ICE on the
+    // grid (probes are CORP-faction regardless of the meat principal).
+    const jacked = isJackedIn(run);
     const visibleHostiles = countVisibleCorpEntities(
-      run.world.entities.values(),
-      (x: number, y: number) => vision.isVisible(x, y),
-      run.hostileFaction
+      corpWorld.entities.values(),
+      (x: number, y: number) => activeVisionField(run).isVisible(x, y),
+      jacked ? FACTION.CORP : run.hostileFaction
     );
     const body = corpTurnStatusBody(visibleHostiles, run.queue.turnNumber);
     corpToneActivityBody = body;
-    const hostileTag = run.hostileFaction.toUpperCase();
+    const hostileTag = jacked ? 'ICE' : run.hostileFaction.toUpperCase();
     ephemeral = `<span class="game-shell__activity corp"><span class="faction-tag">${hostileTag}</span> — ${body}</span>`;
   } else if (
     isRun(run) &&
@@ -2297,7 +2550,7 @@ function statusLine(state: InputState): string {
     corpToneActivityBody !== null
   ) {
     // show the last hostile-turn mood until the player acts and flushes it
-    const hostileTag = run.hostileFaction.toUpperCase();
+    const hostileTag = isJackedIn(run) ? 'ICE' : run.hostileFaction.toUpperCase();
     ephemeral = `<span class="game-shell__activity corp"><span class="faction-tag">${hostileTag}</span> — ${corpToneActivityBody}</span>`;
     corpToneActivityBody = null;
   }
@@ -2370,23 +2623,29 @@ function proximityHint(): string {
     return '';
   }
   if (run.state === RUN_STATE.COMBAT) {
-    // Loot hint: check for adjacent lootable corpses.
-    if (run.world && run.player) {
-      const p = run.player;
-      for (let dy = -1; dy <= 1; dy++) {
-        for (let dx = -1; dx <= 1; dx++) {
-          const e = run.world.lootableCorpseAt(p.x + dx, p.y + dy);
-          if (e && !e.alive && e.loot && totalSalvage(e.loot.salvage) > 0) {
-            return 'SALVAGE nearby — press [Space] to loot.';
+    // P3.M3.6: hints follow the active body — meat props for the crew,
+    // nodes/exit port for the avatar.
+    const world = activeWorldOf(run);
+    const p = activeActorOf(run);
+    const jacked = isJackedIn(run);
+    if (world && p) {
+      // Loot hint: adjacent lootable corpses (needs pockets — avatar skips).
+      if (!jacked) {
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const e = world.lootableCorpseAt(p.x + dx, p.y + dy);
+            if (e && !e.alive && e.loot && totalSalvage(e.loot.salvage) > 0) {
+              return 'SALVAGE nearby — press [Space] to loot.';
+            }
           }
         }
       }
-      const interactable = run.world.adjacentInteractables(p)[0];
+      const interactable = world.adjacentInteractables(p)[0];
       if (interactable) {
         return `${interactable.label.toUpperCase()} nearby — press [Space] to interact.`;
       }
     }
-    if (run.exitTile && isChebyshevAdjacent(run.player, run.exitTile)) {
+    if (!jacked && run.exitTile && isChebyshevAdjacent(run.player, run.exitTile)) {
       return 'EXIT (¤) one step away.';
     }
   }
