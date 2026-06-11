@@ -1066,8 +1066,14 @@ test('P3.M1.7: Score contract is gated to Act 3 and marks attempted on deploymen
   assert.equal(score.context.locationSiteId, 'score');
   assert.ok(score.context.tags.includes('score'));
   assert.match(score.label, /THE SCORE/);
+  // The Score is (for now) always a cyber run: DATA_NODE_SLICE end to end.
+  assert.equal(score.objective.kind, OBJECTIVES.DATA_NODE_SLICE);
+  assert.equal(score.objective.params?.requiresCyberspace, true);
+  assert.equal(score.objective.params?.count, 1);
 
-  const run = campaign.deployCrewMember(campaign.crew[0]!.id, score);
+  const decker = campaign.crew.find(m => m.archetype === 'Decker');
+  assert.ok(decker, 'Act 3 campaign should include auto-assigned Decker');
+  const run = campaign.deployCrewMember(decker!.id, score);
   assert.equal(campaign.arc.scoreAttempted, true);
   assert.equal(campaign.arcStage, 'score');
   assert.equal(run.contract?.context.locationSiteId, 'score');
@@ -1093,7 +1099,9 @@ test('P3.M1.7: completed Score contract records campaign win state', () => {
       validSite({ id: 'case-2', seed: '102', lastVisitedJob: 7, principal: scorePrincipal }),
     ],
   });
-  const run = campaign.deployCrewMember(campaign.crew[0]!.id, campaign.buildScoreContract());
+  const decker = campaign.crew.find(m => m.archetype === 'Decker');
+  assert.ok(decker, 'Act 3 campaign should include auto-assigned Decker');
+  const run = campaign.deployCrewMember(decker!.id, campaign.buildScoreContract());
   run.enterCombat();
 
   campaign.onJobEnd({ outcome: OUTCOME.EXIT, completed: true });

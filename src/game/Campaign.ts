@@ -595,17 +595,22 @@ export class Campaign {
     const principal = locationContextToken(target.principal);
     const site = target.site ? locationContextToken(target.site) : undefined;
     const heatThreat = Math.min(6, 4 + this.clockHeat);
+    const objectiveKind = OBJECTIVES.DATA_NODE_SLICE;
     return {
       seed,
       mapWidth: target.mapWidth,
       mapHeight: target.mapHeight,
       objective: {
-        kind: OBJECTIVES.REACH_EXIT,
+        kind: objectiveKind,
         title: 'The Score',
         briefing: `Hit ${target.label
           .replace(/^\/\//, '')
           .replace(/\s+-\s+Score target$/i, '')
           .trim()} and extract with the crew alive.`,
+        params: {
+          requiresCyberspace: true,
+          count: 1,
+        },
       },
       difficulty: CONTRACT_DIFFICULTY.CRITICAL,
       threatCount: heatThreat,
@@ -616,12 +621,7 @@ export class Campaign {
         ...(site ? { site } : {}),
         asset: { id: 'score-target', label: 'Score target', groups: ['score'] },
         action: { id: 'score-run', label: 'run', groups: ['score'] },
-        tags: [
-          'score',
-          'meatspace',
-          `objective:${OBJECTIVES.REACH_EXIT}`,
-          `principal:${principal.id}`,
-        ],
+        tags: ['score', 'meatspace', `objective:${objectiveKind}`, `principal:${principal.id}`],
         arcStage: 'score',
         locationSiteId: target.id,
       },
