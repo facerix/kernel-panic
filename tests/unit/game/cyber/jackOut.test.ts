@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 
 import { Run } from '../../../../src/game/Run.js';
 import { CyberspaceLayer } from '../../../../src/game/cyber/CyberspaceLayer.js';
+import { DataNode } from '../../../../src/game/cyber/DataNode.js';
 import { JackInPoint } from '../../../../src/game/entities/JackInPoint.js';
 import { snapshot, restore } from '../../../../src/game/persistence.js';
 import { buildCrewMember } from '../../../../src/game/archetypes/index.js';
@@ -83,6 +84,18 @@ function routeOut(layer: CyberspaceLayer): void {
   assert.equal(layer.port.interact(layer.world, layer.avatar).ok, true);
 }
 
+/** Slice every node in the layer (standard difficulty 2 vs decker intrusion 2 → one pass each). */
+function sliceAllNodes(layer: CyberspaceLayer): void {
+  for (const entity of Array.from(layer.world.entities.values())) {
+    if (!(entity instanceof DataNode)) continue;
+    const spot = adjacentFreeTile(layer.world, entity);
+    layer.world.relocateEntity(layer.avatar, spot.x, spot.y);
+    layer.avatar.refreshAp();
+    assert.equal(entity.interact(layer.world, layer.avatar).ok, true);
+    assert.equal(entity.sliced, true, 'standard node slices in one pass at base intrusion');
+  }
+}
+
 function portRecord(record: RunSnapshot): RunEntitySnapshot {
   const rec = record.entities.find(e => e.archetype === 'jack-in-point');
   assert.ok(rec, 'snapshot carries the jack-in point');
@@ -138,6 +151,84 @@ test('jack-out burns the meat-side port', () => {
 test('burn() on an unlinked port is corrupt state and throws', () => {
   const point = new JackInPoint({ id: 'jack-in-0', x: 1, y: 1 });
   assert.throws(() => point.burn(), /link/i);
+});
+
+// --- early jack-out confirmation (P3.M3 S7.5) -----------------------------------------
+//
+// An incomplete jack-out is irreversible — the link burns and the objective
+// latches unsatisfiable. With `onJackOutRequested` registered, Run defers to
+// the shell instead of resolving; `confirmJackOut()` finalizes. No callback
+// (tests/harness) → resolve immediately, the `onAbortRequested` posture —
+// locked by the LINK BURNED tests above, which route out with no callback.
+
+test('Run rejects a non-function onJackOutRequested', () => {
+  assert.throws(
+    () => new Run({ crewMember: makeDecker(), seed: 1, onJackOutRequested: 'nope' }),
+    TypeError
+  );
+});
+
+test('incomplete jack-out defers to onJackOutRequested — layer stays live, link unburned', () => {
+  const run = combatRun();
+  const layer = jackIn(run);
+  let requests = 0;
+  run.onJackOutRequested = () => requests++;
+
+  routeOut(layer);
+  assert.equal(requests, 1, 'shell asked exactly once');
+  assert.equal(run.cyberspace?.phase, 'active', 'layer stays live pending confirmation');
+  assert.equal(meatPort(run).burned, false, 'deferred request does not burn the link');
+});
+
+test('confirmJackOut finalizes the deferred jack-out: resolved, incomplete, burned', () => {
+  const run = combatRun();
+  const layer = jackIn(run);
+  run.onJackOutRequested = () => {};
+  routeOut(layer);
+
+  run.confirmJackOut();
+  assert.equal(run.cyberspace?.phase, 'resolved');
+  assert.equal(
+    (run.cyberspace as { objectiveComplete?: boolean }).objectiveComplete,
+    false,
+    'early jack-out latches the objective unsatisfiable'
+  );
+  assert.equal(meatPort(run).burned, true);
+});
+
+test('complete objective jacks out immediately — no confirmation requested', () => {
+  const run = combatRun();
+  const layer = jackIn(run);
+  let requests = 0;
+  run.onJackOutRequested = () => requests++;
+
+  sliceAllNodes(layer);
+  routeOut(layer);
+  assert.equal(requests, 0, 'a clean jack-out never asks');
+  assert.equal(run.cyberspace?.phase, 'resolved');
+  assert.equal((run.cyberspace as { objectiveComplete?: boolean }).objectiveComplete, true);
+});
+
+test('confirmJackOut with no jack-out pending throws (dormant and resolved)', () => {
+  const run = combatRun();
+  assert.equal(run.cyberspace?.phase, 'dormant');
+  assert.throws(() => run.confirmJackOut(), /pending/);
+
+  const layer = jackIn(run);
+  routeOut(layer); // no callback → resolves immediately
+  assert.equal(run.cyberspace?.phase, 'resolved');
+  assert.throws(() => run.confirmJackOut(), /pending/);
+});
+
+test('a pending jack-out confirmation persists as a live layer', () => {
+  const run = combatRun();
+  const layer = jackIn(run);
+  run.onJackOutRequested = () => {};
+  routeOut(layer);
+
+  const { run: restored } = restore(structuredClone(snapshot(run)));
+  assert.equal(restored.cyberspace?.phase, 'active', 'nothing resolved until the shell confirms');
+  assert.equal(meatPort(restored).burned, false);
 });
 
 // --- persistence ----------------------------------------------------------------------

@@ -571,6 +571,14 @@ async function boot() {
           paint();
         }
         break;
+      case 'jack-out-early': {
+        const activeRun = campaign?.activeRun;
+        if (activeRun) {
+          activeRun.confirmJackOut();
+          completeJackOutShellSwap();
+        }
+        break;
+      }
     }
   });
 
@@ -884,14 +892,8 @@ function onBriefingDeploy(evt: Event) {
     flash(`CURATOR: ${member.callsign} takes ${contract.label}. JACKING IN.`);
   }
 
-  // Wire abort confirmation so stepping on exit with an incomplete objective
-  // pops a modal instead of silently ending the run.
-  run.onAbortRequested = () => {
-    confirmationModalEl.showModal(
-      `Objective incomplete. Abort extraction?\n\nYou will lose all rewards and take a REP ${REP.ABORT_PENALTY} penalty.`,
-      'abort-run'
-    );
-  };
+  // Wire the run's confirmation callbacks (abort extraction, early jack-out).
+  wireRunConfirmations(run);
 
   // Go straight into combat — the player already reviewed the contract and
   // chose their operative in the combined briefing modal.
@@ -1333,12 +1335,40 @@ function currentScene(): ShellScene | null {
   return campaign.activeRun ?? campaign;
 }
 
+/**
+ * Wire the confirmation callbacks a Run raises mid-combat. Callbacks do not
+ * persist, so this runs at deploy AND on campaign resume — a restored run
+ * without them would silently skip both confirmations (the no-callback
+ * harness fallback).
+ */
+function wireRunConfirmations(run: Run): void {
+  // Stepping on exit with an incomplete objective pops a modal instead of
+  // silently ending the run.
+  run.onAbortRequested = () => {
+    confirmationModalEl.showModal(
+      `Objective incomplete. Abort extraction?\n\nYou will lose all rewards and take a REP ${REP.ABORT_PENALTY} penalty.`,
+      'abort-run'
+    );
+  };
+  // P3.M3 S7.5: routing out of the grid with the objective incomplete is
+  // irreversible (LINK BURNED, objective unsatisfiable) — confirm first.
+  run.onJackOutRequested = () => {
+    confirmationModalEl.showModal(
+      'Objective incomplete. Jack out anyway?\n\nThe link will burn — you cannot re-enter the grid this run.',
+      'jack-out-early'
+    );
+  };
+}
+
 function resumeCampaign(record: CampaignSnapshot | unknown) {
   try {
     campaign = restoreCampaign(record, {
       onPersist: () => handlePersist(),
       onResult: handleResult,
     });
+    if (campaign.activeRun) {
+      wireRunConfirmations(campaign.activeRun);
+    }
     if (campaign.activeRun?.state === RUN_STATE.COMBAT) {
       vision.resetFogState();
       vision.restoreSeen(campaign.activeRun.mapSeenKeys());
@@ -2169,14 +2199,26 @@ function attachCyberListeners(): void {
       if (fired) animLock.push(ANIMATION_DURATIONS.MUZZLE_FLASH);
     }),
     layer.bus.on(EVENT.JACK_OUT, () => {
-      // Run.jackOut (subscribed first) has already resolved the layer.
-      for (const off of cyberUnsubs) off();
-      cyberUnsubs = [];
-      flash('LINK DROPPED — back in your body.');
-      recomputeVision();
-      paint();
+      // Run.jackOut (subscribed first) has either resolved the layer or, with
+      // the objective incomplete, deferred to the early-jack-out confirmation
+      // (S7.5) — the modal's confirm path completes the swap instead.
+      if (cyberLayerOf(currentScene())) return;
+      completeJackOutShellSwap();
     })
   );
+}
+
+/**
+ * S7.5: shell-side half of a finalized jack-out — drop the cyber listeners
+ * and re-present Meatspace. Reached from the JACK_OUT bus event (immediate
+ * resolve) or the `jack-out-early` modal confirmation (deferred resolve).
+ */
+function completeJackOutShellSwap(): void {
+  for (const off of cyberUnsubs) off();
+  cyberUnsubs = [];
+  flash('LINK DROPPED — back in your body.');
+  recomputeVision();
+  paint();
 }
 
 /**

@@ -48,6 +48,8 @@ export class EntryPort extends Interactable {
     }
     actor.spendAp(AP_COST.INTERACT);
     world.events?.emit(EVENT.JACK_OUT, { port: this, actor });
-    return { ok: true, message: `${this.label}: connection dropped — jacking out.` };
+    // Neutral copy: Run may have resolved the layer or deferred to an
+    // early-jack-out confirmation (S7.5) — the shell narrates the outcome.
+    return { ok: true, message: `${this.label}: routing out…` };
   }
 }

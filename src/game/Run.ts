@@ -358,6 +358,13 @@ export type RunOptions = {
    *  to finalise the abort extraction, or do nothing to let the player
    *  stay on the exit tile and keep playing. */
   onAbortRequested?: unknown;
+  /** P3.M3: called when the avatar routes out with the objective incomplete —
+   *  an irreversible step (the link burns, the objective latches
+   *  unsatisfiable). The shell should show a confirmation prompt; call
+   *  `run.confirmJackOut()` to finalize, or do nothing to keep the layer
+   *  live. No callback registered → jack out immediately (tests/harness),
+   *  matching the `onAbortRequested` posture. */
+  onJackOutRequested?: unknown;
   /** Terrain mutations from a prior visit to this location (P2.5.M7.2), replayed
    *  onto the freshly-built map in `enterCombat`. Empty/omitted for a first visit. */
   priorMutationDeltas?: unknown;
@@ -417,6 +424,7 @@ export class Run {
   onPersist: ((record: RunSnapshot) => void) | null;
   onResult: ((result: RunResult) => void) | null;
   onAbortRequested: (() => void) | null;
+  onJackOutRequested: (() => void) | null;
   _busUnsubs: (() => void)[];
 
   constructor({
@@ -426,6 +434,7 @@ export class Run {
     onPersist,
     onResult,
     onAbortRequested,
+    onJackOutRequested,
     priorMutationDeltas,
     priorKeyItems,
     priorSeenKeys,
@@ -447,6 +456,9 @@ export class Run {
     }
     if (onAbortRequested !== undefined && typeof onAbortRequested !== 'function') {
       throw new TypeError('Run: onAbortRequested must be a function');
+    }
+    if (onJackOutRequested !== undefined && typeof onJackOutRequested !== 'function') {
+      throw new TypeError('Run: onJackOutRequested must be a function');
     }
     if (priorMutationDeltas !== undefined && !Array.isArray(priorMutationDeltas)) {
       throw new TypeError('Run: priorMutationDeltas must be an array when supplied');
@@ -486,6 +498,7 @@ export class Run {
     this.onPersist = (onPersist as ((record: RunSnapshot) => void) | undefined) ?? null;
     this.onResult = (onResult as ((result: RunResult) => void) | undefined) ?? null;
     this.onAbortRequested = (onAbortRequested as (() => void) | undefined) ?? null;
+    this.onJackOutRequested = (onJackOutRequested as (() => void) | undefined) ?? null;
 
     /** @type {Array<() => void>} active bus subscriptions */
     this._busUnsubs = [];
@@ -899,6 +912,44 @@ export class Run {
     // — extraction then routes through the existing abort-confirm flow.
     const { sliced } = dataNodeProgress(layer.world);
     const objectiveComplete = sliced >= objectiveCount(this.contract);
+    // S7.5: an incomplete jack-out is irreversible — defer to the shell for
+    // confirmation when a callback is registered (the port's interact AP is
+    // already spent; a re-request after cancel costs it again). No callback
+    // → resolve immediately, the `onAbortRequested` posture.
+    if (!objectiveComplete && this.onJackOutRequested) {
+      this.onJackOutRequested();
+      return;
+    }
+    this.#finalizeJackOut(layer, objectiveComplete);
+  }
+
+  /**
+   * S7.5: finalize a deferred early jack-out after the shell confirms.
+   * Unlike `confirmAbort` (where walking off the exit tile legitimately
+   * voids the request), nothing can legally change between request and
+   * confirm — the modal blocks turn flow — so an illegal state here is a
+   * wiring bug and throws rather than silently no-oping.
+   */
+  confirmJackOut(): void {
+    if (this.state !== RUN_STATE.COMBAT || this.cyberspace?.phase !== 'active') {
+      throw new Error(
+        `Run.confirmJackOut: no jack-out pending (state ${this.state}, phase ${
+          this.cyberspace?.phase ?? 'none'
+        })`
+      );
+    }
+    if (!this.contract) {
+      throw new Error('Run.confirmJackOut: COMBAT state without a contract');
+    }
+    const layer = this.cyberspace.layer;
+    // Recompute rather than latch `false` blindly — honest if a future flow
+    // ever confirms after progress changed.
+    const { sliced } = dataNodeProgress(layer.world);
+    this.#finalizeJackOut(layer, sliced >= objectiveCount(this.contract));
+  }
+
+  /** Active → resolved: teardown, latch, LINK BURNED, autosave. */
+  #finalizeJackOut(layer: CyberspaceLayer, objectiveComplete: boolean): void {
     layer.teardown();
     this.cyberspace = { phase: 'resolved', objectiveComplete };
     // S5: the link is burned — re-jack-in refused for the rest of the run.
