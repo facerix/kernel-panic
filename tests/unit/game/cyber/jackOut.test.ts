@@ -161,6 +161,25 @@ test('burn() on an unlinked port is corrupt state and throws', () => {
 // (tests/harness) → resolve immediately, the `onAbortRequested` posture —
 // locked by the LINK BURNED tests above, which route out with no callback.
 
+test('jackIn invokes onJackInPresent after layer spawns', () => {
+  const run = combatRun();
+  let presented = 0;
+  run.onJackInPresent = () => presented++;
+  jackIn(run);
+  assert.equal(presented, 1);
+});
+
+test('finalize jack-out invokes onJackOutPresent', () => {
+  const run = combatRun();
+  const layer = jackIn(run);
+  sliceAllNodes(layer);
+  let presented = 0;
+  run.onJackOutPresent = () => presented++;
+  routeOut(layer);
+  assert.equal(presented, 1);
+  assert.equal(run.cyberspace?.phase, 'resolved');
+});
+
 test('Run rejects a non-function onJackOutRequested', () => {
   assert.throws(
     () => new Run({ crewMember: makeDecker(), seed: 1, onJackOutRequested: 'nope' }),

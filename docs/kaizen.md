@@ -38,19 +38,12 @@ When an item lands, gets reclassified, or develops new context, edit it in place
   - **Clean constraints as modifiers:** no alarm, no civilian harm, no kills, under turn budget. Treat as bonus constraints / payout modifiers unless a future design proves one should be a base objective kind.
   - **Breach / demolition target:** place or detonate a breach charge at an authored wall or target. Mechanically adjacent to deny/destroy; Phase 2.5 M7 covers breaching foundations.
   - **Cyberspace / data-layer objectives:** jack in, slice data nodes, open locks, defeat or avoid ICE. Likely Phase 3 dual-layer objective work rather than plain Meatspace recipes.
-- **index.ts complexity:** Introduction of the Cyberspace layer pushed complexity of the core UI shell over a reasonable limit; candidates for cleanup / simplification identified:
-  - **ShellScene = Campaign | Run union** forces isRun() casts everywhere — ~15 sites narrow-and-cast; a SceneView
-  interface both classes implement would delete most of them.
-  - **statusLine()** is a ~110-line HTML string builder mixing a11y, alarm tags, hub identity, corp mood, and
-  activity-row layout — prime extraction target (pure function over a snapshot, like combatHud.ts already does).
-  - **Four duplicated attachVisionListener/Animation/Rep/Cyber blocks at every scene transition** — one
-  rewireSceneListeners() would collapse them and prevent the "forgot to add the new attach call" failure mode (I
-  had to touch all four for S7).
-  - **Listener-order coupling on the bus**: the shell's JACK_IN/JACK_OUT handlers depend on Run subscribing first
-  (true today, enforced nowhere). A bus.on(..., {priority}) or explicit shell callbacks on Run would make it
-  structural.
-  - **run.world/run.player direct reads remain legal** — the new active-view seam is convention, not
-  compiler-enforced; a lint rule or accessor deprecation would lock it in.
+- **index.ts complexity:** ~~Introduction of the Cyberspace layer pushed complexity of the core UI shell over a reasonable limit; candidates for cleanup / simplification identified:~~ **Partially closed (2026-06-14):** extracted `src/shell/` modules (`activeView`, `statusLine`, `sceneView`, `combatHudSnapshot`, `locationHud`, `visionSync`, `sceneListeners`, `shellRuntime`, `GameShell`); `index.ts` is now boot-only (~65 LOC). Remaining ◇ items:
+  - ~~**ShellScene = Campaign | Run union** forces isRun() casts everywhere~~ — `sceneView.ts` + `resolveSceneView` landed; casts reduced.
+  - ~~**statusLine()** is a ~110-line HTML string builder~~ — pure `formatStatusLine` in `statusLine.ts` with unit tests.
+  - ~~**Four duplicated attachVisionListener/Animation/Rep/Cyber blocks**~~ — `SceneListenerController.rewire()` + `rewireSceneListeners()`.
+  - ~~**Listener-order coupling on the bus** (JACK_IN/JACK_OUT)~~ — `Run.onJackInPresent` / `onJackOutPresent` shell hooks.
+  - **run.world/run.player direct reads remain legal** — active-view seam in `activeView.ts`; lint rule still ◇ Monitored.
 - ~~**Cyberspace playtesting feedback.**~~ **Closed 2026-06-14:** Probe ICE reduced from 3 HP / 4 AP to 2 HP / 2 AP; the CyberAvatar can use Override against ICE, including allied aftermath actions, reversion, and save round-trip; a pre-Score Decker flatline creates a free replacement Decker lead in the Terminal and gates THE SCORE until recruited; a Decker flatline during THE SCORE ends the campaign with explicit Game Over copy (`decker-flatlined-score`). See the P3.M3 playtest stabilization note in [phase-3-plan.md](phase-3-plan.md).
 
 ## ◇ Monitored

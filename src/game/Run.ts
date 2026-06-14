@@ -372,6 +372,10 @@ export type RunOptions = {
    *  live. No callback registered → jack out immediately (tests/harness),
    *  matching the `onAbortRequested` posture. */
   onJackOutRequested?: unknown;
+  /** Shell presentation — fired after jack-in completes. */
+  onJackInPresent?: unknown;
+  /** Shell presentation — fired after jack-out finalizes. */
+  onJackOutPresent?: unknown;
   /** Terrain mutations from a prior visit to this location (P2.5.M7.2), replayed
    *  onto the freshly-built map in `enterCombat`. Empty/omitted for a first visit. */
   priorMutationDeltas?: unknown;
@@ -432,6 +436,10 @@ export class Run {
   onResult: ((result: RunResult) => void) | null;
   onAbortRequested: (() => void) | null;
   onJackOutRequested: (() => void) | null;
+  /** Shell presentation hook — fired synchronously after jack-in completes. */
+  onJackInPresent: (() => void) | null;
+  /** Shell presentation hook — fired after jack-out finalizes. */
+  onJackOutPresent: (() => void) | null;
   _busUnsubs: (() => void)[];
 
   constructor({
@@ -442,6 +450,8 @@ export class Run {
     onResult,
     onAbortRequested,
     onJackOutRequested,
+    onJackInPresent,
+    onJackOutPresent,
     priorMutationDeltas,
     priorKeyItems,
     priorSeenKeys,
@@ -466,6 +476,12 @@ export class Run {
     }
     if (onJackOutRequested !== undefined && typeof onJackOutRequested !== 'function') {
       throw new TypeError('Run: onJackOutRequested must be a function');
+    }
+    if (onJackInPresent !== undefined && typeof onJackInPresent !== 'function') {
+      throw new TypeError('Run: onJackInPresent must be a function');
+    }
+    if (onJackOutPresent !== undefined && typeof onJackOutPresent !== 'function') {
+      throw new TypeError('Run: onJackOutPresent must be a function');
     }
     if (priorMutationDeltas !== undefined && !Array.isArray(priorMutationDeltas)) {
       throw new TypeError('Run: priorMutationDeltas must be an array when supplied');
@@ -506,6 +522,8 @@ export class Run {
     this.onResult = (onResult as ((result: RunResult) => void) | undefined) ?? null;
     this.onAbortRequested = (onAbortRequested as (() => void) | undefined) ?? null;
     this.onJackOutRequested = (onJackOutRequested as (() => void) | undefined) ?? null;
+    this.onJackInPresent = (onJackInPresent as (() => void) | undefined) ?? null;
+    this.onJackOutPresent = (onJackOutPresent as (() => void) | undefined) ?? null;
 
     /** @type {Array<() => void>} active bus subscriptions */
     this._busUnsubs = [];
@@ -893,6 +911,7 @@ export class Run {
     if (this.onPersist) {
       this.onPersist(this.snapshot());
     }
+    this.onJackInPresent?.();
   }
 
   /**
@@ -964,9 +983,8 @@ export class Run {
     if (this.onPersist) {
       this.onPersist(this.snapshot());
     }
+    this.onJackOutPresent?.();
   }
-
-  /** The contract's single meat-side jack-in point. Missing on a cyber run is corrupt. */
   #meatJackInPoint(): JackInPoint {
     if (!this.world) {
       throw new Error('Run.#meatJackInPoint: no live world');
