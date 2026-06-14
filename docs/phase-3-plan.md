@@ -43,7 +43,7 @@ A new **player archetype** recruited mid-campaign (late Act 1 / start of Act 2),
 |---|---|
 | P3.M1 — Campaign arc structure | ✅ Done |
 | P3.M2 — The Decker archetype | ✅ Done |
-| P3.M3 — Cyberspace grid + ICE | 🟡 First playable slice shipped (Spark/Guardian ICE open) |
+| P3.M3 — Cyberspace grid + ICE | ✅ Done (full ICE roster: Probe, Spark, Guardian) |
 | P3.M4 — Simstim flip (dual-deploy) | 🔲 Planned |
 | P3.M5 — The Score (climactic mission) | 🔲 Planned |
 | P3.M6 — Chronicle (campaign narrative memory) | 🟡 End-summary foundation shipped |
@@ -199,9 +199,9 @@ Neural degradation is deferred until Cyberspace is fun enough to deserve a jack-
 
 ---
 
-### P3.M3 — Cyberspace grid + ICE 🟡
+### P3.M3 — Cyberspace grid + ICE ✅
 
-**Status (2026-06-14):** The first playable slice (M3.1–M3.6, plus voluntary jack-out pulled forward from M4.6 and an early-jack-out confirmation) is shipped end-to-end. The milestone stays open for **Spark and Guardian ICE**.
+**Status (2026-06-14):** Complete. The first playable slice (M3.1–M3.6, plus voluntary jack-out pulled forward from M4.6 and an early-jack-out confirmation) shipped end-to-end, and the **full ICE roster** — Probe (detector), Spark (fast/fragile swarm), and Guardian (heavy node guard) — now lands at every jack-in.
 
 **Depends on:** P3.M2 (Decker as the Cyberspace avatar). Can prototype grid mechanics independently.
 
@@ -222,9 +222,9 @@ TDD throughout; malformed persisted state throws (no silent fallbacks).
 - **Cyberspace grid:** Separate `Grid` / `World` instance for the digital layer. **First implementation reuses the existing square grid engine** with a distinct tileset and generation rules; reserve a graph-topology refactor only if the square grid fails the feel test.
 - **Cyberspace tileset / aesthetic:** Distinct from Meatspace — FLOOR `·` deep cyan, WALL `▒` magenta; location label `// THE GRID //`; vitals pane labeled RAM.
 - **ICE hostiles:** Three types per blueprint:
-  - **Probe:** Sentry / patrol. Detects the Decker, raises alert (Cyberspace alarm analog). ✅ Shipped.
-  - **Spark:** Fast, fragile attacker. Swarm behavior. 🔲 Planned.
-  - **Guardian:** Heavy. Guards critical nodes. High HP, high damage, limited mobility. 🔲 Planned.
+  - **Probe:** Sentry / patrol. Detects the Decker, raises alert (Cyberspace alarm analog). ✅ Shipped. 2 HP / 2 AP / 1 dmg / **sight 7** (longest — it's the detector).
+  - **Spark:** Fast, fragile attacker. Swarm behavior. ✅ Shipped. 1 HP / **4 AP** / 1 dmg / sight 6 — rides the trace flare, never raises one.
+  - **Guardian:** Heavy. Guards critical nodes. High HP, high damage, limited mobility. ✅ Shipped. 6 HP / 2 AP / **3 dmg** / sight 5 — parks on a data node (no patrol), flares on contact.
 - **ICE AI:** A* pathfinding (reuse Meatspace drone infrastructure). Alarm/alert model adapted from P2.5.M2.1 for the digital layer.
 - **Cyberspace objectives:** Slice data nodes (shipped); disable firewalls, open digital locks — future.
 - **Generation:** Procedural per jack-in. Seeded from contract (`new Rng(contract.seed).fork('cyberspace')`). Not persistent. Complexity scales with contract difficulty.
@@ -256,10 +256,12 @@ TDD throughout; malformed persisted state throws (no silent fallbacks).
 | **P3.M3.4 Data node objective** | ✅ Done | Slice data nodes and feed objective satisfaction | incomplete blocks clean extraction, complete allows it |
 | **P3.M3.5 Probe ICE** | ✅ Done | ICE patrol/detect/attack loop | seeded movement, detection/alarm, damage/death |
 | **P3.M3.6 Render swap** | ✅ Done | Render Cyberspace when active; dual-phase corp turn | browser smoke, dualPhaseTurn determinism |
+| **P3.M3.7 Body CCTV PIP** | ✅ Done | Meatspace overlay while jacked in; body-damage feedback | pip viewport/chrome unit tests, browser smoke |
 | **M4.6 pull-forward — voluntary jack-out** | ✅ Done | `JackInPoint.burned` latch; `Run.jackOut()`; early jack-out confirmation | LINK BURNED latch, defer/confirm matrix, round-trip |
 | **Playtest stabilization** | ✅ Done | Probe 2 HP / 2 AP; Cyber Override against ICE; pre-Score replacement Decker; Score Decker death Game Over | action budget, override/revert + persistence, replacement/Score gates |
-| **Spark ICE** | 🔲 Planned | Fast, fragile attacker; swarm behavior | — |
-| **Guardian ICE** | 🔲 Planned | Heavy guard of critical nodes; high HP/damage | — |
+| **Spark ICE** | ✅ Done | Fast, fragile attacker; swarm behavior (rides the flare) | stats, listens-for-flare swarm, difficulty-scaled count, round-trip |
+| **Guardian ICE** | ✅ Done | Heavy guard of critical nodes; high HP/damage, parks on the node | stats, one-per-data-node placement, heavy strike vs resistance, round-trip |
+| **ProbeIce rebalance** | ✅ Done | Sight 6→7 (the detector); roster split off the data-node rings | sight, non-data-ring patrol count |
 
 **P3.M3.1 implementation note:** `OBJECTIVES.DATA_NODE_SLICE = 'data-node-slice'` with cross-field validation in `normalizeObjective`: kind requires `params.requiresCyberspace === true` plus positive-integer `params.count`; flag forbidden on every other kind. `contractRequiresCyberspace(contract)` exported from `Curator.ts`. Recipe `cyber-data-spike` gated by `ContractRecipe.availableWhen`: `arcStage ∈ {act-2, act-3} && hasLivingDecker`. Deploy gate in `Campaign.deployCrewMember` throws for cyber contracts unless deployed member is a living Decker. UX: `CrewList.setCrew(crew, rowGate?)` — `NEEDS DECKER` on non-Decker rows.
 
@@ -269,9 +271,19 @@ TDD throughout; malformed persisted state throws (no silent fallbacks).
 
 **P3.M3.4 implementation note:** `DataNode extends Interactable`, glyph `◈`, avatar-only via `isCyberAvatar` sniff. `sliceDifficultyFor`: standard 2 / elevated 3 / critical 4. `ObjectiveState.cyber?: {sliced, required}`; `DATA_NODE_SLICE` satisfaction reads live tally while active, resolved latch after jack-out. Early jack-out latches `objectiveComplete: false` → existing abort-confirm extraction flow. Active snapshot requires exactly the contract's node count.
 
-**P3.M3.5 (Probe ICE) implementation note:** `ProbeIce extends PatrolHostile`, glyph `¶`. Trace flare: `engageSteps` raises cyber alarm (`repPenalty: false`) before striking; pack convergence via default `listensForAlarm()`. One probe per patrol ring. `'probe-ice'` in `PATROL_ARCHETYPE_IDS` for snapshot machinery. **Follow-up:** probes default `FACTION.CORP`; future rival-principal cyber recipe needs ICE faction stamping at `jackIn`.
+**P3.M3.5 (Probe ICE) implementation note:** `ProbeIce extends PatrolHostile`, glyph `¶`. Trace flare: `engageSteps` raises cyber alarm (`repPenalty: false`) before striking; pack convergence via default `listensForAlarm()`. `'probe-ice'` in `PATROL_ARCHETYPE_IDS` for snapshot machinery. **Follow-up:** probes default `FACTION.CORP`; future rival-principal cyber recipe needs ICE faction stamping at `jackIn`.
 
-**P3.M3.6 implementation note:** `TilesetId = 'meat' | 'cyber'` in `palette.ts`. Shell active-view seam via `run.activeWorld`/`run.activeActor` through vision, paint, look/describe, touch, statusLine. `ApplyIntentContext.player` widened to `Archetype | CyberAvatar`. Dual-phase corp turn while jacked in. PIP deferred to M4.5.
+**Spark + Guardian ICE implementation note (2026-06-14):** The roster is now three distinct silhouettes that share the patrol state machine but split by role and map geometry, assembled in one pass in `CyberspaceLayer.build`:
+
+- **Guardian** (`GuardianIce`, glyph `Ψ`) spawns on **every data-node ring** (`dataNodeIndices`) — one heavy per critical node. 6 HP / 2 AP / 3 dmg (`HEAVY_MELEE_DAMAGE`) / sight 5, **no patrol waypoints** so it holds station on the prize until the avatar enters its short sight, then flares (like the Probe) and closes. ICE resistance only files its strike to 2.
+- **Probe** (`ProbeIce`, glyph `¶`) patrols **every non-data ring**. Rebalanced to **sight 7** — the longest of the three — because its job is to *see* you first and trip the flare that wakes the pack; it stays the weakest in a fight (2 HP / 2 AP / 1 dmg).
+- **Spark** (`SparkIce`, glyph `×`) is the **difficulty-scaled swarm** (`SPARK_COUNT`: standard 1 / elevated 2 / critical 3), seeded onto random rings. 1 HP / 4 AP / 1 dmg / sight 6 — it **rides** the Probe/Guardian flare via `listensForAlarm()` but never raises one itself, closing three tiles and biting in a single activation.
+
+Placement is collision-safe (`pickFreeRingTile` consumes one rng draw then scans the ring, throwing rather than stacking ICE) and remains a pure function of the contract seed. All three share the `PatrolSnapshot` `extra` block via `PATROL_ARCHETYPE_IDS` (`spark-ice`, `guardian-ice` added alongside `probe-ice`); both round-trip through the active-cyber restore path with bus re-binding. **Follow-ups:** ICE faction stamping for rival-principal recipes (unchanged from M3.5); a leashing option if Guardians chasing a lost lead across the lattice ever reads wrong; live playtest tuning of `SPARK_COUNT` / Guardian HP.
+
+**P3.M3.6 implementation note:** `TilesetId = 'meat' | 'cyber'` in `palette.ts`. Shell active-view seam via `run.activeWorld`/`run.activeActor` through vision, paint, look/describe, touch, statusLine. `ApplyIntentContext.player` widened to `Archetype | CyberAvatar`. Dual-phase corp turn while jacked in.
+
+**P3.M3.7 implementation note (2026-06-14):** Partial pull-forward of M4.5 PIP. While `cyberspace.active`, a read-only `#pip-canvas` overlay (bottom-right on `.game-stage`) paints meatspace via a second `AsciiRenderer` (`pip.ts` helpers: `pipCameraFor`, `pipChrome`, `shouldShowPip`). Meat `vision` stays live; the silent meat corp pass now refreshes the PIP each step and flashes visible corp lines. Body hits while jacked in emit `BODY HIT` status text, pulse the PIP border, and route muzzle flashes to the PIP renderer (not the cyber canvas). Playtest finding: Score flatline from silent meat damage motivated this slice. M4.5 will generalize to the *inactive* layer after simstim flip.
 
 **M4.6 pull-forward (jack-out) implementation note:** `JackInPoint.burned` set by `Run.jackOut()` — real latch, distinct `link-burned` refusal flavor. `burn()` on unlinked port throws (burned ⇒ linked invariant). Persistence: `extra.burned`; absent on pre-S5 records → unburned.
 
@@ -282,17 +294,17 @@ TDD throughout; malformed persisted state throws (no silent fallbacks).
 **Risks / follow-ups:**
 
 - S7 shell breadth — `index.ts` reads `run.world`/`run.player` widely; kaizen tracks cleanup (ShellScene casts, statusLine extraction, listener rewire dedupe, listener-order coupling).
-- Spark/Guardian ICE and ICE faction stamping for non-corp principals remain open.
+- Spark/Guardian ICE shipped; ICE faction stamping for non-corp principals remains open.
 
 **Acceptance:**
 
 - Cyberspace grid renders distinctly from Meatspace.
-- All three ICE types functional: patrol, attack, guard behaviors (Probe ✅; Spark/Guardian 🔲).
+- All three ICE types functional: patrol, attack, guard behaviors (Probe ✅; Spark ✅; Guardian ✅).
 - At least one Cyberspace objective type (data node slice) with `isObjectiveSatisfied` integration.
 - Cyberspace grid generated deterministically from seed; snapshot round-trip for mid-run save/restore.
 - Jack-in from Meatspace terminal spawns Cyberspace grid.
 
-**P3.M3 playtest stabilization note (2026-06-14):** Probe tuned from 3 HP / 4 AP to 2 HP / 2 AP — burst pressure came from action economy, not nominal one-damage strike. `CyberAvatar` exposes Override against ICE (2 AP / 60% / 3-turn contract, cyber aftermath pass, patrol snapshot round-trip). Pre-Score Decker flatline → one free Terminal replacement lead; THE SCORE gated until living Decker. Decker flatline during THE SCORE → `decker-flatlined-score` campaign Game Over.
+**P3.M3 playtest stabilization note (2026-06-14):** Probe tuned from 3 HP / 4 AP to 2 HP / 2 AP — burst pressure came from action economy, not nominal one-damage strike. `CyberAvatar` exposes Override against ICE (2 AP / 60% / 3-turn contract, cyber aftermath pass, patrol snapshot round-trip). Pre-Score Decker flatline → one free Terminal replacement lead; THE SCORE gated until living Decker. Decker flatline during THE SCORE → `decker-flatlined-score` campaign Game Over. **P3.M3.7** adds meatspace CCTV PIP so jacked-in body vulnerability is visible (silent meat corp damage was the Score death vector in first playtest).
 
 ---
 

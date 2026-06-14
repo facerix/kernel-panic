@@ -318,6 +318,21 @@ test('draw() omits combat HUD rows when combatHud is null', () => {
   assert.equal(hudText.length, 0);
 });
 
+test('draw() with an explicit camera offsets the map relative to followTarget', () => {
+  const canvas = makeCanvas();
+  const r = new AsciiRenderer(canvas, { now: () => 0, cellSize: 10 });
+  const { world, player } = makeWorld();
+
+  r.draw(world, player, {
+    camera: { x: player.x - 2, y: player.y - 2, width: 6, height: 4 },
+  });
+  const playerGlyph = canvas._drawCalls.find(c => c.op === 'text' && c.char === '@');
+  assert.ok(playerGlyph);
+  // Player is at world (16,10); camera top-left (14,8) → screen cell (2,2) → px center 25,25.
+  assert.equal(playerGlyph.px, 25);
+  assert.equal(playerGlyph.py, 25);
+});
+
 test('flashes outside the camera are silently skipped (but stay registered)', () => {
   const canvas = makeCanvas();
   const r = new AsciiRenderer(canvas, { now: () => 0 });

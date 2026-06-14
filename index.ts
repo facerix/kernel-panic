@@ -97,6 +97,7 @@ import type { Intent } from '/src/input/applyIntent.js';
 import type { AimKind, Mode } from '/src/input/keymap.js';
 import { formatCombatHudA11ySummary } from '/src/render/combatHud.js';
 import type { CombatHudSummaryInput } from '/src/render/combatHud.js';
+import { pipCameraFor, pipChrome, shouldShowPip } from '/src/render/pip.js';
 import type { KeyItem, Telemetry, TurnActionStep } from '/src/types.js';
 import { installErrorBoundary, type FaultSignal } from '/src/errorBoundary.js';
 import { isDevelopmentMode } from '/src/domUtils.js';
@@ -217,6 +218,7 @@ type PendingJobResult = {
 };
 
 type EntityDamagedPayload = {
+  attacker?: Entity;
   target?: Entity;
   damage?: number;
   killed?: boolean;
@@ -268,8 +270,11 @@ let repUnsubs: (() => void)[] = [];
 let civilianHarmsThisJob = 0;
 
 let canvas: HTMLCanvasElement;
+/** P3.M3.7: meatspace CCTV overlay while jacked in. */
+let pipCanvas: HTMLCanvasElement;
 let statusEl: HTMLElement | null = null;
 let renderer: AsciiRenderer;
+let pipRenderer: AsciiRenderer;
 let crt: CrtFilter;
 let stageEl: HTMLElement;
 let briefingEl: RunBriefingElement;
@@ -470,10 +475,11 @@ function activeTileset(scene: ShellScene | null): TilesetId {
 
 async function boot() {
   canvas = mustGetElement<HTMLCanvasElement>('game-canvas');
-  if (!canvas.parentElement) {
-    throw new Error('[shell] #game-canvas requires a parent stage element');
+  const gameStage = canvas.closest('.game-stage');
+  if (!(gameStage instanceof HTMLElement)) {
+    throw new Error('[shell] #game-canvas must live inside .game-stage');
   }
-  stageEl = canvas.parentElement;
+  stageEl = gameStage;
   statusEl = mustGetElement<HTMLElement>('game-status');
   contractSelectEl = mustGetElement<ContractSelectElement>('contract-select');
   briefingEl = mustGetElement<RunBriefingElement>('briefing');
@@ -495,6 +501,8 @@ async function boot() {
   logContentEl = mustQuery<HTMLPreElement>('pre', logEl);
 
   renderer = new AsciiRenderer(canvas);
+  pipCanvas = mustGetElement<HTMLCanvasElement>('pip-canvas');
+  pipRenderer = new AsciiRenderer(pipCanvas, { cellSize: 10, fontSize: 9 });
   crt = new CrtFilter(canvas);
 
   keyboard = new KeyboardController({
@@ -1847,7 +1855,20 @@ function runCorpTurn(onFinish: () => void): void {
       if (degrading) return;
       const scene = currentScene();
       if (!scene?.world || !scene.player) return;
-      if (isJackedIn(scene)) return;
+      if (isJackedIn(scene)) {
+        paintPip();
+        const resolve = (id: string) => resolveEntityLabel(id, scene.world!.entities);
+        const line = formatCorpTurnStep(resolve(entityId), step, resolve);
+        if (
+          line &&
+          isCorpTurnStepLogVisibleToPlayer(scene.world, scene.player.id, entityId, step, (x, y) =>
+            vision.isVisible(x, y)
+          )
+        ) {
+          flash(line);
+        }
+        return;
+      }
       const resolve = (id: string) => resolveEntityLabel(id, scene.world!.entities);
       const line = formatCorpTurnStep(resolve(entityId), step, resolve);
       if (
@@ -2113,19 +2134,43 @@ function attachAnimationListeners(): void {
   if (!run?.bus) return;
   animationUnsubs.push(
     run.bus.on(EVENT.ENTITY_DAMAGED, payload => {
-      const { target, damage = 0, killed, source } = (payload ?? {}) as EntityDamagedPayload;
+      const {
+        attacker,
+        target,
+        damage = 0,
+        killed,
+        source,
+      } = (payload ?? {}) as EntityDamagedPayload;
+      const jacked = isJackedIn(run);
       // Player-side feedback: screen shake + red vignette when *we* get hit.
       if (run?.player && target === run.player && damage > 0) {
         triggerShake(stageEl);
         triggerDamageFlash(stageEl);
         animLock.push(ANIMATION_DURATIONS.DAMAGE_FLASH);
+        if (jacked) {
+          const attackerLabel = attacker
+            ? resolveEntityLabel(attacker.id, run.world!.entities)
+            : 'unknown';
+          flash(
+            killed
+              ? `BODY FLATLINED — ${attackerLabel} killed your meatspace link.`
+              : `BODY HIT — ${attackerLabel} struck for ${damage} (meatspace).`
+          );
+          triggerPipHitPulse();
+          paintPip();
+        }
       }
       // Melee impact: the strike reads as landing on the *target*, not
       // hovering above the attacker. Ranged stays on the NOISE path so
       // misses still get a muzzle flash on the shooter's tile.
       if (source === 'melee' && target && damage > 0) {
-        const fired = runMuzzleFlash(renderer, paint, target.x, target.y);
-        if (fired) animLock.push(ANIMATION_DURATIONS.MUZZLE_FLASH);
+        if (jacked && target === run.player) {
+          const fired = runMuzzleFlash(pipRenderer, paintPip, target.x, target.y);
+          if (fired) animLock.push(ANIMATION_DURATIONS.MUZZLE_FLASH);
+        } else if (!jacked) {
+          const fired = runMuzzleFlash(renderer, paint, target.x, target.y);
+          if (fired) animLock.push(ANIMATION_DURATIONS.MUZZLE_FLASH);
+        }
       }
       // Memorise corpse position when a kill occurs within current LOS.
       if (killed && target && vision.isVisible(target.x, target.y)) {
@@ -2140,7 +2185,10 @@ function attachAnimationListeners(): void {
       if (noise.kind !== 'ranged') return;
       const origin = noise.origin;
       if (!origin) return;
-      const fired = runMuzzleFlash(renderer, paint, origin.x, origin.y);
+      const jacked = isJackedIn(run);
+      const flashRenderer = jacked ? pipRenderer : renderer;
+      const repaint = jacked ? paintPip : paint;
+      const fired = runMuzzleFlash(flashRenderer, repaint, origin.x, origin.y);
       if (fired) animLock.push(ANIMATION_DURATIONS.MUZZLE_FLASH);
     }),
     run.bus.on(EVENT.DOOR_UNLOCKED, payload => {
@@ -2219,6 +2267,7 @@ function attachCyberListeners(): void {
 function completeJackOutShellSwap(): void {
   for (const off of cyberUnsubs) off();
   cyberUnsubs = [];
+  pipCanvas.hidden = true;
   flash('LINK DROPPED — back in your body.');
   recomputeVision();
   paint();
@@ -2448,6 +2497,35 @@ function buildHubHudRows(scene: ShellScene | null) {
   return rows;
 }
 
+function paintPip(): void {
+  const run = currentScene();
+  if (!run || !isRun(run) || run.state !== RUN_STATE.COMBAT || !shouldShowPip(run)) {
+    pipCanvas.hidden = true;
+    return;
+  }
+  if (!run.world || !run.player) {
+    pipCanvas.hidden = true;
+    return;
+  }
+  pipCanvas.hidden = false;
+  const principalId = campaign?.activeRun?.contract?.context?.principal?.id;
+  pipRenderer.draw(run.world, run.player, {
+    camera: pipCameraFor(run.player, run.world),
+    vision,
+    player: run.player,
+    tileset: 'meat',
+    principalId,
+    hudRows: pipChrome(run.player),
+  });
+}
+
+function triggerPipHitPulse(): void {
+  pipCanvas.classList.remove('pip-hit');
+  // Force reflow so repeated hits retrigger the animation.
+  void pipCanvas.offsetWidth;
+  pipCanvas.classList.add('pip-hit');
+}
+
 function paint(stateHint: InputState = activeInputState()): void {
   const run = currentScene();
   if (canvas.hidden) {
@@ -2485,6 +2563,7 @@ function paint(stateHint: InputState = activeInputState()): void {
   });
   crt.alertTint = run.state === RUN_STATE.COMBAT && world.alarmActive;
   crt.apply();
+  paintPip();
   setStatus(statusLine(stateHint));
 }
 

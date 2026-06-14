@@ -102,10 +102,11 @@ function probeKey(p: ProbeIce) {
 
 // --- spawning -------------------------------------------------------------------------
 
-test('build spawns one probe per patrol ring with explicit ICE stats', () => {
+test('build patrols the non-data rings with Probes carrying explicit ICE stats', () => {
+  // nodeCount 1 ⇒ one ring becomes a Guardian's data node; the rest patrol.
   const layer = buildLayer();
   const probes = probesOf(layer);
-  assert.equal(probes.length, layer.patrolRings.length);
+  assert.equal(probes.length, layer.patrolRings.length - 1, 'one ring guards a data node');
   assert.ok(probes.length > 0, 'standard difficulty patrols at least one ring');
   const ids = new Set(probes.map(p => p.id));
   assert.equal(ids.size, probes.length, 'probe ids are unique');
@@ -114,7 +115,7 @@ test('build spawns one probe per patrol ring with explicit ICE stats', () => {
     assert.equal(probe.displayName, 'Probe');
     assert.equal(probe.maxHp, 2);
     assert.equal(probe.maxAp, 2);
-    assert.equal(probe.sightRange, 6);
+    assert.equal(probe.sightRange, 7, 'the detector has the longest sight of the ICE');
     assert.equal(probe.meleeDamage, 1);
     assert.equal(probe.faction, FACTION.CORP);
     assert.ok(probe.patrolWaypoints.length > 0, 'probe walks a ring');

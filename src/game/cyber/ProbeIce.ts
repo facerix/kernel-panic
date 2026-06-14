@@ -9,10 +9,10 @@
  * Unlike the Lookout it *listens* for alarms (the `PatrolHostile` default):
  * one probe's flare is every probe's heading.
  *
- * Stats are explicit and small — ICE scaling is its own axis (Spark and
- * Guardian ICE are the follow-up slices), so `resolveEnemyStats` tiers are
- * deliberately not reused. The avatar's `iceResistance` mitigates the weak
- * strike down to the engine-wide minimum of 1.
+ * Stats are explicit and small — ICE scaling is its own axis (the Spark and
+ * Guardian siblings carry their own explicit blocks too), so `resolveEnemyStats`
+ * tiers are deliberately not reused. The avatar's `iceResistance` mitigates the
+ * weak strike down to the engine-wide minimum of 1.
  */
 import { PatrolHostile, type PatrolHostileInit, type EngageSteps } from '../ai/PatrolHostile.js';
 import { AP_COST, PROBE_ICE_GLYPH } from '../constants.js';
@@ -24,7 +24,14 @@ import type { Rng } from '../../rng.js';
 export const PROBE_ICE_HP = 2;
 export const PROBE_ICE_AP = 2;
 export const PROBE_ICE_DAMAGE = 1;
-export const PROBE_ICE_SIGHT_RANGE = 6;
+/**
+ * Longest sight of the three ICE types (Spark 6, Guardian 5). The Probe's job
+ * is to *see* the intruder first and trip the trace flare that wakes the pack
+ * — so it earns the widest detection radius while staying the weakest in a
+ * fight. Roster composition (P3.M3) reflects the same role split: Guardians
+ * hold the data nodes, Probes patrol the approaches, Sparks swarm the flare.
+ */
+export const PROBE_ICE_SIGHT_RANGE = 7;
 
 export interface ProbeIceProps extends Omit<PatrolHostileInit, 'glyph'> {}
 

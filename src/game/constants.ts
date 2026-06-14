@@ -50,8 +50,12 @@ export const JACK_IN_GLYPH = 'Ω';
 export const ENTRY_PORT_GLYPH = '▼';
 /** P3.M3.4: the slice target on the cyber grid (`◆` is DenyTarget's). */
 export const DATA_NODE_GLYPH = '◈';
-/** P3.M3.5: Probe ICE — the patrol fodder of the cyber grid. */
+/** P3.M3.5: Probe ICE — the patrol/detector of the cyber grid. */
 export const PROBE_ICE_GLYPH = '¶';
+/** P3.M3: Spark ICE — the fast, fragile swarm attacker. */
+export const SPARK_ICE_GLYPH = '×';
+/** P3.M3: Guardian ICE — the heavy guard parked on critical data nodes. */
+export const GUARDIAN_ICE_GLYPH = 'Ψ';
 
 /** Numeric tile id — one of the `TILE` values. */
 export type TileId = (typeof TILE)[keyof typeof TILE];

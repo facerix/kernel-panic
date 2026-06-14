@@ -136,6 +136,7 @@ const CacheConfig = {
       '/src/render/combatHud.js',
       '/src/render/CrtFilter.js',
       '/src/render/frame.js',
+      '/src/render/pip.js',
       '/src/render/palette.js',
       '/src/render/principalTerrainPalettes.js',
       '/src/rng.js',

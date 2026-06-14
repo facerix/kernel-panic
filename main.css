@@ -287,10 +287,59 @@ main {
   max-width: min(960px, max(320px, calc((100dvh - 13.25rem) * 1.6)), 100%);
 }
 
-.game-stage > #game-canvas {
+.game-canvas-wrap {
+  position: relative;
   flex: 1 1 80%;
+  min-width: 0;
   border-radius: 1rem 0.5rem 0.5rem 2rem;
   corner-shape: bevel;
+}
+
+/* P3.M3.7: meatspace CCTV while jacked in — anchored to the main canvas, not the stage. */
+.game-canvas-wrap > #pip-canvas {
+  position: absolute;
+  right: 0.35rem;
+  bottom: 0.35rem;
+  z-index: 2;
+  pointer-events: none;
+  border: 1px solid rgba(0, 217, 165, 0.45);
+  border-radius: 0.35rem 0.75rem 0.35rem 0.35rem;
+  corner-shape: bevel;
+  box-shadow: 0 0 12px rgba(0, 217, 165, 0.15);
+  opacity: 0.92;
+  image-rendering: pixelated;
+}
+
+.game-canvas-wrap > #pip-canvas[hidden] {
+  display: none;
+}
+
+.game-canvas-wrap > #pip-canvas.pip-hit {
+  animation: pip-hit-pulse 0.45s ease-out;
+}
+
+@keyframes pip-hit-pulse {
+  0% {
+    border-color: #ff7a66;
+    box-shadow: 0 0 16px rgba(255, 122, 102, 0.55);
+  }
+  100% {
+    border-color: rgba(0, 217, 165, 0.45);
+    box-shadow: 0 0 12px rgba(0, 217, 165, 0.15);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game-canvas-wrap > #pip-canvas.pip-hit {
+    animation: none;
+    border-color: #ff7a66;
+  }
+}
+
+@media (max-width: 360px) {
+  .game-canvas-wrap > #pip-canvas {
+    display: none !important;
+  }
 }
 
 .game-stage > .game-log {

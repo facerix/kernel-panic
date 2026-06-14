@@ -168,8 +168,8 @@ export class AsciiRenderer {
   /**
    * Render a world centred on `followTarget` (any object with x, y), unless
    * `options.camera` is set — then that rectangle (world tile coords) is drawn
-   * in full, which sizes the visible tile count (use for whole-map debug views).
-   * Pass `options.vision` (a `VisionField`) for fog-of-war fading.
+   * in full (used by the P3.M3.7 meatspace CCTV overlay with a second renderer
+   * instance). Pass `options.vision` (a `VisionField`) for fog-of-war fading.
    */
   draw(world: World, followTarget: Entity, options: DrawOptions = {}) {
     this.#syncViewport();

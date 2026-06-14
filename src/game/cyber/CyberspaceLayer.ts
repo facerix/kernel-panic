@@ -27,11 +27,29 @@ import { CyberAvatar } from './CyberAvatar.js';
 import { EntryPort } from './EntryPort.js';
 import { DataNode, sliceDifficultyFor } from './DataNode.js';
 import { ProbeIce } from './ProbeIce.js';
+import { SparkIce } from './SparkIce.js';
+import { GuardianIce } from './GuardianIce.js';
 import { PatrolHostile } from '../ai/PatrolHostile.js';
-import { FACTION, type ContractDifficulty, type FactionId } from '../constants.js';
+import {
+  CONTRACT_DIFFICULTY,
+  FACTION,
+  type ContractDifficulty,
+  type FactionId,
+} from '../constants.js';
 import { coordKey } from '../mapConnectivity.js';
 import type { Decker } from '../archetypes/Decker.js';
 import type { GridPoint } from '../../types.js';
+
+/**
+ * P3.M3 Spark swarm size per contract difficulty — the fast/fragile wave that
+ * converges on the trace flare. Scales the cyber-side tempo pressure without
+ * touching the Guardian/Probe placement (those are tied to node geometry).
+ */
+const SPARK_COUNT: Record<string, number> = Object.freeze({
+  [CONTRACT_DIFFICULTY.STANDARD]: 1,
+  [CONTRACT_DIFFICULTY.ELEVATED]: 2,
+  [CONTRACT_DIFFICULTY.CRITICAL]: 3,
+});
 
 export type CyberspaceLayerInit = {
   bus: EventBus;
@@ -143,38 +161,68 @@ export class CyberspaceLayer {
     world.addEntity(avatar);
     world.addEntity(port);
     // P3.M3.4: data nodes claim the *farthest* node anchors from the entry —
-    // the avatar has to cross the lattice (and, from P3.M3.5, the ICE
-    // patrolling it). Chebyshev sort is stable over the deterministic
-    // generator order, so placement is a pure function of the contract seed.
+    // the avatar has to cross the lattice (and the ICE guarding it). Rank node
+    // *indices* by distance so each center stays paired with its patrol ring;
+    // the order is a pure function of the contract seed.
     const sliceDifficulty = sliceDifficultyFor(difficulty);
-    const anchors = [...map.nodeTiles].sort(
-      (a, b) => chebyshevFrom(map.entryTile, b) - chebyshevFrom(map.entryTile, a)
-    );
-    for (let i = 0; i < nodeCount; i++) {
+    const rankedNodes = map.nodeTiles
+      .map((_, i) => i)
+      .sort(
+        (a, b) =>
+          chebyshevFrom(map.entryTile, map.nodeTiles[b]) -
+          chebyshevFrom(map.entryTile, map.nodeTiles[a])
+      );
+    const dataNodeIndices = new Set(rankedNodes.slice(0, nodeCount));
+    rankedNodes.slice(0, nodeCount).forEach((nodeIndex, ordinal) => {
+      const center = map.nodeTiles[nodeIndex];
       world.addEntity(
         new DataNode({
-          id: `data-node-${i}`,
-          x: anchors[i].x,
-          y: anchors[i].y,
+          id: `data-node-${ordinal}`,
+          x: center.x,
+          y: center.y,
           sliceDifficulty,
         })
       );
-    }
-    // P3.M3.5: one Probe per patrol ring, spawned at a seed-picked ring tile
-    // (the rng has fully determined the map by here, so this stays a pure
-    // function of the contract seed). Probes bind to the layer bus at build —
-    // the restore path re-binds via `restoreCyberspaceLayer`.
+    });
+
+    // P3.M3 ICE roster — three roles, one pass over the non-entry rings:
+    //   - **Guardian** on every data-node ring: the heavy parks (no waypoints)
+    //     on the prize it guards.
+    //   - **Probe** on every other ring: the long-sighted detector patrols.
+    //   - **Spark** swarm: a difficulty-scaled wave seeded onto random rings.
+    // Each spawn consumes a fixed rng cadence (one `pickFreeRingTile` call), so
+    // the whole roster stays a pure function of the contract seed. ICE binds to
+    // the layer bus at build; the restore path re-binds via
+    // `restoreCyberspaceLayer`.
+    let probeOrdinal = 0;
+    let guardianOrdinal = 0;
     map.patrolRings.forEach((ring, i) => {
-      const spawn = ring[rng.intRange(0, ring.length)];
-      const probe = new ProbeIce({
-        id: `probe-ice-${i}`,
+      const spawn = pickFreeRingTile(world, ring, rng);
+      const ice = dataNodeIndices.has(i)
+        ? new GuardianIce({ id: `guardian-ice-${guardianOrdinal++}`, x: spawn.x, y: spawn.y })
+        : new ProbeIce({
+            id: `probe-ice-${probeOrdinal++}`,
+            x: spawn.x,
+            y: spawn.y,
+            patrolWaypoints: ring,
+          });
+      world.addEntity(ice);
+      ice.bindToBus(bus);
+    });
+
+    const sparkCount = SPARK_COUNT[difficulty] ?? 0;
+    for (let i = 0; i < sparkCount; i++) {
+      const ring = map.patrolRings[rng.intRange(0, map.patrolRings.length)];
+      const spawn = pickFreeRingTile(world, ring, rng);
+      const spark = new SparkIce({
+        id: `spark-ice-${i}`,
         x: spawn.x,
         y: spawn.y,
         patrolWaypoints: ring,
       });
-      world.addEntity(probe);
-      probe.bindToBus(bus);
-    });
+      world.addEntity(spark);
+      spark.bindToBus(bus);
+    }
     return new CyberspaceLayer({
       bus,
       world,
@@ -239,6 +287,28 @@ export class CyberspaceLayer {
 
 function chebyshevFrom(a: GridPoint, b: GridPoint): number {
   return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
+}
+
+/**
+ * Pick an unoccupied, passable tile on a patrol ring for an ICE spawn. Consumes
+ * exactly one rng draw (the start offset) then scans the ring deterministically
+ * so multiple ICE on/near the same ring never stack. Throws if a ring somehow
+ * has no free tile — a generator invariant violation, not a silent skip.
+ */
+function pickFreeRingTile(world: World, ring: GridPoint[], rng: Rng): GridPoint {
+  if (ring.length === 0) {
+    throw new RangeError('pickFreeRingTile: empty patrol ring');
+  }
+  const start = rng.intRange(0, ring.length);
+  for (let step = 0; step < ring.length; step++) {
+    const tile = ring[(start + step) % ring.length];
+    if (world.grid.isPassable(tile.x, tile.y) && !world.entityAt(tile.x, tile.y)) {
+      return tile;
+    }
+  }
+  throw new RangeError(
+    `pickFreeRingTile: no free tile on a ring of ${ring.length} (all occupied/blocked)`
+  );
 }
 
 function parseCoordKey(key: string): GridPoint {

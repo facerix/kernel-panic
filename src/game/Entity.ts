@@ -279,6 +279,8 @@ function kindFromId(id: string): string {
   if (id.startsWith('entry-port')) return 'Exit Port';
   if (id.startsWith('data-node')) return 'Data Node';
   if (id.startsWith('probe-ice')) return 'Probe';
+  if (id.startsWith('spark-ice')) return 'Spark';
+  if (id.startsWith('guardian-ice')) return 'Guardian';
   if (id.includes('turret')) return 'Turret';
   if (id.startsWith('crew')) return 'Operative';
   return id;

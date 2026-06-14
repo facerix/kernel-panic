@@ -83,6 +83,10 @@ import { DataNode } from './cyber/DataNode.js';
 import type { DataNodeInit, DataNodeSnapshot } from './cyber/DataNode.js';
 import { ProbeIce } from './cyber/ProbeIce.js';
 import type { ProbeIceProps } from './cyber/ProbeIce.js';
+import { SparkIce } from './cyber/SparkIce.js';
+import type { SparkIceProps } from './cyber/SparkIce.js';
+import { GuardianIce } from './cyber/GuardianIce.js';
+import type { GuardianIceProps } from './cyber/GuardianIce.js';
 import type { DeckerInit, DeckerSnapshot } from './archetypes/Decker.js';
 import { Run, RUN_STATE, PATROL_ARCHETYPE_IDS } from './Run.js';
 import { Campaign, CAMPAIGN_STATE, normalizeCampaignArc } from './Campaign.js';
@@ -232,6 +236,8 @@ const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) =
     'entry-port': (props: RestoreEntityProps) => new EntryPort(props as EntryPortInit),
     'data-node': (props: RestoreEntityProps) => new DataNode(props as DataNodeInit),
     'probe-ice': (props: RestoreEntityProps) => new ProbeIce(props as ProbeIceProps),
+    'spark-ice': (props: RestoreEntityProps) => new SparkIce(props as SparkIceProps),
+    'guardian-ice': (props: RestoreEntityProps) => new GuardianIce(props as GuardianIceProps),
     'breaching-charge': (props: RestoreEntityProps) =>
       new BreachingCharge(props as BreachingChargeInit),
     // Generic fallback so a future `Entity` subclass (NPCs, items) doesn't break

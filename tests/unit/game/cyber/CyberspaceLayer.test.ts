@@ -11,6 +11,10 @@ import assert from 'node:assert/strict';
 import { CyberspaceLayer } from '../../../../src/game/cyber/CyberspaceLayer.js';
 import { CyberAvatar } from '../../../../src/game/cyber/CyberAvatar.js';
 import { EntryPort } from '../../../../src/game/cyber/EntryPort.js';
+import { DataNode } from '../../../../src/game/cyber/DataNode.js';
+import { ProbeIce } from '../../../../src/game/cyber/ProbeIce.js';
+import { SparkIce } from '../../../../src/game/cyber/SparkIce.js';
+import { GuardianIce } from '../../../../src/game/cyber/GuardianIce.js';
 import { Decker } from '../../../../src/game/archetypes/Decker.js';
 import { ALARM_PHASE } from '../../../../src/game/World.js';
 import { EVENT } from '../../../../src/game/events.js';
@@ -70,16 +74,26 @@ test('build spawns the avatar at the entry tile with stats from the Decker', () 
   assert.equal(avatar.baseHitChance, CYBER_AVATAR_HIT_CHANCE);
 });
 
-test('the cyber world census: avatar, exit port, nodes, ring probes', () => {
+test('the cyber world census: avatar, exit port, data nodes, ICE roster', () => {
+  // nodeCount 1 (the cyber-data-spike / Score shape): 1 data node ⇒ 1 Guardian.
   const layer = buildLayer();
   const entities = Array.from(layer.world.entities.values());
+  const dataNodes = entities.filter(e => e instanceof DataNode).length;
+  const guardians = entities.filter(e => e instanceof GuardianIce).length;
+  const probes = entities.filter(e => e instanceof ProbeIce).length;
+  const sparks = entities.filter(e => e instanceof SparkIce).length;
+
   assert.equal(entities.filter(e => e instanceof CyberAvatar).length, 1);
   assert.equal(entities.filter(e => e instanceof EntryPort).length, 1);
+  assert.equal(dataNodes, 1, 'one contract data node');
+  // One Guardian per data node (it guards the prize); the rest of the rings
+  // patrol with Probes; the Sparks are the difficulty-scaled swarm (standard 1).
+  assert.equal(guardians, dataNodes, 'a Guardian holds every data node');
+  assert.equal(probes, layer.patrolRings.length - dataNodes, 'Probes patrol the other rings');
+  assert.equal(sparks, 1, 'standard difficulty seeds one Spark');
   assert.equal(
     entities.length,
-    // avatar + port + the contract data node (P3.M3.4) + one Probe per
-    // patrol ring (P3.M3.5).
-    3 + layer.patrolRings.length,
+    2 + dataNodes + guardians + probes + sparks,
     'no surprise entities on the cyber grid'
   );
   const cheb = Math.max(

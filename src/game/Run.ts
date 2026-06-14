@@ -84,6 +84,8 @@ import { CyberAvatar } from './cyber/CyberAvatar.js';
 import { EntryPort } from './cyber/EntryPort.js';
 import { DataNode } from './cyber/DataNode.js';
 import { ProbeIce } from './cyber/ProbeIce.js';
+import { SparkIce } from './cyber/SparkIce.js';
+import { GuardianIce } from './cyber/GuardianIce.js';
 import { applyMutationDeltas } from './locations.js';
 import { BreachingCharge } from './entities/BreachingCharge.js';
 import { ITEM_ID, getItemById } from './items.js';
@@ -182,6 +184,8 @@ export type EntityArchetypeId =
   | 'entry-port'
   | 'data-node'
   | 'probe-ice'
+  | 'spark-ice'
+  | 'guardian-ice'
   | 'entity';
 
 export type RunTelemetry = {
@@ -228,6 +232,9 @@ export const PATROL_ARCHETYPE_IDS = Object.freeze([
   'medic',
   // P3.M3.5: Probe ICE shares the identical patrol state-machine block.
   'probe-ice',
+  // P3.M3: Spark + Guardian ICE share the same patrol state-machine block.
+  'spark-ice',
+  'guardian-ice',
 ] as const);
 
 export type PatrolArchetypeId = (typeof PATROL_ARCHETYPE_IDS)[number];
@@ -2100,6 +2107,8 @@ const SNAPSHOT_EXTRACTORS: Partial<Record<EntityArchetypeId, (e: Entity) => Enti
       } satisfies DataNodeSnapshot;
     },
     'probe-ice': e => patrolSnapshotExtra(e as PatrolHostile),
+    'spark-ice': e => patrolSnapshotExtra(e as PatrolHostile),
+    'guardian-ice': e => patrolSnapshotExtra(e as PatrolHostile),
   };
 
 /**
@@ -2190,6 +2199,8 @@ function archetypeOf(entity: Entity): EntityArchetypeId {
   if (entity instanceof EntryPort) return 'entry-port';
   if (entity instanceof DataNode) return 'data-node';
   if (entity instanceof ProbeIce) return 'probe-ice';
+  if (entity instanceof SparkIce) return 'spark-ice';
+  if (entity instanceof GuardianIce) return 'guardian-ice';
   if (entity instanceof BreachingCharge) return 'breaching-charge';
   if (entity instanceof Entity) return 'entity';
   throw new Error(`archetypeOf: cannot classify entity ${(entity as Entity | undefined)?.id}`);

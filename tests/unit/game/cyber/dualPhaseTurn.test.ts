@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import { Run } from '../../../../src/game/Run.js';
 import { CyberspaceLayer } from '../../../../src/game/cyber/CyberspaceLayer.js';
 import { ProbeIce } from '../../../../src/game/cyber/ProbeIce.js';
+import { PatrolHostile } from '../../../../src/game/ai/PatrolHostile.js';
 import { JackInPoint } from '../../../../src/game/entities/JackInPoint.js';
 import { runCorpTurn } from '../../../../src/game/corpTurnDriver.js';
 import { buildCrewMember } from '../../../../src/game/archetypes/index.js';
@@ -100,27 +101,27 @@ function dualPhaseRound(run: Run, layer: CyberspaceLayer): { meat: StepLog; ice:
   return { meat, ice };
 }
 
-function probeIds(layer: CyberspaceLayer): Set<string> {
+function iceIds(layer: CyberspaceLayer): Set<string> {
   return new Set(
     Array.from(layer.world.entities.values())
-      .filter(e => e instanceof ProbeIce)
+      .filter(e => e instanceof PatrolHostile)
       .map(e => e.id)
   );
 }
 
 // --- isolation -----------------------------------------------------------------------
 
-test('the meat pass steps only meat hostiles; the ICE pass only probes', () => {
+test('the meat pass steps only meat hostiles; the ICE pass only ICE', () => {
   const { run, layer } = jackedInRun();
-  const probes = probeIds(layer);
+  const ids = iceIds(layer);
   const { meat, ice } = dualPhaseRound(run, layer);
 
   for (const { id } of meat) {
-    assert.ok(!probes.has(id), `meat pass must not step ICE (stepped ${id})`);
+    assert.ok(!ids.has(id), `meat pass must not step ICE (stepped ${id})`);
   }
-  assert.ok(ice.length > 0, 'probes patrol their rings');
+  assert.ok(ice.length > 0, 'ICE patrol their rings');
   for (const { id } of ice) {
-    assert.ok(probes.has(id), `ICE pass stepped a non-probe (${id})`);
+    assert.ok(ids.has(id), `ICE pass stepped a non-ICE entity (${id})`);
   }
 });
 
