@@ -540,8 +540,8 @@ export const REP = Object.freeze({
   /** Rep thresholds for NeutralCivilian behaviour. */
   NEUTRAL_IDLE_THRESHOLD: 70,
   NEUTRAL_FLEE_THRESHOLD: 30,
-  /** Rep threshold for recruitment. */
-  RECRUIT_THRESHOLD: 65,
+  /** Rep threshold for recruitment — matches KNOWN tier floor (50). */
+  RECRUIT_THRESHOLD: 50,
   /** Rep adjustments. */
   CLEAN_COMPLETION_BONUS: 10,
   CIVILIAN_KILL_PENALTY: -20,

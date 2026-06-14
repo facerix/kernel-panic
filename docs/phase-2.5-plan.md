@@ -759,8 +759,8 @@ Phase 2.5 milestones that follow (M4–M7) retain their original numbering for c
 - **Rep tier constants:** Formalise the existing `REP_LABEL` brackets into a tier enum with gameplay consequences. At least four tiers with defined thresholds:
   - **BURNED** (0–19): Only STANDARD contracts. Recruitment locked.
   - **UNKNOWN** (20–49): BASE_DIFFICULTY_POOL (5 STD / 3 ELV / 1 CRT). Current default.
-  - **KNOWN** (50–79): Shifted pool (3 STD / 4 ELV / 2 CRT). Recruitment unlocked at 65 (existing gate).
-  - **TRUSTED** (80–100): Top pool (2 STD / 3 ELV / 4 CRT). Phase 3 Decker recruitment + Score access gate.
+  - **KNOWN** (50–79): Shifted pool (3 STD / 4 ELV / 2 CRT). Terminal recruitment unlocked (KNOWN floor).
+  - **TRUSTED** (80–100): Top pool (2 STD / 3 ELV / 4 CRT). Phase 3 Act 2 transition (`rep >= 65`) and Score access.
 - **BURNED penalty pool:** When Rep < 20, the Curator rolls only STANDARD difficulty — the player is too hot to get offered real work. This is the stick; the existing clean-completion Rep bonuses are the carrot.
 - **Curator integration:** `generateContracts` reads `campaign.rep` (via the existing `ContractCampaign` type) to select the difficulty pool, replacing the `betterContracts` boolean check. The `BETTER_CONTRACTS_POOL` constant and `betterContracts` meta key are removed.
 - **Reward scaling per tier:** The per-contract credit reward floor bump that `betterContracts` provided (`+2× SALVAGE_TO_CRED_RATE`) is now tied to the TRUSTED tier instead of a purchased flag.
@@ -888,7 +888,7 @@ Phase 2.5 milestones that follow (M4–M7) retain their original numbering for c
 - **Reveal check on Hub entry:** `Campaign.enterHub` (or a new `Campaign.checkHubReveals`) evaluates trigger conditions against campaign state and fires the **first unseen** introduction that qualifies. **One message per Hub visit** (don’t stack — the player absorbs one new thing at a time).
 - **Reveal definitions:**
   - **Finn introduction:** Trigger = player has returned from at least one run (campaign has > 0 completed jobs, or `credits > 0`, or `totalSalvage > 0`). Before this trigger, **Finn’s entity is absent from the Hub map** — `enterHub` skips spawning him. Curator message introduces Finn and explains salvage selling. After the flag is set, Finn spawns every visit.
-  - **Terminal / recruitment introduction:** Trigger = `campaign.rep >= REP.RECRUIT_THRESHOLD` (65) or `campaign.pendingRecruitReward`. Terminal entity is **always present** on the Hub map (it’s plausible scenery), but the Curator message is the prompt to use it. Before the flag, interacting with the Terminal could show a “systems locked” or “access denied” flavor response (or simply not open the recruit UI).
+  - **Terminal / recruitment introduction:** Trigger = `campaign.rep >= REP.RECRUIT_THRESHOLD` (50 — KNOWN floor) or `campaign.pendingRecruitReward`. Terminal entity is **always present** on the Hub map (it’s plausible scenery), but the Curator message is the prompt to use it. Before the flag, interacting with the Terminal could show a “systems locked” or “access denied” flavor response (or simply not open the recruit UI).
   - **Clinic introduction:** Trigger = any crew member has `hp < maxHp` on Hub entry (the player has experienced attrition). Curator message introduces the Doc and explains the clinic. Before the flag, the clinic NPC is absent from the Hub map (same pattern as Finn).
 - **Curator message delivery:** The Curator entity (or the shell’s Hub interaction handler) emits a `curator:message` event (or equivalent) with the reveal’s text. The shell displays it in the log or a brief overlay/modal — same feedback channel as existing Curator contract-board interactions. Messages are 1–3 lines of flavor text that double as system hints.
 - **Pattern reuse (Phase 3):** The reveal system accepts new entries without modifying the check loop. Phase 3 adds Decker recruitment (trigger: top Rep tier, new flag `deckerRecruited`). M5 documents this extension point but does **not** implement the Decker reveal.
@@ -897,17 +897,17 @@ Phase 2.5 milestones that follow (M4–M7) retain their original numbering for c
 **Acceptance:**
 
 - Unit tests: each reveal’s trigger condition fires correctly; flags persist and prevent re-fire; only one reveal per Hub visit; Finn/Clinic absent from world when their flag is unset.
-- Integration test: fresh campaign → first Hub (no Finn, no Clinic) → complete a run → return to Hub → Finn introduced → next Hub visit with damaged crew → Clinic introduced → next Hub visit with Rep ≥ 65 → Terminal explained.
+- Integration test: fresh campaign → first Hub (no Finn, no Clinic) → complete a run → return to Hub → Finn introduced → next Hub visit with damaged crew → Clinic introduced → next Hub visit with Rep ≥ 50 → Terminal recruitment explained.
 - Campaign snapshot round-trip preserves `hubReveals`.
 - Pre-M5.4 saves load with `hubReveals: {}` default and don’t crash.
 
 **Implementation notes:**
 
-- `src/game/hub/hubReveals.ts` owns reveal definitions in fixed order (Finn → Clinic → Terminal), trigger predicates, `applyFirstHubReveal`, and spawn/unlock helpers (`shouldSpawnFinn`, `shouldSpawnClinic`, `isTerminalRecruitmentUnlocked`). Clinic precedes Terminal so attrition healing is introduced before recruitment at Rep 65.
+- `src/game/hub/hubReveals.ts` owns reveal definitions in fixed order (Finn → Clinic → Terminal), trigger predicates, `applyFirstHubReveal`, and spawn/unlock helpers (`shouldSpawnFinn`, `shouldSpawnClinic`, `isTerminalRecruitmentUnlocked`). Clinic precedes Terminal so attrition healing is introduced before recruitment at Rep 50 (KNOWN).
 - `Campaign.hubReveals` + `completedJobs` persist in `CampaignSnapshot`; `normalizeHubReveals` on load; pre-M5.4 saves default to `{}` / `0`.
 - `Campaign.enterHub()` applies at most one reveal (sets flag + `lastHubReveal`), then spawns Finn/Clinic only when their flags are set; Terminal always spawns.
 - Finn trigger: `completedJobs > 0` OR `credits > 0` OR `totalSalvage > 0`. `onJobEnd` EXIT increments `completedJobs`.
-- Terminal trigger: `rep >= REP.RECRUIT_THRESHOLD` (65) OR `pendingRecruitReward`. Shell blocks roster UI until `terminalExplained` (“access denied” flash).
+- Terminal trigger: `rep >= REP.RECRUIT_THRESHOLD` (50) OR `pendingRecruitReward`. Shell blocks roster UI until `terminalExplained` (“access denied” flash).
 - Clinic trigger: any living crew member with `hp < maxHp`. Clinic absent until `clinicIntroduced`.
 - `<curator-briefing>` (`components/CuratorBriefing.ts`) — SystemStart-style full-screen modal; `setBriefing({ title, lines })` for diegetic copy. Hub reveals show here (titles per reveal in `hubReveals.ts`); status-line hint deferred until `[ CONTINUE ]` / Esc / Enter. Shell `presentHubRevealIfAny()` after `enterHubAndRender` and post-job `onNewRunRequested`; interact hints list only spawned NPCs.
 - 13 tests in `hubReveals.test.ts`; Campaign/persistence tests updated. Full suite: 976/976 green.

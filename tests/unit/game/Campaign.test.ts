@@ -659,17 +659,17 @@ test('restoreCampaign rejects corrupt Phase 3 arc snapshots', () => {
 });
 
 test('P3.M1.2: Act 1 does not advance until Rep and completed job gates both qualify', () => {
-  const lowRep = new Campaign({ seed: 42, rep: 49, completedJobs: 4 });
+  const lowRep = new Campaign({ seed: 42, rep: 64, completedJobs: 4 });
   assert.equal(lowRep.arcStage, 'act-1');
   assert.equal(lowRep.arc.scoreRevealed, false);
 
-  const lowJobs = new Campaign({ seed: 43, rep: 60, completedJobs: 3 });
+  const lowJobs = new Campaign({ seed: 43, rep: 80, completedJobs: 3 });
   assert.equal(lowJobs.arcStage, 'act-1');
   assert.equal(lowJobs.arc.scoreRevealed, false);
 });
 
-test('P3.M1.2: Act 1 advances to Act 2 at KNOWN Rep plus four completed jobs and assigns Decker', () => {
-  const campaign = new Campaign({ seed: 42, rep: 60, completedJobs: 4 });
+test('P3.M1.2: Act 1 advances to Act 2 at proven-operator Rep plus four completed jobs and assigns Decker', () => {
+  const campaign = new Campaign({ seed: 42, rep: 65, completedJobs: 4 });
 
   assert.equal(campaign.arcStage, 'act-2');
   assert.equal(campaign.arc.scoreRevealed, true);
@@ -689,12 +689,12 @@ test('P3.M1.2: Act 1 advances to Act 2 at TRUSTED Rep when job gate is met', () 
   assert.equal(campaign.arc.deckerRecruited, true);
   assert.ok(
     campaign.crew.some(m => m.archetype === 'Decker'),
-    'TRUSTED Rep should not block Act 2 after overshooting KNOWN'
+    'TRUSTED Rep should not block Act 2 after overshooting the rep floor'
   );
 });
 
 test('P3.M1.2: successful extraction advances Act 2 when the final gate is crossed', () => {
-  const campaign = new Campaign({ seed: 42, rep: 49, completedJobs: 3 });
+  const campaign = new Campaign({ seed: 42, rep: 64, completedJobs: 3 });
   const member = campaign.crew[0];
   const run = campaign.deployCrewMember(
     member.id,
@@ -705,7 +705,7 @@ test('P3.M1.2: successful extraction advances Act 2 when the final gate is cross
   campaign.onJobEnd({ outcome: OUTCOME.EXIT, completed: true });
 
   assert.equal(campaign.completedJobs, 4);
-  assert.equal(campaign.rep, 50);
+  assert.equal(campaign.rep, 65);
   assert.equal(campaign.arcStage, 'act-2');
   assert.equal(campaign.arc.scoreRevealed, true);
   assert.equal(campaign.arc.deckerRecruited, true);
@@ -736,7 +736,7 @@ test('P3.M1.2: Act 2 gates — each Act 3 condition checked independently', () =
   // Gate: not enough jobs (crew and sites satisfied by default)
   const tooFewJobs = new Campaign({
     seed: 44,
-    rep: 60,
+    rep: 65,
     completedJobs: 8,
     siteRoster: [
       validSite({
@@ -775,7 +775,7 @@ test('P3.M1.2: Act 2 gates — each Act 3 condition checked independently', () =
   });
   assert.equal(attrition.arcStage, 'act-1', 'starts in Act 1 with low rep');
   attrition.crew[0].flatlined = true;
-  attrition.rep = 60;
+  attrition.rep = 65;
   attrition.enterHub();
   assert.equal(attrition.crew.length, 4, 'buildCrew trio + auto-Decker');
   assert.equal(attrition.crew.filter(m => !m.flatlined).length, 3, 'only 3 living');
@@ -784,7 +784,7 @@ test('P3.M1.2: Act 2 gates — each Act 3 condition checked independently', () =
   // Gate: not enough same-principal visited sites (2 of 3 required)
   const tooCasual = new Campaign({
     seed: 46,
-    rep: 60,
+    rep: 65,
     completedJobs: 9,
     siteRoster: [
       validSite({
@@ -804,7 +804,7 @@ test('P3.M1.2: Act 2 gates — each Act 3 condition checked independently', () =
   // Gate: score target never visited (synthesized, lastVisitedJob: 0)
   const noTargetVisit = new Campaign({
     seed: 47,
-    rep: 60,
+    rep: 65,
     completedJobs: 9,
   });
   const scoreTarget = noTargetVisit.siteRoster.find(s => s.scoreTarget);
@@ -817,7 +817,7 @@ test('P3.M1.2: Act 2 advances to Act 3 with 4 living crew and 3 visited same-pri
   const scorePrincipal = { id: 'matsuda', label: 'Matsuda', groups: ['corp'] };
   const campaign = new Campaign({
     seed: 42,
-    rep: 60,
+    rep: 65,
     completedJobs: 9,
     siteRoster: [
       validSite({
@@ -844,7 +844,7 @@ test('P3.M2: Decker assignment is idempotent — restored save with existing Dec
   });
   const campaign = new Campaign({
     seed: 42,
-    rep: 60,
+    rep: 65,
     completedJobs: 4,
     crew: [decker],
   });
@@ -855,7 +855,7 @@ test('P3.M2: Decker assignment is idempotent — restored save with existing Dec
 });
 
 test('P3.M2: Decker callsign does not collide with existing crew', () => {
-  const campaign = new Campaign({ seed: 42, rep: 60, completedJobs: 4 });
+  const campaign = new Campaign({ seed: 42, rep: 65, completedJobs: 4 });
   const decker = campaign.crew.find(m => m.archetype === 'Decker');
   assert.ok(decker);
   const otherCallsigns = campaign.crew.filter(m => m.archetype !== 'Decker').map(m => m.callsign);
@@ -868,7 +868,7 @@ test('P3.M2: Decker callsign does not collide with existing crew', () => {
 test('P3.M1.3: Act 2 entry always synthesizes a new CRITICAL-tier Score target', () => {
   const campaign = new Campaign({
     seed: 42,
-    rep: 60,
+    rep: 65,
     completedJobs: 4,
     siteRoster: [
       validSite({
@@ -900,7 +900,7 @@ test('P3.M1.3: Act 2 entry always synthesizes a new CRITICAL-tier Score target',
 });
 
 test('P3.M1.3: Act 2 entry synthesizes a Score target even when roster is empty', () => {
-  const campaign = new Campaign({ seed: 42, rep: 60, completedJobs: 4 });
+  const campaign = new Campaign({ seed: 42, rep: 65, completedJobs: 4 });
 
   assert.equal(campaign.arcStage, 'act-2');
   assert.equal(campaign.arc.scoreRevealed, true);
@@ -917,7 +917,7 @@ test('P3.M1.3: Act 2 entry synthesizes a Score target even when roster is empty'
 });
 
 test('P3.M1.3: designated Score target survives roster eviction at cap', () => {
-  const campaign = new Campaign({ seed: 42, rep: 60, completedJobs: 4 });
+  const campaign = new Campaign({ seed: 42, rep: 65, completedJobs: 4 });
   const targetId = campaign.siteRoster.find(site => site.scoreTarget)!.id;
 
   for (let i = 0; i < SITE_ROSTER_CAP; i++) {
@@ -934,7 +934,7 @@ test('P3.M1.3: multiple persisted Score targets crash instead of being normalize
     () =>
       new Campaign({
         seed: 42,
-        rep: 60,
+        rep: 65,
         completedJobs: 4,
         siteRoster: [
           validSite({ id: 'score-a', seed: '111', tier: 'score', scoreTarget: true }),
@@ -946,14 +946,14 @@ test('P3.M1.3: multiple persisted Score targets crash instead of being normalize
 });
 
 test('P3.M1.5: Clock ignores completedJobs until act-2/3 deploys cross grace', () => {
-  const freshAct2 = new Campaign({ seed: 42, rep: 60, completedJobs: 9 });
+  const freshAct2 = new Campaign({ seed: 42, rep: 65, completedJobs: 9 });
   assert.equal(freshAct2.arc.clockStarted, false);
   assert.equal(freshAct2.clockHeat, 0);
   assert.equal(freshAct2.scoreDeadlineJobsRemaining, CLOCK_ACT2_DEADLINE_JOBS);
 
   const heating = new Campaign({
     seed: 42,
-    rep: 60,
+    rep: 65,
     completedJobs: 9,
     clockJobsTaken: CLOCK_ACT2_GRACE_JOBS + 2,
   });
@@ -967,7 +967,7 @@ test('P3.M1.5: Clock ignores completedJobs until act-2/3 deploys cross grace', (
 
   const expired = new Campaign({
     seed: 43,
-    rep: 60,
+    rep: 65,
     completedJobs: 4,
     clockJobsTaken: CLOCK_ACT2_DEADLINE_JOBS,
   });
@@ -981,7 +981,7 @@ test('P3.M1.5: Clock ignores completedJobs until act-2/3 deploys cross grace', (
 test('P3.M1.5: clock loss requires Act 3 — Act 2 casing survives past the deploy deadline', () => {
   const act2PastDeadline = new Campaign({
     seed: 43,
-    rep: 60,
+    rep: 65,
     completedJobs: 6,
     clockJobsTaken: CLOCK_ACT2_DEADLINE_JOBS - 1,
   });
@@ -992,7 +992,7 @@ test('P3.M1.5: clock loss requires Act 3 — Act 2 casing survives past the depl
 
   const act3AtDeadline = new Campaign({
     seed: 43,
-    rep: 60,
+    rep: 65,
     completedJobs: 9,
     clockJobsTaken: CLOCK_ACT2_DEADLINE_JOBS,
     siteRoster: [
@@ -1031,7 +1031,7 @@ test('P3.M1.5: Act 3 entry clamps an over-budget clock to guarantee Score deploy
   const scorePrincipal = { id: 'matsuda', label: 'Matsuda', groups: ['corp'] };
   const campaign = new Campaign({
     seed: 42,
-    rep: 60,
+    rep: 65,
     completedJobs: 9,
     clockJobsTaken: CLOCK_ACT2_DEADLINE_JOBS,
     siteRoster: [
@@ -1062,7 +1062,7 @@ test('P3.M1.5: Act 3 entry clamps an over-budget clock to guarantee Score deploy
 test('P3.M1.5: endReason distinguishes score win, clock loss, and crew wipe', () => {
   const clockLoss = new Campaign({
     seed: 43,
-    rep: 60,
+    rep: 65,
     completedJobs: 4,
     clockJobsTaken: CLOCK_ACT2_DEADLINE_JOBS,
   });
@@ -1070,7 +1070,7 @@ test('P3.M1.5: endReason distinguishes score win, clock loss, and crew wipe', ()
 
   const scoreWin = new Campaign({
     seed: 44,
-    rep: 60,
+    rep: 65,
     completedJobs: 4,
     arc: {
       arcStage: 'score',
@@ -1089,7 +1089,7 @@ test('P3.M1.5: endReason distinguishes score win, clock loss, and crew wipe', ()
 
   const crewWipe = new Campaign({
     seed: 45,
-    rep: 60,
+    rep: 65,
     completedJobs: 2,
   });
   crewWipe.crew.forEach(member => {
@@ -1102,7 +1102,7 @@ test('P3.M1.5: endReason distinguishes score win, clock loss, and crew wipe', ()
 test('terminal result detection bypasses debrief for Score, terminal death, and Clock loss', () => {
   const scoreCampaign = new Campaign({
     seed: 44,
-    rep: 60,
+    rep: 65,
     completedJobs: 9,
     siteRoster: [
       validSite({
@@ -1141,7 +1141,7 @@ test('terminal result detection bypasses debrief for Score, terminal death, and 
 
   const clockLoss = new Campaign({
     seed: 46,
-    rep: 60,
+    rep: 65,
     completedJobs: 9,
     clockJobsTaken: CLOCK_ACT2_DEADLINE_JOBS - 1,
     siteRoster: [
@@ -1177,7 +1177,7 @@ test('completed Score extraction settles synchronously before the exit move call
   let campaign!: Campaign;
   campaign = new Campaign({
     seed: 47,
-    rep: 60,
+    rep: 65,
     completedJobs: 9,
     onResult: result => {
       campaign.onJobEnd({
@@ -1218,7 +1218,7 @@ test('completed Score extraction settles synchronously before the exit move call
 test('P3.M1.5: Clock deadline does not end the campaign after the Score is attempted', () => {
   const campaign = new Campaign({
     seed: 42,
-    rep: 60,
+    rep: 65,
     completedJobs: 4,
     clockJobsTaken: CLOCK_ACT2_DEADLINE_JOBS,
     arc: {
@@ -1242,7 +1242,7 @@ test('P3.M1.7: Score contract is gated to Act 3 and marks attempted on deploymen
   const scorePrincipal = { id: 'matsuda', label: 'Matsuda', groups: ['corp'] };
   const campaign = new Campaign({
     seed: 42,
-    rep: 60,
+    rep: 65,
     completedJobs: 9,
     siteRoster: [
       validSite({
@@ -1282,7 +1282,7 @@ test('P3.M1.7: Score contract is gated to Act 3 and marks attempted on deploymen
 });
 
 test('a flatlined pre-Score Decker creates a free Terminal replacement lead', () => {
-  const campaign = new Campaign({ seed: 42, rep: 60, completedJobs: 4 });
+  const campaign = new Campaign({ seed: 42, rep: 65, completedJobs: 4 });
   const original = campaign.crew.find(member => member.archetype === 'Decker');
   assert.ok(original);
   campaign.flatlineMember(original.id);
@@ -1301,7 +1301,7 @@ test('the Score remains unavailable until a living replacement Decker is recruit
   const scorePrincipal = { id: 'matsuda', label: 'Matsuda', groups: ['corp'] };
   const campaign = new Campaign({
     seed: 42,
-    rep: 60,
+    rep: 65,
     completedJobs: 9,
     siteRoster: [
       validSite({
@@ -1333,7 +1333,7 @@ test('P3.M1.7: completed Score contract records campaign win state', () => {
   const campaign = new Campaign({
     seed: 42,
     credits: 25,
-    rep: 60,
+    rep: 65,
     completedJobs: 9,
     siteRoster: [
       validSite({
@@ -1365,7 +1365,7 @@ test('a Decker flatline during the Score ends the campaign explicitly', () => {
   const scorePrincipal = { id: 'matsuda', label: 'Matsuda', groups: ['corp'] };
   const campaign = new Campaign({
     seed: 42,
-    rep: 60,
+    rep: 65,
     completedJobs: 9,
     siteRoster: [
       validSite({
@@ -1406,14 +1406,14 @@ test('a Decker flatline during the Score ends the campaign explicitly', () => {
 
 // ─── Recruitment ────────────────────────────────────────────────────────
 
-test('generateRecruits returns 1–2 candidates when Rep ≥ 65', () => {
-  const campaign = new Campaign({ seed: 99, rep: 65 });
+test('generateRecruits returns 1–2 candidates when Rep ≥ threshold', () => {
+  const campaign = new Campaign({ seed: 99, rep: 50 });
   assert.ok(campaign.availableRecruits.length >= 1);
   assert.ok(campaign.availableRecruits.length <= 2);
 });
 
-test('generateRecruits returns empty when Rep < 65', () => {
-  const campaign = new Campaign({ seed: 99, rep: 64 });
+test('generateRecruits returns empty when Rep < threshold', () => {
+  const campaign = new Campaign({ seed: 99, rep: 49 });
   assert.equal(campaign.availableRecruits.length, 0);
 });
 
@@ -1500,7 +1500,7 @@ test('recruit() throws for unknown recruitId', () => {
 });
 
 test('recruit() throws when Rep drops below threshold before recruiting', () => {
-  const campaign = new Campaign({ seed: 7, rep: 65 });
+  const campaign = new Campaign({ seed: 7, rep: 50 });
   assert.ok(campaign.availableRecruits.length > 0, 'Precondition: has recruits');
   const recruit = campaign.availableRecruits[0];
   // Drop rep below threshold after recruits were generated
@@ -1553,7 +1553,7 @@ test('backfillRecruitsIfEligible fills empty pool when Rep meets threshold', () 
 });
 
 test('backfillRecruitsIfEligible is a no-op when Rep is below threshold', () => {
-  const campaign = new Campaign({ seed: 3, rep: 50 });
+  const campaign = new Campaign({ seed: 3, rep: 49 });
   assert.equal(campaign.availableRecruits.length, 0);
   campaign.backfillRecruitsIfEligible();
   assert.equal(campaign.availableRecruits.length, 0);
@@ -1684,7 +1684,7 @@ test('deployCrewMember does NOT double-grant breaching charge if already carried
 });
 
 test('recruitInitial does not require Rep gate', () => {
-  // Fresh campaign has rep=20, below the 65 threshold — but initial
+  // Fresh campaign has rep=20, below the recruitment threshold — but initial
   // recruitment bypasses the gate.
   const campaign = new Campaign({ seed: 42, crew: [], rep: 20 });
   campaign.generateInitialCandidates();

@@ -131,7 +131,7 @@ test('terminal recruitment reveal when Rep meets threshold', () => {
 
 test('Score reveal presents the target and assigns a Decker when Act 2 opens', () => {
   const campaign = hubCampaign({
-    rep: 60,
+    rep: 65,
     completedJobs: 4,
     hubReveals: {
       terminalExplained: true,
@@ -163,7 +163,7 @@ test('Score reveal presents the target and assigns a Decker when Act 2 opens', (
 
 test('Clock reveal fires after grace deploys once Score briefing was dismissed', () => {
   const campaign = hubCampaign({
-    rep: 60,
+    rep: 65,
     completedJobs: 4,
     clockJobsTaken: CLOCK_ACT2_GRACE_JOBS,
     hubReveals: {
@@ -192,7 +192,7 @@ test('Act 3 reveal presents THE SCORE when final prep unlocks', () => {
   const scorePrincipal = { id: 'matsuda', label: 'Matsuda', groups: ['corp'] as const };
   const campaign = new Campaign({
     seed: 42,
-    rep: 60,
+    rep: 65,
     completedJobs: 9,
     hubReveals: {
       terminalExplained: true,
@@ -263,7 +263,7 @@ test('Act 3 reveal presents THE SCORE when final prep unlocks', () => {
 
 test('Score reveal takes priority over clinic when Act 2 opens with injured crew', () => {
   const campaign = hubCampaign({
-    rep: 60,
+    rep: 65,
     completedJobs: 4,
     hubReveals: {
       terminalExplained: true,

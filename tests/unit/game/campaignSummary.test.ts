@@ -53,7 +53,7 @@ test('Score completion summary uses post-settlement jobs, Rep, and Credits', () 
     id: 'campaign-score',
     seed: 42,
     credits: 125,
-    rep: 60,
+    rep: 65,
     completedJobs: 9,
     siteRoster: [
       validSite(),
@@ -79,7 +79,7 @@ test('Score completion summary uses post-settlement jobs, Rep, and Credits', () 
   assert.equal(record.result, 'win');
   assert.equal(record.endReason, 'score-complete');
   assert.equal(record.completedJobs, 10);
-  assert.equal(record.rep, 67);
+  assert.equal(record.rep, 72);
   assert.equal(record.credits, 125 + SCORE_CREDITS_REWARD);
   assert.equal('salvage' in record, false);
   assert.ok(record.crewRoster.some(member => member.archetype === 'Decker'));

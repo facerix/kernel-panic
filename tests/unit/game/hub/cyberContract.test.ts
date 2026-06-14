@@ -186,7 +186,7 @@ test('cyber-capable board generation is deterministic per seed', () => {
 
 /** Act-2 campaign whose arc transition has auto-assigned a Decker (P3.M1.2). */
 function act2CampaignWithDecker(): Campaign {
-  const campaign = new Campaign({ seed: 42, rep: 60, completedJobs: 4 });
+  const campaign = new Campaign({ seed: 42, rep: 65, completedJobs: 4 });
   assert.equal(campaign.arcStage, 'act-2');
   assert.ok(campaign.crew.some(m => m.archetype === 'Decker'));
   return campaign;

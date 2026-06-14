@@ -472,7 +472,7 @@ test('campaign snapshot/restore round-trips campaign scope', () => {
   // shape survives without scrap-only flattening).
   campaign.salvage = makeSalvage({ scrap: 3, chips: 2, bio: 1, data: 1 });
   campaign.credits = 90;
-  campaign.rep = 62;
+  campaign.rep = 49;
   campaign.meta = { someFlag: true };
   campaign.crew[1].flatlined = true;
   campaign.enterHub();
@@ -485,7 +485,7 @@ test('campaign snapshot/restore round-trips campaign scope', () => {
   assert.deepEqual(restored.salvage, makeSalvage({ scrap: 3, chips: 2, bio: 1, data: 1 }));
   assert.equal(totalSalvage(restored.salvage), 7);
   assert.equal(restored.credits, 90);
-  assert.equal(restored.rep, 62);
+  assert.equal(restored.rep, 49);
   assert.deepEqual(restored.meta, { someFlag: true });
   assert.equal(restored.crew[1].flatlined, true);
 });

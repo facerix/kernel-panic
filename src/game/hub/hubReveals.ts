@@ -194,7 +194,7 @@ export function migrateLegacyHubReveals(
   if (record.terminalExplained === true && !('terminalRecruitmentExplained' in record)) {
     const rep = context.rep ?? REP.START;
     const pending = context.pendingRecruitReward ?? false;
-    // Pre-split saves only set terminalExplained when recruitment unlocked (Rep ≥ 65).
+    // Pre-split saves only set terminalExplained when recruitment unlocked (Rep ≥ 50).
     if (rep >= REP.RECRUIT_THRESHOLD || pending) {
       return { ...record, terminalRecruitmentExplained: true };
     }

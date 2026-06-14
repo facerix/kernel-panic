@@ -357,7 +357,7 @@ test('a legacy Decker record without cyber stats restores with base stats', () =
 // --- Decker cyber stats: campaign crew path -------------------------------------------
 
 function act2CampaignWithDecker(): Campaign {
-  const campaign = new Campaign({ seed: 42, rep: 60, completedJobs: 4 });
+  const campaign = new Campaign({ seed: 42, rep: 65, completedJobs: 4 });
   assert.ok(campaign.crew.some(m => m.archetype === 'Decker'));
   return campaign;
 }
