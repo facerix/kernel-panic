@@ -1,7 +1,11 @@
 import type { Contract } from './Curator.js';
 import type { Campaign } from '../Campaign.js';
 import type { HubReveals } from './hubReveals.js';
-import { CLOCK_ACT2_DEADLINE_JOBS, CLOCK_ACT2_GRACE_JOBS } from '../Campaign.js';
+import {
+  CLOCK_ACT2_DEADLINE_JOBS,
+  CLOCK_ACT2_GRACE_JOBS,
+  clockDeadlineApplies,
+} from '../Campaign.js';
 import type { CampaignArcStage, LocationSite } from '../../types.js';
 import type { Decker } from '../archetypes/Decker.js';
 import type { Crew } from '../Crew.js';
@@ -72,9 +76,14 @@ export function formatClockStatus(campaign: ArcSurfaceCampaign): string | null {
   if (campaign.arc.scoreAttempted || campaign.arc.scoreCompleted) return null;
 
   const clockJobsTaken = campaign.clockJobsTaken ?? 0;
+  const heat = campaign.clockHeat ?? Math.max(0, clockJobsTaken - CLOCK_ACT2_GRACE_JOBS);
+
+  if (!clockDeadlineApplies(campaign.arc.arcStage)) {
+    return `CLOCK: HEAT ${heat}`;
+  }
+
   if (clockJobsTaken >= CLOCK_ACT2_DEADLINE_JOBS) return null;
 
-  const heat = campaign.clockHeat ?? Math.max(0, clockJobsTaken - CLOCK_ACT2_GRACE_JOBS);
   const jobsRemaining =
     campaign.scoreDeadlineJobsRemaining ?? Math.max(0, CLOCK_ACT2_DEADLINE_JOBS - clockJobsTaken);
   return `CLOCK: HEAT ${heat} / ${jobsRemaining} JOBS LEFT`;

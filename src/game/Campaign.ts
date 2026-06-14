@@ -69,10 +69,17 @@ export const ARC_ACT_3_MIN_CREW_ALIVE = 4;
 export const ARC_ACT_3_MIN_PRINCIPAL_SITES_VISITED = 3;
 /** Act-2/3 deploys taken before corp heat starts (successful or not). */
 export const CLOCK_ACT2_GRACE_JOBS = 3;
-/** Deploys after grace before the Score window closes. */
+/** Deploys after grace before the Score window closes (Act 3 only). */
 export const CLOCK_HEAT_WINDOW_JOBS = 5;
 /** Total act-2/3 deploys allowed before clock loss (`grace + window`). */
 export const CLOCK_ACT2_DEADLINE_JOBS = CLOCK_ACT2_GRACE_JOBS + CLOCK_HEAT_WINDOW_JOBS;
+/** Act 3 deploy budget guaranteed when final prep unlocks — room for prep + THE SCORE. */
+export const CLOCK_ACT3_MIN_JOBS_REMAINING = 3;
+
+/** Clock expiry applies only during Act 3 final prep; Act 2 casing can run past the old deadline. */
+export function clockDeadlineApplies(arcStage: CampaignArcStage): boolean {
+  return arcStage === 'act-3';
+}
 /** Campaign-ending payday for completing THE SCORE. */
 export const SCORE_CREDITS_REWARD = 5_000;
 const SYNTHETIC_SCORE_TARGET_DIFFICULTY = CONTRACT_DIFFICULTY.CRITICAL;
@@ -135,7 +142,7 @@ export type CampaignOptions = {
 type CampaignLike = {
   crew: { flatlined: boolean }[];
   activeRun?: { contract: Contract | null } | null;
-  arc?: Pick<CampaignArc, 'scoreRevealed' | 'scoreAttempted'>;
+  arc?: Pick<CampaignArc, 'scoreRevealed' | 'scoreAttempted' | 'arcStage'>;
   clockJobsTaken?: number;
 };
 
@@ -178,6 +185,7 @@ export function willEndCampaignAfterResult(
   if (outcome === OUTCOME.EXIT && completed && contract && isScoreContract(contract)) return true;
   return Boolean(
     campaign.arc?.scoreRevealed &&
+    clockDeadlineApplies(campaign.arc.arcStage) &&
     (campaign.clockJobsTaken ?? 0) >= CLOCK_ACT2_DEADLINE_JOBS &&
     !campaign.arc.scoreAttempted
   );
@@ -375,11 +383,7 @@ export class Campaign {
     if (this.arc.scoreAttempted && this.arc.arcStage === 'score') {
       return 'decker-flatlined-score';
     }
-    if (
-      this.arc.scoreRevealed &&
-      this.clockJobsTaken >= CLOCK_ACT2_DEADLINE_JOBS &&
-      !this.arc.scoreAttempted
-    ) {
+    if (this.#clockExpired()) {
       return 'clock-expired';
     }
     return 'crew-wipe';
@@ -1222,6 +1226,7 @@ export class Campaign {
 
     if (this.arc.arcStage === 'act-2' && this.#qualifiesForAct3()) {
       this.arc.arcStage = 'act-3';
+      this.#ensureAct3ScoreWindow();
     }
 
     if (this.arc.scoreRevealed && this.clockJobsTaken >= CLOCK_ACT2_GRACE_JOBS) {
@@ -1326,10 +1331,19 @@ export class Campaign {
   #clockExpired(): boolean {
     return (
       this.arc.scoreRevealed &&
+      clockDeadlineApplies(this.arc.arcStage) &&
       this.clockJobsTaken >= CLOCK_ACT2_DEADLINE_JOBS &&
       !this.arc.scoreAttempted &&
       !this.arc.scoreCompleted
     );
+  }
+
+  /** Guarantee deploy headroom once THE SCORE can appear — casing failures must not stillborn Act 3. */
+  #ensureAct3ScoreWindow(): void {
+    const maxTaken = CLOCK_ACT2_DEADLINE_JOBS - CLOCK_ACT3_MIN_JOBS_REMAINING;
+    if (this.clockJobsTaken > maxTaken) {
+      this.clockJobsTaken = maxTaken;
+    }
   }
 
   #synthesizeScoreTarget(): LocationSite {

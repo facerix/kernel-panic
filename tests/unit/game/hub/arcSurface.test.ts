@@ -89,7 +89,7 @@ test('formatHubArcStatusLines shows active heat only after clock briefing', () =
   };
   assert.deepEqual(formatHubArcStatusLines(campaign), [
     'STAGE 2: CASING | SCORE: Matsuda server farm',
-    'CLOCK: HEAT 2 / 3 JOBS LEFT',
+    'CLOCK: HEAT 2',
   ]);
 });
 
@@ -105,7 +105,7 @@ test('formatHubArcStatus throws when revealed state has no Score target', () => 
   );
 });
 
-test('formatClockStatus stays hidden before briefing, during grace, and after deadline', () => {
+test('formatClockStatus stays hidden before briefing, during grace, and after Act 3 deadline', () => {
   assert.equal(
     formatClockStatus({
       arc: arc({ scoreRevealed: true }),
@@ -138,13 +138,39 @@ test('formatClockStatus stays hidden before briefing, during grace, and after de
   );
   assert.equal(
     formatClockStatus({
-      arc: arc({ scoreRevealed: true, clockStarted: true }),
+      arc: arc({ arcStage: 'act-2', scoreRevealed: true, clockStarted: true }),
+      siteRoster: [scoreSite()],
+      crew: [],
+      hubReveals: { clockBriefingPresented: true },
+      clockJobsTaken: CLOCK_ACT2_DEADLINE_JOBS,
+      clockHeat: CLOCK_ACT2_DEADLINE_JOBS - CLOCK_ACT2_GRACE_JOBS,
+    }),
+    `CLOCK: HEAT ${CLOCK_ACT2_DEADLINE_JOBS - CLOCK_ACT2_GRACE_JOBS}`
+  );
+  assert.equal(
+    formatClockStatus({
+      arc: arc({ arcStage: 'act-3', scoreRevealed: true, clockStarted: true }),
       siteRoster: [scoreSite()],
       crew: [],
       hubReveals: { clockBriefingPresented: true },
       clockJobsTaken: CLOCK_ACT2_DEADLINE_JOBS,
     }),
     null
+  );
+});
+
+test('formatClockStatus shows Act 3 deadline countdown', () => {
+  assert.equal(
+    formatClockStatus({
+      arc: arc({ arcStage: 'act-3', scoreRevealed: true, clockStarted: true }),
+      siteRoster: [scoreSite()],
+      crew: [],
+      hubReveals: { clockBriefingPresented: true },
+      clockJobsTaken: CLOCK_ACT2_GRACE_JOBS + 2,
+      clockHeat: 2,
+      scoreDeadlineJobsRemaining: 3,
+    }),
+    'CLOCK: HEAT 2 / 3 JOBS LEFT'
   );
 });
 

@@ -973,8 +973,90 @@ test('P3.M1.5: Clock ignores completedJobs until act-2/3 deploys cross grace', (
   });
   assert.equal(expired.clockHeat, CLOCK_ACT2_DEADLINE_JOBS - CLOCK_ACT2_GRACE_JOBS);
   assert.equal(expired.arc.clockStarted, true);
-  assert.equal(expired.state, CAMPAIGN_STATE.ENDED);
-  assert.equal(expired.endReason, 'clock-expired');
+  assert.equal(expired.arcStage, 'act-2');
+  assert.equal(expired.state, CAMPAIGN_STATE.HUB);
+  assert.equal(expired.endReason, null);
+});
+
+test('P3.M1.5: clock loss requires Act 3 — Act 2 casing survives past the deploy deadline', () => {
+  const act2PastDeadline = new Campaign({
+    seed: 43,
+    rep: 60,
+    completedJobs: 6,
+    clockJobsTaken: CLOCK_ACT2_DEADLINE_JOBS - 1,
+  });
+  assert.equal(act2PastDeadline.arcStage, 'act-2');
+  assert.equal(act2PastDeadline.state, CAMPAIGN_STATE.HUB);
+  assert.equal(act2PastDeadline.endReason, null);
+  assert.equal(willEndCampaignAfterResult(act2PastDeadline, OUTCOME.EXIT, true), false);
+
+  const act3AtDeadline = new Campaign({
+    seed: 43,
+    rep: 60,
+    completedJobs: 9,
+    clockJobsTaken: CLOCK_ACT2_DEADLINE_JOBS,
+    siteRoster: [
+      validSite({
+        id: 'score',
+        seed: '100',
+        tier: 'score',
+        scoreTarget: true,
+        lastVisitedJob: 5,
+        principal: { id: 'matsuda', label: 'Matsuda', groups: ['corp'] },
+      }),
+      validSite({
+        id: 'case-1',
+        seed: '101',
+        lastVisitedJob: 6,
+        principal: { id: 'matsuda', label: 'Matsuda', groups: ['corp'] },
+      }),
+      validSite({
+        id: 'case-2',
+        seed: '102',
+        lastVisitedJob: 7,
+        principal: { id: 'matsuda', label: 'Matsuda', groups: ['corp'] },
+      }),
+    ],
+  });
+  assert.equal(act3AtDeadline.arcStage, 'act-3');
+  assert.equal(act3AtDeadline.state, CAMPAIGN_STATE.HUB, 'Act 3 entry refunds over-budget clock');
+  act3AtDeadline.clockJobsTaken = CLOCK_ACT2_DEADLINE_JOBS;
+  act3AtDeadline.state = CAMPAIGN_STATE.COMBAT;
+  act3AtDeadline.enterHub();
+  assert.equal(act3AtDeadline.state, CAMPAIGN_STATE.ENDED);
+  assert.equal(act3AtDeadline.endReason, 'clock-expired');
+});
+
+test('P3.M1.5: Act 3 entry clamps an over-budget clock to guarantee Score deploy headroom', () => {
+  const scorePrincipal = { id: 'matsuda', label: 'Matsuda', groups: ['corp'] };
+  const campaign = new Campaign({
+    seed: 42,
+    rep: 60,
+    completedJobs: 9,
+    clockJobsTaken: CLOCK_ACT2_DEADLINE_JOBS,
+    siteRoster: [
+      validSite({
+        id: 'score',
+        seed: '100',
+        tier: 'score',
+        scoreTarget: true,
+        lastVisitedJob: 5,
+        principal: scorePrincipal,
+      }),
+      validSite({ id: 'case-1', seed: '101', lastVisitedJob: 6, principal: scorePrincipal }),
+      validSite({ id: 'case-2', seed: '102', lastVisitedJob: 7, principal: scorePrincipal }),
+    ],
+  });
+
+  assert.equal(campaign.arcStage, 'act-3');
+  assert.equal(campaign.state, CAMPAIGN_STATE.HUB);
+  assert.equal(
+    campaign.clockJobsTaken,
+    CLOCK_ACT2_DEADLINE_JOBS - 3,
+    'must leave at least three Act 3 deploys'
+  );
+  assert.equal(campaign.scoreDeadlineJobsRemaining, 3);
+  assert.ok(campaign.canAttemptScore());
 });
 
 test('P3.M1.5: endReason distinguishes score win, clock loss, and crew wipe', () => {
@@ -984,7 +1066,7 @@ test('P3.M1.5: endReason distinguishes score win, clock loss, and crew wipe', ()
     completedJobs: 4,
     clockJobsTaken: CLOCK_ACT2_DEADLINE_JOBS,
   });
-  assert.equal(clockLoss.endReason, 'clock-expired');
+  assert.equal(clockLoss.endReason, null, 'Act 2 past deadline is not clock loss');
 
   const scoreWin = new Campaign({
     seed: 44,
@@ -1060,9 +1142,33 @@ test('terminal result detection bypasses debrief for Score, terminal death, and 
   const clockLoss = new Campaign({
     seed: 46,
     rep: 60,
-    completedJobs: 4,
-    clockJobsTaken: CLOCK_ACT2_DEADLINE_JOBS,
+    completedJobs: 9,
+    clockJobsTaken: CLOCK_ACT2_DEADLINE_JOBS - 1,
+    siteRoster: [
+      validSite({
+        id: 'score',
+        seed: '100',
+        tier: 'score',
+        scoreTarget: true,
+        lastVisitedJob: 5,
+        principal: { id: 'matsuda', label: 'Matsuda', groups: ['corp'] },
+      }),
+      validSite({
+        id: 'case-1',
+        seed: '101',
+        lastVisitedJob: 6,
+        principal: { id: 'matsuda', label: 'Matsuda', groups: ['corp'] },
+      }),
+      validSite({
+        id: 'case-2',
+        seed: '102',
+        lastVisitedJob: 7,
+        principal: { id: 'matsuda', label: 'Matsuda', groups: ['corp'] },
+      }),
+    ],
   });
+  assert.equal(clockLoss.arcStage, 'act-3');
+  clockLoss.clockJobsTaken = CLOCK_ACT2_DEADLINE_JOBS;
   clockLoss.state = CAMPAIGN_STATE.COMBAT;
   assert.equal(willEndCampaignAfterResult(clockLoss, OUTCOME.EXIT, true), true);
 });

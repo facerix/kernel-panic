@@ -113,13 +113,14 @@ The Score target is always a newly synthesized CRITICAL-tier site, never promote
 The Clock creates mounting pressure that discourages indefinite grinding in Act 2/3. **Shipped implementation:** Act 2/3 **deploys taken** (successful or not) drive heat and the hard deadline — not global `completedJobs`, so entering Act 2 with a high job count from Stage 1 does not immediately start the Clock.
 
 - `CLOCK_ACT2_GRACE_JOBS = 3` — first three Act 2/3 deploys are grace (no heat, no `clockStarted`)
-- `CLOCK_HEAT_WINDOW_JOBS = 5` — deploys after grace before the window closes
-- `CLOCK_ACT2_DEADLINE_JOBS = 8` — total Act 2/3 deploys (`grace + window`)
+- `CLOCK_HEAT_WINDOW_JOBS = 5` — deploys after grace before the window closes **in Act 3**
+- `CLOCK_ACT2_DEADLINE_JOBS = 8` — total Act 2/3 deploys (`grace + window`) counted against the Act 3 deadline
+- `CLOCK_ACT3_MIN_JOBS_REMAINING = 3` — on Act 2 → Act 3 transition, over-budget `clockJobsTaken` is clamped so final prep always has at least this many deploys left
 - `clockJobsTaken` increments on `deployCrewMember` while `arcStage` is `act-2` or `act-3` (Score deploy excluded — it sets `scoreAttempted`)
 - `clockStarted` when `scoreRevealed && clockJobsTaken >= CLOCK_ACT2_GRACE_JOBS`
 - `clockHeat = max(0, clockJobsTaken - CLOCK_ACT2_GRACE_JOBS)` once started
-- Heat nudges Curator threat counts upward, capped per difficulty tier
-- Returning to Hub at the deadline without `scoreAttempted` sets `Campaign.state` to `ENDED` with `endReason: 'clock-expired'` and presents the terminal game-over screen
+- **Act 2 casing:** heat mounts and HUD shows `CLOCK: HEAT N`, but the deadline cannot end the campaign — failed deploys must not stillborn the path to Act 3
+- **Act 3 final prep:** HUD adds `/ Y JOBS LEFT`; returning to Hub at the deadline without `scoreAttempted` sets `Campaign.state` to `ENDED` with `endReason: 'clock-expired'`
 
 **Hub narrative beats (priority order on `enterHub`):** `score-reveal` → `clock-reveal` → `act-3-reveal`. Each defers its `hubReveals` flag until the player dismisses the Curator briefing modal.
 
