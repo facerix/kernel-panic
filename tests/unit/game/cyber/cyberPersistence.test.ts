@@ -15,6 +15,8 @@ import { CyberAvatar } from '../../../../src/game/cyber/CyberAvatar.js';
 import { EntryPort } from '../../../../src/game/cyber/EntryPort.js';
 import { JackInPoint } from '../../../../src/game/entities/JackInPoint.js';
 import { Decker } from '../../../../src/game/archetypes/Decker.js';
+import { ProbeIce } from '../../../../src/game/cyber/ProbeIce.js';
+import { applyOverride } from '../../../../src/game/droneOverride.js';
 import { Campaign } from '../../../../src/game/Campaign.js';
 import { EVENT } from '../../../../src/game/events.js';
 import {
@@ -29,6 +31,7 @@ import {
   DECKER_BASE_INTRUSION,
   DECKER_BASE_RAM,
   TILE,
+  FACTION,
 } from '../../../../src/game/constants.js';
 import { OBJECTIVES } from '../../../../src/game/hub/Curator.js';
 import { Rng } from '../../../../src/rng.js';
@@ -162,6 +165,25 @@ test('a mid-jack-in snapshot round-trips the layer exactly', () => {
   assert.deepEqual(restoredLayer.world.snapshotAlarm(), layer.world.snapshotAlarm());
   // Meatspace round-tripped alongside: the Decker body is still the player.
   assert.ok(restored.player instanceof Decker);
+});
+
+test('overridden ICE state round-trips through an active cyber layer', () => {
+  const run = activeRun();
+  const layer = layerOf(run);
+  const probe = Array.from(layer.world.entities.values()).find(
+    (entity): entity is ProbeIce => entity instanceof ProbeIce
+  );
+  assert.ok(probe);
+  applyOverride(probe, FACTION.PLAYER);
+
+  const { run: restored } = restore(structuredClone(snapshot(run)));
+  const restoredProbe = Array.from(layerOf(restored).world.entities.values()).find(
+    (entity): entity is ProbeIce => entity instanceof ProbeIce
+  );
+  assert.ok(restoredProbe);
+  assert.equal(restoredProbe.faction, FACTION.PLAYER);
+  assert.equal(restoredProbe.isOverridden, true);
+  assert.equal(restoredProbe.overrideTurnsRemaining, probe.overrideTurnsRemaining);
 });
 
 test('a restored active run re-wires its cyber listeners', () => {

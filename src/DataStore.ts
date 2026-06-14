@@ -1,5 +1,12 @@
 // singleton class to manage the user's data
 
+import {
+  archiveCampaignSummary,
+  cloneCampaignSummary,
+  normalizeCampaignHistory,
+  type CampaignSummary,
+} from './game/campaignSummary.js';
+
 const STORAGE_KEY = 'kp:data';
 let instance: DataStore | null = null;
 
@@ -15,13 +22,15 @@ type KPData = {
   prefs: Record<string, string | number | boolean | object>;
   runs: Run[];
   campaign: Campaign | null;
+  campaignHistory: CampaignSummary[];
 };
-type KPDataObject = string | object | Run | Campaign | Run[] | Campaign[];
+type KPDataObject = string | object | Run | Campaign | Run[] | Campaign[] | CampaignSummary[];
 
 class DataStore extends EventTarget {
   #prefs: KPData['prefs'] = {};
   #runs: KPData['runs'] = [];
   #campaign: KPData['campaign'] = null;
+  #campaignHistory: KPData['campaignHistory'] = [];
 
   constructor() {
     if (instance) {
@@ -36,46 +45,58 @@ class DataStore extends EventTarget {
   #loadDataFromJson(json: string): KPData {
     try {
       const data = JSON.parse(json);
-      return { prefs: data.prefs ?? {}, runs: data.runs ?? [], campaign: data.campaign ?? null };
+      return {
+        prefs: data.prefs ?? {},
+        runs: data.runs ?? [],
+        campaign: data.campaign ?? null,
+        campaignHistory: normalizeCampaignHistory(data.campaignHistory),
+      };
     } catch (error) {
       console.warn('[DataStore] Failed to parse stored JSON, resetting stored data.', error);
       try {
         window.localStorage.setItem(
           STORAGE_KEY,
-          JSON.stringify({ prefs: {}, runs: [], campaign: null })
+          JSON.stringify({ prefs: {}, runs: [], campaign: null, campaignHistory: [] })
         );
       } catch (storageError) {
         console.warn('[DataStore] Failed to reset stored data.', storageError);
       }
-      return { prefs: {}, runs: [], campaign: null };
+      return { prefs: {}, runs: [], campaign: null, campaignHistory: [] };
     }
   }
 
   async init() {
     let savedDataJson = window.localStorage.getItem(STORAGE_KEY);
     if (!savedDataJson) {
-      savedDataJson = JSON.stringify({ prefs: {}, runs: [], campaign: null });
+      savedDataJson = JSON.stringify({ prefs: {}, runs: [], campaign: null, campaignHistory: [] });
       window.localStorage.setItem(STORAGE_KEY, savedDataJson);
     }
-    const { prefs, runs, campaign } = this.#loadDataFromJson(savedDataJson);
+    const { prefs, runs, campaign, campaignHistory } = this.#loadDataFromJson(savedDataJson);
     this.#prefs = prefs;
     this.#runs = runs;
     this.#campaign = campaign;
+    this.#campaignHistory = campaignHistory;
     this.#emitChangeEvent('init', '*');
   }
 
   import(jsonData: string): void {
-    const { prefs, runs, campaign } = this.#loadDataFromJson(jsonData);
+    const { prefs, runs, campaign, campaignHistory } = this.#loadDataFromJson(jsonData);
     this.#prefs = prefs;
     this.#runs = runs;
     this.#campaign = campaign;
+    this.#campaignHistory = campaignHistory;
     this.#emitChangeEvent('import', '*');
   }
 
   #saveData() {
     window.localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ prefs: this.#prefs, runs: this.#runs, campaign: this.#campaign })
+      JSON.stringify({
+        prefs: this.#prefs,
+        runs: this.#runs,
+        campaign: this.#campaign,
+        campaignHistory: this.#campaignHistory,
+      })
     );
   }
 
@@ -106,6 +127,20 @@ class DataStore extends EventTarget {
 
   get currentCampaign() {
     return this.#campaign;
+  }
+
+  get campaignHistory(): CampaignSummary[] {
+    return this.#campaignHistory.map(cloneCampaignSummary);
+  }
+
+  archiveCampaign(summary: CampaignSummary): CampaignSummary {
+    const archived = archiveCampaignSummary(this.#campaignHistory, summary);
+    this.#campaignHistory = archived.history;
+    if (archived.added) {
+      this.#emitChangeEvent('add', 'campaignHistory', cloneCampaignSummary(archived.summary));
+      this.#saveData();
+    }
+    return cloneCampaignSummary(archived.summary);
   }
 
   getRunById(id: string): Run | undefined {

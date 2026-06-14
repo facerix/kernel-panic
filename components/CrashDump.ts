@@ -1,8 +1,8 @@
 /**
  * <crash-dump> — per-job debrief overlay shown while `Run.state === RESULT`.
  * Renders run telemetry as a faux kernel-panic stack trace (DEATH setback) or a
- * clean "JACK OUT" debrief (EXIT). Score-complete campaign wins reuse the green
- * exit presentation. Terminal campaign loss uses sibling `<game-over>`.
+ * clean "JACK OUT" debrief (EXIT). All terminal campaign outcomes use sibling
+ * `<game-over>` and never pass through this per-job screen.
  *
  *   *** KERNEL PANIC ***
  *   fault:  unhandled_exception_in_meatspace
@@ -25,7 +25,7 @@
  */
 
 import { h } from '/src/domUtils.js';
-import type { GameOverCrewStub, Telemetry } from '/src/types.js';
+import type { Telemetry } from '/src/types.js';
 
 const CSS = `
 :host {
@@ -159,10 +159,6 @@ function exitTitle() {
   return '*** JACK OUT ***';
 }
 
-function scoreCompleteTitle() {
-  return '*** SCORE COMPLETE ***';
-}
-
 function deathFault() {
   return ['fault:  unhandled_exception_in_meatspace', 'addr:   0x00000@meatspace', 'trace:'].join(
     '\n'
@@ -173,34 +169,7 @@ function exitFault() {
   return ['status: exfil_successful', 'addr:   0x00000@meatspace', 'trace:'].join('\n');
 }
 
-function scoreCompleteFault() {
-  return ['status: score_extracted', 'addr:   0x00000@campaign_layer', 'trace:'].join('\n');
-}
-
-function buildScoreCompleteTraceLines(crewRoster: GameOverCrewStub[]) {
-  const survivors = crewRoster.filter(op => !op.flatlined);
-  const lead = survivors[0];
-  const lines = [
-    {
-      text: `  0x01  score::extract_success(${lead?.callsign ?? 'crew'})`,
-      tag: '<ok>',
-    },
-    { text: '  0x02  arc::score_completed()', tag: '' },
-  ];
-  if (survivors.length > 1) {
-    lines.push({
-      text: `  0x03  roster::survivors(${survivors.length})`,
-      tag: '',
-    });
-  }
-  return lines;
-}
-
 function buildTraceLines(telemetry: Telemetry) {
-  if (telemetry.outcome === 'campaign-over') {
-    return buildScoreCompleteTraceLines(telemetry.crewRoster ?? []);
-  }
-
   const archetype = telemetry.archetype ?? 'entity';
   const lastSource = telemetry.lastDamageSource ?? 'unknown';
   const attacker = telemetry.lastAttacker ?? 'unknown';
@@ -293,17 +262,11 @@ class CrashDump extends HTMLElement {
       throw new TypeError('<crash-dump>.setTelemetry requires a telemetry object');
     }
     const { outcome } = telemetry;
-    if (outcome !== 'death' && outcome !== 'exit' && outcome !== 'campaign-over') {
+    if (outcome !== 'death' && outcome !== 'exit') {
       throw new Error(`<crash-dump>: unknown outcome "${outcome}"`);
     }
-    if (outcome === 'campaign-over' && telemetry.campaignEndReason !== 'score-complete') {
-      throw new Error('<crash-dump>: campaign-over is only valid for score-complete wins');
-    }
-    if (outcome === 'campaign-over' && !Array.isArray(telemetry.crewRoster)) {
-      throw new TypeError('<crash-dump>: score-complete requires crewRoster array');
-    }
     this.#telemetry = { ...telemetry };
-    this.setAttribute('outcome', outcome === 'campaign-over' ? 'exit' : outcome);
+    this.setAttribute('outcome', outcome);
     if (this.#ready) this.#render();
   }
 
@@ -325,13 +288,9 @@ class CrashDump extends HTMLElement {
   #render() {
     if (!this.#els || !this.#telemetry) return;
     const t = this.#telemetry;
-    const isScoreWin = t.outcome === 'campaign-over';
     const isDeath = t.outcome === 'death';
 
-    if (isScoreWin) {
-      this.#els.title.textContent = scoreCompleteTitle();
-      this.#els.fault.textContent = scoreCompleteFault();
-    } else if (isDeath) {
+    if (isDeath) {
       this.#els.title.textContent = deathTitle();
       this.#els.fault.textContent = deathFault();
     } else {
@@ -357,16 +316,10 @@ class CrashDump extends HTMLElement {
     });
 
     this.#els.seedDd.textContent = hexSeed(t.seed ?? 0);
-    if (isScoreWin) {
-      this.#els.turnDd.textContent = '—';
-      this.#els.killsDd.textContent = '—';
-      this.#els.causeDd.textContent = 'Score extracted — campaign complete';
-    } else {
-      this.#els.turnDd.textContent = Number.isInteger(t.turn) ? String(t.turn) : '?';
-      this.#els.killsDd.textContent = Number.isInteger(t.kills) ? String(t.kills) : '0';
-      this.#els.causeDd.textContent = t.cause ?? (isDeath ? 'unknown' : 'exit-reached');
-    }
-    this.#els.newRunBtn.textContent = isScoreWin ? '[ NEW CAMPAIGN ]' : '[ RETURN TO HUB ]';
+    this.#els.turnDd.textContent = Number.isInteger(t.turn) ? String(t.turn) : '?';
+    this.#els.killsDd.textContent = Number.isInteger(t.kills) ? String(t.kills) : '0';
+    this.#els.causeDd.textContent = t.cause ?? (isDeath ? 'unknown' : 'exit-reached');
+    this.#els.newRunBtn.textContent = '[ RETURN TO HUB ]';
   }
 
   #emit(eventName: string, detail: Record<string, unknown> = {}) {

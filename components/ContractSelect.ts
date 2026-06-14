@@ -385,9 +385,12 @@ function difficultyLabel(contract: Contract): string {
 }
 
 function rewardCopy(contract: Contract): string {
-  if (isScoreContract(contract)) return 'final run · no payout · campaign on the line';
+  const creditsFormatted = contract.reward.credits.toLocaleString();
+  if (isScoreContract(contract)) {
+    return `${encounterHostileCount(contract)} hostiles · Cr +${creditsFormatted} · campaign on the line`;
+  }
   const recruit = contract.reward.recruit ? ' · recruit lead' : '';
-  return `${encounterHostileCount(contract)} hostiles · Cr +${contract.reward.credits} · REP +${contract.reward.repDelta}${recruit}`;
+  return `${encounterHostileCount(contract)} hostiles · Cr +${creditsFormatted} · REP +${contract.reward.repDelta}${recruit}`;
 }
 
 function jobTitleCopy(contract: Contract): string {

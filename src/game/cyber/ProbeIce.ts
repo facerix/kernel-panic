@@ -21,7 +21,8 @@ import type { Entity } from '../Entity.js';
 import type { World } from '../World.js';
 import type { Rng } from '../../rng.js';
 
-export const PROBE_ICE_HP = 3;
+export const PROBE_ICE_HP = 2;
+export const PROBE_ICE_AP = 2;
 export const PROBE_ICE_DAMAGE = 1;
 export const PROBE_ICE_SIGHT_RANGE = 6;
 
@@ -33,12 +34,14 @@ export class ProbeIce extends PatrolHostile {
 
   constructor({
     maxHp = PROBE_ICE_HP,
+    maxAp = PROBE_ICE_AP,
     sightRange = PROBE_ICE_SIGHT_RANGE,
     patrolWaypoints,
     ...props
   }: ProbeIceProps) {
     super({
       ...props,
+      maxAp,
       maxHp,
       sightRange,
       glyph: PROBE_ICE_GLYPH,

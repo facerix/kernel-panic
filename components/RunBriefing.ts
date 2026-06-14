@@ -197,7 +197,7 @@ function threatCopy(count: number) {
 
 function rewardCopy(contract: Partial<Contract>) {
   if (contract.context?.tags.includes('score') && contract.context.recipeId === 'score-final') {
-    return 'Campaign finale';
+    return contract.reward ? `Cr +${contract.reward.credits} / Campaign finale` : 'Campaign finale';
   }
   const reward = contract.reward;
   if (!reward) return '?';

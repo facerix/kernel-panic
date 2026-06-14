@@ -16,6 +16,8 @@ import { ProbeIce } from '../../../../src/game/cyber/ProbeIce.js';
 import { PATROL_STATE } from '../../../../src/game/ai/PatrolHostile.js';
 import { JackInPoint } from '../../../../src/game/entities/JackInPoint.js';
 import { resolveMelee } from '../../../../src/game/Combat.js';
+import { runPlayerAftermathSteps } from '../../../../src/game/combatTurnPipeline.js';
+import { applyOverride } from '../../../../src/game/droneOverride.js';
 import { EVENT } from '../../../../src/game/events.js';
 import { snapshot, restore } from '../../../../src/game/persistence.js';
 import { buildCrewMember } from '../../../../src/game/archetypes/index.js';
@@ -110,7 +112,8 @@ test('build spawns one probe per patrol ring with explicit ICE stats', () => {
   for (const probe of probes) {
     assert.equal(probe.glyph, '¶');
     assert.equal(probe.displayName, 'Probe');
-    assert.equal(probe.maxHp, 3);
+    assert.equal(probe.maxHp, 2);
+    assert.equal(probe.maxAp, 2);
     assert.equal(probe.sightRange, 6);
     assert.equal(probe.meleeDamage, 1);
     assert.equal(probe.faction, FACTION.CORP);
@@ -145,6 +148,33 @@ test('probe damage is mitigated by ICE resistance with the min-1 rule', () => {
   assert.equal(result.hit, true);
   assert.equal(result.damage, 1, 'dmg 1 vs resist 1 still chips the minimum 1');
   assert.equal(avatar.hp, avatar.maxHp - 1);
+});
+
+test('overridden Probe ICE fights other ICE and reverts through cyber aftermath', () => {
+  const layer = buildLayer();
+  const probes = probesOf(layer);
+  assert.ok(probes.length >= 2);
+  const ally = probes[0];
+  const target = probes[1];
+  const spot = adjacentFreeTile(layer.world, target);
+  layer.world.relocateEntity(ally, spot.x, spot.y);
+  applyOverride(ally, FACTION.PLAYER);
+
+  let sawAttack = false;
+  for (let turn = 0; turn < 3; turn++) {
+    ally.refreshAp();
+    for (const step of runPlayerAftermathSteps(layer.world, new Rng(turn + 1), {
+      player: layer.avatar,
+    })) {
+      if (step.type === 'overridden-drone' && step.action.type === 'melee') {
+        sawAttack = true;
+      }
+    }
+  }
+
+  assert.equal(sawAttack, true);
+  assert.equal(ally.faction, FACTION.CORP);
+  assert.equal(ally.isOverridden, false);
 });
 
 test('acquisition raises the cyber alarm and converges the pack', () => {

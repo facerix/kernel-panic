@@ -1,23 +1,19 @@
 /**
- * <game-over> — full-screen terminal loss overlay. Shown when the campaign is
- * truly over: crew wipe, Score window closed, or the last operator flatlines
- * on a job. Distinct from `<crash-dump>`, which handles recoverable per-job
- * setbacks and successful exfil debriefs.
+ * <game-over> — the single terminal campaign overlay.
  *
- *   GAME OVER
- *   The Score window closed.
- *   Corp security caught up. The contract is cold…
- *   [ NEW CAMPAIGN ]
+ * Both outcomes consume the Chronicle's validated `CampaignSummary`: wins use
+ * a cyan/green SCORE COMPLETE treatment, while losses retain the red GAME OVER
+ * presentation. Per-job death and exfil debriefs remain in `<crash-dump>`.
  *
  * Usage:
  *   const screen = document.querySelector('game-over');
  *   screen.addEventListener('new-run', () => finishEndedCampaign());
- *   screen.setTelemetry({ campaignEndReason: 'clock-expired', seed });
+ *   screen.setSummary(summary);
  *   screen.show();
  */
 
 import { h } from '/src/domUtils.js';
-import type { GameOverTelemetry } from '/src/types.js';
+import { validateCampaignSummary, type CampaignSummary } from '/src/game/campaignSummary.js';
 
 const CSS = `
 :host {
@@ -25,6 +21,7 @@ const CSS = `
   --go-bg: rgba(4, 2, 3, 0.98);
   --go-text: #f0d4da;
   --go-dim: #c96b7d;
+  --go-roster-border: rgba(255, 51, 85, 0.28);
   --go-shadow: 0 0 48px rgba(255, 51, 85, 0.35), 0 16px 48px rgba(0, 0, 0, 0.75);
 
   display: none;
@@ -36,6 +33,19 @@ const CSS = `
   animation: game-over-backdrop 2.4s ease-in-out infinite alternate;
 }
 
+:host([result='win']) {
+  --go-accent: #00e5b0;
+  --go-bg: rgba(2, 10, 9, 0.98);
+  --go-text: #d8fff5;
+  --go-dim: #72d9c0;
+  --go-roster-border: rgba(0, 229, 176, 0.3);
+  --go-shadow: 0 0 54px rgba(0, 229, 176, 0.28), 0 16px 48px rgba(0, 0, 0, 0.72);
+  background:
+    radial-gradient(ellipse at center, rgba(0, 229, 176, 0.14) 0%, transparent 68%),
+    rgba(0, 5, 4, 0.88);
+  animation: score-complete-backdrop 5s ease-in-out infinite alternate;
+}
+
 :host([open]) {
   display: flex;
   align-items: center;
@@ -45,6 +55,11 @@ const CSS = `
 @keyframes game-over-backdrop {
   from { background-color: rgba(0, 0, 0, 0.86); }
   to { background-color: rgba(12, 2, 4, 0.92); }
+}
+
+@keyframes score-complete-backdrop {
+  from { background-color: rgba(0, 4, 3, 0.86); }
+  to { background-color: rgba(1, 14, 11, 0.92); }
 }
 
 .panel {
@@ -60,11 +75,15 @@ const CSS = `
 
 .banner {
   margin: 0 0 0.35rem;
-  font-size: clamp(1.75rem, 6vw, 2.5rem);
-  letter-spacing: 0.28em;
+  font-size: clamp(1.55rem, 6vw, 2.5rem);
+  letter-spacing: 0.22em;
   color: var(--go-accent);
-  text-shadow: 0 0 18px rgba(255, 51, 85, 0.45);
+  text-shadow: 0 0 18px color-mix(in srgb, var(--go-accent) 45%, transparent);
   animation: game-over-pulse 1.8s ease-in-out infinite;
+}
+
+:host([result='win']) .banner {
+  animation-duration: 3.6s;
 }
 
 @keyframes game-over-pulse {
@@ -74,7 +93,7 @@ const CSS = `
 
 .rule {
   margin: 0 auto 1.25rem;
-  width: min(280px, 70%);
+  width: min(320px, 76%);
   border: none;
   border-top: 2px solid var(--go-accent);
   opacity: 0.7;
@@ -97,7 +116,7 @@ const CSS = `
   margin: 0 0 1.25rem;
   padding: 0.65rem 0.85rem;
   background: rgba(0, 0, 0, 0.45);
-  border: 1px solid rgba(255, 51, 85, 0.28);
+  border: 1px solid var(--go-roster-border);
   border-radius: 4px;
   font-size: 0.85rem;
   text-align: left;
@@ -127,11 +146,15 @@ const CSS = `
   letter-spacing: 0.08em;
 }
 
+.roster-line .status.flatlined {
+  color: #ff6680;
+}
+
 .meta {
   display: grid;
   grid-template-columns: max-content 1fr;
   column-gap: 1.25rem;
-  row-gap: 0.2rem;
+  row-gap: 0.25rem;
   font-size: 0.85rem;
   margin: 0 0 1.25rem;
   text-align: left;
@@ -178,53 +201,45 @@ button.new-campaign:focus-visible {
 button.new-campaign:active { transform: scale(0.98); }
 `;
 
-function hexSeed(seed: number) {
-  if (!Number.isFinite(seed)) return '?';
+function hexSeed(seed: number): string {
   return `0x${(seed >>> 0).toString(16).toUpperCase().padStart(8, '0')}`;
 }
 
-function reasonCopy(telemetry: GameOverTelemetry): string {
-  if (telemetry.campaignEndReason === 'clock-expired') {
-    return 'The Score window closed.';
-  }
-  if (telemetry.campaignTerminal) {
-    return 'Final operator lost on the wire.';
+function reasonCopy(summary: CampaignSummary): string {
+  if (summary.result === 'win') return 'The Score is complete.';
+  if (summary.endReason === 'clock-expired') return 'The Score window closed.';
+  if (summary.endReason === 'decker-flatlined-score') {
+    return 'The Decker flatlined during the Score.';
   }
   return 'No surviving operators.';
 }
 
-function detailCopy(telemetry: GameOverTelemetry): string {
-  if (telemetry.campaignEndReason === 'clock-expired') {
+function detailCopy(summary: CampaignSummary): string {
+  if (summary.result === 'win') {
+    return 'Target data secured. The crew beat the window and closed the campaign on their terms.';
+  }
+  if (summary.endReason === 'clock-expired') {
     return 'Corp security caught up. The contract is cold and this campaign is over.';
   }
-  if (telemetry.campaignTerminal) {
-    const label = telemetry.cause ?? telemetry.archetype ?? 'operator';
-    return `Last channel down — ${label}. No backup left on the roster.`;
+  if (summary.endReason === 'decker-flatlined-score') {
+    return 'The intrusion channel is gone. Until dual-deploy exists, nobody can finish the Score.';
   }
-  const salvageNote =
-    telemetry.salvage != null && typeof telemetry.salvage === 'number' && telemetry.salvage >= 0
-      ? `Pool salvage ${telemetry.salvage} is lost with the run.`
-      : 'Every crew slot on the roster is flatlined.';
-  return `${salvageNote} Start a new campaign to run the board again.`;
-}
-
-function causeLabel(telemetry: GameOverTelemetry): string {
-  if (telemetry.campaignEndReason === 'clock-expired') return 'window-closed';
-  if (telemetry.campaignTerminal) return 'final-operator-lost';
-  return 'crew-wipe';
+  return 'Every crew slot on the roster is flatlined. Their campaign ends here.';
 }
 
 class GameOver extends HTMLElement {
-  #telemetry: GameOverTelemetry | null = null;
+  #summary: CampaignSummary | null = null;
   #ready = false;
   #els: {
+    banner: HTMLElement;
     reason: HTMLElement;
     detail: HTMLElement;
-    roster: HTMLElement;
     rosterList: HTMLElement;
+    jobsDd: HTMLElement;
+    repDd: HTMLElement;
+    creditsDd: HTMLElement;
     seedDd: HTMLElement;
     causeDd: HTMLElement;
-    newCampaignBtn: HTMLButtonElement;
   } | null = null;
 
   connectedCallback() {
@@ -234,13 +249,17 @@ class GameOver extends HTMLElement {
     style.textContent = CSS;
     shadow.appendChild(style);
 
+    const banner = h('h1', { className: 'banner' });
     const reason = h('p', { className: 'reason' });
     const detail = h('p', { className: 'detail' });
     const rosterList = h('dd');
+    const jobsDd = h('dd', { id: 'jobs' });
+    const repDd = h('dd', { id: 'rep' });
+    const creditsDd = h('dd', { id: 'credits' });
     const seedDd = h('dd', { id: 'seed' });
     const causeDd = h('dd', { id: 'cause' });
     const roster = h('dl', { className: 'roster' }, [
-      h('dt', { textContent: 'ROSTER' }),
+      h('dt', { textContent: 'FINAL ROSTER' }),
       rosterList,
     ]);
 
@@ -252,12 +271,18 @@ class GameOver extends HTMLElement {
     newCampaignBtn.addEventListener('click', () => this.#emit('new-run'));
 
     const panel = h('section', { className: 'panel' }, [
-      h('h1', { className: 'banner', textContent: 'GAME OVER' }),
+      banner,
       h('hr', { className: 'rule' }),
       reason,
       detail,
       roster,
       h('dl', { className: 'meta' }, [
+        h('dt', { textContent: 'jobs' }),
+        jobsDd,
+        h('dt', { textContent: 'rep' }),
+        repDd,
+        h('dt', { textContent: 'credits' }),
+        creditsDd,
         h('dt', { textContent: 'seed' }),
         seedDd,
         h('dt', { textContent: 'cause' }),
@@ -266,20 +291,24 @@ class GameOver extends HTMLElement {
       h('div', { className: 'actions' }, [newCampaignBtn]),
     ]);
     shadow.appendChild(panel);
-    this.#els = { reason, detail, roster, rosterList, seedDd, causeDd, newCampaignBtn };
+    this.#els = {
+      banner,
+      reason,
+      detail,
+      rosterList,
+      jobsDd,
+      repDd,
+      creditsDd,
+      seedDd,
+      causeDd,
+    };
     this.#ready = true;
-    if (this.#telemetry) this.#render();
+    if (this.#summary) this.#render();
   }
 
-  setTelemetry(telemetry: GameOverTelemetry) {
-    if (!telemetry || typeof telemetry !== 'object') {
-      throw new TypeError('<game-over>.setTelemetry requires a telemetry object');
-    }
-    const { campaignEndReason, campaignTerminal } = telemetry;
-    if (!campaignEndReason && !campaignTerminal) {
-      throw new Error('<game-over>: requires campaignEndReason or campaignTerminal');
-    }
-    this.#telemetry = { ...telemetry };
+  setSummary(summary: CampaignSummary) {
+    this.#summary = validateCampaignSummary(summary);
+    this.setAttribute('result', this.#summary.result);
     if (this.#ready) this.#render();
   }
 
@@ -299,36 +328,34 @@ class GameOver extends HTMLElement {
   }
 
   #render() {
-    if (!this.#els || !this.#telemetry) return;
-    const t = this.#telemetry;
-    this.#els.reason.textContent = reasonCopy(t);
-    this.#els.detail.textContent = detailCopy(t);
-    this.#els.seedDd.textContent = hexSeed(t.seed ?? 0);
-    this.#els.causeDd.textContent = causeLabel(t);
-
-    if (t.campaignEndReason === 'clock-expired') {
-      this.#els.roster.hidden = true;
-      return;
-    }
-
-    const roster = t.crewRoster ?? [];
-    this.#els.roster.hidden = roster.length === 0;
+    if (!this.#els || !this.#summary) return;
+    const summary = this.#summary;
+    this.#els.banner.textContent = summary.result === 'win' ? 'SCORE COMPLETE' : 'GAME OVER';
+    this.#els.reason.textContent = reasonCopy(summary);
+    this.#els.detail.textContent = detailCopy(summary);
+    this.#els.jobsDd.textContent = String(summary.completedJobs);
+    this.#els.repDd.textContent = String(summary.rep);
+    this.#els.creditsDd.textContent = String(summary.credits);
+    this.#els.seedDd.textContent = hexSeed(summary.seed);
+    this.#els.causeDd.textContent = summary.endReason;
     this.#els.rosterList.replaceChildren(
-      ...roster.map(op =>
+      ...summary.crewRoster.map(operator =>
         h('div', { className: 'roster-line' }, [
-          h('span', { textContent: `${op.callsign} (${op.archetype})` }),
+          h('span', { textContent: `${operator.callsign} (${operator.archetype})` }),
           h('span', {
-            className: 'status',
-            textContent: op.flatlined ? 'FLATLINED' : 'ACTIVE',
+            className: `status${operator.flatlined ? ' flatlined' : ''}`,
+            textContent: operator.flatlined ? 'FLATLINED' : 'SURVIVED',
           }),
         ])
       )
     );
   }
 
-  #emit(eventName: string, detail: Record<string, unknown> = {}) {
+  #emit(eventName: string) {
     this.dispatchEvent(
-      new CustomEvent(eventName, { detail: { ...detail, telemetry: { ...this.#telemetry } } })
+      new CustomEvent(eventName, {
+        detail: { summary: this.#summary ? validateCampaignSummary(this.#summary) : null },
+      })
     );
   }
 }

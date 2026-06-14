@@ -6,9 +6,11 @@ import {
   CAMPAIGN_STATE,
   CLOCK_ACT2_DEADLINE_JOBS,
   CLOCK_ACT2_GRACE_JOBS,
+  SCORE_CREDITS_REWARD,
   SITE_ROSTER_CAP,
   buildCrew,
   defaultCampaignArc,
+  willEndCampaignAfterResult,
   willEndCampaignOnThisDeath,
 } from '../../../src/game/Campaign.js';
 import { OUTCOME, RUN_STATE } from '../../../src/game/Run.js';
@@ -1015,6 +1017,98 @@ test('P3.M1.5: endReason distinguishes score win, clock loss, and crew wipe', ()
   assert.equal(crewWipe.endReason, 'crew-wipe');
 });
 
+test('terminal result detection bypasses debrief for Score, terminal death, and Clock loss', () => {
+  const scoreCampaign = new Campaign({
+    seed: 44,
+    rep: 60,
+    completedJobs: 9,
+    siteRoster: [
+      validSite({
+        id: 'score',
+        seed: '100',
+        tier: 'score',
+        scoreTarget: true,
+        principal: { id: 'matsuda', label: 'Matsuda', groups: ['corp'] },
+      }),
+      validSite({
+        id: 'case-1',
+        seed: '101',
+        principal: { id: 'matsuda', label: 'Matsuda', groups: ['corp'] },
+      }),
+      validSite({
+        id: 'case-2',
+        seed: '102',
+        principal: { id: 'matsuda', label: 'Matsuda', groups: ['corp'] },
+      }),
+    ],
+  });
+  scoreCampaign.arc.arcStage = 'act-3';
+  const decker = scoreCampaign.crew.find(member => member.archetype === 'Decker');
+  assert.ok(decker);
+  scoreCampaign.deployCrewMember(decker.id, scoreCampaign.buildScoreContract());
+  assert.equal(willEndCampaignAfterResult(scoreCampaign, OUTCOME.EXIT, true), true);
+  assert.equal(willEndCampaignAfterResult(scoreCampaign, OUTCOME.EXIT, false), false);
+  assert.equal(willEndCampaignAfterResult(scoreCampaign, OUTCOME.DEATH, false), true);
+
+  const finalOperator = new Campaign({ seed: 45 });
+  finalOperator.crew.slice(1).forEach(member => {
+    member.flatlined = true;
+  });
+  finalOperator.deployCrewMember(finalOperator.crew[0].id, fakeContract());
+  assert.equal(willEndCampaignAfterResult(finalOperator, OUTCOME.DEATH, false), true);
+
+  const clockLoss = new Campaign({
+    seed: 46,
+    rep: 60,
+    completedJobs: 4,
+    clockJobsTaken: CLOCK_ACT2_DEADLINE_JOBS,
+  });
+  clockLoss.state = CAMPAIGN_STATE.COMBAT;
+  assert.equal(willEndCampaignAfterResult(clockLoss, OUTCOME.EXIT, true), true);
+});
+
+test('completed Score extraction settles synchronously before the exit move callback returns', () => {
+  let campaign!: Campaign;
+  campaign = new Campaign({
+    seed: 47,
+    rep: 60,
+    completedJobs: 9,
+    onResult: result => {
+      campaign.onJobEnd({
+        outcome: result.outcome,
+        completed: result.telemetry.objectiveComplete === true,
+      });
+    },
+    siteRoster: [
+      validSite({
+        id: 'score',
+        seed: '100',
+        tier: 'score',
+        scoreTarget: true,
+        principal: { id: 'matsuda', label: 'Matsuda', groups: ['corp'] },
+      }),
+    ],
+  });
+  campaign.arc.arcStage = 'act-3';
+  const decker = campaign.crew.find(member => member.archetype === 'Decker');
+  assert.ok(decker);
+  const run = campaign.deployCrewMember(decker.id, campaign.buildScoreContract());
+  run.enterCombat();
+  run.cyberspace = { phase: 'resolved', objectiveComplete: true };
+  assert.ok(run.world && run.player && run.exitTile);
+
+  run.world.relocateEntity(run.player, run.exitTile.x, run.exitTile.y);
+
+  assert.equal(run.state, RUN_STATE.RESULT, 'the captured Run is no longer turn-playable');
+  assert.equal(campaign.state, CAMPAIGN_STATE.ENDED);
+  assert.equal(campaign.endReason, 'score-complete');
+  assert.equal(
+    campaign.activeRun,
+    null,
+    'Score settlement tears down the active run synchronously'
+  );
+});
+
 test('P3.M1.5: Clock deadline does not end the campaign after the Score is attempted', () => {
   const campaign = new Campaign({
     seed: 42,
@@ -1070,6 +1164,8 @@ test('P3.M1.7: Score contract is gated to Act 3 and marks attempted on deploymen
   assert.equal(score.objective.kind, OBJECTIVES.DATA_NODE_SLICE);
   assert.equal(score.objective.params?.requiresCyberspace, true);
   assert.equal(score.objective.params?.count, 1);
+  assert.equal(score.reward.credits, SCORE_CREDITS_REWARD);
+  assert.equal(score.reward.repDelta, 0);
 
   const decker = campaign.crew.find(m => m.archetype === 'Decker');
   assert.ok(decker, 'Act 3 campaign should include auto-assigned Decker');
@@ -1079,10 +1175,58 @@ test('P3.M1.7: Score contract is gated to Act 3 and marks attempted on deploymen
   assert.equal(run.contract?.context.locationSiteId, 'score');
 });
 
+test('a flatlined pre-Score Decker creates a free Terminal replacement lead', () => {
+  const campaign = new Campaign({ seed: 42, rep: 60, completedJobs: 4 });
+  const original = campaign.crew.find(member => member.archetype === 'Decker');
+  assert.ok(original);
+  campaign.flatlineMember(original.id);
+  campaign.enterHub();
+
+  assert.equal(campaign.hasLivingDecker, false);
+  assert.equal(campaign.availableRecruits.length, 1);
+  const replacement = campaign.availableRecruits[0];
+  assert.equal(replacement.archetype, 'Decker');
+  campaign.recruit(replacement.id);
+  assert.equal(campaign.hasLivingDecker, true);
+  assert.equal(campaign.recruitedThisVisit, true);
+});
+
+test('the Score remains unavailable until a living replacement Decker is recruited', () => {
+  const scorePrincipal = { id: 'matsuda', label: 'Matsuda', groups: ['corp'] };
+  const campaign = new Campaign({
+    seed: 42,
+    rep: 60,
+    completedJobs: 9,
+    siteRoster: [
+      validSite({
+        id: 'score',
+        seed: '100',
+        tier: 'score',
+        scoreTarget: true,
+        lastVisitedJob: 5,
+        principal: scorePrincipal,
+      }),
+      validSite({ id: 'case-1', seed: '101', lastVisitedJob: 6, principal: scorePrincipal }),
+      validSite({ id: 'case-2', seed: '102', lastVisitedJob: 7, principal: scorePrincipal }),
+    ],
+  });
+  const decker = campaign.crew.find(member => member.archetype === 'Decker');
+  assert.ok(decker);
+  campaign.flatlineMember(decker.id);
+  campaign.enterHub();
+
+  assert.equal(campaign.arcStage, 'act-3');
+  assert.equal(campaign.canAttemptScore(), false);
+  const replacement = campaign.availableRecruits[0];
+  campaign.recruit(replacement.id);
+  assert.equal(campaign.canAttemptScore(), true);
+});
+
 test('P3.M1.7: completed Score contract records campaign win state', () => {
   const scorePrincipal = { id: 'matsuda', label: 'Matsuda', groups: ['corp'] };
   const campaign = new Campaign({
     seed: 42,
+    credits: 25,
     rep: 60,
     completedJobs: 9,
     siteRoster: [
@@ -1108,6 +1252,50 @@ test('P3.M1.7: completed Score contract records campaign win state', () => {
 
   assert.equal(campaign.arc.scoreCompleted, true);
   assert.equal(campaign.state, CAMPAIGN_STATE.ENDED);
+  assert.equal(campaign.credits, 25 + SCORE_CREDITS_REWARD);
+});
+
+test('a Decker flatline during the Score ends the campaign explicitly', () => {
+  const scorePrincipal = { id: 'matsuda', label: 'Matsuda', groups: ['corp'] };
+  const campaign = new Campaign({
+    seed: 42,
+    rep: 60,
+    completedJobs: 9,
+    siteRoster: [
+      validSite({
+        id: 'score',
+        seed: '100',
+        tier: 'score',
+        scoreTarget: true,
+        lastVisitedJob: 5,
+        principal: scorePrincipal,
+      }),
+      validSite({ id: 'case-1', seed: '101', lastVisitedJob: 6, principal: scorePrincipal }),
+      validSite({ id: 'case-2', seed: '102', lastVisitedJob: 7, principal: scorePrincipal }),
+    ],
+  });
+  const decker = campaign.crew.find(member => member.archetype === 'Decker');
+  assert.ok(decker);
+  const run = campaign.deployCrewMember(decker.id, campaign.buildScoreContract());
+  run.enterCombat();
+  assert.equal(
+    willEndCampaignOnThisDeath(campaign),
+    true,
+    'Score death is terminal even with surviving crew'
+  );
+
+  campaign.onJobEnd({ outcome: OUTCOME.DEATH });
+
+  assert.equal(campaign.state, CAMPAIGN_STATE.ENDED);
+  assert.equal(campaign.endReason, 'decker-flatlined-score');
+  assert.ok(
+    campaign.crew.some(member => !member.flatlined),
+    'other survivors do not avert the loss'
+  );
+
+  const restored = restoreCampaign(snapshotCampaign(campaign));
+  assert.equal(restored.state, CAMPAIGN_STATE.ENDED);
+  assert.equal(restored.endReason, 'decker-flatlined-score');
 });
 
 // ─── Recruitment ────────────────────────────────────────────────────────

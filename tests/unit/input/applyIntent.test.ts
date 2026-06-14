@@ -16,6 +16,8 @@ import { makeSalvage, totalSalvage } from '../../../src/game/salvage.js';
 import { Merc } from '../../../src/game/archetypes/Merc.js';
 import { Razor } from '../../../src/game/archetypes/Razor.js';
 import { Tech } from '../../../src/game/archetypes/Tech.js';
+import { CyberAvatar } from '../../../src/game/cyber/CyberAvatar.js';
+import { ProbeIce } from '../../../src/game/cyber/ProbeIce.js';
 import { Turret } from '../../../src/game/Turret.js';
 import { Skirmisher } from '../../../src/game/ai/Skirmisher.js';
 import { ConsumablePickup } from '../../../src/game/entities/ConsumablePickup.js';
@@ -410,6 +412,76 @@ test('special intent routes to Slide on a Razor (moves 2 tiles, engages stealth)
   assert.equal(player.x, 2);
   assert.equal(player.y, 4);
   assert.equal(player.stealthed, true);
+});
+
+test('special intent routes CyberAvatar Override against Probe ICE', () => {
+  const grid = new Grid(8, 5);
+  const bus = new EventBus();
+  const world = new World(grid, { events: bus });
+  const avatar = new CyberAvatar({
+    id: 'cyber-avatar-0',
+    x: 1,
+    y: 2,
+    ram: 8,
+    intrusionStrength: 2,
+    iceResistance: 1,
+  });
+  const probe = new ProbeIce({ id: 'probe-ice-0', x: 3, y: 2 });
+  world.addEntity(avatar);
+  world.addEntity(probe);
+  probe.bindToBus(bus);
+  const log: string[] = [];
+  const ctx = {
+    world,
+    player: avatar,
+    queue: new TurnQueue([FACTION.PLAYER, FACTION.CORP]),
+    rng: { next: () => 0 },
+    log: (line: string) => log.push(line),
+    advanceTurn: () => {},
+    resetInputModes: () => {},
+    onPlayerAction: () => {},
+  };
+
+  applyIntent({ type: 'special', dx: 1, dy: 0 }, ctx);
+
+  assert.equal(probe.faction, FACTION.PLAYER);
+  assert.equal(avatar.ap, avatar.maxAp - AP_COST.OVERRIDE);
+  assert.ok(log.some(line => line.includes('OVERRIDES Probe')));
+});
+
+test('CyberAvatar Override acquires an off-axis Probe in the aimed direction', () => {
+  const grid = new Grid(8, 6);
+  const bus = new EventBus();
+  const world = new World(grid, { events: bus });
+  const avatar = new CyberAvatar({
+    id: 'cyber-avatar-0',
+    x: 1,
+    y: 2,
+    ram: 8,
+    intrusionStrength: 2,
+    iceResistance: 1,
+  });
+  const probe = new ProbeIce({ id: 'probe-ice-0', x: 4, y: 3 });
+  world.addEntity(avatar);
+  world.addEntity(probe);
+  probe.bindToBus(bus);
+  const log: string[] = [];
+  const ctx = {
+    world,
+    player: avatar,
+    queue: new TurnQueue([FACTION.PLAYER, FACTION.CORP]),
+    rng: { next: () => 0 },
+    log: (line: string) => log.push(line),
+    advanceTurn: () => {},
+    resetInputModes: () => {},
+    onPlayerAction: () => {},
+  };
+
+  applyIntent({ type: 'special', dx: 1, dy: 0 }, ctx);
+
+  assert.equal(probe.faction, FACTION.PLAYER);
+  assert.equal(avatar.ap, avatar.maxAp - AP_COST.OVERRIDE);
+  assert.ok(log.some(line => line.includes('OVERRIDES Probe')));
 });
 
 test('end-turn drains AP to 0, logs wait, and invokes advanceTurn once', () => {

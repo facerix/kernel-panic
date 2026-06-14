@@ -61,6 +61,7 @@ const CacheConfig = {
       '/src/game/archetypes/Razor.js',
       '/src/game/archetypes/Tech.js',
       '/src/game/Campaign.js',
+      '/src/game/campaignSummary.js',
       '/src/game/Combat.js',
       '/src/game/combatTurnPipeline.js',
       '/src/game/constants.js',

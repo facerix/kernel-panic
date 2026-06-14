@@ -43,7 +43,15 @@ Commits land **per green slice** (user-approved).
 | **S7 — P3.M3.6 Render/input swap + shell ICE phase** | ✅ Done | `dd17cb8` |
 | **— Score → cyber (scope decision #5)** | ✅ Done | `3c693dc` |
 | **S7.5 — Early jack-out confirmation** | ✅ Done | `2d668bd` |
+| **Playtest stabilization** | ✅ Done | — |
 | **S8 — Docs + wrap-up** | ✅ Done | — |
+
+### Playtest stabilization (2026-06-14)
+
+- Probe ICE tuned from 3 HP / 4 AP to 2 HP / 2 AP. The one-damage strike stays; reducing repeated actions addresses the real burst-pressure source while making Probes appropriately disposable before Spark and Guardian land.
+- CyberAvatar now exposes Override against ICE. It uses the existing 2 AP / 60% / 3-turn override contract, runs allied ICE in the cyber aftermath pass, and preserves override state through active-layer snapshots.
+- A flatlined Decker before THE SCORE creates a single free replacement Decker lead in the Terminal. Recruiting them consumes the visit's recruit slot, and THE SCORE remains unavailable without a living Decker.
+- A Decker flatline during THE SCORE ends the campaign with the persisted `decker-flatlined-score` reason and dedicated Game Over copy. This remains the rule until dual-deploy gives the Score another meaningful failure/recovery shape.
 
 ### S1 implementation notes (shipped)
 
@@ -333,7 +341,7 @@ Commits land **per green slice** (user-approved).
   slice shipped end-to-end; milestone stays open for Spark/Guardian ICE
   (scope decision #1) and the deferred follow-ups noted in S6
   (ICE faction stamping) and kaizen (index.ts cleanup).
-- Browser re-smoke of the S7.5 confirm flow: pending (Rylee).
+- Browser smoke of the S7.5 confirm flow: verified.
 
 ## Architecture decisions (approved plan)
 

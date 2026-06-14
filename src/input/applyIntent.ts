@@ -22,9 +22,9 @@
  * keymap layer. The `doSpecial` dispatcher below routes it to the right verb
  * based on which methods the active player class exposes — `canVault` → vault,
  * `canSlide` → slide, `canDeploy` → deploy, `canOverride` → override (the
- * Decker resolves a drone along the aim ray, like fire). This keeps the input
- * surface symmetric across archetypes (one key, one touch button) and stays
- * out of the player's way:
+ * Decker resolves the nearest visible drone in the aimed eight-way sector).
+ * This keeps the input surface symmetric across archetypes (one key, one touch
+ * button) and stays out of the player's way:
  * the keymap doesn't need to know which class is in play, and the intent
  * dispatcher doesn't need an explicit archetype switch.
  *
@@ -58,9 +58,11 @@ import { Door } from '../game/entities/Door.js';
 import { DenyTarget } from '../game/entities/DenyTarget.js';
 import { EVENT } from '../game/events.js';
 import { TILE } from '../game/constants.js';
+import { Hostile } from '../game/Hostile.js';
 import type { KeyItem } from '../types.js';
 import type { Archetype } from '../game/archetypes/index.js';
 import type { CyberAvatar } from '../game/cyber/CyberAvatar.js';
+import type { Entity } from '../game/Entity.js';
 import type { World } from '../game/World.js';
 import type { TurnQueue } from '../game/TurnQueue.js';
 import type { Rng } from '../rng.js';
@@ -79,9 +81,8 @@ export type ApplyIntentContext = {
   world: World;
   /**
    * P3.M3.6: the acting body — a crew archetype in Meatspace, the
-   * `CyberAvatar` on the grid. The avatar exposes none of the perk or
-   * inventory capabilities, so every capability-sniffed branch (`doSpecial`,
-   * loot, consumables) degrades to its existing refusal path.
+   * `CyberAvatar` on the grid. The avatar exposes Override but no inventory
+   * capabilities, so loot and consumables retain their refusal paths.
    */
   player: Archetype | CyberAvatar;
   queue: TurnQueue;
@@ -375,15 +376,18 @@ function doSpecial(intent: Intent, ctx: ApplyIntentContext) {
 }
 
 /**
- * Walk the aim ray for the Decker's Override perk and resolve the first hostile
- * drone in reach, then attempt the hijack. Mirrors `pickFireTarget`'s geometry
- * (bounded by `OVERRIDE_RANGE`, LOS-gated) so the target the picker lands on is
- * exactly the one the resolver will act on. A failed roll trips the alarm; an
- * out-of-reach ray or non-drone target yields a legible deny, not a crash.
+ * Acquire a drone in the Decker's aimed eight-way sector and attempt the
+ * hijack. Range, LOS, and perception match the resolver and combat targeting;
+ * a failed roll trips the alarm, while an empty sector yields a legible deny.
  */
+type OverrideActor = ApplyIntentContext['player'] & {
+  canOverride(world: World, target: Entity | null): ReturnType<Decker['canOverride']>;
+  overrideDrone(world: World, target: Entity, rng: Rng): ReturnType<Decker['overrideDrone']>;
+};
+
 function doOverride(intent: Intent, ctx: ApplyIntentContext) {
   const { world, player, log } = ctx;
-  const decker = player as Decker;
+  const decker = player as OverrideActor;
   const playerLabel = entityLabel(player);
   const target = pickOverrideTarget(ctx, intent.dx!, intent.dy!);
   const check = decker.canOverride(world, target);
@@ -405,23 +409,57 @@ function doOverride(intent: Intent, ctx: ApplyIntentContext) {
 }
 
 /**
- * First hostile along (dx, dy) within `OVERRIDE_RANGE` and LOS. Returns `null`
- * when the ray leaves the map, exceeds range, hits a wall, or finds no entity —
- * `canOverride` turns that `null` into a `not-overridable` deny.
+ * Nearest live hostile in the aimed eight-way sector within `OVERRIDE_RANGE`
+ * and LOS. The 22.5-degree half-angle partitions arbitrary target offsets
+ * across the eight directions supplied by keyboard and touch controls, so a
+ * moving Probe does not need to be perfectly collinear with the avatar.
  */
 function pickOverrideTarget(ctx: ApplyIntentContext, dx: number, dy: number) {
   const { world, player } = ctx;
   const blockers = world.blockerKeys();
-  for (let step = 1; step <= OVERRIDE_RANGE; step++) {
-    const x = player.x + dx * step;
-    const y = player.y + dy * step;
-    if (!world.grid.inBounds(x, y)) return null;
-    if (!withinRange(player.x, player.y, x, y, OVERRIDE_RANGE)) return null;
-    if (!hasLineOfSight(world.grid, player.x, player.y, x, y, { blockers })) return null;
-    const e = world.entityAt(x, y);
-    if (e) return e;
+  let best: Hostile | null = null;
+  let bestDistanceSquared = Infinity;
+  let bestAlignment = -Infinity;
+
+  for (const entity of world.entities.values()) {
+    if (!(entity instanceof Hostile) || !entity.alive) continue;
+    const offsetX = entity.x - player.x;
+    const offsetY = entity.y - player.y;
+    if (!isInAimSector(dx, dy, offsetX, offsetY)) continue;
+    if (!withinRange(player.x, player.y, entity.x, entity.y, OVERRIDE_RANGE)) continue;
+    if (
+      !hasLineOfSight(world.grid, player.x, player.y, entity.x, entity.y, {
+        blockers,
+      })
+    ) {
+      continue;
+    }
+    if (isConcealedFromPlayer(entity, player, world)) continue;
+
+    const distanceSquared = offsetX * offsetX + offsetY * offsetY;
+    const alignment = offsetX * dx + offsetY * dy;
+    if (
+      distanceSquared < bestDistanceSquared ||
+      (distanceSquared === bestDistanceSquared && alignment > bestAlignment) ||
+      (distanceSquared === bestDistanceSquared &&
+        alignment === bestAlignment &&
+        best !== null &&
+        entity.id < best.id)
+    ) {
+      best = entity;
+      bestDistanceSquared = distanceSquared;
+      bestAlignment = alignment;
+    }
   }
-  return null;
+  return best;
+}
+
+function isInAimSector(dx: number, dy: number, offsetX: number, offsetY: number): boolean {
+  const aimMagnitude = Math.hypot(dx, dy);
+  const targetMagnitude = Math.hypot(offsetX, offsetY);
+  if (aimMagnitude === 0 || targetMagnitude === 0) return false;
+  const cosine = (dx * offsetX + dy * offsetY) / (aimMagnitude * targetMagnitude);
+  return cosine >= Math.cos(Math.PI / 8) - Number.EPSILON;
 }
 
 function doDeploy(intent: Intent, ctx: ApplyIntentContext) {

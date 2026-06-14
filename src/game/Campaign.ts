@@ -73,6 +73,8 @@ export const CLOCK_ACT2_GRACE_JOBS = 3;
 export const CLOCK_HEAT_WINDOW_JOBS = 5;
 /** Total act-2/3 deploys allowed before clock loss (`grace + window`). */
 export const CLOCK_ACT2_DEADLINE_JOBS = CLOCK_ACT2_GRACE_JOBS + CLOCK_HEAT_WINDOW_JOBS;
+/** Campaign-ending payday for completing THE SCORE. */
+export const SCORE_CREDITS_REWARD = 5_000;
 const SYNTHETIC_SCORE_TARGET_DIFFICULTY = CONTRACT_DIFFICULTY.CRITICAL;
 
 export const CAMPAIGN_STATE = Object.freeze({
@@ -132,13 +134,14 @@ export type CampaignOptions = {
 
 type CampaignLike = {
   crew: { flatlined: boolean }[];
+  activeRun?: { contract: Contract | null } | null;
+  arc?: Pick<CampaignArc, 'scoreRevealed' | 'scoreAttempted'>;
+  clockJobsTaken?: number;
 };
 
 /**
- * True when exactly one crew member is not yet `flatlined` — the operator
- * currently on a job. A `DEATH` outcome on `Campaign.onJobEnd` would flatline
- * them and set `Campaign.state` to `ENDED`. The shell uses this to swap the
- * debrief overlay before `onJobEnd` runs.
+ * True when a `DEATH` outcome is campaign-terminal: either the last living
+ * operator is gone, or the Decker flatlines during the Score.
  *
  * @param {{ crew: { flatlined: boolean }[] }} campaign
  */
@@ -146,7 +149,38 @@ export function willEndCampaignOnThisDeath(campaign: CampaignLike): boolean {
   if (!campaign || typeof campaign !== 'object' || !Array.isArray(campaign.crew)) {
     throw new TypeError('willEndCampaignOnThisDeath requires a Campaign-like object with crew[]');
   }
-  return campaign.crew.filter(member => !member.flatlined).length === 1;
+  return (
+    campaign.crew.filter(member => !member.flatlined).length === 1 ||
+    (campaign.activeRun?.contract !== null &&
+      campaign.activeRun?.contract !== undefined &&
+      isScoreContract(campaign.activeRun.contract))
+  );
+}
+
+/**
+ * True when settling this job result will transition the campaign to ENDED.
+ * The shell uses this before showing a debrief so terminal outcomes can bypass
+ * `<crash-dump>` and proceed directly to the Chronicle summary.
+ */
+export function willEndCampaignAfterResult(
+  campaign: CampaignLike,
+  outcome: Outcome,
+  completed: boolean
+): boolean {
+  if (outcome !== OUTCOME.DEATH && outcome !== OUTCOME.EXIT) {
+    throw new Error(`willEndCampaignAfterResult: unknown outcome "${outcome}"`);
+  }
+  if (typeof completed !== 'boolean') {
+    throw new TypeError('willEndCampaignAfterResult: completed must be boolean');
+  }
+  if (outcome === OUTCOME.DEATH && willEndCampaignOnThisDeath(campaign)) return true;
+  const contract = campaign.activeRun?.contract;
+  if (outcome === OUTCOME.EXIT && completed && contract && isScoreContract(contract)) return true;
+  return Boolean(
+    campaign.arc?.scoreRevealed &&
+    (campaign.clockJobsTaken ?? 0) >= CLOCK_ACT2_DEADLINE_JOBS &&
+    !campaign.arc.scoreAttempted
+  );
 }
 
 export function buildCrew(rng: Rng): Crew[] {
@@ -338,6 +372,9 @@ export class Campaign {
   get endReason(): CampaignEndReason | null {
     if (this.state !== CAMPAIGN_STATE.ENDED) return null;
     if (this.arc.scoreCompleted) return 'score-complete';
+    if (this.arc.scoreAttempted && this.arc.arcStage === 'score') {
+      return 'decker-flatlined-score';
+    }
     if (
       this.arc.scoreRevealed &&
       this.clockJobsTaken >= CLOCK_ACT2_DEADLINE_JOBS &&
@@ -424,7 +461,13 @@ export class Campaign {
   backfillRecruitsIfEligible(): void {
     if (this.state !== CAMPAIGN_STATE.HUB) return;
     if (this.recruitedThisVisit) return;
-    if (this.rep < REP.RECRUIT_THRESHOLD && !this.pendingRecruitReward) return;
+    if (
+      this.rep < REP.RECRUIT_THRESHOLD &&
+      !this.pendingRecruitReward &&
+      !this.#needsReplacementDecker()
+    ) {
+      return;
+    }
     if (this.availableRecruits.length > 0) return;
     this.availableRecruits = this.generateRecruits();
     this.#persist();
@@ -519,6 +562,10 @@ export class Campaign {
       isScoreContract(this.activeRun.contract) &&
       outcome === OUTCOME.EXIT &&
       completed;
+    const failedScoreRun =
+      this.activeRun.contract !== null &&
+      isScoreContract(this.activeRun.contract) &&
+      outcome === OUTCOME.DEATH;
 
     if (outcome === OUTCOME.DEATH) {
       this.flatlineMember(this.deployedMemberId);
@@ -550,6 +597,13 @@ export class Campaign {
     this.activeRun = null;
     this.deployedMemberId = null;
 
+    if (failedScoreRun) {
+      this.state = CAMPAIGN_STATE.ENDED;
+      this.#tearDownHubWorld();
+      this.#persist();
+      return;
+    }
+
     if (this.crew.every(member => member.flatlined)) {
       this.state = CAMPAIGN_STATE.ENDED;
       this.#tearDownHubWorld();
@@ -574,6 +628,7 @@ export class Campaign {
     if (this.state !== CAMPAIGN_STATE.HUB) return false;
     if (this.arc.arcStage !== 'act-3') return false;
     if (this.arc.scoreAttempted || this.arc.scoreCompleted) return false;
+    if (!this.hasLivingDecker) return false;
     return this.#scoreTargetSiteOrNull() !== null;
   }
 
@@ -625,7 +680,7 @@ export class Campaign {
         arcStage: 'score',
         locationSiteId: target.id,
       },
-      reward: { credits: 0, repDelta: 0 },
+      reward: { credits: SCORE_CREDITS_REWARD, repDelta: 0 },
     };
   }
 
@@ -724,6 +779,14 @@ export class Campaign {
    * Returns an empty array when Rep is below the recruitment threshold.
    */
   generateRecruits(): Crew[] {
+    if (this.#needsReplacementDecker()) {
+      const replacement = buildCrewMember('decker', { x: 0, y: 0 }, this.rng, {
+        id: `recruit-decker-${this.rng.intRange(0, 0xffff).toString(16)}`,
+        excludeCallsigns: this.allUsedCallsigns(),
+      });
+      this.rewardRecruitIds.add(replacement.id);
+      return [replacement];
+    }
     const rewardRecruit = this.pendingRecruitReward;
     if (this.rep < REP.RECRUIT_THRESHOLD && !rewardRecruit) return [];
     const count =
@@ -1203,6 +1266,11 @@ export class Campaign {
     });
     this.crew.push(decker);
     this.arc.deckerRecruited = true;
+  }
+
+  /** A pre-Score flatline opens one free Terminal lead instead of dead-ending the campaign. */
+  #needsReplacementDecker(): boolean {
+    return this.arc.scoreRevealed && !this.arc.scoreAttempted && !this.hasLivingDecker;
   }
 
   #ensureScoreTargetDesignated(): void {

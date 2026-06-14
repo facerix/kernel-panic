@@ -46,7 +46,7 @@ A new **player archetype** recruited mid-campaign (late Act 1 / start of Act 2),
 | P3.M3 — Cyberspace grid + ICE | 🟡 First playable slice shipped (Spark/Guardian ICE open) |
 | P3.M4 — Simstim flip (dual-deploy) | 🔲 Planned |
 | P3.M5 — The Score (climactic mission) | 🔲 Planned |
-| P3.M6 — Chronicle (campaign narrative memory) | 🔲 Planned |
+| P3.M6 — Chronicle (campaign narrative memory) | 🟡 End-summary foundation shipped |
 
 **Phase 3** is complete when:
 
@@ -103,9 +103,10 @@ The Score target is always a newly synthesized CRITICAL-tier site, never promote
   - Score = special contract build path; not part of the normal three-card job board.
 - **Hub surface:** Hub status / Terminal shows current stage and Score target label once revealed. Clock HUD (`CLOCK: HEAT X / Y JOBS LEFT`) appears **only after** the player dismisses the `clock-reveal` briefing and heat has actually started — no "dormant" or countdown-to-heat lines before then. User-facing labels use "Stage" (STAGE 1, STAGE 2, etc.) — code and persistence keep `arc`/`arcStage` naming. Arc beats use progressive Hub reveal plumbing (`score-reveal`, `clock-reveal`, `act-3-reveal`); see P3.M1.4–M1.5 notes.
 - **Win/loss conditions:**
-  - **Win:** Complete the Score (extract with objective satisfied from the final mission). Terminal debrief: `*** SCORE COMPLETE ***`.
+  - **Win:** Complete the Score (extract with objective satisfied from the final mission). Terminal campaign overlay: `SCORE COMPLETE`.
   - **Loss (flatline):** Entire crew wiped during any run (existing behavior, but now with arc context for the chronicle).
-  - **Loss (clock):** `clockJobsTaken >= CLOCK_ACT2_DEADLINE_JOBS` (8) before `scoreAttempted`. Terminal debrief: `*** WINDOW CLOSED ***` — not a status-line footnote. Attempted Score keeps the deadline from retroactively killing the save.
+  - **Loss (Score Decker):** If the Decker flatlines during THE SCORE, the campaign ends immediately with explicit Game Over copy. Before the Score, a flatlined Decker instead opens one free replacement lead through the Terminal; THE SCORE remains gated until a living Decker is recruited.
+  - **Loss (clock):** `clockJobsTaken >= CLOCK_ACT2_DEADLINE_JOBS` (8) before `scoreAttempted`. Terminal campaign overlay: `GAME OVER` with explicit window-closed copy — not a status-line footnote. Attempted Score keeps the deadline from retroactively killing the save.
 
 **The Clock mechanic:**
 
@@ -152,11 +153,11 @@ Neural degradation is deferred until Cyberspace is fun enough to deserve a jack-
 
 **P3.M1.4 implementation note:** Score reveal is player-visible. A one-shot `score-reveal` Hub reveal lets the Curator name the target, introduce the Decker, and teach the **CASING** job-board badge (same-principal org jobs during Act 2+). **SCORE SITE** still marks contracts whose `locationSiteId` matches the synthesized Score target. Arc briefings (`score-reveal`, `clock-reveal`, `act-3-reveal`) are priority Hub reveals: they are evaluated before lower-priority intros (Finn, clinic, terminal-recruit) so a mid-save act transition is not crowded out on the same visit. Their `hubReveals` flags commit on Curator briefing **dismiss** (`commitHubReveal` in the shell), not when `enterHub` queues the copy — so a missed modal can retry on the next Hub entry, and pre-P3 saves that qualify for Act 2 on first load under 3.0 are not silently bumped without the narrative beat. The shell resume path presents any pending `lastHubReveal` when restoring a HUB save. The Hub status row and Terminal crew roster show the current stage label (user-facing "STAGE N") plus Score target once revealed. Shared `arcSurface` helpers own the copy and invariant checks so multiple Score targets, or revealed Score state without a target, fail loud instead of rendering misleading UI.
 
-**P3.M1.5 implementation note:** The Clock is driven by `clockJobsTaken` (Act 2/3 deploys), not `completedJobs` — entering Act 2 with many Stage 1 extractions does not start heat immediately. Grace: `CLOCK_ACT2_GRACE_JOBS` (3) deploys; then `clockStarted` and heat accrue until `CLOCK_ACT2_DEADLINE_JOBS` (8). A `clock-reveal` Hub briefing explains heat, the operational window, and what happens when it closes (copy in `clockRevealLines`). Clock HUD text appears only after `clockBriefingPresented` **and** `clockStarted`: `CLOCK: HEAT X / Y JOBS LEFT` on the canvas HUD, Terminal roster, and status bar. No "dormant" or "N jobs to heat" lines before the player has seen the briefing. Heat raises Curator threat counts without changing difficulty tier, capped per tier. Deadline loss sets `Campaign.endReason` to `clock-expired` and shows a dedicated terminal game-over screen (`*** WINDOW CLOSED ***` via `<crash-dump>`), not a clock status footnote. Score win uses `*** SCORE COMPLETE ***`; crew wipe keeps the existing campaign-terminal death path. An attempted Score keeps the deadline from retroactively killing the save.
+**P3.M1.5 implementation note:** The Clock is driven by `clockJobsTaken` (Act 2/3 deploys), not `completedJobs` — entering Act 2 with many Stage 1 extractions does not start heat immediately. Grace: `CLOCK_ACT2_GRACE_JOBS` (3) deploys; then `clockStarted` and heat accrue until `CLOCK_ACT2_DEADLINE_JOBS` (8). A `clock-reveal` Hub briefing explains heat, the operational window, and what happens when it closes (copy in `clockRevealLines`). Clock HUD text appears only after `clockBriefingPresented` **and** `clockStarted`: `CLOCK: HEAT X / Y JOBS LEFT` on the canvas HUD, Terminal roster, and status bar. No "dormant" or "N jobs to heat" lines before the player has seen the briefing. Heat raises Curator threat counts without changing difficulty tier, capped per tier. Deadline loss sets `Campaign.endReason` to `clock-expired`; terminal outcomes now bypass `<crash-dump>` and use the summary-backed `<game-over>` overlay. An attempted Score keeps the deadline from retroactively killing the save.
 
 **P3.M1.6 implementation note:** `Curator.generateContracts` now uses campaign-derived arc context behaviorally. Act 2 guarantees at least one fresh same-principal casing job for the Score target's organization. Act 3 guarantees a mostly same-principal prep board. The normal board avoids rolling the Score target itself so the finale stays a deliberate Hub action.
 
-**P3.M1.7 implementation note:** Act 3 exposes a special `THE SCORE` contract through `Campaign.buildScoreContract()`, appended to the Hub job choices only when `Campaign.canAttemptScore()` passes. The first qualifying Hub visit also fires `act-3-reveal` ("You're ready… grab THE SCORE from the board while you can") before the player sees the fourth board slot. Deploying THE SCORE marks `scoreAttempted`, moves `arcStage` to `score`, uses the persisted Score target dimensions/memory, and completing it marks `scoreCompleted` and ends the campaign in a win state.
+**P3.M1.7 implementation note:** Act 3 exposes a special `THE SCORE` contract through `Campaign.buildScoreContract()`, appended to the Hub job choices only when `Campaign.canAttemptScore()` passes. The first qualifying Hub visit also fires `act-3-reveal` ("You're ready… grab THE SCORE from the board while you can") before the player sees the fourth board slot. Deploying THE SCORE marks `scoreAttempted`, moves `arcStage` to `score`, uses the persisted Score target dimensions/memory, and completing it awards the campaign-ending `1,000 Cr` payoff, marks `scoreCompleted`, and ends the campaign in a win state.
 
 **Acceptance:**
 
@@ -238,16 +239,20 @@ The first jack-in should prove the door between layers before shipping every ICE
 4. Latch a run state like `cyberspace.active = true`; repeated jack-in attempts against the same terminal throw or log a deterministic "already linked" message depending on whether state is corrupt or just redundant input.
 5. Saving mid-jack-in restores both Meatspace and Cyberspace. Absent or malformed Cyberspace snapshot data for an active jack-in is tier-1 corrupt state and must throw to the boundary.
 
-**Suggested slice order:**
+**Implementation slices:**
 
-| Slice | Change | Tests |
-|---|---|---|
-| **P3.M3.1 Contract flag** | Add Cyberspace-capable contract metadata and validation | generated only Act 2+, invalid flag/params throw |
-| **P3.M3.2 Jack-in terminal** | Place a terminal that can start the digital layer | deterministic placement, no collision with objective props |
-| **P3.M3.3 Cyber layer model** | Add serializable `Run.cyberspace` layer with grid/world/avatar | snapshot round-trip, active-layer invariants |
-| **P3.M3.4 Data node objective** | Slice one data node and feed objective satisfaction | incomplete blocks clean extraction, complete allows it |
-| **P3.M3.5 Probe ICE** | Minimal ICE patrol/detect/attack loop | seeded movement, detection/alarm, damage/death |
-| **P3.M3.6 Render swap** | Render Cyberspace when active; Meatspace remains reachable for P3.M4 | browser smoke and console-clean verification |
+| Slice | Status | Change | Tests |
+|---|---|---|---|
+| **P3.M3.1 Contract flag** | ✅ Done | Add Cyberspace-capable contract metadata and validation | generated only Act 2+, invalid flag/params throw |
+| **P3.M3.2 Jack-in terminal** | ✅ Done | Place a terminal that can start the digital layer | deterministic placement, no collision with objective props |
+| **P3.M3.3 Cyber layer model** | ✅ Done | Add serializable `Run.cyberspace` layer with grid/world/avatar | snapshot round-trip, active-layer invariants |
+| **P3.M3.4 Data node objective** | ✅ Done | Slice one data node and feed objective satisfaction | incomplete blocks clean extraction, complete allows it |
+| **P3.M3.5 Probe ICE** | ✅ Done | Minimal ICE patrol/detect/attack loop | seeded movement, detection/alarm, damage/death |
+| **P3.M3.6 Render swap** | ✅ Done | Render Cyberspace when active; Meatspace remains reachable for P3.M4 | browser smoke and console-clean verification |
+| **M4.6 pull-forward — voluntary jack-out** | ✅ Done | `JackInPoint.burned` latch; `Run.jackOut()`; shell swap; early jack-out confirmation modal (`onJackOutRequested` / `confirmJackOut`) | LINK BURNED latch, defer/confirm matrix, round-trip |
+| **Playtest stabilization** | ✅ Done | Probe 2 HP / 2 AP; Cyber Override against ICE; pre-Score replacement Decker; Score Decker death Game Over | action budget, override/revert + persistence, replacement/Score gates, terminal end reason |
+| **Spark ICE** | 🔲 Planned | Fast, fragile attacker; swarm behavior | — |
+| **Guardian ICE** | 🔲 Planned | Heavy guard of critical nodes; high HP/damage | — |
 
 **Acceptance:**
 
@@ -256,6 +261,8 @@ The first jack-in should prove the door between layers before shipping every ICE
 - At least one Cyberspace objective type (data node slice) with `isObjectiveSatisfied` integration.
 - Cyberspace grid generated deterministically from seed; snapshot round-trip for mid-run save/restore.
 - Jack-in from Meatspace terminal spawns Cyberspace grid.
+
+**P3.M3 playtest stabilization note (2026-06-14):** Probe pressure came from action economy, not its nominal one-damage strike: the original 3 HP / 4 AP unit could close and attack repeatedly after one Probe woke the pack. Probe now has 2 HP / 2 AP while retaining the trace-flare identity. `CyberAvatar` exposes the Decker's Override capability against ICE; successful overrides reuse the existing temporary faction flip, act during the cyber player-aftermath pass, revert on the normal countdown, and round-trip through the existing patrol snapshot. Campaign dead ends are explicit: before THE SCORE, loss of the assigned Decker creates one free Terminal replacement lead and hides THE SCORE until a living Decker joins; once THE SCORE begins, Decker death ends the campaign with `decker-flatlined-score` Game Over copy.
 
 ---
 
@@ -277,7 +284,7 @@ The first jack-in should prove the door between layers before shipping every ICE
 - **PIP / CCTV window:** The inactive layer renders in a small overlay (bottom right corner of the screen). Shows grid state, hostile positions, the other operator's status. Read-only — no input accepted in the PIP. The blueprint's "real-time CCTV showing your physical body's status" becomes this.
 - **Vulnerability:** While the Decker is jacked in, their Meatspace body is a valid target for corp hostiles. If the body is destroyed, the Decker is killed (flatline) and Cyberspace access is lost. The Meatspace operator's explicit job is to **protect the Decker's body** — or at least keep hostiles away from the terminal.
 - **Jack-out:** The Decker can voluntarily jack out (returns control to single-grid Meatspace). Or is forced out if their body takes critical damage. Jack-out despawns the Cyberspace grid (any unsatisfied Cyberspace objectives fail).
-- **Contracts without Cyberspace:** Single-deploy as today. The Decker deploys solo in Meatspace (no flip, no Cyberspace grid). Their drone override hack is their primary value, but if they're flatlined, the campaign is over - no new Deckers can be recruited.
+- **Contracts without Cyberspace:** Single-deploy as today. The Decker deploys solo in Meatspace (no flip, no Cyberspace grid). Their drone override hack is their primary value. A pre-Score flatline opens one replacement Decker lead through the Terminal; a flatline during THE SCORE is campaign-terminal.
 - **Save invariant:** A run may be single-layer, pre-jack dual-deploy, or active dual-layer. Those states must be explicit. A save with `cyberspace.active = true` but no cyber grid/avatar, or with a Decker marked jacked-in but no Meatspace body anchor, is corrupt and must throw.
 
 **Integration slices:**
@@ -330,7 +337,7 @@ The first jack-in should prove the door between layers before shipping every ICE
 
 ---
 
-### P3.M6 — Chronicle (campaign narrative memory) 🔲
+### P3.M6 — Chronicle (campaign narrative memory) 🟡
 
 **Depends on:** P3.M1 (arc structure provides the narrative beats to chronicle). Can begin data collection earlier if arc state is available.
 
@@ -351,6 +358,8 @@ The first jack-in should prove the door between layers before shipping every ICE
 - End-of-campaign (win or loss) produces one summary row in persistent history.
 - Hub can open chronicle (active campaign) and history (past campaigns) without errors.
 - Tests for append + round-trip + cap/trim policy if the list is bounded.
+
+**P3.M6 implementation note:** The end-summary foundation is shipped. A validated `CampaignSummary` is built only after campaign settlement reaches `ENDED`, so the final completed-job increment, Credits (including the Score payoff), Rep, seed, and roster state are captured from the canonical final campaign. Salvage remains a campaign resource rather than a summary measure of value. `DataStore` keeps summaries newest-first, preserves the original record on duplicate archival, and trims history to 50 campaigns. Live completion and restored ended saves share the same idempotent archival path. `<game-over>` is now the single terminal campaign overlay with success and failure modes; terminal outcomes bypass the recoverable job-level `<crash-dump>` debrief. Active per-job chronicle entries, Terminal presentation, and history browsing remain follow-up work within P3.M6.
 
 ---
 

@@ -17,7 +17,11 @@ export type GridPoint = { x: number; y: number };
 export type CampaignArcStage = 'act-1' | 'act-2' | 'act-3' | 'score';
 
 /** Why a campaign reached `ENDED` — drives terminal debrief copy in the shell. */
-export type CampaignEndReason = 'crew-wipe' | 'clock-expired' | 'score-complete';
+export type CampaignEndReason =
+  | 'crew-wipe'
+  | 'clock-expired'
+  | 'decker-flatlined-score'
+  | 'score-complete';
 
 /**
  * A JSON-safe value. The persistence layer's opaque entity property bag
@@ -249,26 +253,8 @@ export type LocationSite = {
   site?: LocationToken;
 };
 
-export type GameOverCrewStub = { callsign: string; archetype: string; flatlined: boolean };
-
-/** Terminal campaign loss — crew wipe, clock deadline, or last-operator death. */
-export type GameOverTelemetry = {
-  campaignEndReason?: Exclude<CampaignEndReason, 'score-complete'>;
-  campaignTerminal?: boolean;
-  crewRoster?: GameOverCrewStub[];
-  salvage?: import('./game/salvage.js').TypedSalvage;
-  seed?: number;
-  cause?: string | null;
-  archetype?: string;
-};
-
 export type Telemetry = {
-  outcome: 'death' | 'exit' | 'campaign-over';
-  campaignEndReason?: CampaignEndReason;
-  campaignTerminal?: boolean;
-  crewRoster?: GameOverCrewStub[];
-  /** Typed-salvage wallet snapshot at the moment the run/campaign ends. */
-  salvage?: import('./game/salvage.js').TypedSalvage;
+  outcome: 'death' | 'exit';
   archetype?: string;
   turn?: number;
   kills?: number;

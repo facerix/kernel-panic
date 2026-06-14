@@ -21,7 +21,8 @@
 import { serviceWorkerManager } from '/src/ServiceWorkerManager.js';
 import dataStore from '/src/DataStore.js';
 
-import { Campaign, CAMPAIGN_STATE, willEndCampaignOnThisDeath } from '/src/game/Campaign.js';
+import { Campaign, CAMPAIGN_STATE, willEndCampaignAfterResult } from '/src/game/Campaign.js';
+import { buildCampaignSummary, type CampaignSummary } from '/src/game/campaignSummary.js';
 import { totalSalvage, formatSalvageCompact, type TypedSalvage } from '/src/game/salvage.js';
 import { RUN_STATE, Run } from '/src/game/Run.js';
 import { restoreCampaign, snapshotCampaign } from '/src/game/persistence.js';
@@ -96,7 +97,7 @@ import type { Intent } from '/src/input/applyIntent.js';
 import type { AimKind, Mode } from '/src/input/keymap.js';
 import { formatCombatHudA11ySummary } from '/src/render/combatHud.js';
 import type { CombatHudSummaryInput } from '/src/render/combatHud.js';
-import type { GameOverTelemetry, KeyItem, Telemetry, TurnActionStep } from '/src/types.js';
+import type { KeyItem, Telemetry, TurnActionStep } from '/src/types.js';
 import { installErrorBoundary, type FaultSignal } from '/src/errorBoundary.js';
 import { isDevelopmentMode } from '/src/domUtils.js';
 
@@ -146,7 +147,7 @@ type CrashDumpElement = ModalElement & {
   setTelemetry(telemetry: Telemetry): void;
 };
 type GameOverElement = ModalElement & {
-  setTelemetry(telemetry: GameOverTelemetry): void;
+  setSummary(summary: CampaignSummary): void;
 };
 type FaultScreenElement = ModalElement & {
   show(detail: { code?: string }): void;
@@ -275,8 +276,6 @@ let briefingEl: RunBriefingElement;
 let contractSelectEl: ContractSelectElement;
 let crashEl: CrashDumpElement;
 let gameOverEl: GameOverElement;
-/** Which overlay owns `RUN_STATE.RESULT` — set in `pushPendingJobResultOverlay`. */
-let resultOverlayTarget: 'crash' | 'game-over' = 'crash';
 let faultEl: FaultScreenElement;
 let systemStartEl: SystemStartElement;
 let curatorBriefingEl: CuratorBriefingElement;
@@ -625,6 +624,7 @@ async function boot() {
 // ---------------------------------------------------------------------------
 
 function startFreshCampaign() {
+  hideBlockingShellModals();
   campaign = new Campaign({
     seed: seedFromClock(),
     crew: [],
@@ -633,6 +633,7 @@ function startFreshCampaign() {
   });
 
   pendingJobResult = null;
+  setStatus('Booting Meatspace…');
   systemStartEl.setSession({ seed: campaign.seed });
   systemStartEl.show();
 }
@@ -818,6 +819,14 @@ function onCrewRecruit(evt: Event) {
     campaign.recruit(recruitId);
     const member = campaign.getCrewMember(recruitId);
     flash(`NEW OPERATIVE: ${member?.callsign ?? recruitId} joins the collective.`);
+    // A replacement Decker can unlock THE SCORE immediately. Preserve the
+    // existing three-card board and append only the newly legal finale.
+    if (
+      campaign.canAttemptScore() &&
+      !currentJobOptions.some(contract => contract.context.recipeId === 'score-final')
+    ) {
+      currentJobOptions.push(campaign.buildScoreContract());
+    }
     // Refresh the roster to reflect the new crew + hide recruit section.
     presentCrewRoster();
   } catch (err) {
@@ -1221,52 +1230,9 @@ function handlePersist() {
   dataStore.setCampaign(snapshotCampaign(campaign));
 }
 
-function crewMemberArchetypeId(member: Crew): string {
-  const n = member?.constructor?.name;
-  if (n === 'Merc') return 'merc';
-  if (n === 'Razor') return 'razor';
-  if (n === 'Tech') return 'tech';
-  return 'op';
-}
-
-function crewRosterStubs(c: Campaign) {
-  return c.crew.map(member => ({
-    callsign: member.callsign ?? member.id,
-    archetype: crewMemberArchetypeId(member),
-    flatlined: !!member.flatlined,
-  }));
-}
-
-function telemetryForEndedCampaign(c: Campaign): Telemetry {
-  const reason = c.endReason ?? 'crew-wipe';
-  return {
-    outcome: 'campaign-over',
-    campaignEndReason: reason,
-    seed: c.seed,
-    salvage: c.salvage,
-    crewRoster: crewRosterStubs(c),
-  };
-}
-
-function gameOverTelemetryForCampaign(c: Campaign): GameOverTelemetry {
-  const reason = c.endReason ?? 'crew-wipe';
-  if (reason === 'score-complete') {
-    throw new Error('[shell] score-complete is a win debrief, not game over');
-  }
-  return {
-    campaignEndReason: reason,
-    seed: c.seed,
-    salvage: c.salvage,
-    crewRoster: crewRosterStubs(c),
-  };
-}
-
 function presentEndedCampaignOverlay(c: Campaign): void {
-  if (c.endReason === 'score-complete') {
-    crashEl.setTelemetry(telemetryForEndedCampaign(c));
-  } else {
-    gameOverEl.setTelemetry(gameOverTelemetryForCampaign(c));
-  }
+  const summary = dataStore.archiveCampaign(buildCampaignSummary(c, new Date().toISOString()));
+  gameOverEl.setSummary(summary);
 }
 
 function presentCampaignEnd(c: Campaign): void {
@@ -1280,9 +1246,9 @@ function finishEndedCampaign(): void {
 }
 
 /**
- * Drives result overlays and `pendingJobResult` whenever the active job is in
- * RESULT — both from a live `Run.onResult` callback and from a cold resume
- * (otherwise `renderShell` opens an overlay with no `setTelemetry` call).
+ * Stage one result for settlement. Non-terminal jobs show `<crash-dump>`;
+ * terminal outcomes are settled immediately by `handleResult` and route to
+ * the Chronicle-backed `<game-over>` screen.
  */
 function pushPendingJobResultOverlay(telemetry: Partial<RunTelemetry> & { outcome?: unknown }) {
   const tel = { ...telemetry };
@@ -1294,31 +1260,20 @@ function pushPendingJobResultOverlay(telemetry: Partial<RunTelemetry> & { outcom
     outcome,
     telemetry: { ...tel, outcome } as RunTelemetry & { outcome: Outcome },
   };
-  const campaignTerminal =
-    outcome === 'death' && campaign ? willEndCampaignOnThisDeath(campaign) : false;
-  if (campaignTerminal && campaign) {
-    const activeCampaign = campaign;
-    const deployedId = activeCampaign.deployedMemberId;
-    resultOverlayTarget = 'game-over';
-    gameOverEl.setTelemetry({
-      campaignTerminal: true,
-      seed: tel.seed,
-      cause: tel.cause,
-      archetype: tel.archetype,
-      crewRoster: activeCampaign.crew.map(member => ({
-        callsign: member.callsign ?? member.id,
-        archetype: crewMemberArchetypeId(member),
-        flatlined: !!member.flatlined || member.id === deployedId,
-      })),
-    });
-  } else {
-    resultOverlayTarget = 'crash';
-    crashEl.setTelemetry({
-      ...tel,
-      outcome,
-      cause: tel.cause ?? undefined,
-    });
-  }
+  crashEl.setTelemetry({
+    ...tel,
+    outcome,
+    cause: tel.cause ?? undefined,
+  });
+}
+
+function pendingResultEndsCampaign(result: PendingJobResult): boolean {
+  if (!campaign) return false;
+  return willEndCampaignAfterResult(
+    campaign,
+    result.outcome,
+    result.outcome === 'exit' && result.telemetry.objectiveComplete !== false
+  );
 }
 
 function handleResult({ outcome, telemetry }: RunResult) {
@@ -1327,6 +1282,10 @@ function handleResult({ outcome, telemetry }: RunResult) {
     ...telemetry,
     outcome: telemetry?.outcome ?? outcome,
   });
+  if (pendingJobResult && pendingResultEndsCampaign(pendingJobResult)) {
+    settlePendingJobResult();
+    return;
+  }
   renderShell();
 }
 
@@ -1397,8 +1356,12 @@ function resumeCampaign(record: CampaignSnapshot | unknown) {
       renderShell();
     } else if (campaign.activeRun?.state === RUN_STATE.RESULT) {
       pushPendingJobResultOverlay({ ...campaign.activeRun.telemetry });
-      flash('RESUMED — mission debrief.');
-      renderShell();
+      if (pendingJobResult && pendingResultEndsCampaign(pendingJobResult)) {
+        settlePendingJobResult();
+      } else {
+        flash('RESUMED — mission debrief.');
+        renderShell();
+      }
     } else if (campaign.state === CAMPAIGN_STATE.HUB && campaign.curator) {
       renderShell();
       if (!presentHubRevealIfAny(resumeFlashMessage)) {
@@ -1446,7 +1409,6 @@ function performQuitCampaign(): void {
   itemInventoryEl.hide();
 
   pendingJobResult = null;
-  resultOverlayTarget = 'crash';
   dataStore.deleteCampaign();
   startFreshCampaign();
   flash('Campaign deleted — new campaign.');
@@ -1618,7 +1580,14 @@ function handleIntent(intent: Intent): void {
           if (campaign?.state === CAMPAIGN_STATE.HUB) {
             flash('Curator: Hang tight! Come talk to me to claim a contract.');
           }
-          advanceTurn();
+          // Moving onto an extraction tile synchronously emits the run result.
+          // Score settlement may therefore clear the active run and tear down
+          // the campaign world before this callback resumes. Only advance when
+          // the captured scene is still playable (incomplete abort/escort wait,
+          // or the Hub's decorative exit tile).
+          if (run.state === RUN_STATE.COMBAT || run.state === CAMPAIGN_STATE.HUB) {
+            advanceTurn();
+          }
           break;
       }
     },
@@ -1649,15 +1618,31 @@ function driveCombatTurnPipeline(run: Run, options: { resumeFromCorpSlice?: bool
     rng: run.rng,
     isTerminal: () => run.state === RUN_STATE.RESULT,
     drivePlayerAftermath: ({ onStep, onFinish }) => {
+      const finishMeatAftermath = () => {
+        if (degrading) return;
+        clearBreachBlastOverlay(false);
+        const layer = cyberLayerOf(run);
+        if (!layer) {
+          onFinish();
+          return;
+        }
+        drivePlayerAftermath({
+          world: layer.world,
+          rng: run.rng,
+          onStep,
+          onFinish,
+          animLock,
+          stepDelayMs: PLAYER_AFTERMATH_ACTION_DELAY_MS,
+          lockMarginMs: ANIMATION_DURATIONS.MUZZLE_FLASH,
+          player: layer.avatar,
+          schedule: scheduleCombatPump,
+        });
+      };
       drivePlayerAftermath({
         world,
         rng: run.rng,
         onStep,
-        onFinish: () => {
-          if (degrading) return;
-          clearBreachBlastOverlay(false);
-          onFinish();
-        },
+        onFinish: finishMeatAftermath,
         animLock,
         stepDelayMs: PLAYER_AFTERMATH_ACTION_DELAY_MS,
         lockMarginMs: ANIMATION_DURATIONS.MUZZLE_FLASH,
@@ -1679,6 +1664,11 @@ function driveCombatTurnPipeline(run: Run, options: { resumeFromCorpSlice?: bool
       // *applies*, but the canvas is showing the grid, so skip its
       // presentation (overlays/shake/log lines).
       const jacked = isJackedIn(scene);
+      const cyberLayer = cyberLayerOf(scene);
+      const isCyberStep =
+        cyberLayer !== null &&
+        step.type === 'overridden-drone' &&
+        cyberLayer.world.entities.has(step.entity.id);
       if (step.type === 'breach-detonate' && !jacked) {
         showBreachBlastOverlay(step.charge.x, step.charge.y);
         if (scene?.player && vision.isVisible(step.charge.x, step.charge.y)) {
@@ -1687,6 +1677,18 @@ function driveCombatTurnPipeline(run: Run, options: { resumeFromCorpSlice?: bool
         }
       }
       if (
+        isCyberStep &&
+        cyberLayer &&
+        isPlayerAftermathStepLogVisible(
+          step,
+          (x, y) => cyberVision.isVisible(x, y),
+          cyberLayer.avatar.id
+        )
+      ) {
+        for (const line of formatPlayerAftermathStepLogLines(step)) {
+          flash(line);
+        }
+      } else if (
         !jacked &&
         scene?.player &&
         isPlayerAftermathStepLogVisible(step, (x, y) => vision.isVisible(x, y), scene.player.id)
@@ -2021,49 +2023,50 @@ function handleCombatInteract(): void {
 
 // onJackIn removed — combat entry is handled in onBriefingDeploy.
 
+function settlePendingJobResult(): 'ended' | 'hub' {
+  if (!campaign || !pendingJobResult) {
+    throw new Error('settlePendingJobResult requires an active campaign result');
+  }
+  const jobResult = pendingJobResult;
+  const { outcome } = jobResult;
+  pendingJobResult = null;
+  // Extract typed salvage from the deployed crew member's inventory on exit.
+  // Death outcomes pass `undefined`, preserving the existing forfeiture rule.
+  const member = campaign.deployedMemberId
+    ? campaign.getCrewMember(campaign.deployedMemberId)
+    : null;
+  const salvage = member?.inventory?.salvage;
+  const objectiveComplete =
+    outcome === 'exit' ? jobResult.telemetry.objectiveComplete !== false : false;
+  // Apply the clean completion bonus before `onJobEnd`, so the terminal
+  // Chronicle record sees the final Rep value and Hub recruitment gates retain
+  // their existing ordering on non-terminal jobs.
+  if (outcome === 'exit' && objectiveComplete && civilianHarmsThisJob === 0) {
+    const actual = campaign.adjustRep(REP.CLEAN_COMPLETION_BONUS);
+    flash(`REP +${actual}: clean extraction — no civilian casualties.`);
+  }
+  if (outcome === 'exit' && !objectiveComplete) {
+    flash(`ABORT: Objective abandoned. REP ${REP.ABORT_PENALTY}.`);
+  }
+  campaign.onJobEnd({ outcome, salvage, completed: objectiveComplete });
+  if (campaign.state === CAMPAIGN_STATE.ENDED) {
+    presentCampaignEnd(campaign);
+    return 'ended';
+  }
+  if (!presentHubRevealIfAny('HUB — choose the next job.')) {
+    flash('HUB — choose the next job.');
+  }
+  if (!campaign.curator) {
+    throw new Error('settlePendingJobResult: hub not entered — curator is missing.');
+  }
+  currentJobOptions = generateCurrentJobOptions();
+  return 'hub';
+}
+
 function onNewRunRequested(): void {
   if (!campaign) return;
   if (pendingJobResult) {
-    const jobResult = pendingJobResult;
-    const { outcome } = jobResult;
-    pendingJobResult = null;
-    // Extract typed salvage from the deployed crew member's
-    // inventory on exit. Death outcomes pass `undefined` so onJobEnd defaults
-    // to an empty wallet (loot forfeited on flatline).
-    const member = campaign.deployedMemberId
-      ? campaign.getCrewMember(campaign.deployedMemberId)
-      : null;
-    const salvage = member?.inventory?.salvage;
-    const objectiveComplete =
-      outcome === 'exit' ? jobResult.telemetry.objectiveComplete !== false : false;
-    // Clean completion bonus — must run *before* `onJobEnd` so `enterHub` →
-    // `generateRecruits()` sees the updated Rep (recruitment gates at 65).
-    if (outcome === 'exit' && objectiveComplete && civilianHarmsThisJob === 0) {
-      const actual = campaign.adjustRep(REP.CLEAN_COMPLETION_BONUS);
-      flash(`REP +${actual}: clean extraction — no civilian casualties.`);
-    }
-    if (outcome === 'exit' && !objectiveComplete) {
-      flash(`ABORT: Objective abandoned. REP ${REP.ABORT_PENALTY}.`);
-    }
-    campaign.onJobEnd({ outcome, salvage, completed: objectiveComplete });
-    if (campaign.state === CAMPAIGN_STATE.ENDED) {
-      pendingJobResult = null;
-      if (campaign.endReason === 'crew-wipe') {
-        finishEndedCampaign();
-        return;
-      }
-      presentCampaignEnd(campaign);
-      return;
-    } else {
-      if (!presentHubRevealIfAny('HUB — choose the next job.')) {
-        flash('HUB — choose the next job.');
-      }
-      // reset the current job options
-      if (!campaign.curator) {
-        throw new Error('onNewRunRequested: hub not entered — curator is missing.');
-      }
-      currentJobOptions = generateCurrentJobOptions();
-    }
+    if (settlePendingJobResult() === 'ended') return;
   } else if (campaign.state === CAMPAIGN_STATE.ENDED) {
     finishEndedCampaign();
     return;
@@ -2324,24 +2327,14 @@ function renderShell(): void {
     case RUN_STATE.RESULT:
       canvas.hidden = true;
       briefingEl.hide();
-      if (resultOverlayTarget === 'game-over') {
-        crashEl.hide();
-        gameOverEl.show();
-      } else {
-        gameOverEl.hide();
-        crashEl.show();
-      }
+      gameOverEl.hide();
+      crashEl.show();
       break;
     case CAMPAIGN_STATE.ENDED:
       canvas.hidden = true;
       briefingEl.hide();
-      if (campaign.endReason === 'score-complete') {
-        gameOverEl.hide();
-        crashEl.show();
-      } else {
-        crashEl.hide();
-        gameOverEl.show();
-      }
+      crashEl.hide();
+      gameOverEl.show();
       break;
     default:
       throw new Error(`[shell] unknown state "${state}"`);

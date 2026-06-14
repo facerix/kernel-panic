@@ -1,8 +1,9 @@
 /**
  * P3.M3.3 — the Decker's avatar on the Cyberspace grid.
  *
- * A plain `Entity` (NOT a `Crew` — no inventory, gear, or perks): the cyber
- * grid has its own verbs. Pools derive from the Decker's named cyber stats:
+ * A plain `Entity` (NOT a `Crew` — no inventory or gear): the cyber grid has
+ * its own verbs, including the Decker's Override signature against ICE. Pools
+ * derive from the Decker's named cyber stats:
  *
  *   - `maxHp = decker.ram` — ICE damage burns RAM; zero RAM = flatline
  *     (avatar death routes through the existing DEATH path; scope decision #3).
@@ -16,7 +17,10 @@
  * also carries `intrusionStrength`, so a flag (not the stat) marks the avatar.
  */
 import { Entity } from '../Entity.js';
+import { canOverride, overrideDrone } from '../droneOverride.js';
 import { CYBER_AVATAR_HIT_CHANCE, CYBER_AVATAR_MAX_AP, FACTION } from '../constants.js';
+import type { World } from '../World.js';
+import type { Rng } from '../../rng.js';
 
 export type CyberAvatarInit = {
   id: string;
@@ -59,6 +63,16 @@ export class CyberAvatar extends Entity {
   /** Alias for `damageReduction` in cyber terms. */
   get iceResistance(): number {
     return this.damageReduction;
+  }
+
+  /** Decker Override translated into the digital layer: ICE is hostile code. */
+  canOverride(world: World, target: Entity | null) {
+    return canOverride(world, this, target);
+  }
+
+  /** Attempt to flip ICE to the avatar's faction for the normal override duration. */
+  overrideDrone(world: World, target: Entity, rng: Rng) {
+    return overrideDrone(world, this, target, rng);
   }
 
   constructor({
