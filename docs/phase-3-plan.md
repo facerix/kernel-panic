@@ -201,68 +201,98 @@ Neural degradation is deferred until Cyberspace is fun enough to deserve a jack-
 
 ### P3.M3 — Cyberspace grid + ICE 🟡
 
-> **Status (2026-06-11):** the first playable slice (M3.1–M3.6, plus voluntary
-> jack-out pulled forward from M4.6 and an early-jack-out confirmation) is
-> shipped end-to-end on `3.0-cyberspace` — see
-> [phase-3-cyberspace-plan.md](phase-3-cyberspace-plan.md) for slice notes and
-> recorded scope decisions. The milestone stays open for **Spark and Guardian
-> ICE**. The Score contract is now always a cyber run (scope decision #5).
+**Status (2026-06-14):** The first playable slice (M3.1–M3.6, plus voluntary jack-out pulled forward from M4.6 and an early-jack-out confirmation) is shipped end-to-end. The milestone stays open for **Spark and Guardian ICE**.
 
 **Depends on:** P3.M2 (Decker as the Cyberspace avatar). Can prototype grid mechanics independently.
 
 **Goal:** The second tactical layer — a **Cyberspace grid** with its own geometry, traversal rules, and hostile AI (**ICE** — Intrusion Countermeasure Electronics). Generated fresh per jack-in (not persistent across runs).
 
+**Scope decisions (recorded):**
+
+1. **First playable slice only** — slices M3.1–M3.6 (contract flag → jack-in terminal → cyber layer model → data node objective → Probe ICE → render swap). **Spark/Guardian ICE deferred** to follow-up slices; the milestone stays open until they land.
+2. **Minimal voluntary jack-out pulled forward** from P3.M4.6 so the layer is playable end-to-end solo before the simstim flip exists. M4.6 then only adds forced jack-out + dual-deploy cleanup.
+3. **Avatar death = flatline** — ICE destroying the avatar kills the Decker through the existing DEATH/flatline paths. Genre-honest (black ICE kills), zero new death machinery.
+4. **Named cyber stats ship now with real effects:** RAM = avatar HP pool, intrusion strength = slice progress per interact, ICE resistance = `damageReduction` (existing min-1 mitigation in `Combat.ts`). Persisted and validated in both crew persistence paths.
+5. **The Score is always a cyber run** (2026-06-11): `buildScoreContract` emits `DATA_NODE_SLICE` with `{requiresCyberspace: true, count: 1}` — for now; revisit if a meat-only Score variant is ever wanted. Deploy goes through the living-Decker gate; objective shape locked in the P3.M1.7 tests.
+
+TDD throughout; malformed persisted state throws (no silent fallbacks).
+
 **Scope:**
 
-- **Cyberspace grid:** Separate `Grid` / `World` instance for the digital layer. **First implementation should reuse the existing square grid engine** with a distinct tileset and generation rules, then reserve a later graph-topology refactor only if the square grid fails the feel test. This keeps pathfinding, rendering, snapshots, and tests inside known machinery.
-- **Cyberspace tileset / aesthetic:** Distinct from Meatspace. Nodes, data lines, firewalls, open channels. ASCII glyphs TBD but visually differentiated (color palette, glyph set, CRT effects).
+- **Cyberspace grid:** Separate `Grid` / `World` instance for the digital layer. **First implementation reuses the existing square grid engine** with a distinct tileset and generation rules; reserve a graph-topology refactor only if the square grid fails the feel test.
+- **Cyberspace tileset / aesthetic:** Distinct from Meatspace — FLOOR `·` deep cyan, WALL `▒` magenta; location label `// THE GRID //`; vitals pane labeled RAM.
 - **ICE hostiles:** Three types per blueprint:
-  - **Probe:** Sentry / patrol. Detects the Decker, raises alert (Cyberspace alarm analog).
-  - **Spark:** Fast, fragile attacker. Swarm behavior.
-  - **Guardian:** Heavy. Guards critical nodes. High HP, high damage, limited mobility.
-- **ICE AI:** A* pathfinding (reuse Meatspace drone infrastructure with Cyberspace-specific cost maps). Alarm/alert model adapted from P2.5.M2.1 for the digital layer.
-- **Cyberspace objectives:** What the Decker *does* once jacked in — slice data nodes, disable firewalls, open digital locks. Reuses `Interactable` patterns from P2.5.M2.2 adapted for Cyberspace.
-- **Generation:** Procedural per jack-in. Seeded from contract + campaign RNG. Not persistent (fresh each time). Complexity scales with contract difficulty / act.
-- **Jack-in trigger:** Decker interacts with a Meatspace terminal (P2.5.M2.2 `Interactable`). This spawns the Cyberspace grid and activates dual-deploy mode (P3.M4).
+  - **Probe:** Sentry / patrol. Detects the Decker, raises alert (Cyberspace alarm analog). ✅ Shipped.
+  - **Spark:** Fast, fragile attacker. Swarm behavior. 🔲 Planned.
+  - **Guardian:** Heavy. Guards critical nodes. High HP, high damage, limited mobility. 🔲 Planned.
+- **ICE AI:** A* pathfinding (reuse Meatspace drone infrastructure). Alarm/alert model adapted from P2.5.M2.1 for the digital layer.
+- **Cyberspace objectives:** Slice data nodes (shipped); disable firewalls, open digital locks — future.
+- **Generation:** Procedural per jack-in. Seeded from contract (`new Rng(contract.seed).fork('cyberspace')`). Not persistent. Complexity scales with contract difficulty.
+- **Jack-in trigger:** Decker interacts with a Meatspace `JackInPoint` (Ω glyph). Spawns the Cyberspace grid; dual-deploy flip deferred to P3.M4.
+
+**Architecture:**
+
+- **`CyberspaceLayer` owned by `Run`, single `TurnQueue`, both worlds tick.** New `src/game/cyber/CyberspaceLayer.ts` owns its own `EventBus`, `World`, `CyberAvatar`, `entryTile`, `mapSeen` — not a nested Run.
+- **`CyberspaceState` union:** `{phase: 'dormant'}` | `{phase: 'active'; layer: CyberspaceLayer}` | `{phase: 'resolved'; objectiveComplete: boolean}`. `Run.cyberspace: CyberspaceState | null` — null ⇔ no cyber component.
+- **Turn integration:** One existing `TurnQueue`. Meat `TURN_ENDED` listener forwards `{next}` to `layer.onTurnEnded(next)` when cyber is active. Shell corp phase chains two `corpTurnDriver` passes — meat hostiles, then ICE — consuming shared `run.rng` in fixed order. **Meatspace keeps ticking during jack-in** — Decker body stands at the port as `run.player`, targetable; body death hits existing player-death path (M4.2 vulnerability falls out for free).
+- **`CyberAvatar`:** `Entity` subclass; `maxHp = decker.ram`, `damageReduction = decker.iceResistance`, `intrusionStrength`, `readonly isCyberAvatar = true` (capability sniff — Decker body also carries `intrusionStrength`). Stats on `Decker` with `DECKER_BASE_RAM/INTRUSION/ICE_RESISTANCE` constants; round-trip through both crew persistence paths.
+- **Generation:** `buildCyberMap({rng, difficulty})` — rooms-as-nodes lattice, FLOOR/WALL only, connectivity validated via `explorationReachableKeys`. Distinct visuals via tileset axis in `palette.ts`, not new TILE ids.
 
 **Entering Cyberspace — first playable slice:**
 
-The first jack-in should prove the door between layers before shipping every ICE behavior:
-
-1. Add a `requiresCyberspace` / `cyberspaceObjective` contract param for Act 2+ jobs, generated only when the Decker has been recruited.
-2. Place a Meatspace jack-in terminal using the existing `Terminal` / interactable placement path, distinct in label from ordinary terminal-slice props.
-3. When the Decker interacts with the jack-in terminal, create a `cyberspace` run layer with:
-   - generated grid and seed metadata,
-   - Decker digital avatar,
-   - one data node objective,
-   - at least one Probe ICE.
-4. Latch a run state like `cyberspace.active = true`; repeated jack-in attempts against the same terminal throw or log a deterministic "already linked" message depending on whether state is corrupt or just redundant input.
-5. Saving mid-jack-in restores both Meatspace and Cyberspace. Absent or malformed Cyberspace snapshot data for an active jack-in is tier-1 corrupt state and must throw to the boundary.
+1. `requiresCyberspace` contract param for Act 2+ jobs, generated only when a living Decker exists.
+2. Meatspace `JackInPoint` placed via `findInteractableAnchor`, deterministic per contract seed.
+3. Jack-in creates active cyber layer: generated grid, `CyberAvatar`, data nodes, Probe ICE per patrol ring.
+4. Repeated jack-in against linked port → deterministic `already-linked` refusal; corrupt state throws.
+5. Mid-jack-in save restores both layers; absent/malformed cyber snapshot for active jack-in is tier-1 corrupt state.
 
 **Implementation slices:**
 
 | Slice | Status | Change | Tests |
 |---|---|---|---|
-| **P3.M3.1 Contract flag** | ✅ Done | Add Cyberspace-capable contract metadata and validation | generated only Act 2+, invalid flag/params throw |
-| **P3.M3.2 Jack-in terminal** | ✅ Done | Place a terminal that can start the digital layer | deterministic placement, no collision with objective props |
-| **P3.M3.3 Cyber layer model** | ✅ Done | Add serializable `Run.cyberspace` layer with grid/world/avatar | snapshot round-trip, active-layer invariants |
-| **P3.M3.4 Data node objective** | ✅ Done | Slice one data node and feed objective satisfaction | incomplete blocks clean extraction, complete allows it |
-| **P3.M3.5 Probe ICE** | ✅ Done | Minimal ICE patrol/detect/attack loop | seeded movement, detection/alarm, damage/death |
-| **P3.M3.6 Render swap** | ✅ Done | Render Cyberspace when active; Meatspace remains reachable for P3.M4 | browser smoke and console-clean verification |
-| **M4.6 pull-forward — voluntary jack-out** | ✅ Done | `JackInPoint.burned` latch; `Run.jackOut()`; shell swap; early jack-out confirmation modal (`onJackOutRequested` / `confirmJackOut`) | LINK BURNED latch, defer/confirm matrix, round-trip |
-| **Playtest stabilization** | ✅ Done | Probe 2 HP / 2 AP; Cyber Override against ICE; pre-Score replacement Decker; Score Decker death Game Over | action budget, override/revert + persistence, replacement/Score gates, terminal end reason |
+| **P3.M3.1 Contract flag** | ✅ Done | Cyberspace-capable contract metadata and validation | generated only Act 2+, invalid flag/params throw |
+| **P3.M3.2 Jack-in terminal** | ✅ Done | `JackInPoint` placement and interact flow | deterministic placement, no collision with objective props |
+| **P3.M3.3 Cyber layer model** | ✅ Done | Serializable `Run.cyberspace` layer with grid/world/avatar | snapshot round-trip, active-layer invariants |
+| **P3.M3.4 Data node objective** | ✅ Done | Slice data nodes and feed objective satisfaction | incomplete blocks clean extraction, complete allows it |
+| **P3.M3.5 Probe ICE** | ✅ Done | ICE patrol/detect/attack loop | seeded movement, detection/alarm, damage/death |
+| **P3.M3.6 Render swap** | ✅ Done | Render Cyberspace when active; dual-phase corp turn | browser smoke, dualPhaseTurn determinism |
+| **M4.6 pull-forward — voluntary jack-out** | ✅ Done | `JackInPoint.burned` latch; `Run.jackOut()`; early jack-out confirmation | LINK BURNED latch, defer/confirm matrix, round-trip |
+| **Playtest stabilization** | ✅ Done | Probe 2 HP / 2 AP; Cyber Override against ICE; pre-Score replacement Decker; Score Decker death Game Over | action budget, override/revert + persistence, replacement/Score gates |
 | **Spark ICE** | 🔲 Planned | Fast, fragile attacker; swarm behavior | — |
 | **Guardian ICE** | 🔲 Planned | Heavy guard of critical nodes; high HP/damage | — |
+
+**P3.M3.1 implementation note:** `OBJECTIVES.DATA_NODE_SLICE = 'data-node-slice'` with cross-field validation in `normalizeObjective`: kind requires `params.requiresCyberspace === true` plus positive-integer `params.count`; flag forbidden on every other kind. `contractRequiresCyberspace(contract)` exported from `Curator.ts`. Recipe `cyber-data-spike` gated by `ContractRecipe.availableWhen`: `arcStage ∈ {act-2, act-3} && hasLivingDecker`. Deploy gate in `Campaign.deployCrewMember` throws for cyber contracts unless deployed member is a living Decker. UX: `CrewList.setCrew(crew, rowGate?)` — `NEEDS DECKER` on non-Decker rows.
+
+**P3.M3.2 implementation note:** `JackInPoint extends Interactable`, glyph `Ω`, id `jack-in-0` (not matching `/^terminal-\d+$/`). Interact: linked → `already-linked` refusal; `actor.canJackIn !== true` → `no-cyberdeck`; success latches `linked`, emits `EVENT.JACK_IN`. `Run.cyberspace` latched in `enterBriefing` from `contractRequiresCyberspace`. Persistence: `RunSnapshot.cyberspace?`; dormant-only in S2, extended in S3.
+
+**P3.M3.3 implementation note:** `buildCyberMap` — 4×2 cell lattice, L-corridors, patrol rings; node count by difficulty (standard 5 / elevated 6 / critical 8); returns `portTile` (Chebyshev-1 from entry). `CyberspaceLayer.build` forks `new Rng(contractSeed).fork('cyberspace')`. Serialization lives in Run's `snapshotCyberspace`, not `layer.snapshot()`. `Run.jackIn(point)` / `jackOut()` with explicit autosave. Cyber `ENTITY_DAMAGED` listener mirrors meat player-death → flatline. Decker cyber stats: absent → defaults (legacy), half-populated → throw.
+
+**P3.M3.4 implementation note:** `DataNode extends Interactable`, glyph `◈`, avatar-only via `isCyberAvatar` sniff. `sliceDifficultyFor`: standard 2 / elevated 3 / critical 4. `ObjectiveState.cyber?: {sliced, required}`; `DATA_NODE_SLICE` satisfaction reads live tally while active, resolved latch after jack-out. Early jack-out latches `objectiveComplete: false` → existing abort-confirm extraction flow. Active snapshot requires exactly the contract's node count.
+
+**P3.M3.5 (Probe ICE) implementation note:** `ProbeIce extends PatrolHostile`, glyph `¶`. Trace flare: `engageSteps` raises cyber alarm (`repPenalty: false`) before striking; pack convergence via default `listensForAlarm()`. One probe per patrol ring. `'probe-ice'` in `PATROL_ARCHETYPE_IDS` for snapshot machinery. **Follow-up:** probes default `FACTION.CORP`; future rival-principal cyber recipe needs ICE faction stamping at `jackIn`.
+
+**P3.M3.6 implementation note:** `TilesetId = 'meat' | 'cyber'` in `palette.ts`. Shell active-view seam via `run.activeWorld`/`run.activeActor` through vision, paint, look/describe, touch, statusLine. `ApplyIntentContext.player` widened to `Archetype | CyberAvatar`. Dual-phase corp turn while jacked in. PIP deferred to M4.5.
+
+**M4.6 pull-forward (jack-out) implementation note:** `JackInPoint.burned` set by `Run.jackOut()` — real latch, distinct `link-burned` refusal flavor. `burn()` on unlinked port throws (burned ⇒ linked invariant). Persistence: `extra.burned`; absent on pre-S5 records → unburned.
+
+**Early jack-out confirmation implementation note:** `Run.onJackOutRequested` defers incomplete jack-out to confirmation modal (LINK BURNED is irreversible). `run.confirmJackOut()` finalizes; throws on illegal states. `wireRunConfirmations(run)` extracted — called at deploy **and** campaign resume (fixes latent abort-confirm loss on mid-run reload).
+
+**Persistence (consolidated):** `RunSnapshot.cyberspace` with phase `dormant | active | resolved`. Restore rules in `restoreCyberspace`: `contractRequiresCyberspace` ⇔ block present (both directions); unknown phase throws; dormant carrying payload throws; active validates grid dims, exactly one avatar + one port, entities bounds-checked against cyber grid; resolved requires boolean `objectiveComplete`; decker cyber stat blocks half-populated → throw. Autosave on meat `TURN_ENDED` while jacked in; `jackIn`/`jackOut` call `onPersist` explicitly.
+
+**Risks / follow-ups:**
+
+- S7 shell breadth — `index.ts` reads `run.world`/`run.player` widely; kaizen tracks cleanup (ShellScene casts, statusLine extraction, listener rewire dedupe, listener-order coupling).
+- Spark/Guardian ICE and ICE faction stamping for non-corp principals remain open.
 
 **Acceptance:**
 
 - Cyberspace grid renders distinctly from Meatspace.
-- All three ICE types functional: patrol, attack, guard behaviors.
+- All three ICE types functional: patrol, attack, guard behaviors (Probe ✅; Spark/Guardian 🔲).
 - At least one Cyberspace objective type (data node slice) with `isObjectiveSatisfied` integration.
 - Cyberspace grid generated deterministically from seed; snapshot round-trip for mid-run save/restore.
 - Jack-in from Meatspace terminal spawns Cyberspace grid.
 
-**P3.M3 playtest stabilization note (2026-06-14):** Probe pressure came from action economy, not its nominal one-damage strike: the original 3 HP / 4 AP unit could close and attack repeatedly after one Probe woke the pack. Probe now has 2 HP / 2 AP while retaining the trace-flare identity. `CyberAvatar` exposes the Decker's Override capability against ICE; successful overrides reuse the existing temporary faction flip, act during the cyber player-aftermath pass, revert on the normal countdown, and round-trip through the existing patrol snapshot. Campaign dead ends are explicit: before THE SCORE, loss of the assigned Decker creates one free Terminal replacement lead and hides THE SCORE until a living Decker joins; once THE SCORE begins, Decker death ends the campaign with `decker-flatlined-score` Game Over copy.
+**P3.M3 playtest stabilization note (2026-06-14):** Probe tuned from 3 HP / 4 AP to 2 HP / 2 AP — burst pressure came from action economy, not nominal one-damage strike. `CyberAvatar` exposes Override against ICE (2 AP / 60% / 3-turn contract, cyber aftermath pass, patrol snapshot round-trip). Pre-Score Decker flatline → one free Terminal replacement lead; THE SCORE gated until living Decker. Decker flatline during THE SCORE → `decker-flatlined-score` campaign Game Over.
 
 ---
 
