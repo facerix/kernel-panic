@@ -1003,6 +1003,72 @@ export class Run {
   }
 
   /**
+   * P3.M4.4: the operator {@link flip} would hand control to right now — the
+   * other layer's operator while jacked (avatar ↔ partner), else the other
+   * live meat operator. `null` when there is nothing to flip to. Used to reason
+   * about the *crew's* remaining AP, not just the active actor's.
+   */
+  #flipAlternate(): Crew | CyberAvatar | null {
+    if (!this.canFlip()) return null;
+    if (this.cyberspace?.phase === 'active') {
+      return this.activeLayer === 'cyber' ? this.meatActor : this.cyberspace.layer.avatar;
+    }
+    return this.#aliveMeatAlternate();
+  }
+
+  /**
+   * P3.M4.4: independent AP pools, decoupled turn-end. The mutual turn is over
+   * only when *every controllable* operator is spent — the active actor at 0 AP
+   * and no flip alternate with AP left. A single-deploy/solo operator (no
+   * alternate) ends at 0 as before; the frozen Decker body is never the active
+   * actor nor a flip alternate, so its full pool can't keep the turn alive.
+   */
+  endOfTurnReady(): boolean {
+    const active = this.activeActor;
+    if (!active || active.ap > 0) return false;
+    const alternate = this.#flipAlternate();
+    return !alternate || alternate.ap === 0;
+  }
+
+  /**
+   * P3.M4.4: resolve the active operator running out of AP. The shell calls
+   * this wherever it used to auto-end on exhaustion:
+   *   - `'continue'` — the active operator still has AP; nothing to do.
+   *   - `'end'`      — the whole crew is spent; the shell drives the corp/ICE
+   *                    hostile phases (which refresh every pool exactly once).
+   *   - `'auto-flip'`— the active operator is spent but another still has AP;
+   *                    control has been handed to it (no turn end, no refresh).
+   * The flip is safe here: a spent active actor that is not {@link endOfTurnReady}
+   * guarantees a live alternate with AP to flip to.
+   */
+  concludeActiveOperatorTurn(): 'continue' | 'auto-flip' | 'end' {
+    const active = this.activeActor;
+    if (!active || active.ap > 0) return 'continue';
+    if (this.endOfTurnReady()) return 'end';
+    this.flip();
+    return 'auto-flip';
+  }
+
+  /**
+   * P3.M4.4: resolve a Wait (`.`). The caller has already forfeited the active
+   * operator's remaining AP; Wait is an explicit "pass *this* operator, switch
+   * to the other," so — unlike running dry through actions — it **always** hands
+   * control to the other operator when one exists, regardless of whether that
+   * operator still has AP. Ending is orthogonal: the mutual turn ends when the
+   * whole crew is spent.
+   *   - `'flip'`         — control handed off; the other operator can still act.
+   *   - `'flip-and-end'` — control handed off *and* the crew is spent, so the
+   *                        shell also drives the hostile phases (next turn opens
+   *                        on the operator we flipped to).
+   *   - `'end'`          — solo / single-deploy (nobody to flip to); just end.
+   */
+  passActiveOperatorTurn(): 'flip' | 'flip-and-end' | 'end' {
+    if (!this.#flipAlternate()) return 'end';
+    this.flip();
+    return this.endOfTurnReady() ? 'flip-and-end' : 'flip';
+  }
+
+  /**
    * The *other* live meat operator on the grid (Decker ↔ partner), distinct
    * from the current `meatActor`. `null` when there is no second one — pre-jack
    * solo runs, or after a partner flatline. Used only outside an active

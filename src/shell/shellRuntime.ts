@@ -976,9 +976,7 @@ function onUseItem(evt: Event) {
   }
   itemInventoryEl.hide();
   paint();
-  if (run.player.ap === 0) {
-    advanceTurn();
-  }
+  concludeOperatorTurn();
 }
 
 /**
@@ -1112,9 +1110,7 @@ function resolveAimedUseItem(aim: { dx: number; dy: number }, run: Run): void {
     return;
   }
   paint();
-  if (run.player.ap === 0) {
-    advanceTurn();
-  }
+  concludeOperatorTurn();
 }
 
 function handlePersist() {
@@ -1383,15 +1379,82 @@ function handleFlip(): void {
   }
   // The look cursor + any aim mode are layer-specific — clear them before the
   // view swaps out from under them.
+  run.flip();
+  repaintAfterFlip(run, 'SIMSTIM');
+}
+
+/**
+ * Shared post-flip presentation: the look cursor + any aim mode are
+ * layer-specific, so clear them before the view swaps, then recompute vision,
+ * repaint, and flash where control landed. `prefix` distinguishes a manual
+ * flip (`SIMSTIM`) from an auto-flip on AP exhaustion (`OPERATOR SPENT …`).
+ * The flip mutation itself has already happened on the `Run` by the time we
+ * get here.
+ */
+function repaintAfterFlip(run: Run, prefix: string): void {
   lookCursor = null;
   resetInputModes();
-  run.flip();
   recomputeVision();
   paint();
   const actor = activeActorOf(run);
   const where = isCyberView(run) ? 'CYBERSPACE' : 'MEATSPACE';
   const who = actor && 'callsign' in actor && actor.callsign ? ` · ${actor.callsign}` : '';
-  flash(`SIMSTIM → ${where}${who}`);
+  flash(`${prefix} → ${where}${who}`);
+}
+
+/**
+ * P3.M4.4: resolve the active operator running out of AP. Replaces the bare
+ * `advanceTurn()` at every auto-end-on-exhaustion site. Independent AP pools
+ * mean exhausting one operator does *not* end the mutual turn while another
+ * still has AP — `Run.concludeActiveOperatorTurn()` auto-flips control to it
+ * instead; only when the whole crew is spent do we drive the hostile phases.
+ * Explicit Wait (`end-turn`) keeps its own hard `advanceTurn()` escape hatch.
+ */
+function concludeOperatorTurn(): void {
+  const run = currentScene();
+  if (!run || !isRun(run)) {
+    advanceTurn();
+    return;
+  }
+  switch (run.concludeActiveOperatorTurn()) {
+    case 'continue':
+      return;
+    case 'end':
+      advanceTurn();
+      return;
+    case 'auto-flip':
+      repaintAfterFlip(run, 'OPERATOR SPENT');
+      return;
+  }
+}
+
+/**
+ * P3.M4.4: resolve a Wait (`.`). The active operator has forfeited its AP;
+ * Wait always hands control to the other operator when one exists (consistent
+ * "pass/switch" gesture), and additionally ends the mutual turn — driving the
+ * hostile phases — once the whole crew is spent.
+ */
+function passOperatorTurn(): void {
+  const run = currentScene();
+  if (!run || !isRun(run)) {
+    advanceTurn();
+    return;
+  }
+  switch (run.passActiveOperatorTurn()) {
+    case 'end':
+      advanceTurn();
+      return;
+    case 'flip':
+      repaintAfterFlip(run, 'WAIT');
+      return;
+    case 'flip-and-end':
+      // Control handed to the other operator (so next turn opens there), then
+      // the crew-spent turn ends; repaint first so the corp/ICE phases animate
+      // on the operator we flipped to.
+      repaintAfterFlip(run, 'WAIT');
+      advanceTurn();
+      return;
+  }
 }
 
 export function handleIntent(intent: Intent): void {
@@ -1453,6 +1516,8 @@ export function handleIntent(intent: Intent): void {
     // Capture the action line for the next paint(); see lastActionLine docs.
     log: (line: string) => flash(line),
     advanceTurn,
+    concludeTurn: concludeOperatorTurn,
+    passTurn: passOperatorTurn,
     resetInputModes,
     onUseItem: (aim: { dx: number; dy: number }) => {
       resolveAimedUseItem(aim, run as Run);
@@ -1883,9 +1948,9 @@ function handleSecuredInteract(
   const fired = pulseSecuredInteractable(entity);
   if (!apExhausted) return;
   if (fired) {
-    scheduleCombatPump(() => advanceTurn(), ANIMATION_DURATIONS.INTERACT_SECURED_FLASH);
+    scheduleCombatPump(() => concludeOperatorTurn(), ANIMATION_DURATIONS.INTERACT_SECURED_FLASH);
   } else {
-    advanceTurn();
+    concludeOperatorTurn();
   }
 }
 
@@ -1925,9 +1990,7 @@ function handleCombatInteract(): void {
             `Salvaged +${amount} — carrying ${formatSalvageCompact(inventory.salvage)}. ${player.ap} AP left.`
           );
           paint();
-          if (player.ap === 0) {
-            advanceTurn();
-          }
+          concludeOperatorTurn();
           return;
         }
       }
@@ -1946,7 +2009,7 @@ function handleCombatInteract(): void {
     ) {
       handleSecuredInteract(interactable, { apExhausted: player.ap === 0 });
     } else if (result.ok && player.ap === 0) {
-      advanceTurn();
+      concludeOperatorTurn();
     }
     paint();
     return;

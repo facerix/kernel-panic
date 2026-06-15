@@ -1807,9 +1807,17 @@ function restoreActiveRun(
   if (record.snapshot) {
     const restored = restore(record.snapshot, options).run;
     restored.crewMember = member;
-    // P3.M4.1: re-bind the partner to the canonical crew object (the snapshot
-    // carried a detached copy), matching how `crewMember` is re-linked.
-    restored.partnerMember = partner;
+    // P3.M4.1/M4.4: re-bind the partner to the canonical roster object ONLY
+    // while it is still off-grid — a dormant reserve, the object a later jack-in
+    // spawns onto the meat grid. Once the partner is a *live grid entity*
+    // (jacked in, or jacked out), keep the entity `restore()` already wired:
+    // it's the meat operator the simstim flip controls, exactly as `run.player`
+    // stays the grid body for the primary. Rebinding it to the off-grid roster
+    // copy stranded the partner off the map — the flip drove a phantom while the
+    // on-grid copy sat frozen in place.
+    if (partner && !restored.world?.entities.has(partner.id)) {
+      restored.partnerMember = partner;
+    }
     return restored;
   }
   const run = new Run({

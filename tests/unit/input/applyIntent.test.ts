@@ -495,6 +495,21 @@ test('end-turn drains AP to 0, logs wait, and invokes advanceTurn once', () => {
   );
 });
 
+test('P3.M4.4: end-turn routes through passTurn when wired (Wait passes this operator)', () => {
+  // Dual-deploy: Wait forfeits the active operator's AP but defers the
+  // flip/end decision to the shell's pass handler, so the *other* operator
+  // takes over instead of having its turn dumped.
+  const { ctx, player, calls } = buildCtx();
+  let passed = 0;
+  ctx.passTurn = () => {
+    passed++;
+  };
+  applyIntent({ type: 'end-turn' }, ctx);
+  assert.equal(player.ap, 0, 'this operator forfeits its remaining AP');
+  assert.equal(passed, 1, 'Wait drives the pass/flip path');
+  assert.equal(calls.advanceTurn, 0, 'no hard end while passTurn is wired');
+});
+
 test('cancel calls resetInputModes and does not mutate state', () => {
   const { ctx, calls, player } = buildCtx();
   const beforeAp = player.ap;

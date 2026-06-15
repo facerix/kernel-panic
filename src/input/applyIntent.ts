@@ -89,6 +89,23 @@ export type ApplyIntentContext = {
   rng: Rng;
   log: (line: string) => void;
   advanceTurn: () => void;
+  /**
+   * P3.M4.4: resolve the active operator hitting 0 AP. With independent
+   * dual-deploy AP pools, exhausting one operator must not end the mutual turn
+   * while another still has AP — the shell auto-flips control instead, and only
+   * ends (driving the hostile phases) once the whole crew is spent. Optional:
+   * contexts that don't supply it fall back to the single-operator `advanceTurn`
+   * (correct for solo/single-deploy, where there is nothing to flip to).
+   */
+  concludeTurn?: () => void;
+  /**
+   * P3.M4.4: resolve a Wait (`.`). Distinct from `concludeTurn`: Wait always
+   * hands control to the other operator when one exists (a consistent
+   * pass/switch gesture), ending the mutual turn additionally when the crew is
+   * spent. Optional: without it (solo/single-deploy harness) Wait hard-ends via
+   * `advanceTurn`.
+   */
+  passTurn?: () => void;
   resetInputModes: () => void;
   onPlayerAction: (actionName: string) => void;
   /**
@@ -153,10 +170,11 @@ export const PLAYER_ACTIONS = Object.freeze({
 });
 
 function gateOnApExhausted(ctx: ApplyIntentContext) {
-  const { player, advanceTurn } = ctx;
-  if (player.ap === 0) {
-    advanceTurn();
-  }
+  const { player, advanceTurn, concludeTurn } = ctx;
+  if (player.ap !== 0) return;
+  // P3.M4.4: defer the end-vs-auto-flip decision to the shell when wired;
+  // otherwise fall back to a hard end (single-operator semantics).
+  (concludeTurn ?? advanceTurn)();
 }
 
 function finishBumpInteract(
@@ -203,10 +221,15 @@ export function applyIntent(intent: Intent, ctx: ApplyIntentContext) {
     case 'use-item':
       return doUseItem(intent, ctx);
     case 'end-turn': {
+      // P3.M4.4: Wait passes *this* operator — forfeit its remaining AP, then
+      // hand control to the other operator if it can still act (auto-flip via
+      // `concludeTurn`), ending the mutual turn only once the whole crew is
+      // spent. Without a `concludeTurn` (solo/single-deploy harness) this is a
+      // hard end, same as before.
       const apBefore = player.ap;
       log(`> ${entityLabel(player)} waits (drops ${apBefore} AP).`);
       player.ap = 0;
-      advanceTurn();
+      (ctx.passTurn ?? advanceTurn)();
       return;
     }
     case 'cancel':

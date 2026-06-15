@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 
 import { Run } from '../../../../src/game/Run.js';
 import { Campaign } from '../../../../src/game/Campaign.js';
+import { JackInPoint } from '../../../../src/game/entities/JackInPoint.js';
 import { OUTCOME } from '../../../../src/game/Run.js';
 import { OBJECTIVES } from '../../../../src/game/hub/Curator.js';
 import { buildCrewMember } from '../../../../src/game/archetypes/index.js';
@@ -191,6 +192,59 @@ test('P3.M4.1: partner survives a campaign round-trip in COMBAT state', () => {
   assert.equal(restored.activeRun?.partnerMember?.id, partner.id);
   assert.equal(restored.activeRun?.partnerMember, restored.getCrewMember(partner.id));
   assert.equal(restored.activeRun?.partnerMember?.flatlined, false);
+});
+
+// P3.M4.4 regression: once the partner is a live grid entity (jacked in, or
+// jacked out), the campaign restore must keep `partnerMember` pointing at that
+// grid entity — not the off-grid canonical roster copy. Rebinding it to the
+// roster object stranded the partner off the map: flipping to it controlled a
+// phantom that couldn't move (the on-grid copy sat frozen in place).
+function jackInCampaignRun(run: Run) {
+  const point = [...run.world!.entities.values()].find(e => e instanceof JackInPoint) as JackInPoint;
+  let spot: { x: number; y: number } | null = null;
+  for (let dy = -1; dy <= 1 && !spot; dy++) {
+    for (let dx = -1; dx <= 1 && !spot; dx++) {
+      if (dx === 0 && dy === 0) continue;
+      const x = point.x + dx;
+      const y = point.y + dy;
+      if (
+        run.world!.grid.inBounds(x, y) &&
+        run.world!.grid.isPassable(x, y) &&
+        !run.world!.entityAt(x, y)
+      ) {
+        spot = { x, y };
+      }
+    }
+  }
+  run.world!.relocateEntity(run.player!, spot!.x, spot!.y);
+  run.player!.refreshAp();
+  assert.equal(point.interact(run.world!, run.player!).ok, true);
+}
+
+test('P3.M4.4: after jack-out the campaign round-trip keeps the partner on the grid', () => {
+  const campaign = act2Campaign();
+  const decker = deckerOf(campaign);
+  const partner = meatOf(campaign);
+  const run = campaign.deployCrewMember(decker.id, cyberContract(), partner.id);
+  run.enterCombat();
+  jackInCampaignRun(run); // spawns the partner on the meat grid
+  run.jackOut(); // phase → resolved; both meat crew on the grid, control on the body
+  assert.equal(run.cyberspace?.phase, 'resolved');
+
+  const restored = restoreCampaign(structuredClone(snapshotCampaign(campaign)));
+  const rerun = restored.activeRun!;
+
+  // The partner reference IS the live grid entity (identity), not an off-grid
+  // roster copy — so flipping to it controls the thing the player can see.
+  const gridPartner = rerun.world!.entities.get(partner.id);
+  assert.ok(gridPartner, 'partner is a live entity on the restored meat grid');
+  assert.equal(rerun.partnerMember, gridPartner, 'partnerMember is the grid entity');
+  assert.equal(rerun.partnerMember!.frozen, false, 'partner is not frozen post jack-out');
+
+  // Flip to the partner: the active meat operator is the on-grid entity.
+  rerun.flip();
+  assert.equal(rerun.meatActor, gridPartner);
+  assert.equal(rerun.world!.entities.get(rerun.meatActor!.id), rerun.meatActor);
 });
 
 test('P3.M4.1: partner survives a standalone run snapshot/restore', () => {
