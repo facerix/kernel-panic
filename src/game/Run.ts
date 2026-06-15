@@ -49,6 +49,7 @@ import { isValidBlockingPlacement, checkPlacementIntegrity } from './placement.j
 import { makeSalvage, type TypedSalvage } from './salvage.js';
 import { Entity, type LootableEntity } from './Entity.js';
 import { Hostile } from './Hostile.js';
+import { hasLineOfSight } from './LineOfSight.js';
 import { Crew } from './Crew.js';
 import { Merc } from './archetypes/Merc.js';
 import { Razor } from './archetypes/Razor.js';
@@ -310,6 +311,11 @@ export type RunSnapshot = {
    */
   partner?: RunEntitySnapshot;
   /**
+   * P3.M4.2: which layer held input at save time (`'meat'` | `'cyber'`).
+   * Present only while jacked in (cyber phase `active`); absent ⇒ `'meat'`.
+   */
+  activeLayer?: 'meat' | 'cyber';
+  /**
    * P3.M3: Cyberspace layer state. Present exactly when the contract requires
    * Cyberspace (`contractRequiresCyberspace`) — a mismatch in either direction
    * is corrupt and throws on restore.
@@ -432,7 +438,28 @@ export class Run {
   world: World | null;
   queue: TurnQueue | null;
   bus: EventBus | null;
+  /**
+   * The Decker (the deployed primary) on a cyber contract — and, once jacked
+   * in, the immobile Meatspace **body** at the port. On non-cyber runs this is
+   * simply the deployed operator. Body-targeting feedback and the forced
+   * jack-out (P3.M4.6) read `player` as the body; the *controllable* meat crew
+   * is `meatActor` (they diverge only after a dual-deploy jack-in).
+   */
   player: Crew | null;
+  /**
+   * P3.M4.2: the controllable Meatspace crew. Equals `player` until a
+   * dual-deploy jack-in spawns the partner, after which it points at the
+   * partner (the body freezes). The simstim flip (P3.M4.3) swaps `activeLayer`,
+   * not this — `meatActor` is always "who moves in Meatspace".
+   */
+  meatActor: Crew | null;
+  /**
+   * P3.M4.2/M4.3: which layer currently receives player input. Only meaningful
+   * while the cyber layer is active; `'meat'` everywhere else. On a dual-deploy
+   * jack-in control stays in Meatspace (`'meat'`) until the first flip; a solo
+   * Decker jack-in goes straight to `'cyber'` (no meat operator to hold).
+   */
+  activeLayer: 'meat' | 'cyber';
   contract: Contract | null;
   exitTile: GridPoint | null;
   /** P3.M3: Cyberspace state machine; `null` ⇔ no Cyberspace component. */
@@ -522,6 +549,8 @@ export class Run {
     this.queue = null;
     this.bus = null;
     this.player = null;
+    this.meatActor = null;
+    this.activeLayer = 'meat';
     this.contract = null;
     this.exitTile = null;
     this.cyberspace = null;
@@ -603,6 +632,10 @@ export class Run {
       applyMutationDeltas(this.world.grid, this.priorMutationDeltas);
     }
     this.player = this.#makePlayer(map.spawns.player);
+    // P3.M4.2: pre-jack-in the deployed operator is the sole controllable meat
+    // crew; the partner (if any) is reserved off-grid until jack-in.
+    this.meatActor = this.player;
+    this.activeLayer = 'meat';
     this.world.addEntity(this.player);
     for (let i = 0; i < map.doors.length; i++) {
       const a = map.doors[i]!;
@@ -866,12 +899,17 @@ export class Run {
       objectiveProgress: { securedPickups: world.securedPickupIds() },
       keyItems: this.keyItems.map(k => ({ id: k.id, label: k.label, doorId: k.doorId })),
       mutationDeltas: world.mutationDeltas.map(delta => ({ ...delta })),
-      // P3.M4.1: the reserved meat partner. Captured as an off-grid entity
-      // record with a (0,0) placeholder cell — the partner is not on any grid
-      // until jack-in (P3.M4.2) computes its real spawn. Absent on solo runs.
-      ...(this.partnerMember
+      // P3.M4.1/M4.2: the reserved meat partner. While the cyber layer is still
+      // dormant the partner is off-grid, so it serializes as an entity record
+      // with a (0,0) placeholder cell. Once jacked in (active/resolved) the
+      // partner is a live grid entity captured in `entities`, so the off-grid
+      // record is omitted to avoid a duplicate.
+      ...(this.partnerMember && this.cyberspace?.phase === 'dormant'
         ? { partner: { ...snapshotEntity(this.partnerMember), x: 0, y: 0 } }
         : {}),
+      // P3.M4.2: which layer holds input. Only meaningful while jacked in;
+      // captured so a mid-flip save restores to the same side.
+      ...(this.cyberspace?.phase === 'active' ? { activeLayer: this.activeLayer } : {}),
       // P3.M3: present exactly when the contract has a Cyberspace component.
       ...(this.cyberspace ? { cyberspace: snapshotCyberspace(this.cyberspace) } : {}),
     };
@@ -895,14 +933,40 @@ export class Run {
     return this.cyberspace?.phase === 'active';
   }
 
-  /** The world the shell should render/drive: cyber while jacked in, else meat. */
-  get activeWorld(): World | null {
-    return this.cyberspace?.phase === 'active' ? this.cyberspace.layer.world : this.world;
+  /** True while a cyber layer is live *and* the active layer is Cyberspace. */
+  get cyberInputActive(): boolean {
+    return this.cyberspace?.phase === 'active' && this.activeLayer === 'cyber';
   }
 
-  /** The actor the shell should control: the avatar while jacked in, else the player. */
+  /**
+   * The world the shell should render/drive. Honors the simstim flip
+   * (`activeLayer`): Cyberspace only while jacked in *and* flipped to cyber;
+   * Meatspace otherwise (including the post-jack-in pre-first-flip window).
+   */
+  get activeWorld(): World | null {
+    return this.cyberInputActive && this.cyberspace?.phase === 'active'
+      ? this.cyberspace.layer.world
+      : this.world;
+  }
+
+  /**
+   * The actor the shell should control: the cyber avatar while flipped to the
+   * grid, else the controllable Meatspace crew (`meatActor`, which is the
+   * partner after a dual-deploy jack-in, the Decker otherwise).
+   */
   get activeActor(): Crew | CyberAvatar | null {
-    return this.cyberspace?.phase === 'active' ? this.cyberspace.layer.avatar : this.player;
+    if (this.cyberInputActive && this.cyberspace?.phase === 'active') {
+      return this.cyberspace.layer.avatar;
+    }
+    return this.meatActor ?? this.player;
+  }
+
+  /**
+   * P3.M4.2: the Decker's immobile Meatspace body while jacked in (`null`
+   * otherwise). It is the deployed Decker (`player`) frozen at the port.
+   */
+  get deckerBody(): Crew | null {
+    return this.cyberspace?.phase === 'active' && this.player instanceof Decker ? this.player : null;
   }
 
   /**
@@ -931,14 +995,34 @@ export class Run {
     if (!(this.player instanceof Decker)) {
       throw new Error('Run.jackIn: only a Decker can enter the grid');
     }
+    const decker = this.player;
     const layer = CyberspaceLayer.build({
       contractSeed: this.contract.seed,
       difficulty: this.contract.difficulty,
-      decker: this.player,
+      decker,
       nodeCount: objectiveCount(this.contract),
     });
     this.cyberspace = { phase: 'active', layer };
     this.#wireCyberLayerListeners(layer);
+    // P3.M4.2: the Decker's body is now "a vegetable" at the port — freeze it
+    // (immobile, still targetable). If a meat partner was reserved, spawn it
+    // onto the grid and hand it control; the player stays in Meatspace until
+    // the first flip (P3.M4.3). A solo jack-in has no meat operator to hold, so
+    // control drops straight to the grid.
+    if (!this.world) {
+      throw new Error('Run.jackIn: COMBAT state without a meat world');
+    }
+    decker.frozen = true;
+    if (this.partnerMember) {
+      const spawn = this.#partnerSpawnTile(this.world, decker);
+      this.#initCombatant(this.partnerMember, spawn);
+      this.world.addEntity(this.partnerMember);
+      this.meatActor = this.partnerMember;
+      this.activeLayer = 'meat';
+    } else {
+      this.meatActor = decker;
+      this.activeLayer = 'cyber';
+    }
     // The latch transition must never be lost — autosave explicitly.
     if (this.onPersist) {
       this.onPersist(this.snapshot());
@@ -1010,6 +1094,15 @@ export class Run {
   #finalizeJackOut(layer: CyberspaceLayer, objectiveComplete: boolean): void {
     layer.teardown();
     this.cyberspace = { phase: 'resolved', objectiveComplete };
+    // P3.M4.2: the Decker is back in its body — unfreeze it, return control to
+    // Meatspace, and make the body the active operator. The partner (if any)
+    // remains on the grid as a second meat crew; the meat↔meat flip that lets
+    // the player switch between them lands with P3.M4.3.
+    if (this.player) {
+      this.player.frozen = false;
+      this.meatActor = this.player;
+    }
+    this.activeLayer = 'meat';
     // S5: the link is burned — re-jack-in refused for the rest of the run.
     this.#meatJackInPoint().burn();
     if (this.onPersist) {
@@ -1182,19 +1275,73 @@ export class Run {
   // ------------------------------------------------------------------
 
   #makePlayer(spawn: GridPoint): Crew {
-    this.crewMember.x = spawn.x;
-    this.crewMember.y = spawn.y;
-    this.crewMember.maxAp = 4;
-    this.crewMember.ap = this.crewMember.maxAp;
-    // HP persists across jobs — no reset. Armour Plating (via Finn) is
-    // the only Hub-side HP recovery. Stims are combat-only.
-    this.crewMember.alive = true;
-    this.crewMember.stealthed = false;
-    this.crewMember.initInventory();
-    if (this.crewMember instanceof Tech) {
-      this.crewMember.turretReady = true;
+    return this.#initCombatant(this.crewMember, spawn);
+  }
+
+  /**
+   * Prep a crew member for the Meatspace grid — spawn position, full AP, combat
+   * inventory. HP persists across jobs (no reset; Armour Plating via Finn is the
+   * only Hub-side HP recovery, stims are combat-only). Shared by the deployed
+   * operator (`#makePlayer`) and the dual-deploy partner spawned at jack-in.
+   */
+  #initCombatant(crew: Crew, spawn: GridPoint): Crew {
+    crew.x = spawn.x;
+    crew.y = spawn.y;
+    crew.maxAp = 4;
+    crew.ap = crew.maxAp;
+    crew.alive = true;
+    crew.stealthed = false;
+    crew.frozen = false;
+    crew.initInventory();
+    if (crew instanceof Tech) {
+      crew.turretReady = true;
     }
-    return this.crewMember;
+    return crew;
+  }
+
+  /**
+   * P3.M4.2: choose a deterministic, *safe* Meatspace cell to drop the
+   * dual-deploy partner into at jack-in — "a random cell, not directly in
+   * danger, behind cover" (resolved decision). Candidates are free, unoccupied
+   * floor tiles off the body's tile; we prefer tiles no live hostile can see
+   * (geometry LOS) and that sit against cover (a wall neighbour). Falls back
+   * through safe → any-free so a hostile-saturated map still spawns the
+   * partner; an utterly full grid is corrupt and throws.
+   */
+  #partnerSpawnTile(world: World, body: Entity): GridPoint {
+    const grid = world.grid;
+    const hostiles = [...world.entities.values()].filter(
+      e => e.alive && e.faction !== FACTION.PLAYER && e.faction !== FACTION.NEUTRAL
+    );
+    const seen = (tx: number, ty: number): boolean =>
+      hostiles.some(h => hasLineOfSight(grid, h.x, h.y, tx, ty));
+    const hasCover = (tx: number, ty: number): boolean =>
+      !grid.isPassable(tx, ty - 1) ||
+      !grid.isPassable(tx, ty + 1) ||
+      !grid.isPassable(tx - 1, ty) ||
+      !grid.isPassable(tx + 1, ty);
+
+    const free: GridPoint[] = [];
+    const safe: GridPoint[] = [];
+    const safeCover: GridPoint[] = [];
+    // Stable iteration (row-major) keeps the candidate order deterministic.
+    for (let y = 0; y < grid.height; y++) {
+      for (let x = 0; x < grid.width; x++) {
+        if (x === body.x && y === body.y) continue;
+        if (!grid.isPassable(x, y)) continue;
+        if (world.entityAt(x, y)) continue;
+        const tile = { x, y };
+        free.push(tile);
+        if (seen(x, y)) continue;
+        safe.push(tile);
+        if (hasCover(x, y)) safeCover.push(tile);
+      }
+    }
+    const pool = safeCover.length ? safeCover : safe.length ? safe : free;
+    if (pool.length === 0) {
+      throw new Error('Run.#partnerSpawnTile: no free Meatspace cell to spawn the partner');
+    }
+    return pool[this.rng.intRange(0, pool.length)]!;
   }
 
   #unwireCombatListeners(): void {

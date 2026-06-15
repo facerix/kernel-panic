@@ -1074,18 +1074,31 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
     grid.tiles[i] = record.grid.tiles[i] & 0xff;
   }
 
-  let player = null;
   const restoredEntities = record.entities.map(entityRec => restoreEntity(entityRec, grid));
-  for (const entity of restoredEntities) {
-    if (entity instanceof Crew && entity.faction === FACTION.PLAYER) {
-      if (player) {
-        throw new Error('restore: run snapshot has multiple player crew entities');
-      }
-      player = entity;
+  const playerCrew = restoredEntities.filter(
+    (e): e is Crew => e instanceof Crew && e.faction === FACTION.PLAYER
+  );
+  // P3.M4.2: a dual-deploy jack-in puts two PLAYER crew on the meat grid — the
+  // frozen Decker body (the deployed primary) and the partner. Disambiguate by
+  // archetype: the Decker is the body, the non-Decker is the partner.
+  let player: Crew;
+  let gridPartner: Crew | null = null;
+  if (playerCrew.length === 1) {
+    player = playerCrew[0]!;
+  } else if (playerCrew.length === 2) {
+    const deckers = playerCrew.filter(e => e instanceof Decker);
+    const others = playerCrew.filter(e => !(e instanceof Decker));
+    if (deckers.length !== 1 || others.length !== 1) {
+      throw new Error(
+        'restore: a dual-deploy meat layer needs exactly one Decker body and one partner'
+      );
     }
-  }
-  if (!player) {
+    player = deckers[0]!;
+    gridPartner = others[0]!;
+  } else if (playerCrew.length === 0) {
     throw new Error('restore: run snapshot has no player crew entity');
+  } else {
+    throw new Error(`restore: run snapshot has ${playerCrew.length} player crew entities`);
   }
 
   const run = new Run({
@@ -1100,17 +1113,41 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
   run.contract = normalizeContract(record.contract);
   const runIsCyber = run.contract !== null && contractRequiresCyberspace(run.contract);
   run.cyberspace = restoreCyberspace(record, runIsCyber);
-  // P3.M4.1: the reserved meat partner round-trips as an off-grid entity.
-  // Present ⇒ Cyberspace dual-deploy; a partner on a non-cyber run is corrupt.
+  const cyberPhase = run.cyberspace?.phase ?? null;
+  // P3.M4.1/M4.2: resolve the meat partner. Pre-jack (dormant) it round-trips
+  // as an off-grid entity record; once jacked in it is a live grid entity
+  // (`gridPartner`). The two encodings are mutually exclusive.
   if (record.partner) {
     if (!runIsCyber) {
       throw new Error('restore: run snapshot has a meat partner but no Cyberspace contract');
+    }
+    if (cyberPhase !== 'dormant') {
+      throw new Error(
+        'restore: off-grid partner record is only valid while the cyber layer is dormant'
+      );
+    }
+    if (gridPartner) {
+      throw new Error('restore: partner present both off-grid and on the meat grid');
     }
     const partner = restoreEntity(record.partner, grid);
     if (!(partner instanceof Crew) || partner instanceof Decker) {
       throw new Error('restore: run partner must be a non-Decker Crew member');
     }
     run.partnerMember = partner;
+  } else if (gridPartner) {
+    run.partnerMember = gridPartner;
+  }
+
+  // P3.M4.2: re-establish the simstim flip state. While jacked in the Decker
+  // body is frozen and control sits with `meatActor` (the partner when one was
+  // spawned) unless the save had flipped into Cyberspace.
+  if (cyberPhase === 'active') {
+    player.frozen = true;
+    run.meatActor = gridPartner ?? player;
+    run.activeLayer = record.activeLayer === 'cyber' ? 'cyber' : 'meat';
+  } else {
+    run.meatActor = player;
+    run.activeLayer = 'meat';
   }
   run.exitTile = record.exitTile ? { ...record.exitTile } : null;
   run.telemetry = { ...record.telemetry };

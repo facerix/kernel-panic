@@ -75,6 +75,13 @@ export class Entity {
   stealthed: boolean;
   passable: boolean;
   anchored: boolean;
+  /**
+   * P3.M4.2: a frozen entity cannot move under its own power (`canMoveEntity`
+   * refuses it). Set on the Decker's Meatspace body while it is jacked in — the
+   * body is "a vegetable" at the port: still targetable, still occupies its
+   * tile, but immobile until jack-out clears the flag.
+   */
+  frozen: boolean;
   displayName?: string;
   principalTag?: string;
 
@@ -134,6 +141,7 @@ export class Entity {
     this.stealthed = false;
     this.passable = passable;
     this.anchored = anchored;
+    this.frozen = false;
     this.displayName = displayName;
     this.principalTag = principalTag;
   }

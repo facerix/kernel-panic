@@ -491,6 +491,11 @@ export class World {
     if (!entity.alive) {
       return { ok: false, reason: 'dead' };
     }
+    // P3.M4.2: a jacked-in Decker body is immobile — it holds its tile at the
+    // port while the Decker's attention is in Cyberspace.
+    if (entity.frozen) {
+      return { ok: false, reason: 'jacked-in' };
+    }
     if (dx === 0 && dy === 0) {
       return { ok: false, reason: 'no-op' };
     }
