@@ -22,7 +22,7 @@ test('cyber tiles render distinct glyphs from meat', () => {
   const meatWall = glyphForTile(TILE.WALL as TileId);
   const cyberWall = glyphForTile(TILE.WALL as TileId, undefined, 'cyber');
 
-  assert.equal(cyberFloor.char, '·');
+  assert.equal(cyberFloor.char, '÷');
   assert.equal(cyberWall.char, '▒');
   assert.notDeepEqual(cyberFloor, meatFloor);
   assert.notDeepEqual(cyberWall, meatWall);
