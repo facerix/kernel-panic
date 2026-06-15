@@ -1,7 +1,9 @@
 import { RUN_STATE } from '../game/Run.js';
 import type { Run } from '../game/Run.js';
 import type { CombatHudSummaryInput } from '../render/combatHud.js';
-import { cyberLayerOf } from './activeView.js';
+import { CyberAvatar } from '../game/cyber/CyberAvatar.js';
+import { Crew } from '../game/Crew.js';
+import { activeActorOf, isCyberView } from './activeView.js';
 import { isRun } from './sceneView.js';
 import type { ShellScene } from './sceneView.js';
 
@@ -32,33 +34,34 @@ export function buildCombatHudSnapshot(scene: ShellScene | null): CombatHudSumma
 }
 
 /**
- * P3.M3.6: identity/HP/AP panes track whoever the player is being right now —
- * the crew body in Meatspace, the avatar (RAM pool) on the grid.
+ * P3.M3.6/M4.3: identity/HP/AP panes track whoever the player is controlling
+ * right now — the avatar (RAM pool) while flipped to the grid, otherwise the
+ * active Meatspace crew (the partner after a dual jack-in, else the operator).
  */
 export function combatHudBodyPanes(
   scene: Run
 ): Pick<CombatHudSummaryInput, 'identity' | 'hp' | 'ap'> {
-  const layer = cyberLayerOf(scene);
-  if (layer) {
-    const avatar = layer.avatar;
+  const actor = activeActorOf(scene);
+  if (isCyberView(scene) && actor instanceof CyberAvatar) {
     return {
       identity: {
-        callsign: avatar.callsign,
+        callsign: actor.callsign,
         archetype: 'Avatar',
-        stealthed: avatar.stealthed,
+        stealthed: actor.stealthed,
       },
-      hp: { hp: avatar.hp, maxHp: avatar.maxHp, label: 'RAM' },
-      ap: { ap: avatar.ap, maxAp: avatar.maxAp },
+      hp: { hp: actor.hp, maxHp: actor.maxHp, label: 'RAM' },
+      ap: { ap: actor.ap, maxAp: actor.maxAp },
     };
   }
-  const player = scene.player!;
+  const crew = actor instanceof Crew ? actor : scene.player!;
   return {
     identity: {
-      callsign: player.callsign,
-      archetype: scene.archetype,
-      stealthed: player.stealthed,
+      callsign: crew.callsign,
+      // The active meat crew may be the partner — show its own archetype.
+      archetype: crew === scene.player ? scene.archetype : crew.archetype,
+      stealthed: crew.stealthed,
     },
-    hp: { hp: player.hp, maxHp: player.maxHp },
-    ap: { ap: player.ap, maxAp: player.maxAp },
+    hp: { hp: crew.hp, maxHp: crew.maxHp },
+    ap: { ap: crew.ap, maxAp: crew.maxAp },
   };
 }

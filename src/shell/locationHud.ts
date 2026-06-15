@@ -1,7 +1,7 @@
 import { CAMPAIGN_STATE } from '../game/Campaign.js';
 import type { Campaign } from '../game/Campaign.js';
 import { formatHubArcStatusLines } from '../game/hub/arcSurface.js';
-import { isJackedIn } from './activeView.js';
+import { isCyberView } from './activeView.js';
 import type { ShellScene } from './sceneView.js';
 
 /**
@@ -14,7 +14,7 @@ export function currentLocationLabel(
   scene: ShellScene | null
 ): string | undefined {
   if (!campaign) return undefined;
-  if (isJackedIn(scene)) {
+  if (isCyberView(scene)) {
     return '// THE GRID //';
   }
   if (campaign.state === CAMPAIGN_STATE.COMBAT && campaign.activeRun?.contract) {

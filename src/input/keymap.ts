@@ -116,6 +116,12 @@ function dispatchIdle(key: string): DispatchResult {
       return { intent: { type: 'inventory' }, nextMode: MODE.IDLE, aimKind: null };
     case 'l':
       return stayLook();
+    case 'Tab':
+      // P3.M4.3: simstim flip — swap active control between the Meatspace
+      // operator and the Decker's Cyberspace avatar (or, post-jack-out, the
+      // two meat operators). The keymap stays dumb; the shell decides whether
+      // a flip is currently possible and flashes a deny otherwise.
+      return { intent: { type: 'flip' }, nextMode: MODE.IDLE, aimKind: null };
     case 'Escape':
       return { intent: { type: 'cancel' }, nextMode: MODE.IDLE, aimKind: null };
     case 'f':

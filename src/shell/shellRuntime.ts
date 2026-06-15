@@ -81,7 +81,7 @@ import {
   activeTileset,
   activeWorldOf,
   cyberLayerOf,
-  isJackedIn,
+  isCyberView,
   pickActiveVisionField,
 } from '/src/shell/activeView.js';
 import { buildCombatHudSnapshot } from '/src/shell/combatHudSnapshot.js';
@@ -1054,7 +1054,7 @@ function resolveAimedUseItem(aim: { dx: number; dy: number }, run: Run): void {
   if (!run.world || !run.player) throw new Error('[shell] resolveAimedUseItem: no scene');
   // P3.M3.6: items are meat gear; the inventory gate blocks new aims while
   // jacked in, but an aim pending across the jack-in interact must also die.
-  if (isJackedIn(run)) {
+  if (isCyberView(run)) {
     pendingAimItemId = null;
     flash('USE FAILED: jacked in — your gear is back in Meatspace.');
     resetInputModes();
@@ -1370,6 +1370,30 @@ function handleLookMove(dx = 0, dy = 0): void {
   if (line) flash(line);
 }
 
+function handleFlip(): void {
+  const run = currentScene();
+  if (!run || !isRun(run) || run.state !== RUN_STATE.COMBAT) return;
+  if (isCorpControlsLocked()) {
+    flash('HOSTILES ACTIVE — controls locked until security finishes.');
+    return;
+  }
+  if (!run.canFlip()) {
+    flash('SIMSTIM: no second operator to flip to.');
+    return;
+  }
+  // The look cursor + any aim mode are layer-specific — clear them before the
+  // view swaps out from under them.
+  lookCursor = null;
+  resetInputModes();
+  run.flip();
+  recomputeVision();
+  paint();
+  const actor = activeActorOf(run);
+  const where = isCyberView(run) ? 'CYBERSPACE' : 'MEATSPACE';
+  const who = actor && 'callsign' in actor && actor.callsign ? ` · ${actor.callsign}` : '';
+  flash(`SIMSTIM → ${where}${who}`);
+}
+
 export function handleIntent(intent: Intent): void {
   if (intent?.type === 'quit-campaign') {
     resetInputModes();
@@ -1380,6 +1404,11 @@ export function handleIntent(intent: Intent): void {
 
   if (intent?.type === 'look-move') {
     handleLookMove(intent.dx, intent.dy);
+    return;
+  }
+
+  if (intent?.type === 'flip') {
+    handleFlip();
     return;
   }
 
@@ -1458,7 +1487,7 @@ export function handleIntent(intent: Intent): void {
             }
             // P3.M3.6: the avatar has no pockets — gear stays with the body
             // until the P3.M4 simstim flip makes split control real.
-            if (isJackedIn(run)) {
+            if (isCyberView(run)) {
               flash('Jacked in — your meatspace gear is out of reach.');
               return;
             }
@@ -1555,7 +1584,7 @@ function driveCombatTurnPipeline(run: Run, options: { resumeFromCorpSlice?: bool
       // P3.M3.6: aftermath is a Meatspace phase — while jacked in it still
       // *applies*, but the canvas is showing the grid, so skip its
       // presentation (overlays/shake/log lines).
-      const jacked = isJackedIn(scene);
+      const jacked = isCyberView(scene);
       const cyberLayer = cyberLayerOf(scene);
       const isCyberStep =
         cyberLayer !== null &&
@@ -1730,7 +1759,7 @@ function runCorpTurn(onFinish: () => void): void {
       if (!scene?.world || !scene.player) return true;
       // Jacked in: meat steps still *apply*, but the canvas is showing the
       // grid — drain them silently rather than pacing invisible frames.
-      if (isJackedIn(scene)) return false;
+      if (isCyberView(scene)) return false;
       return isCorpTurnStepVisibleToPlayer(scene.world, scene.player.id, entityId, step, (x, y) =>
         vision.isVisible(x, y)
       );
@@ -1739,7 +1768,7 @@ function runCorpTurn(onFinish: () => void): void {
       if (degrading) return;
       const scene = currentScene();
       if (!scene?.world || !scene.player) return;
-      if (isJackedIn(scene)) {
+      if (isCyberView(scene)) {
         paintPip();
         const resolve = (id: string) => resolveEntityLabel(id, scene.world!.entities);
         const line = formatCorpTurnStep(resolve(entityId), step, resolve);
@@ -1873,7 +1902,7 @@ function handleCombatInteract(): void {
   // Corpse looting needs pockets — the avatar (no inventory) skips straight
   // to interactables. ICE leaves no salvage in this slice.
   const inventory = 'inventory' in player ? (player as Crew).inventory : null;
-  if (!isJackedIn(run) && !inventory) {
+  if (!isCyberView(run) && !inventory) {
     throw new Error('[shell] combat player inventory is not initialised');
   }
   if (inventory) {
@@ -2093,7 +2122,7 @@ export function paint(stateHint: InputState = activeInputState()): void {
   const world = activeWorldOf(run);
   const actor = activeActorOf(run);
   if (!world || !actor) return;
-  const jacked = isJackedIn(run);
+  const jacked = isCyberView(run);
   // Hub is a safe space — no fog of war. Vision is only meaningful during
   // combat where LOS and drone stealth detection matter.
   const activeVision = run.state === RUN_STATE.COMBAT ? activeVisionField(run) : undefined;
@@ -2157,7 +2186,7 @@ function statusLine(state: InputState): string {
       statusWorld.grid.tileAt(statusActor.x, statusActor.y) === TILE.HAZARD;
     contextHtml = joinStatusParts([formatHazardTag(!!onHazard), alertTag]);
 
-    const jacked = isJackedIn(run);
+    const jacked = isCyberView(run);
     const hintText = proximityHint();
     if (
       !hintText &&
@@ -2178,7 +2207,7 @@ function statusLine(state: InputState): string {
       corpToneActivityBody !== null
     ) {
       latchedCorpMood = {
-        hostileTag: hostileMoodTag(isJackedIn(run), run.hostileFaction),
+        hostileTag: hostileMoodTag(isCyberView(run), run.hostileFaction),
         body: corpToneActivityBody,
       };
       corpToneActivityBody = null;
@@ -2255,7 +2284,7 @@ function proximityHint(): string {
     // nodes/exit port for the avatar.
     const world = activeWorldOf(run);
     const p = activeActorOf(run);
-    const jacked = isJackedIn(run);
+    const jacked = isCyberView(run);
     if (world && p) {
       // Loot hint: adjacent lootable corpses (needs pockets — avatar skips).
       if (!jacked) {

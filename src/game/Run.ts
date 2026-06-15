@@ -970,6 +970,55 @@ export class Run {
   }
 
   /**
+   * P3.M4.3: is there a second operator to flip control to right now?
+   *   - Jacked in: flip between the controllable meat operator and the cyber
+   *     avatar — but only when the meat side is actually controllable (a
+   *     dual-deploy partner, not just the frozen solo body).
+   *   - Post jack-out: flip between the two live meat operators (Decker ↔
+   *     partner) sharing the meat grid.
+   */
+  canFlip(): boolean {
+    if (this.state !== RUN_STATE.COMBAT) return false;
+    if (this.cyberspace?.phase === 'active') {
+      return !!this.meatActor && this.meatActor.alive && !this.meatActor.frozen;
+    }
+    return this.#aliveMeatAlternate() !== null;
+  }
+
+  /**
+   * P3.M4.3: the simstim flip — swap which operator receives player input.
+   * Free action. Throws if there is nothing to flip to (the shell gates on
+   * {@link canFlip} first, so reaching here illegally is a wiring bug).
+   */
+  flip(): void {
+    if (!this.canFlip()) {
+      throw new Error('Run.flip: no second operator to flip to');
+    }
+    if (this.cyberspace?.phase === 'active') {
+      this.activeLayer = this.activeLayer === 'cyber' ? 'meat' : 'cyber';
+      return;
+    }
+    const alternate = this.#aliveMeatAlternate();
+    if (alternate) this.meatActor = alternate;
+  }
+
+  /**
+   * The *other* live meat operator on the grid (Decker ↔ partner), distinct
+   * from the current `meatActor`. `null` when there is no second one — pre-jack
+   * solo runs, or after a partner flatline. Used only outside an active
+   * jack-in (where the flip is meat↔cyber instead).
+   */
+  #aliveMeatAlternate(): Crew | null {
+    const current = this.meatActor;
+    for (const crew of [this.player, this.partnerMember]) {
+      if (crew && crew !== current && crew.alive && this.world?.entities.has(crew.id)) {
+        return crew;
+      }
+    }
+    return null;
+  }
+
+  /**
    * Dormant → active: spawn the Cyberspace layer. Driven by the meat-bus
    * `EVENT.JACK_IN` emission from a `JackInPoint` link. The layer derives
    * from the *contract* seed, so the layout is independent of the jack-in

@@ -4,7 +4,7 @@ import type { CyberspaceLayer } from '../game/cyber/CyberspaceLayer.js';
 import type { Entity } from '../game/Entity.js';
 import type { World } from '../game/World.js';
 import type { VisionField } from '../game/Vision.js';
-import { cyberLayerOf, isRunScene } from './activeView.js';
+import { cyberLayerOf, isRunScene, meatActorOf } from './activeView.js';
 import type { ActiveViewScene } from './activeView.js';
 
 export type VisionSyncInput = {
@@ -31,8 +31,12 @@ export function syncVisionFields(input: VisionSyncInput): VisionSyncResult {
   let recordMeatSeen = false;
   let meatVisible: ReadonlySet<string> | undefined;
 
-  if (scene.world && scene.player) {
-    meatVision.recompute(scene.world.grid, scene.player, undefined, {
+  // P3.M4.3: meat fog follows the *controllable* meat operator — the partner
+  // after a dual jack-in, the body/operator otherwise. (The frozen Decker body
+  // still reveals nothing extra; vision is single-viewer.)
+  const meatViewer = meatActorOf(scene);
+  if (scene.world && meatViewer) {
+    meatVision.recompute(scene.world.grid, meatViewer, undefined, {
       blockers: scene.world.blockerKeys(),
     });
     meatVisible = meatVision.visible;
