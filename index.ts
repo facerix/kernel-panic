@@ -3,7 +3,7 @@
  * Orchestration lives in `/src/shell/shellRuntime.ts` via {@link GameShell}.
  */
 
-import { gameShell } from '/src/shell/GameShell.js';
+import * as gameShell from '/src/shell/shellRuntime.js';
 
 import '/components/ConfirmationModal.js';
 import '/components/UpdateNotification.js';
