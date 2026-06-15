@@ -68,8 +68,8 @@ export const UNSEEN_GLYPH = Object.freeze({ char: '·', fg: '#1a1a1a' });
 export type TilesetId = 'meat' | 'cyber';
 
 const CYBER_TILE_GLYPH: Partial<Record<TileId, Glyph>> = {
-  [TILE.FLOOR]: { char: '·', fg: '#0e6b66' },
-  [TILE.WALL]: { char: '▒', fg: '#c23bd4' },
+  [TILE.FLOOR]: { char: '÷', fg: '#5e6b66' },
+  [TILE.WALL]: { char: '▒', fg: '#c2e0d4' },
 };
 
 export function glyphForTile(
