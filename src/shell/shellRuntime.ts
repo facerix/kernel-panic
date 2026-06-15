@@ -1208,6 +1208,16 @@ function wireRunConfirmations(run: Run): void {
     paint();
   };
   run.onJackOutPresent = () => completeJackOutShellSwap();
+  run.onPartnerDown = partner => {
+    // P3.M4.4: the corp can flatline the partner on the meat grid while the
+    // player is jacked into Cyberspace and never sees it — so the alert is
+    // unconditional. The model force-flips control off the corpse (the body is
+    // frozen), so recompute vision + repaint to match the new active operator.
+    const who = partner.callsign ?? partner.id;
+    recomputeVision();
+    paint();
+    flash(`⚠ OPERATOR DOWN — ${who} flatlined. Your meat cover is gone.`);
+  };
 }
 
 function resumeCampaign(record: CampaignSnapshot | unknown) {

@@ -602,6 +602,13 @@ export class Campaign {
       isScoreContract(this.activeRun.contract) &&
       outcome === OUTCOME.DEATH;
 
+    // P3.M4.4: a meat partner that flatlined on the field is gone for good —
+    // independent of the Decker's outcome. The Decker may have extracted clean
+    // while the partner died covering the body; flatline the partner either way.
+    if (this.deployedPartnerId && this.activeRun.partnerDown) {
+      this.flatlineMember(this.deployedPartnerId);
+    }
+
     if (outcome === OUTCOME.DEATH) {
       this.flatlineMember(this.deployedMemberId);
     } else {

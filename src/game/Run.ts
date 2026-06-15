@@ -392,6 +392,10 @@ export type RunOptions = {
   onJackInPresent?: unknown;
   /** Shell presentation — fired after jack-out finalizes. */
   onJackOutPresent?: unknown;
+  /** P3.M4.4 shell presentation — fired when the meat partner flatlines on the
+   *  field (the corp can kill it off-screen while the player is in Cyberspace),
+   *  so the shell can surface an unconditional "operator down" alert. */
+  onPartnerDown?: unknown;
   /** Terrain mutations from a prior visit to this location (P2.5.M7.2), replayed
    *  onto the freshly-built map in `enterCombat`. Empty/omitted for a first visit. */
   priorMutationDeltas?: unknown;
@@ -483,6 +487,8 @@ export class Run {
   onJackInPresent: (() => void) | null;
   /** Shell presentation hook — fired after jack-out finalizes. */
   onJackOutPresent: (() => void) | null;
+  /** P3.M4.4 shell presentation hook — fired with the partner when it flatlines. */
+  onPartnerDown: ((partner: Crew) => void) | null;
   _busUnsubs: (() => void)[];
 
   constructor({
@@ -496,6 +502,7 @@ export class Run {
     onJackOutRequested,
     onJackInPresent,
     onJackOutPresent,
+    onPartnerDown,
     priorMutationDeltas,
     priorKeyItems,
     priorSeenKeys,
@@ -527,6 +534,9 @@ export class Run {
     }
     if (onJackOutPresent !== undefined && typeof onJackOutPresent !== 'function') {
       throw new TypeError('Run: onJackOutPresent must be a function');
+    }
+    if (onPartnerDown !== undefined && typeof onPartnerDown !== 'function') {
+      throw new TypeError('Run: onPartnerDown must be a function');
     }
     if (priorMutationDeltas !== undefined && !Array.isArray(priorMutationDeltas)) {
       throw new TypeError('Run: priorMutationDeltas must be an array when supplied');
@@ -572,6 +582,7 @@ export class Run {
     this.onJackOutRequested = (onJackOutRequested as (() => void) | undefined) ?? null;
     this.onJackInPresent = (onJackInPresent as (() => void) | undefined) ?? null;
     this.onJackOutPresent = (onJackOutPresent as (() => void) | undefined) ?? null;
+    this.onPartnerDown = (onPartnerDown as ((partner: Crew) => void) | undefined) ?? null;
 
     /** @type {Array<() => void>} active bus subscriptions */
     this._busUnsubs = [];
@@ -970,6 +981,15 @@ export class Run {
   }
 
   /**
+   * P3.M4.4: true when a dual-deploy meat partner was fielded and has flatlined
+   * on the grid. The run does not end on partner death (the Decker fights on),
+   * but `Campaign.onJobEnd` flatlines the partner for good once the run wraps.
+   */
+  get partnerDown(): boolean {
+    return !!this.partnerMember && !this.partnerMember.alive;
+  }
+
+  /**
    * P3.M4.3: is there a second operator to flip control to right now?
    *   - Jacked in: flip between the controllable meat operator and the cyber
    *     avatar — but only when the meat side is actually controllable (a
@@ -1066,6 +1086,24 @@ export class Run {
     if (!this.#flipAlternate()) return 'end';
     this.flip();
     return this.endOfTurnReady() ? 'flip-and-end' : 'flip';
+  }
+
+  /**
+   * P3.M4.4: the meat partner just flatlined. Repair the active-operator state
+   * so the player is never left driving a corpse, then alert the shell. If the
+   * dead partner was the meat operator, hand meat control back to the Decker
+   * (`player`); while still jacked in, the body is frozen and can't act, so also
+   * force the view to Cyberspace (the avatar is the only live operator). The
+   * shell hook surfaces the alert even when the kill happened off-screen.
+   */
+  #onPartnerFlatlined(partner: Crew): void {
+    if (this.meatActor === partner) {
+      this.meatActor = this.player;
+      if (this.cyberspace?.phase === 'active') {
+        this.activeLayer = 'cyber';
+      }
+    }
+    this.onPartnerDown?.(partner);
   }
 
   /**
@@ -1544,6 +1582,14 @@ export class Run {
         this.telemetry.cause = `${attacker?.id ?? 'unknown'}::${source ?? 'unknown'}(${damage})`;
         this.enterResult({ outcome: OUTCOME.DEATH });
       }
+      return;
+    }
+    // P3.M4.4: the meat partner flatlining is *not* run-ending — the Decker
+    // fights on (jacked in, or post jack-out). But it loses the player a meat
+    // operator, so repair control state and alert the shell unconditionally
+    // (the kill can land off-screen while the player is in Cyberspace).
+    if (killed && this.partnerMember && target === this.partnerMember) {
+      this.#onPartnerFlatlined(this.partnerMember);
       return;
     }
     if (attacker === this.player && killed) {

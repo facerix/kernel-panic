@@ -21,6 +21,7 @@ import { Rng } from '../../../../src/rng.js';
 import { testContractContext } from '../contractTestUtils.js';
 import type { World } from '../../../../src/game/World.js';
 import type { Entity } from '../../../../src/game/Entity.js';
+import type { Crew } from '../../../../src/game/Crew.js';
 import type { TurnActionStep } from '../../../../src/types.js';
 
 const cyberContract = (seed = 12345) => ({
@@ -184,4 +185,99 @@ test('an ICE pass with the avatar in sight yields the trace flare', () => {
     'the adjacent probe flared a trace during its pass'
   );
   assert.equal(layer.world.alarmActive, true);
+});
+
+// --- P3.M4.4: the dual phase with a meat partner + frozen body present -------------------
+//
+// The M3.6 tests above all run a *solo* Decker — one PLAYER entity (the frozen
+// body) on the meat grid, always viewed from Cyberspace. A dual deploy adds a
+// live mobile partner and lets the player view either layer. Re-verify the four
+// invariants under those new conditions.
+
+function jackedInDualRun(seed = 12345): {
+  run: Run;
+  layer: CyberspaceLayer;
+  partner: Crew;
+  body: Crew;
+} {
+  const decker = buildCrewMember('decker', { x: 0, y: 0 }, new Rng(100), { id: 'crew-decker' });
+  const partner = buildCrewMember('merc', { x: 0, y: 0 }, new Rng(101), { id: 'crew-merc' });
+  const run = new Run({ crewMember: decker, partnerMember: partner, seed });
+  run.enterBriefing(cyberContract(seed));
+  run.enterCombat();
+  const point = Array.from(run.world!.entities.values()).find(
+    e => e instanceof JackInPoint
+  ) as JackInPoint;
+  const spot = adjacentFreeTile(run.world!, point);
+  run.world!.relocateEntity(run.player!, spot.x, spot.y);
+  run.player!.refreshAp();
+  assert.equal(point.interact(run.world!, run.player!).ok, true);
+  const layer = (run.cyberspace as { phase: 'active'; layer: CyberspaceLayer }).layer;
+  return { run, layer, partner: run.partnerMember!, body: run.player! };
+}
+
+test('P3.M4.4: the meat pass steps neither the frozen body nor the live partner', () => {
+  const { run, layer, partner, body } = jackedInDualRun();
+  const operators = new Set([partner.id, body.id]);
+  const { meat } = dualPhaseRound(run, layer);
+  assert.ok(meat.length >= 0);
+  for (const { id } of meat) {
+    assert.ok(!operators.has(id), `meat pass stepped a PLAYER operator (${id})`);
+  }
+});
+
+test('P3.M4.4: both layers tick even while the player is viewing Meatspace', () => {
+  const { run, layer } = jackedInDualRun();
+  run.activeLayer = 'meat'; // controlling the partner, not the avatar
+  const ids = iceIds(layer);
+  const { ice } = dualPhaseRound(run, layer);
+  assert.ok(ice.length > 0, 'ICE still patrol while the player views Meatspace');
+  for (const { id } of ice) {
+    assert.ok(ids.has(id), `ICE pass stepped a non-ICE entity (${id})`);
+  }
+});
+
+test('P3.M4.4: one AP refresh per round for body, partner, and avatar', () => {
+  const { run, layer, partner, body } = jackedInDualRun();
+  layer.avatar.spendAp(2);
+  partner.spendAp(partner.ap);
+  body.spendAp(body.ap);
+
+  run.queue!.endTurn(run.world!); // player → corp: PLAYER pools stay spent
+  assert.equal(partner.ap, 0, 'partner stays spent through the corp flip');
+  assert.equal(body.ap, 0, 'frozen body stays spent through the corp flip');
+  assert.equal(layer.avatar.ap, layer.avatar.maxAp - 2);
+
+  drivePass(run, run.world!, run.hostileFaction);
+  drivePass(run, layer.world, FACTION.CORP);
+
+  run.queue!.endTurn(run.world!); // corp → player: every PLAYER pool refreshes once
+  assert.equal(partner.ap, partner.maxAp, 'partner refreshed exactly once');
+  assert.equal(body.ap, body.maxAp, 'body refreshed on the same flip');
+  assert.equal(layer.avatar.ap, layer.avatar.maxAp, 'avatar refreshed on the same flip');
+});
+
+test('P3.M4.4: the dual-phase round is deterministic with a partner on the field', () => {
+  const a = jackedInDualRun(777);
+  const b = jackedInDualRun(777);
+  const roundA = dualPhaseRound(a.run, a.layer);
+  const roundB = dualPhaseRound(b.run, b.layer);
+  assert.deepEqual(roundA, roundB);
+
+  const c = jackedInDualRun(778);
+  const roundC = dualPhaseRound(c.run, c.layer);
+  assert.notDeepEqual(roundA, roundC);
+});
+
+test('P3.M4.4: after jack-out the meat corp turn runs solo with both operators present', () => {
+  const { run, partner, body } = jackedInDualRun();
+  run.jackOut();
+  assert.equal(run.cyberspace?.phase, 'resolved', 'no live cyber layer => no ICE pass');
+  // Both meat operators are still on the grid; the lone meat pass steps neither.
+  run.queue!.endTurn(run.world!);
+  const meat = drivePass(run, run.world!, run.hostileFaction);
+  const operators = new Set([partner.id, body.id]);
+  for (const { id } of meat) {
+    assert.ok(!operators.has(id), `corp pass stepped a PLAYER operator (${id})`);
+  }
 });

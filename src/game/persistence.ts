@@ -1143,8 +1143,15 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
   // spawned) unless the save had flipped into Cyberspace.
   if (cyberPhase === 'active') {
     player.frozen = true;
-    run.meatActor = gridPartner ?? player;
-    run.activeLayer = record.activeLayer === 'cyber' ? 'cyber' : 'meat';
+    // P3.M4.4: a *dead* partner can't be the meat operator — restoring it as
+    // `meatActor` strands the player driving a corpse with no flip target (the
+    // dead-partner-stuck save). While jacked in the body is frozen, so the only
+    // live operator is the avatar; default control to Cyberspace, mirroring the
+    // live repair in `Run.#onPartnerFlatlined`. A living partner restores
+    // normally, honoring the saved view.
+    const liveMeatPartner = gridPartner?.alive ? gridPartner : null;
+    run.meatActor = liveMeatPartner ?? player;
+    run.activeLayer = liveMeatPartner && record.activeLayer !== 'cyber' ? 'meat' : 'cyber';
   } else {
     run.meatActor = player;
     run.activeLayer = 'meat';
