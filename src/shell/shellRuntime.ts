@@ -769,11 +769,15 @@ function onBriefingDismiss() {
 
 function onBriefingDeploy(evt: Event) {
   if (!campaign) return;
-  const { memberId, contract } = (evt as CustomEvent<{ memberId?: string; contract?: Contract }>)
-    .detail;
+  const { memberId, partnerId, contract } = (
+    evt as CustomEvent<{ memberId?: string; partnerId?: string | null; contract?: Contract }>
+  ).detail;
   if (!memberId || !contract) return;
   const member = campaign.getCrewMember(memberId);
   if (!member || member.flatlined) return;
+  // P3.M4.1: dual-deploy rides a meat partner alongside the Decker.
+  const partner = partnerId ? campaign.getCrewMember(partnerId) : null;
+  if (partnerId && (!partner || partner.flatlined)) return;
   briefingEl.hide();
 
   let run = campaign.activeRun;
@@ -787,8 +791,9 @@ function onBriefingDeploy(evt: Event) {
       return;
     }
   } else {
-    run = campaign.deployCrewMember(member.id, contract);
-    flash(`CURATOR: ${member.callsign} takes ${contract.label}. JACKING IN.`);
+    run = campaign.deployCrewMember(member.id, contract, partnerId ?? null);
+    const partnerNote = partner ? ` + ${partner.callsign ?? partner.id}` : '';
+    flash(`CURATOR: ${member.callsign}${partnerNote} takes ${contract.label}. JACKING IN.`);
   }
 
   // Wire the run's confirmation callbacks (abort extraction, early jack-out).

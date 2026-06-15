@@ -27,7 +27,7 @@ On contracts with a Cyberspace component, the player **dual-deploys**: a Meatspa
 
 - Reuses the existing single-operator control model twice (no squad tactics required).
 - Tension is purely **attention allocation**: every turn spent in Cyberspace is a turn the Meatspace operator isn't moving, while corp drones keep closing in — and vice versa.
-- The flip is a **free action** (or 1 AP — TBD). The PIP / CCTV window from the blueprint shows the inactive layer in miniature.
+- The flip is a **free action** (resolved 2026-06-15; AP cost may be revisited after playtest). The PIP / CCTV window from the blueprint shows the inactive layer in miniature.
 
 ### The Decker
 
@@ -44,7 +44,7 @@ A new **player archetype** recruited mid-campaign (late Act 1 / start of Act 2),
 | P3.M1 — Campaign arc structure | ✅ Done |
 | P3.M2 — The Decker archetype | ✅ Done |
 | P3.M3 — Cyberspace grid + ICE | ✅ Done (full ICE roster: Probe, Spark, Guardian) |
-| P3.M4 — Simstim flip (dual-deploy) | 🔲 Planned |
+| P3.M4 — Simstim flip (dual-deploy) | 🟡 In progress (M4.1 dual-deploy reservation done) |
 | P3.M5 — The Score (climactic mission) | 🔲 Planned |
 | P3.M6 — Chronicle (campaign narrative memory) | 🟡 End-summary foundation shipped |
 
@@ -309,37 +309,47 @@ Placement is collision-safe (`pickFreeRingTile` consumes one rng draw then scans
 
 ---
 
-### P3.M4 — Simstim flip (dual-deploy) 🔲
+### P3.M4 — Simstim flip (dual-deploy) 🟡
 
 **Depends on:** P3.M2 (Decker), P3.M3 (Cyberspace grid). This is the integration milestone.
 
 **Goal:** The **simstim flip** — dual-deploy two operators (Meatspace + Decker in Cyberspace) with a flip mechanic that switches active control between layers. The PIP/CCTV window shows the inactive layer.
 
+**Resolved design decisions (2026-06-15):**
+
+- **Partner spawns at jack-in, not at mission start.** A Cyberspace contract is selected as a dual-deploy (Decker + meat partner), but pre-jack-in the run is the existing solo-Decker mission — the partner is *reserved* at deploy and only spawns onto the meat grid (a random safe cell, behind cover, out of immediate danger) the moment the Decker jacks in.
+- **Control stays in Meatspace after jack-in until the first flip.** On jack-in the freshly-spawned partner is the active operator; the player enters Cyberspace only on the first explicit flip.
+- **Deploy UX:** the Decker is auto-included as the jack-in operator; the player picks the living meat partner. If no living non-Decker is available, the run falls back to a solo Decker deploy (the P3.M3 path).
+- **Flip is a free action** that swaps the active operator among the live operators: pre-jack `{Decker}` (no-op), jacked `{partner(meat), avatar(cyber)}` (layer swap; Decker body frozen), post-jack-out `{Decker(meat), partner(meat)}` (meat↔meat).
+- **Forced jack-out at 1 HP:** the Decker's body cannot die while jacked in — a killing/critical hit clamps the body to 1 HP and ejects the Decker (alive) back to Meatspace. Cyber-side death (ICE depleting RAM) still flatlines. This retires the silent-meat-damage Score death vector from M3.7.
+
 **Scope:**
 
-- **Dual-deploy:** On contracts with a Cyberspace component, the player selects two operators: one for Meatspace, one (the Decker) for Cyberspace. Both are placed on their respective grids at mission start (Meatspace operator at spawn, Decker at the jack-in terminal's Cyberspace entry node).
-  - **Pre–jack-in phase:** The Decker starts in Meatspace, where they move and act normally. The player must reach a terminal and jack in (P2.5.M2.2 interact) to activate Cyberspace. Until jack-in, this is a normal single-grid mission.
-  - **Post–jack-in:** Cyberspace grid spawns. Flip mechanic activates. Decker's Meatspace body remains at the terminal — vulnerable, immobile, and targetable by corp hostiles (blueprint: "your physical body is a vegetable"). Secondary operator now enters the Meatspace grid.
+- **Dual-deploy:** On contracts with a Cyberspace component, the player selects two operators: the Decker (auto-included, the eventual Cyberspace avatar) and a meat partner. Only the Decker is placed at mission start — the partner is *reserved* (see the resolved decisions above) and spawns at jack-in.
+  - **Pre–jack-in phase:** The Decker starts solo in Meatspace, where they move and act normally. The player must reach a terminal and jack in (P2.5.M2.2 interact) to activate Cyberspace. Until jack-in, this is a normal single-grid mission.
+  - **Post–jack-in:** Cyberspace grid spawns; the reserved partner spawns into Meatspace at a safe cell and **becomes the active operator** (control stays in Meatspace until the first flip). The Decker's Meatspace body remains at the terminal — frozen, immobile, and targetable by corp hostiles (blueprint: "your physical body is a vegetable").
 - **The flip:** Switch active control between Meatspace operator and Decker. Active operator receives player input (move, attack, interact). Inactive operator holds position.
   - Cost: **free action** for the first implementation. AP cost can be revisited after playtesting, but the first version should make the new mental model easy to explore.
   - Can flip at any point during the active operator's turn (before or after spending AP).
 - **Turn structure:** Player turn → flip as desired → end turn → **both layers' hostile phases resolve** (corp drones move in Meatspace, ICE moves in Cyberspace). Both layers tick simultaneously.
 - **PIP / CCTV window:** The inactive layer renders in a small overlay (bottom right corner of the screen). Shows grid state, hostile positions, the other operator's status. Read-only — no input accepted in the PIP. The blueprint's "real-time CCTV showing your physical body's status" becomes this.
-- **Vulnerability:** While the Decker is jacked in, their Meatspace body is a valid target for corp hostiles. If the body is destroyed, the Decker is killed (flatline) and Cyberspace access is lost. The Meatspace operator's explicit job is to **protect the Decker's body** — or at least keep hostiles away from the terminal.
-- **Jack-out:** The Decker can voluntarily jack out (returns control to single-grid Meatspace). Or is forced out if their body takes critical damage. Jack-out despawns the Cyberspace grid (any unsatisfied Cyberspace objectives fail).
+- **Vulnerability:** While the Decker is jacked in, their Meatspace body is a valid target for corp hostiles. The body **cannot die while jacked in** — a killing/critical hit clamps it to 1 HP and forces a jack-out (resolved decision); only ICE depleting RAM flatlines the Decker outright. The Meatspace partner's explicit job is to **protect the Decker's body** — or at least keep hostiles away from the terminal.
+- **Jack-out:** The Decker can voluntarily jack out (returns control to single-grid Meatspace). Or is forced out when their body is driven to 1 HP. Jack-out despawns the Cyberspace grid (any unsatisfied Cyberspace objectives fail).
 - **Contracts without Cyberspace:** Single-deploy as today. The Decker deploys solo in Meatspace (no flip, no Cyberspace grid). Their drone override hack is their primary value. A pre-Score flatline opens one replacement Decker lead through the Terminal; a flatline during THE SCORE is campaign-terminal.
 - **Save invariant:** A run may be single-layer, pre-jack dual-deploy, or active dual-layer. Those states must be explicit. A save with `cyberspace.active = true` but no cyber grid/avatar, or with a Decker marked jacked-in but no Meatspace body anchor, is corrupt and must throw.
 
 **Integration slices:**
 
-| Slice | Change | Tests |
-|---|---|---|
-| **P3.M4.1 Dual deploy pre-jack** | Select Meatspace operator + Decker; both begin in Meatspace | deployment gates, placement, no Decker = no Cyberspace contract |
-| **P3.M4.2 Jacked body anchor** | Decker body becomes immobile target at terminal after jack-in | body targetable, movement rejected, death flatlines Decker |
-| **P3.M4.3 Flip command** | Free action swaps active input layer | input routed to active layer only, inactive holds position |
-| **P3.M4.4 Dual hostile phase** | End turn advances corp and ICE phases once each | deterministic order, both layers tick, no double AP refresh |
-| **P3.M4.5 PIP** | Inactive layer mini-render + status summary | desktop/mobile layout, no input capture |
-| **P3.M4.6 Jack-out** | Voluntary and forced jack-out transitions back to Meatspace | cleanup, objective failure rules, snapshot round-trip |
+| Slice | Status | Change | Tests |
+|---|---|---|---|
+| **P3.M4.1 Dual deploy** | ✅ Done | Reserve the meat partner alongside the Decker on a Cyberspace deploy; `Run.partnerMember`, deploy gates, persistence | deploy gates, partner shape, campaign + standalone round-trip |
+| **P3.M4.2 Jacked body anchor + partner spawn** | 🔲 | Decker body becomes immobile target at terminal after jack-in; partner spawns at a safe meat cell | body targetable, movement rejected, partner placement, round-trip |
+| **P3.M4.3 Flip command** | 🔲 | Free action swaps active input layer | input routed to active layer only, inactive holds position |
+| **P3.M4.4 Dual hostile phase** | 🔲 | End turn advances corp and ICE phases once each | deterministic order, both layers tick, no double AP refresh |
+| **P3.M4.5 PIP** | 🔲 | Inactive layer mini-render + status summary | desktop/mobile layout, no input capture |
+| **P3.M4.6 Jack-out** | 🔲 | Voluntary + forced (1-HP) jack-out transitions back to Meatspace | cleanup, objective failure rules, snapshot round-trip |
+
+**P3.M4.1 implementation note (2026-06-15):** A Cyberspace dual-deploy reserves a meat partner without spawning it. `Run.partnerMember: Crew | null` (validated non-Decker, living, distinct from the deployed operator) is set at construction; `Run.enterBriefing` forbids a partner on a non-cyber contract but does **not** require one (a solo Decker cyber run stays legal — the dual-deploy product rule is enforced by the briefing UI, not the model). `Campaign.deployCrewMember(memberId, contract, partnerId?)` gains the optional partner, records `Campaign.deployedPartnerId`, commits both operators (both clear job-scoped salvage at `onJobEnd`), and gates the partner (cyber-only, living, non-Decker, distinct, known id). `<run-briefing>` inverts its P3.M3.1 gate: on a cyber contract the Decker row is locked as `CYBER OP` and the player selects the living meat partner (Decker auto-attaches via the emitted `partnerId`); with no eligible partner it falls back to the solo `NEEDS DECKER` gate. Persistence: the reserved partner round-trips as an off-grid entity record (`RunSnapshot.partner`, throwaway `(0,0)` cell) for standalone restore, and re-binds to the canonical crew object via `partnerMemberId` on the campaign path (BRIEFING and COMBAT/RESULT). A partner record without a Cyberspace contract throws on restore. **Follow-up:** partner-death flatline accounting lands with M4.2 (the partner isn't on the field until jack-in); a fully crew-depleted player still cannot field a partner for THE SCORE — revisit if that edge proves too punishing.
 
 **Acceptance:**
 

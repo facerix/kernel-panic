@@ -329,11 +329,28 @@ class RunBriefing extends HTMLElement {
   }
 
   /**
-   * P3.M3.1: Cyberspace contracts can only deploy the Decker — every other
-   * row renders disabled with a NEEDS DECKER tag.
+   * P3.M4.1: a Cyberspace dual-deploy auto-includes the Decker (the jack-in
+   * operator) and asks the player to pick the *meat partner* who rides along.
+   * The Decker row renders locked (CYBER OP); living non-Deckers are the
+   * selectable partners.
+   *
+   * Solo fallback (P3.M3 behaviour): if no living non-Decker is available, the
+   * dual-deploy is impossible — only the Decker can deploy, so other rows show
+   * NEEDS DECKER and the run goes in solo.
    */
+  #cyberPartnerMode(): boolean {
+    return (
+      !!this.#contract &&
+      contractRequiresCyberspace(this.#contract) &&
+      this.#crew.some(member => member.archetype !== 'Decker' && !member.flatlined)
+    );
+  }
+
   #rowGate(): CrewRowGate | null {
     if (!this.#contract || !contractRequiresCyberspace(this.#contract)) return null;
+    if (this.#cyberPartnerMode()) {
+      return member => (member.archetype === 'Decker' ? 'CYBER OP' : null);
+    }
     return member => (member.archetype === 'Decker' ? null : 'NEEDS DECKER');
   }
 
@@ -407,11 +424,24 @@ class RunBriefing extends HTMLElement {
   }
 
   #commit() {
-    const member = this.#selectedMember;
-    if (!this.#contract || !member || !this.#deployable(member)) return;
+    const selected = this.#selectedMember;
+    if (!this.#contract || !selected || !this.#deployable(selected)) return;
+    // P3.M4.1: in dual-deploy mode the selected row is the meat partner and the
+    // Decker auto-attaches as the jack-in operator; otherwise the selected row
+    // deploys solo (non-cyber, or cyber with no partner available).
+    let memberId = selected.id;
+    let partnerId: string | null = null;
+    if (this.#cyberPartnerMode()) {
+      const decker = this.#crew.find(
+        member => member.archetype === 'Decker' && !member.flatlined
+      );
+      if (!decker) return; // cyber board invariant: a living Decker exists
+      memberId = decker.id;
+      partnerId = selected.id;
+    }
     this.dispatchEvent(
       new CustomEvent('deploy', {
-        detail: { memberId: member.id, contract: cloneContract(this.#contract) },
+        detail: { memberId, partnerId, contract: cloneContract(this.#contract) },
       })
     );
   }

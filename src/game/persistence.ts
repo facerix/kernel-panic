@@ -915,6 +915,8 @@ type CampaignActiveRunSnapshot = {
   type: 'run';
   state: RunState;
   crewMemberId: string;
+  /** P3.M4.1: reserved meat partner id for a dual-deploy. Absent on solo runs. */
+  partnerMemberId?: string | null;
   archetype: CrewArchetypeId;
   seed: number;
   rng: { seed: number; state: number };
@@ -943,6 +945,8 @@ export type CampaignSnapshot = {
   /** Phase 3 campaign arc state. Defaults to Act 1 for pre-P3 saves. */
   arc?: CampaignArc;
   deployedMemberId: string | null;
+  /** P3.M4.1: reserved meat partner id for a dual-deploy. Defaults to null. */
+  deployedPartnerId?: string | null;
   activeRun: CampaignActiveRunSnapshot | null;
   /** Recruit candidates available this hub visit. Defaults to [] for pre-P2.M6 saves. */
   availableRecruits?: CampaignCrewSnapshot[];
@@ -1014,6 +1018,7 @@ export function snapshotCampaign(campaign: Campaign): CampaignSnapshot {
     meta: { ...campaign.meta },
     arc: { ...campaign.arc },
     deployedMemberId: campaign.deployedMemberId,
+    deployedPartnerId: campaign.deployedPartnerId,
     activeRun: campaign.activeRun ? snapshotActiveRun(campaign.activeRun) : null,
     availableRecruits: campaign.availableRecruits.map(snapshotCrewMember),
     recruitedThisVisit: campaign.recruitedThisVisit,
@@ -1093,10 +1098,20 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
   run.rng = new Rng(record.rng.seed);
   run.rng.setState(record.rng.state);
   run.contract = normalizeContract(record.contract);
-  run.cyberspace = restoreCyberspace(
-    record,
-    run.contract !== null && contractRequiresCyberspace(run.contract)
-  );
+  const runIsCyber = run.contract !== null && contractRequiresCyberspace(run.contract);
+  run.cyberspace = restoreCyberspace(record, runIsCyber);
+  // P3.M4.1: the reserved meat partner round-trips as an off-grid entity.
+  // Present ⇒ Cyberspace dual-deploy; a partner on a non-cyber run is corrupt.
+  if (record.partner) {
+    if (!runIsCyber) {
+      throw new Error('restore: run snapshot has a meat partner but no Cyberspace contract');
+    }
+    const partner = restoreEntity(record.partner, grid);
+    if (!(partner instanceof Crew) || partner instanceof Decker) {
+      throw new Error('restore: run partner must be a non-Decker Crew member');
+    }
+    run.partnerMember = partner;
+  }
   run.exitTile = record.exitTile ? { ...record.exitTile } : null;
   run.telemetry = { ...record.telemetry };
   run.objectiveTimer = normalizeObjectiveTimer(record.objectiveTimer);
@@ -1374,7 +1389,13 @@ export function restoreCampaign(record: unknown, options: RestoreCampaignOptions
         `restoreCampaign: activeRun references unknown crew "${record.activeRun.crewMemberId}"`
       );
     }
-    campaign.activeRun = restoreActiveRun(record.activeRun, member, {
+    // P3.M4.1: resolve the reserved meat partner against the canonical crew.
+    const partnerId = record.activeRun.partnerMemberId ?? null;
+    const partner = partnerId ? campaign.getCrewMember(partnerId) : null;
+    if (partnerId && !partner) {
+      throw new Error(`restoreCampaign: activeRun references unknown partner "${partnerId}"`);
+    }
+    campaign.activeRun = restoreActiveRun(record.activeRun, member, partner, {
       onPersist: () => options.onPersist?.(campaign),
       onResult: options.onResult,
     });
@@ -1394,6 +1415,7 @@ export function restoreCampaign(record: unknown, options: RestoreCampaignOptions
       );
     }
     campaign.deployedMemberId = member.id;
+    campaign.deployedPartnerId = partner?.id ?? null;
     campaign.state = CAMPAIGN_STATE.COMBAT;
     campaign.world = null;
     campaign.queue = null;
@@ -1726,6 +1748,7 @@ function snapshotActiveRun(run: Run): CampaignActiveRunSnapshot {
     type: 'run',
     state: run.state,
     crewMemberId: run.crewMember.id,
+    partnerMemberId: run.partnerMember?.id ?? null,
     archetype: run.archetype,
     seed: run.seed,
     rng: { seed: run.rng.seed, state: run.rng.state },
@@ -1741,16 +1764,21 @@ function snapshotActiveRun(run: Run): CampaignActiveRunSnapshot {
 function restoreActiveRun(
   record: CampaignActiveRunSnapshot,
   member: Crew,
+  partner: Crew | null,
   options: RestoreOptions
 ): Run {
   if (record.snapshot) {
     const restored = restore(record.snapshot, options).run;
     restored.crewMember = member;
+    // P3.M4.1: re-bind the partner to the canonical crew object (the snapshot
+    // carried a detached copy), matching how `crewMember` is re-linked.
+    restored.partnerMember = partner;
     return restored;
   }
   const run = new Run({
     id: record.id,
     crewMember: member,
+    partnerMember: partner ?? undefined,
     seed: record.seed,
     onPersist: options.onPersist,
     onResult: options.onResult,

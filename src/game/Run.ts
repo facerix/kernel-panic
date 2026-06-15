@@ -302,6 +302,14 @@ export type RunSnapshot = {
   /** Terrain/entity mutations recorded during the run (P2.5.M7.1). Defaults to []. */
   mutationDeltas?: TileDelta[];
   /**
+   * P3.M4.1: the reserved meat partner for a dual-deploy. Present only when a
+   * Cyberspace contract was deployed with a partner (the player-chosen meat
+   * operator who spawns on jack-in). Serialized as an off-grid entity record
+   * with a throwaway (0,0) position — the partner's real cell is computed at
+   * jack-in (P3.M4.2). Absent on solo deploys.
+   */
+  partner?: RunEntitySnapshot;
+  /**
    * P3.M3: Cyberspace layer state. Present exactly when the contract requires
    * Cyberspace (`contractRequiresCyberspace`) — a mismatch in either direction
    * is corrupt and throws on restore.
@@ -357,6 +365,8 @@ export type RunResult = {
 export type RunOptions = {
   id?: string;
   crewMember?: unknown;
+  /** P3.M4.1: the meat partner for a dual-deploy Cyberspace contract. */
+  partnerMember?: unknown;
   seed?: unknown;
   onPersist?: unknown;
   onResult?: unknown;
@@ -409,6 +419,12 @@ type TurnEndedPayload = {
 export class Run {
   id: string;
   crewMember: Crew;
+  /**
+   * P3.M4.1: the meat operator reserved alongside the Decker on a dual-deploy
+   * Cyberspace contract. `null` on solo deploys (no partner, or non-cyber).
+   * Reserved at deploy; spawned onto the meat grid at jack-in (P3.M4.2).
+   */
+  partnerMember: Crew | null;
   archetype: CrewArchetypeId;
   seed: number;
   rng: Rng;
@@ -445,6 +461,7 @@ export class Run {
   constructor({
     id,
     crewMember,
+    partnerMember,
     seed,
     onPersist,
     onResult,
@@ -465,6 +482,7 @@ export class Run {
     if (crewMember.flatlined) {
       throw new Error(`Run: cannot deploy flatlined crew member "${crewMember.id}"`);
     }
+    const partner = normalizePartnerMember(partnerMember, crewMember);
     if (onPersist !== undefined && typeof onPersist !== 'function') {
       throw new TypeError('Run: onPersist must be a function');
     }
@@ -495,6 +513,7 @@ export class Run {
 
     this.id = id ?? makeRunId(seed);
     this.crewMember = crewMember;
+    this.partnerMember = partner;
     this.archetype = archetypeOfCrew(crewMember);
     this.seed = seed >>> 0;
     this.rng = new Rng(this.seed);
@@ -536,7 +555,14 @@ export class Run {
     }
     this.contract = normalizeContractForRun(contract);
     // P3.M3: latch the Cyberspace state machine off the validated contract.
-    this.cyberspace = contractRequiresCyberspace(this.contract) ? { phase: 'dormant' } : null;
+    const cyber = contractRequiresCyberspace(this.contract);
+    this.cyberspace = cyber ? { phase: 'dormant' } : null;
+    // P3.M4.1: a meat partner only rides along on a Cyberspace dual-deploy.
+    // (The Decker spawns it at jack-in.) A partner on a non-cyber run is a
+    // wiring bug — crash rather than carry a reservation that never spawns.
+    if (!cyber && this.partnerMember) {
+      throw new Error('Run.enterBriefing: a meat partner requires a Cyberspace contract');
+    }
     this.objectiveTimer = freshObjectiveTimer();
     this.mapSeen.clear();
     this.state = RUN_STATE.BRIEFING;
@@ -840,6 +866,12 @@ export class Run {
       objectiveProgress: { securedPickups: world.securedPickupIds() },
       keyItems: this.keyItems.map(k => ({ id: k.id, label: k.label, doorId: k.doorId })),
       mutationDeltas: world.mutationDeltas.map(delta => ({ ...delta })),
+      // P3.M4.1: the reserved meat partner. Captured as an off-grid entity
+      // record with a (0,0) placeholder cell — the partner is not on any grid
+      // until jack-in (P3.M4.2) computes its real spawn. Absent on solo runs.
+      ...(this.partnerMember
+        ? { partner: { ...snapshotEntity(this.partnerMember), x: 0, y: 0 } }
+        : {}),
       // P3.M3: present exactly when the contract has a Cyberspace component.
       ...(this.cyberspace ? { cyberspace: snapshotCyberspace(this.cyberspace) } : {}),
     };
@@ -2703,6 +2735,29 @@ function archetypeOfCrew(entity: Entity): CrewArchetypeId {
   throw new Error(
     `archetypeOfCrew: cannot classify crew member ${(entity as Entity | undefined)?.id}`
   );
+}
+
+/**
+ * P3.M4.1: validate a dual-deploy meat partner. Returns the partner (or `null`
+ * when none supplied). Contract-dependent require/forbid lives in
+ * `enterBriefing` — this only enforces the partner's intrinsic shape so a
+ * malformed reservation crashes at construction rather than at jack-in.
+ */
+function normalizePartnerMember(partnerMember: unknown, primary: Crew): Crew | null {
+  if (partnerMember === undefined || partnerMember === null) return null;
+  if (!(partnerMember instanceof Crew)) {
+    throw new TypeError('Run: partnerMember must be a Crew member when supplied');
+  }
+  if (partnerMember instanceof Decker) {
+    throw new Error('Run: the meat partner cannot be a Decker (the Decker jacks in)');
+  }
+  if (partnerMember.flatlined) {
+    throw new Error(`Run: cannot deploy flatlined partner "${partnerMember.id}"`);
+  }
+  if (partnerMember.id === primary.id) {
+    throw new Error('Run: partner must differ from the deployed operator');
+  }
+  return partnerMember;
 }
 
 function freshTelemetry(archetype: CrewArchetypeId, seed: number): RunTelemetry {

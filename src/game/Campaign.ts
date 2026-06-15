@@ -219,6 +219,8 @@ export class Campaign {
   state: CampaignState;
   activeRun: Run | null;
   deployedMemberId: string | null;
+  /** P3.M4.1: the reserved meat partner on a dual-deploy. `null` on solo runs. */
+  deployedPartnerId: string | null;
   availableRecruits: Crew[];
   recruitedThisVisit: boolean;
   pendingRecruitReward: boolean;
@@ -326,6 +328,7 @@ export class Campaign {
     this.state = CAMPAIGN_STATE.HUB;
     this.activeRun = null;
     this.deployedMemberId = null;
+    this.deployedPartnerId = null;
     this.availableRecruits = [];
     this.recruitedThisVisit = false;
     this.pendingRecruitReward = false;
@@ -477,7 +480,7 @@ export class Campaign {
     this.#persist();
   }
 
-  deployCrewMember(memberId: string, contract: Contract): Run {
+  deployCrewMember(memberId: string, contract: Contract, partnerId?: string | null): Run {
     if (this.state !== CAMPAIGN_STATE.HUB) {
       throw new Error(`Campaign.deployCrewMember: illegal from ${this.state}`);
     }
@@ -488,12 +491,38 @@ export class Campaign {
     if (member.flatlined) {
       throw new Error(`Campaign.deployCrewMember: ${member.callsign ?? member.id} is flatlined`);
     }
+    const cyber = contractRequiresCyberspace(contract);
     // P3.M3.1: a Cyberspace contract is unwinnable without the one operator who
     // can jack in — fail loudly at the Hub boundary instead of starting it.
-    if (contractRequiresCyberspace(contract) && member.archetype !== 'Decker') {
+    if (cyber && member.archetype !== 'Decker') {
       throw new Error(
         `Campaign.deployCrewMember: contract "${contract.label}" requires a living Decker to jack in`
       );
+    }
+    // P3.M4.1: a dual-deploy rides a meat partner alongside the Decker. The
+    // partner is optional at this layer (the briefing requires one for normal
+    // play, but a solo Decker cyber run stays legal); when supplied it must be
+    // a distinct, living, non-Decker operator. A partner on a non-cyber
+    // contract is a wiring bug.
+    const partner = partnerId ? this.getCrewMember(partnerId) : null;
+    if (partnerId) {
+      if (!cyber) {
+        throw new Error('Campaign.deployCrewMember: a meat partner requires a Cyberspace contract');
+      }
+      if (!partner) {
+        throw new Error(`Campaign.deployCrewMember: unknown partner "${partnerId}"`);
+      }
+      if (partner.flatlined) {
+        throw new Error(
+          `Campaign.deployCrewMember: partner ${partner.callsign ?? partner.id} is flatlined`
+        );
+      }
+      if (partner.archetype === 'Decker') {
+        throw new Error('Campaign.deployCrewMember: the meat partner cannot be a Decker');
+      }
+      if (partner.id === member.id) {
+        throw new Error('Campaign.deployCrewMember: partner must differ from the deployed operator');
+      }
     }
     if (isScoreContract(contract)) {
       this.#beginScoreAttempt(contract);
@@ -503,8 +532,10 @@ export class Campaign {
     const deployedContract = this.#contractWithRememberedDimensions(contract);
     this.#tearDownHubWorld();
     this.deployedMemberId = member.id;
+    this.deployedPartnerId = partner?.id ?? null;
     this.activeRun = new Run({
       crewMember: member,
+      partnerMember: partner ?? undefined,
       seed: deployedContract.seed,
       // Replay prior-visit terrain mutations on revisits ([] for first visits).
       priorMutationDeltas: this.priorDeltasForContract(deployedContract),
@@ -593,13 +624,18 @@ export class Campaign {
     // Clear job-scoped salvage (extracted or forfeited on death).
     // Consumables persist in the crew member's inventory until used —
     // they're a permanent part of the loadout, not job-scoped.
-    const member = this.getCrewMember(this.deployedMemberId);
-    if (member?.inventory) {
-      member.inventory.salvage = emptySalvage();
+    // P3.M4.1: a dual-deploy commits the meat partner too — clear its
+    // job-scoped salvage on the same boundary as the primary operator.
+    for (const id of [this.deployedMemberId, this.deployedPartnerId]) {
+      const crew = id ? this.getCrewMember(id) : null;
+      if (crew?.inventory) {
+        crew.inventory.salvage = emptySalvage();
+      }
     }
 
     this.activeRun = null;
     this.deployedMemberId = null;
+    this.deployedPartnerId = null;
 
     if (failedScoreRun) {
       this.state = CAMPAIGN_STATE.ENDED;
