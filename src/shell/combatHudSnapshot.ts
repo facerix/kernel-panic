@@ -30,6 +30,7 @@ export function buildCombatHudSnapshot(scene: ShellScene | null): CombatHudSumma
       currentFaction: scene.queue.currentFaction,
       turnNumber: scene.queue.turnNumber,
     },
+    cyber: isCyberView(scene),
   };
 }
 

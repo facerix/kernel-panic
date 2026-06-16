@@ -56,3 +56,64 @@ test('SceneListenerController rewire replaces bus handlers', () => {
   bus.emit(EVENT.DOOR_UNLOCKED, { label: 'Vault door' });
   assert.equal(flashCount, 1);
 });
+
+test('P3.M4.5: meat body damage flashes the PIP only while viewing Cyberspace', () => {
+  const bus = new EventBus();
+  const body = { id: 'body', x: 3, y: 4, hp: 4, maxHp: 8, alive: true };
+  // Minimal jacked-in scene: archetype marks it a Run, cyberspace active = a layer exists.
+  const scene = {
+    bus,
+    world: { entities: new Map() },
+    player: body,
+    archetype: 'decker',
+    cyberspace: { phase: 'active', layer: { avatar: { id: 'avatar' }, bus: new EventBus(), mapSeenKeys: () => [] } },
+    activeLayer: 'cyber',
+    state: 'combat',
+  } as unknown as ShellScene;
+
+  const flashes: string[] = [];
+  let pipPaints = 0;
+  const fakeClassList = { remove: () => {}, add: () => {}, toggle: () => {} };
+  const controller = new SceneListenerController({
+    getScene: () => scene,
+    getCampaign: () => null,
+    getMeatVision: () => new VisionField(),
+    getCyberVision: () => new VisionField(),
+    resetCyberVision: () => new VisionField(),
+    dom: {
+      stageEl: { classList: fakeClassList, offsetWidth: 0 } as unknown as HTMLElement,
+      pipCanvas: { classList: fakeClassList, offsetWidth: 0 } as unknown as HTMLCanvasElement,
+    },
+    // No flashCell ⇒ runMuzzleFlash is a no-op, so we exercise only the damage block.
+    renderers: { main: {} as never, pip: {} as never },
+    animLock: { push: () => {} },
+    effects: {
+      flash: (msg: string) => flashes.push(msg),
+      paint: () => {},
+      paintPip: () => {
+        pipPaints++;
+      },
+      recomputeVision: () => {},
+    },
+    onCivilianHarmReset: () => {},
+    onCivilianHarmed: () => {},
+    onRepAdjust: () => {},
+    onAlarmTransition: () => {},
+    onObjectiveTimerExpired: () => {},
+    memoriseMeatCorpse: () => {},
+    memoriseCyberCorpse: () => {},
+  });
+  controller.rewire();
+
+  // Viewing Cyberspace: the meat body is in the PIP, so a body hit pulses it.
+  bus.emit(EVENT.ENTITY_DAMAGED, { target: body, damage: 3 });
+  assert.equal(pipPaints, 1);
+  assert.equal(flashes.length, 1);
+  assert.match(flashes[0] ?? '', /^BODY HIT/);
+
+  // Flip back to Meatspace: the body is on the main canvas now — no PIP feedback.
+  (scene as unknown as { activeLayer: string }).activeLayer = 'meat';
+  bus.emit(EVENT.ENTITY_DAMAGED, { target: body, damage: 3 });
+  assert.equal(pipPaints, 1);
+  assert.equal(flashes.length, 1);
+});

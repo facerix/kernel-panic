@@ -45,6 +45,7 @@ export type CombatHudSummaryInput = Readonly<{
   hp: CombatHudVitalInput;
   ap: CombatHudApInput;
   turn: CombatHudTurnInput;
+  cyber: boolean;
 }>;
 
 export function formatObjectiveHud(objective: CombatHudObjectiveInput | null | undefined): string {

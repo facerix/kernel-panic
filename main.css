@@ -291,11 +291,21 @@ main {
   position: relative;
   flex: 1 1 80%;
   min-width: 0;
-  border-radius: 1rem 0.5rem 0.5rem 2rem;
-  corner-shape: bevel;
+
+  & > #game-canvas {
+    border-radius: 1rem 0.5rem 0.5rem 2rem;
+    corner-shape: bevel;
+
+    &.cyber {
+      border-color: rgba(255, 92, 198, 0.5);
+      box-shadow: 0 0 12px rgba(255, 92, 198, 0.18);
+    }
+  }
 }
 
-/* P3.M3.7: meatspace CCTV while jacked in — anchored to the main canvas, not the stage. */
+/* P3.M3.7 / P3.M4.5: PIP of the inactive layer while jacked in — meat CCTV by
+   default, cyber-tinted (`.pip-cyber`) when the grid is the inactive feed.
+   Anchored to the main canvas, not the stage. */
 .game-canvas-wrap > #pip-canvas {
   position: absolute;
   right: 0.35rem;
@@ -303,11 +313,17 @@ main {
   z-index: 2;
   pointer-events: none;
   border: 1px solid rgba(0, 217, 165, 0.45);
-  border-radius: 0.35rem 0.75rem 0.35rem 0.35rem;
+  border-radius: 0.35rem 0.35rem 0.35rem 0.75rem;
   corner-shape: bevel;
   box-shadow: 0 0 12px rgba(0, 217, 165, 0.15);
   opacity: 0.92;
   image-rendering: pixelated;
+}
+
+/* Cyber feed (viewing meat) — magenta to match `// GRID //`. */
+.game-canvas-wrap > #pip-canvas.pip-cyber {
+  border-color: rgba(255, 92, 198, 0.5);
+  box-shadow: 0 0 12px rgba(255, 92, 198, 0.18);
 }
 
 .game-canvas-wrap > #pip-canvas[hidden] {

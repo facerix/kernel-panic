@@ -72,7 +72,14 @@ import type { RunResult, RunTelemetry, Outcome } from '/src/game/Run.js';
 import type { Item } from '/src/game/items.js';
 import type { Intent } from '/src/input/applyIntent.js';
 import type { AimKind } from '/src/input/keymap.js';
-import { pipCameraFor, pipChrome, shouldShowPip } from '/src/render/pip.js';
+import {
+  pipCameraFor,
+  pipChrome,
+  pipFeedFor,
+  pipFollowTargetOf,
+  pipWorldOf,
+  shouldShowPip,
+} from '/src/render/pip.js';
 import type { TurnActionStep } from '/src/types.js';
 import { installErrorBoundary, type FaultSignal } from '/src/errorBoundary.js';
 import { isDevelopmentMode } from '/src/domUtils.js';
@@ -2168,19 +2175,25 @@ function paintPip(): void {
     return;
   }
   const run = view.scene;
-  if (!run.world || !run.player) {
+  // P3.M4.5: the PIP shows whichever layer the player is *not* driving — meat
+  // (body/partner CCTV) while viewing the grid, the cyber grid while viewing meat.
+  const feed = pipFeedFor(run);
+  const world = pipWorldOf(run);
+  const follow = pipFollowTargetOf(run);
+  if (!feed || !world || !follow) {
     pipCanvas.hidden = true;
     return;
   }
   pipCanvas.hidden = false;
-  const principalId = campaign?.activeRun?.contract?.context?.principal?.id;
-  pipRenderer.draw(run.world, run.player, {
-    camera: pipCameraFor(run.player, run.world),
-    vision,
-    player: run.player,
-    tileset: 'meat',
-    principalId,
-    hudRows: pipChrome(run.player),
+  const cyberFeed = feed === 'cyber';
+  pipCanvas.classList.toggle('pip-cyber', cyberFeed);
+  pipRenderer.draw(world, follow, {
+    camera: pipCameraFor(follow, world),
+    vision: cyberFeed ? cyberVision : vision,
+    player: follow,
+    tileset: cyberFeed ? 'cyber' : 'meat',
+    principalId: cyberFeed ? undefined : campaign?.activeRun?.contract?.context?.principal?.id,
+    hudRows: pipChrome(run),
   });
 }
 
@@ -2196,6 +2209,7 @@ export function paint(stateHint: InputState = activeInputState()): void {
   const actor = activeActorOf(run);
   if (!world || !actor) return;
   const jacked = isCyberView(run);
+  canvas.classList.toggle('cyber', jacked);
   // Hub is a safe space — no fog of war. Vision is only meaningful during
   // combat where LOS and drone stealth detection matter.
   const activeVision = run.state === RUN_STATE.COMBAT ? activeVisionField(run) : undefined;

@@ -7,7 +7,7 @@ import {
   triggerDamageFlash,
   triggerShake,
 } from '../render/animations.js';
-import { cyberLayerOf, isJackedIn } from './activeView.js';
+import { cyberLayerOf, isCyberView } from './activeView.js';
 import type {
   DoorUnlockPayload,
   EntityDamagedPayload,
@@ -71,12 +71,14 @@ export class SceneListenerController {
           killed,
           source,
         } = (payload ?? {}) as EntityDamagedPayload;
-        const jacked = isJackedIn(run);
+        // P3.M4.5: the meat layer is in the PIP only while the player is
+        // *viewing* Cyberspace; once flipped back to meat it is the main canvas.
+        const meatInPip = isCyberView(run);
         if (run?.player && target === run.player && damage > 0) {
           triggerShake(dom.stageEl);
           triggerDamageFlash(dom.stageEl);
           animLock.push(ANIMATION_DURATIONS.DAMAGE_FLASH);
-          if (jacked) {
+          if (meatInPip) {
             const attackerLabel = attacker
               ? resolveEntityLabel(attacker.id, run.world!.entities)
               : 'unknown';
@@ -92,13 +94,10 @@ export class SceneListenerController {
           }
         }
         if (source === 'melee' && target && damage > 0) {
-          if (jacked && target === run.player) {
-            const fired = runMuzzleFlash(renderers.pip, effects.paintPip, target.x, target.y);
-            if (fired) animLock.push(ANIMATION_DURATIONS.MUZZLE_FLASH);
-          } else if (!jacked) {
-            const fired = runMuzzleFlash(renderers.main, effects.paint, target.x, target.y);
-            if (fired) animLock.push(ANIMATION_DURATIONS.MUZZLE_FLASH);
-          }
+          const flashRenderer = meatInPip ? renderers.pip : renderers.main;
+          const repaint = meatInPip ? effects.paintPip : effects.paint;
+          const fired = runMuzzleFlash(flashRenderer, repaint, target.x, target.y);
+          if (fired) animLock.push(ANIMATION_DURATIONS.MUZZLE_FLASH);
         }
         if (killed && target) {
           this.#deps.memoriseMeatCorpse(target, (x, y) => meatVision.isVisible(x, y));
@@ -109,9 +108,9 @@ export class SceneListenerController {
         if (noise.kind !== 'ranged') return;
         const origin = noise.origin;
         if (!origin) return;
-        const jacked = isJackedIn(run);
-        const flashRenderer = jacked ? renderers.pip : renderers.main;
-        const repaint = jacked ? effects.paintPip : effects.paint;
+        const meatInPip = isCyberView(run);
+        const flashRenderer = meatInPip ? renderers.pip : renderers.main;
+        const repaint = meatInPip ? effects.paintPip : effects.paint;
         const fired = runMuzzleFlash(flashRenderer, repaint, origin.x, origin.y);
         if (fired) animLock.push(ANIMATION_DURATIONS.MUZZLE_FLASH);
       }),
@@ -137,13 +136,28 @@ export class SceneListenerController {
       layer.bus.on(EVENT.ENTITY_MOVED, () => effects.recomputeVision()),
       layer.bus.on(EVENT.ENTITY_DAMAGED, payload => {
         const { target, damage = 0, killed, source } = (payload ?? {}) as EntityDamagedPayload;
+        // P3.M4.5: the cyber grid is in the PIP while the player is viewing meat.
+        const cyberInPip = !isCyberView(run);
+        const flashRenderer = cyberInPip ? renderers.pip : renderers.main;
+        const repaint = cyberInPip ? effects.paintPip : effects.paint;
         if (target === layer.avatar && damage > 0) {
           triggerShake(dom.stageEl);
           triggerDamageFlash(dom.stageEl);
           animLock.push(ANIMATION_DURATIONS.DAMAGE_FLASH);
+          if (cyberInPip) {
+            effects.flash(
+              killed
+                ? 'RAM WIPED — ICE flatlined your avatar on the grid.'
+                : `RAM HIT — ICE burned ${damage} (cyberspace).`
+            );
+            dom.pipCanvas.classList.remove('pip-hit');
+            void dom.pipCanvas.offsetWidth;
+            dom.pipCanvas.classList.add('pip-hit');
+            effects.paintPip();
+          }
         }
         if (source === 'melee' && target && damage > 0) {
-          const fired = runMuzzleFlash(renderers.main, effects.paint, target.x, target.y);
+          const fired = runMuzzleFlash(flashRenderer, repaint, target.x, target.y);
           if (fired) animLock.push(ANIMATION_DURATIONS.MUZZLE_FLASH);
         }
         if (killed && target) {
@@ -155,7 +169,10 @@ export class SceneListenerController {
         if (noise.kind !== 'ranged') return;
         const origin = noise.origin;
         if (!origin) return;
-        const fired = runMuzzleFlash(renderers.main, effects.paint, origin.x, origin.y);
+        const cyberInPip = !isCyberView(run);
+        const flashRenderer = cyberInPip ? renderers.pip : renderers.main;
+        const repaint = cyberInPip ? effects.paintPip : effects.paint;
+        const fired = runMuzzleFlash(flashRenderer, repaint, origin.x, origin.y);
         if (fired) animLock.push(ANIMATION_DURATIONS.MUZZLE_FLASH);
       })
     );
