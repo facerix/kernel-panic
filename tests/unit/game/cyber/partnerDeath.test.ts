@@ -75,7 +75,9 @@ function adjacentFreeTile(world: World, target: Entity) {
 }
 
 function jackIn(run: Run) {
-  const point = [...run.world!.entities.values()].find(e => e instanceof JackInPoint) as JackInPoint;
+  const point = [...run.world!.entities.values()].find(
+    e => e instanceof JackInPoint
+  ) as JackInPoint;
   const spot = adjacentFreeTile(run.world!, point);
   run.world!.relocateEntity(run.player!, spot.x, spot.y);
   run.player!.refreshAp();

@@ -14,7 +14,12 @@ import { OUTCOME } from '../../../../src/game/Run.js';
 import { OBJECTIVES } from '../../../../src/game/hub/Curator.js';
 import { buildCrewMember } from '../../../../src/game/archetypes/index.js';
 import { Rng } from '../../../../src/rng.js';
-import { snapshot, restore, snapshotCampaign, restoreCampaign } from '../../../../src/game/persistence.js';
+import {
+  snapshot,
+  restore,
+  snapshotCampaign,
+  restoreCampaign,
+} from '../../../../src/game/persistence.js';
 import { testContractContext } from '../contractTestUtils.js';
 
 const fakeContract = (overrides = {}) => ({
@@ -200,7 +205,9 @@ test('P3.M4.1: partner survives a campaign round-trip in COMBAT state', () => {
 // roster object stranded the partner off the map: flipping to it controlled a
 // phantom that couldn't move (the on-grid copy sat frozen in place).
 function jackInCampaignRun(run: Run) {
-  const point = [...run.world!.entities.values()].find(e => e instanceof JackInPoint) as JackInPoint;
+  const point = [...run.world!.entities.values()].find(
+    e => e instanceof JackInPoint
+  ) as JackInPoint;
   let spot: { x: number; y: number } | null = null;
   for (let dy = -1; dy <= 1 && !spot; dy++) {
     for (let dx = -1; dx <= 1 && !spot; dx++) {

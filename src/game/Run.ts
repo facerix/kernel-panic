@@ -977,7 +977,9 @@ export class Run {
    * otherwise). It is the deployed Decker (`player`) frozen at the port.
    */
   get deckerBody(): Crew | null {
-    return this.cyberspace?.phase === 'active' && this.player instanceof Decker ? this.player : null;
+    return this.cyberspace?.phase === 'active' && this.player instanceof Decker
+      ? this.player
+      : null;
   }
 
   /**

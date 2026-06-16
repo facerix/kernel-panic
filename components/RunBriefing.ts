@@ -432,9 +432,7 @@ class RunBriefing extends HTMLElement {
     let memberId = selected.id;
     let partnerId: string | null = null;
     if (this.#cyberPartnerMode()) {
-      const decker = this.#crew.find(
-        member => member.archetype === 'Decker' && !member.flatlined
-      );
+      const decker = this.#crew.find(member => member.archetype === 'Decker' && !member.flatlined);
       if (!decker) return; // cyber board invariant: a living Decker exists
       memberId = decker.id;
       partnerId = selected.id;

@@ -41,7 +41,8 @@ const cyberContract = (overrides = {}) => ({
   ...overrides,
 });
 
-const makeDecker = () => buildCrewMember('decker', { x: 0, y: 0 }, new Rng(100), { id: 'crew-decker' });
+const makeDecker = () =>
+  buildCrewMember('decker', { x: 0, y: 0 }, new Rng(100), { id: 'crew-decker' });
 const makeMerc = () => buildCrewMember('merc', { x: 0, y: 0 }, new Rng(101), { id: 'crew-merc' });
 
 function dualRun(seed = 12345) {
@@ -72,7 +73,9 @@ function adjacentFreeTile(world: World, target: Entity) {
 }
 
 function jackIn(run: Run) {
-  const point = [...run.world!.entities.values()].find(e => e instanceof JackInPoint) as JackInPoint;
+  const point = [...run.world!.entities.values()].find(
+    e => e instanceof JackInPoint
+  ) as JackInPoint;
   const spot = adjacentFreeTile(run.world!, point);
   run.world!.relocateEntity(run.player!, spot.x, spot.y);
   run.player!.refreshAp();
@@ -114,7 +117,10 @@ test('P3.M4.3: flip swaps meat partner ↔ cyber avatar while jacked in', () => 
   assert.equal(isCyberView(run), true);
   assert.equal(isJackedIn(run), true);
   assert.equal(activeTileset(run), 'cyber');
-  assert.equal(activeWorldOf(run), run.cyberspace!.phase === 'active' && run.cyberspace.layer.world);
+  assert.equal(
+    activeWorldOf(run),
+    run.cyberspace!.phase === 'active' && run.cyberspace.layer.world
+  );
 
   // Flip back to Meatspace.
   run.flip();

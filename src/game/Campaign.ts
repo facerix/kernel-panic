@@ -521,7 +521,9 @@ export class Campaign {
         throw new Error('Campaign.deployCrewMember: the meat partner cannot be a Decker');
       }
       if (partner.id === member.id) {
-        throw new Error('Campaign.deployCrewMember: partner must differ from the deployed operator');
+        throw new Error(
+          'Campaign.deployCrewMember: partner must differ from the deployed operator'
+        );
       }
     }
     if (isScoreContract(contract)) {

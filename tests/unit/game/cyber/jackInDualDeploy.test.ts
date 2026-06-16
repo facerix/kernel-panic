@@ -39,7 +39,8 @@ const cyberContract = (overrides = {}) => ({
   ...overrides,
 });
 
-const makeDecker = () => buildCrewMember('decker', { x: 0, y: 0 }, new Rng(100), { id: 'crew-decker' });
+const makeDecker = () =>
+  buildCrewMember('decker', { x: 0, y: 0 }, new Rng(100), { id: 'crew-decker' });
 const makeMerc = () => buildCrewMember('merc', { x: 0, y: 0 }, new Rng(101), { id: 'crew-merc' });
 
 function dualRun(seed = 12345) {

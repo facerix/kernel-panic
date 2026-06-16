@@ -66,7 +66,10 @@ test('P3.M4.5: meat body damage flashes the PIP only while viewing Cyberspace', 
     world: { entities: new Map() },
     player: body,
     archetype: 'decker',
-    cyberspace: { phase: 'active', layer: { avatar: { id: 'avatar' }, bus: new EventBus(), mapSeenKeys: () => [] } },
+    cyberspace: {
+      phase: 'active',
+      layer: { avatar: { id: 'avatar' }, bus: new EventBus(), mapSeenKeys: () => [] },
+    },
     activeLayer: 'cyber',
     state: 'combat',
   } as unknown as ShellScene;
