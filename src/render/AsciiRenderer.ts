@@ -391,8 +391,7 @@ export class AsciiRenderer {
     text: string,
     boxX: number,
     boxW: number,
-    boxY: number,
-    accentColor?: string
+    boxY: number
   ) {
     const ctx = this.ctx;
     if (!ctx) return;
