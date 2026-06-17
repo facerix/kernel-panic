@@ -8,6 +8,7 @@ import {
   triggerShake,
 } from '../render/animations.js';
 import { cyberLayerOf, isCyberView } from './activeView.js';
+import { isRun } from './sceneView.js';
 import type {
   DoorUnlockPayload,
   EntityDamagedPayload,
@@ -74,7 +75,10 @@ export class SceneListenerController {
         // P3.M4.5: the meat layer is in the PIP only while the player is
         // *viewing* Cyberspace; once flipped back to meat it is the main canvas.
         const meatInPip = isCyberView(run);
-        if (run?.player && target === run.player && damage > 0) {
+        const bodyHit = isRun(run) && !!run.player && target === run.player;
+        const forcedBodyJackOut =
+          bodyHit && killed === true && !!target?.alive && run.cyberspace?.phase === 'resolved';
+        if (bodyHit && damage > 0) {
           triggerShake(dom.stageEl);
           triggerDamageFlash(dom.stageEl);
           animLock.push(ANIMATION_DURATIONS.DAMAGE_FLASH);
@@ -84,7 +88,7 @@ export class SceneListenerController {
               : 'unknown';
             effects.flash(
               killed
-                ? `BODY FLATLINED — ${attackerLabel} killed your meatspace link.`
+                ? `BODY CRITICAL — ${attackerLabel} forced an emergency jack-out.`
                 : `BODY HIT — ${attackerLabel} struck for ${damage} (meatspace).`
             );
             dom.pipCanvas.classList.remove('pip-hit');
@@ -99,7 +103,7 @@ export class SceneListenerController {
           const fired = runMuzzleFlash(flashRenderer, repaint, target.x, target.y);
           if (fired) animLock.push(ANIMATION_DURATIONS.MUZZLE_FLASH);
         }
-        if (killed && target) {
+        if (killed && target && !forcedBodyJackOut) {
           this.#deps.memoriseMeatCorpse(target, (x, y) => meatVision.isVisible(x, y));
         }
       }),

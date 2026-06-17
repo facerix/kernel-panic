@@ -83,6 +83,12 @@ export const HELP_ROWS = Object.freeze([
     scope: 'combat',
     group: 'action',
   },
+  {
+    keys: Object.freeze(['j']),
+    label: 'Jack out — confirm neural shock',
+    scope: 'combat',
+    group: 'action',
+  },
   // --- system -----------------------------------------------------------
   {
     keys: Object.freeze(['.']),

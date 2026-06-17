@@ -1,7 +1,7 @@
 export const STATUS_ACTION_HISTORY_LIMIT = 3;
 
 export type StatusActivityRow = {
-  source: 'action' | 'ephemeral';
+  source: 'action' | 'ephemeral' | 'priority';
   text: string;
 };
 
@@ -17,8 +17,19 @@ export function recordStatusActionLine(
 export function statusActionRows(
   history: readonly string[],
   pendingCount: number,
-  hasEphemeral: boolean
+  hasEphemeral: boolean,
+  priorityLine: string | null = null
 ): [StatusActivityRow, StatusActivityRow] {
+  if (priorityLine) {
+    const latestNonPriority = history.find(line => line !== priorityLine) ?? '';
+    return [
+      hasEphemeral
+        ? { source: 'ephemeral', text: '' }
+        : { source: 'action', text: latestNonPriority },
+      { source: 'priority', text: priorityLine },
+    ];
+  }
+
   const pending = history.slice(0, Math.max(0, pendingCount)).reverse();
   if (pending.length >= 2) {
     return [

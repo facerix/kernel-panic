@@ -130,6 +130,8 @@ export const DECKER_BASE_ICE_RESISTANCE = 1;
  */
 export const CYBER_AVATAR_MAX_AP = 4;
 export const CYBER_AVATAR_HIT_CHANCE = 0.8;
+/** P3.M4: explicit jack-out drops the link hard enough to hurt the body. */
+export const JACK_OUT_SHOCK_DAMAGE = 3;
 
 /**
  * Tech turret parameters. The turret is a placed grid entity (peer of

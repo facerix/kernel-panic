@@ -33,6 +33,7 @@ export type StatusLineSnapshot = {
   latchedCorpMood?: CorpMoodSnapshot | null;
   actionHistory: readonly string[];
   pendingActionCount: number;
+  priorityFlash?: string | null;
 };
 
 export type StatusLineResult = {
@@ -127,10 +128,14 @@ export function formatStatusLine(snapshot: StatusLineSnapshot): StatusLineResult
   const activityRows = statusActionRows(
     snapshot.actionHistory,
     snapshot.pendingActionCount,
-    !!ephemeral
+    !!ephemeral,
+    snapshot.priorityFlash ?? null
   );
   const [upper, lower] = activityRows.map(row => {
     if (row.source === 'ephemeral') return ephemeral;
+    if (row.source === 'priority') {
+      return `<span class="game-shell__activity priority">${escapeHtml(row.text)}</span>`;
+    }
     return `<span class="game-shell__activity">${escapeHtml(row.text)}</span>`;
   });
 

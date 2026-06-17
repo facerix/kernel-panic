@@ -7,7 +7,7 @@
  *
  * Button identifiers:
  *   - Directions (8): N, NE, E, SE, S, SW, W, NW
- *   - Actions: fire, special, interact, end-turn, cancel
+ *   - Actions: fire, special, interact, jack-out, end-turn, cancel
  *   - Shell (not `applyIntent`): quit-campaign → synthetic `Q`
  *
  * The `special` action covers each archetype's perk verb (Merc Vault, Razor
@@ -36,6 +36,7 @@ const ACTION_KEYS = Object.freeze({
   fire: 'f',
   special: 'x',
   interact: ' ',
+  'jack-out': 'j',
   inventory: 'i',
   look: 'l',
   'end-turn': '.',

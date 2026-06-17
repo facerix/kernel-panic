@@ -120,3 +120,53 @@ test('P3.M4.5: meat body damage flashes the PIP only while viewing Cyberspace', 
   assert.equal(pipPaints, 1);
   assert.equal(flashes.length, 1);
 });
+
+test('P3.M4.6: forced jack-out body repair is not memorised as a meat corpse', () => {
+  const bus = new EventBus();
+  const body = { id: 'body', x: 3, y: 4, hp: 1, maxHp: 8, alive: true };
+  const scene = {
+    bus,
+    world: { entities: new Map() },
+    player: body,
+    archetype: 'decker',
+    cyberspace: { phase: 'resolved', objectiveComplete: false },
+    activeLayer: 'meat',
+    state: 'combat',
+  } as unknown as ShellScene;
+
+  let memorised = 0;
+  const fakeClassList = { remove: () => {}, add: () => {}, toggle: () => {} };
+  const controller = new SceneListenerController({
+    getScene: () => scene,
+    getCampaign: () => null,
+    getMeatVision: () => new VisionField(),
+    getCyberVision: () => new VisionField(),
+    resetCyberVision: () => new VisionField(),
+    dom: {
+      stageEl: { classList: fakeClassList, offsetWidth: 0 } as unknown as HTMLElement,
+      pipCanvas: { classList: fakeClassList, offsetWidth: 0 } as unknown as HTMLCanvasElement,
+    },
+    renderers: { main: {} as never, pip: {} as never },
+    animLock: { push: () => {} },
+    effects: {
+      flash: () => {},
+      paint: () => {},
+      paintPip: () => {},
+      recomputeVision: () => {},
+    },
+    onCivilianHarmReset: () => {},
+    onCivilianHarmed: () => {},
+    onRepAdjust: () => {},
+    onAlarmTransition: () => {},
+    onObjectiveTimerExpired: () => {},
+    memoriseMeatCorpse: () => {
+      memorised++;
+    },
+    memoriseCyberCorpse: () => {},
+  });
+  controller.rewire();
+
+  bus.emit(EVENT.ENTITY_DAMAGED, { target: body, damage: 1, killed: true });
+
+  assert.equal(memorised, 0);
+});

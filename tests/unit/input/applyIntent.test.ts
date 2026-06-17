@@ -69,6 +69,7 @@ function buildCtx({ archetype = 'merc', placeDrone = true } = {}) {
     resetInputModes: 0,
     interact: 0,
     inventory: 0,
+    jackOut: 0,
     reachedExit: 0,
     corpseSalvaged: 0,
     securedInteract: 0,
@@ -100,6 +101,9 @@ function buildCtx({ archetype = 'merc', placeDrone = true } = {}) {
           break;
         case PLAYER_ACTIONS.INVENTORY:
           calls.inventory++;
+          break;
+        case PLAYER_ACTIONS.JACK_OUT:
+          calls.jackOut++;
           break;
         default:
           throw new Error(`Unknown player action: ${actionName}`);
@@ -558,6 +562,18 @@ test('interact intent crashes when ctx.onPlayerAction is missing (no silent no-o
   const { ctx } = buildCtx();
   delete ctx.onPlayerAction;
   assert.throws(() => applyIntent({ type: 'interact' }, ctx), /onPlayerAction is missing/);
+});
+
+test('jack-out intent fires the shell-supplied onPlayerAction callback once', () => {
+  const { ctx, calls } = buildCtx();
+  applyIntent({ type: 'jack-out' }, ctx);
+  assert.equal(calls.jackOut, 1);
+});
+
+test('jack-out intent crashes when ctx.onPlayerAction is missing (no silent no-op)', () => {
+  const { ctx } = buildCtx();
+  delete ctx.onPlayerAction;
+  assert.throws(() => applyIntent({ type: 'jack-out' }, ctx), /onPlayerAction is missing/);
 });
 
 test('use-item intent forwards a validated aim direction to the shell', () => {

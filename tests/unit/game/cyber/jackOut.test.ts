@@ -9,6 +9,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
+import { JACK_OUT_SHOCK_DAMAGE } from '../../../../src/game/constants.js';
 import { Run } from '../../../../src/game/Run.js';
 import { CyberspaceLayer } from '../../../../src/game/cyber/CyberspaceLayer.js';
 import { DataNode } from '../../../../src/game/cyber/DataNode.js';
@@ -16,11 +17,12 @@ import { JackInPoint } from '../../../../src/game/entities/JackInPoint.js';
 import { snapshot, restore } from '../../../../src/game/persistence.js';
 import { buildCrewMember } from '../../../../src/game/archetypes/index.js';
 import { OBJECTIVES } from '../../../../src/game/hub/Curator.js';
+import { EVENT } from '../../../../src/game/events.js';
 import { Rng } from '../../../../src/rng.js';
 import { testContractContext } from '../contractTestUtils.js';
 import type { World } from '../../../../src/game/World.js';
 import type { Entity } from '../../../../src/game/Entity.js';
-import type { RunEntitySnapshot, RunSnapshot } from '../../../../src/game/Run.js';
+import type { JackOutRequest, RunEntitySnapshot, RunSnapshot } from '../../../../src/game/Run.js';
 
 const cyberContract = (seed = 12345) => ({
   seed,
@@ -41,6 +43,10 @@ function makeDecker() {
   return buildCrewMember('decker', { x: 0, y: 0 }, new Rng(100), { id: 'crew-decker' });
 }
 
+function makeMerc() {
+  return buildCrewMember('merc', { x: 0, y: 0 }, new Rng(101), { id: 'crew-merc' });
+}
+
 function adjacentFreeTile(world: World, target: Entity) {
   for (let dy = -1; dy <= 1; dy++) {
     for (let dx = -1; dx <= 1; dx++) {
@@ -57,6 +63,13 @@ function adjacentFreeTile(world: World, target: Entity) {
 
 function combatRun(seed = 12345) {
   const run = new Run({ crewMember: makeDecker(), seed });
+  run.enterBriefing(cyberContract(seed));
+  run.enterCombat();
+  return run;
+}
+
+function dualCombatRun(seed = 12345) {
+  const run = new Run({ crewMember: makeDecker(), partnerMember: makeMerc(), seed });
   run.enterBriefing(cyberContract(seed));
   run.enterCombat();
   return run;
@@ -94,6 +107,18 @@ function sliceAllNodes(layer: CyberspaceLayer): void {
     assert.equal(entity.interact(layer.world, layer.avatar).ok, true);
     assert.equal(entity.sliced, true, 'standard node slices in one pass at base intrusion');
   }
+}
+
+function damageBody(run: Run, amount: number): void {
+  const body = run.player!;
+  const damage = body.damage(amount);
+  run.world!.events!.emit(EVENT.ENTITY_DAMAGED, {
+    attacker: null,
+    target: body,
+    damage,
+    killed: !body.alive,
+    source: 'test-body-hit',
+  });
 }
 
 function portRecord(record: RunSnapshot): RunEntitySnapshot {
@@ -234,6 +259,8 @@ test('confirmJackOut with no jack-out pending throws (dormant and resolved)', ()
   assert.throws(() => run.confirmJackOut(), /pending/);
 
   const layer = jackIn(run);
+  assert.throws(() => run.confirmJackOut(), /pending/);
+
   routeOut(layer); // no callback → resolves immediately
   assert.equal(run.cyberspace?.phase, 'resolved');
   assert.throws(() => run.confirmJackOut(), /pending/);
@@ -248,6 +275,153 @@ test('a pending jack-out confirmation persists as a live layer', () => {
   const { run: restored } = restore(structuredClone(snapshot(run)));
   assert.equal(restored.cyberspace?.phase, 'active', 'nothing resolved until the shell confirms');
   assert.equal(meatPort(restored).burned, false);
+});
+
+// --- explicit jack-out key (P3.M4 gap closeout) ---------------------------------------
+
+test('explicit jack-out defers for neural shock even after the objective is complete', () => {
+  const run = combatRun();
+  const layer = jackIn(run);
+  sliceAllNodes(layer);
+  const body = run.player!;
+  const requests: JackOutRequest[] = [];
+  run.onJackOutRequested = request => requests.push(request);
+
+  run.requestJackOut();
+
+  assert.equal(run.cyberspace?.phase, 'active', 'link stays live pending confirmation');
+  assert.equal(body.hp, body.maxHp, 'shock is not applied before confirmation');
+  assert.deepEqual(requests, [
+    {
+      reason: 'explicit-key',
+      objectiveComplete: true,
+      shockDamage: JACK_OUT_SHOCK_DAMAGE,
+    },
+  ]);
+
+  run.confirmJackOut();
+  assert.equal(run.cyberspace?.phase, 'resolved');
+  assert.equal((run.cyberspace as { objectiveComplete?: boolean }).objectiveComplete, true);
+  assert.equal(body.hp, body.maxHp - JACK_OUT_SHOCK_DAMAGE);
+  assert.equal(meatPort(run).burned, true);
+});
+
+test('explicit jack-out works while controlling the meat partner and fails unfinished objective', () => {
+  const run = dualCombatRun();
+  jackIn(run);
+  assert.equal(run.activeLayer, 'meat', 'dual-deploy jack-in leaves control in Meatspace');
+  const body = run.player!;
+  run.onJackOutRequested = () => {};
+
+  run.requestJackOut();
+  run.confirmJackOut();
+
+  assert.equal(run.cyberspace?.phase, 'resolved');
+  assert.equal((run.cyberspace as { objectiveComplete?: boolean }).objectiveComplete, false);
+  assert.equal(body.hp, body.maxHp - JACK_OUT_SHOCK_DAMAGE);
+  assert.equal(run.activeLayer, 'meat');
+  assert.equal(run.meatActor, body);
+  assert.equal(body.frozen, false);
+  assert.equal(meatPort(run).burned, true);
+});
+
+test('confirmed explicit jack-out can flatline a critically wounded Decker', () => {
+  const run = combatRun();
+  jackIn(run);
+  const body = run.player!;
+  body.hp = JACK_OUT_SHOCK_DAMAGE - 1;
+  let result: unknown = null;
+  run.onResult = value => {
+    result = value;
+  };
+  run.onJackOutRequested = () => {};
+
+  run.requestJackOut();
+  run.confirmJackOut();
+
+  assert.equal(run.state, 'RESULT');
+  assert.equal(body.alive, false);
+  assert.equal(body.hp, 0);
+  assert.equal(run.cyberspace?.phase, 'resolved', 'link still drops before shock death resolves');
+  assert.equal(meatPort(run).burned, true);
+  assert.deepEqual(result, {
+    outcome: 'death',
+    telemetry: {
+      ...run.telemetry,
+      outcome: 'death',
+      hpAtDeath: 0,
+      lastDamageSource: 'neural-shock',
+      lastAttacker: null,
+      hpAtDamage: 0,
+      cause: `neural-shock(${JACK_OUT_SHOCK_DAMAGE - 1})`,
+    },
+  });
+});
+
+// --- forced jack-out (P3.M4.6) ---------------------------------------------------------
+
+test('body damage to 1 HP forces jack-out without early-jack-out confirmation', () => {
+  const run = dualCombatRun();
+  jackIn(run);
+  run.flip(); // view Cyberspace, leaving the body in the meat feed.
+  const body = run.player!;
+  body.hp = 2;
+  let requests = 0;
+  run.onJackOutRequested = () => requests++;
+
+  damageBody(run, 1);
+
+  assert.equal(requests, 0, 'forced jack-out never asks for early-jack-out confirmation');
+  assert.equal(run.cyberspace?.phase, 'resolved');
+  assert.equal((run.cyberspace as { objectiveComplete?: boolean }).objectiveComplete, false);
+  assert.equal(body.alive, true);
+  assert.equal(body.hp, 1);
+  assert.equal(body.frozen, false);
+  assert.equal(run.activeLayer, 'meat');
+  assert.equal(run.meatActor, body);
+  assert.equal(meatPort(run).burned, true);
+  assert.equal(run.canFlip(), true, 'post-jack-out control can still flip to the living partner');
+});
+
+test('lethal body damage while jacked in clamps the Decker alive and round-trips', () => {
+  const run = dualCombatRun();
+  jackIn(run);
+  const body = run.player!;
+  body.hp = 1;
+  let results = 0;
+  run.onResult = () => results++;
+
+  damageBody(run, body.maxHp);
+
+  assert.equal(results, 0, 'forced jack-out is not a run death');
+  assert.equal(run.state, 'COMBAT');
+  assert.equal(body.alive, true);
+  assert.equal(body.hp, 1);
+  assert.equal(run.cyberspace?.phase, 'resolved');
+
+  const { run: restored } = restore(structuredClone(snapshot(run)));
+  assert.equal(restored.cyberspace?.phase, 'resolved');
+  assert.equal((restored.cyberspace as { objectiveComplete?: boolean }).objectiveComplete, false);
+  assert.equal(restored.player!.alive, true);
+  assert.equal(restored.player!.hp, 1);
+  assert.equal(restored.player!.frozen, false);
+  assert.equal(restored.meatActor, restored.player);
+  assert.equal(meatPort(restored).burned, true);
+});
+
+test('forced jack-out after all nodes are sliced preserves the completed objective latch', () => {
+  const run = dualCombatRun();
+  const layer = jackIn(run);
+  sliceAllNodes(layer);
+  const body = run.player!;
+  body.hp = 1;
+
+  damageBody(run, body.maxHp);
+
+  assert.equal(run.cyberspace?.phase, 'resolved');
+  assert.equal((run.cyberspace as { objectiveComplete?: boolean }).objectiveComplete, true);
+  assert.equal(body.alive, true);
+  assert.equal(body.hp, 1);
 });
 
 // --- persistence ----------------------------------------------------------------------

@@ -6,8 +6,8 @@
  *
  * The intent shape is the closed enum the keymap / touch layer and other
  * callers may produce:
- *   { type: 'move' | 'special' | 'melee' | 'fire' | 'interact' | 'end-turn'
- *         | 'cancel', dx?, dy? }
+ *   { type: 'move' | 'special' | 'melee' | 'fire' | 'interact' | 'jack-out'
+ *         | 'end-turn' | 'cancel', dx?, dy? }
  *
  * `move` into an occupied tile is resolved in `doMove`: a corp (or any
  * non-allied, non-neutral) neighbour is a bump-melee; same-faction or neutral
@@ -154,6 +154,7 @@ const KNOWN_INTENT_TYPES = new Set([
   'fire',
   'interact',
   'inventory',
+  'jack-out',
   'use-item',
   'end-turn',
   'cancel',
@@ -167,6 +168,7 @@ export const PLAYER_ACTIONS = Object.freeze({
   REACHED_EXIT: 'movedToExit',
   INVENTORY: 'inventory',
   INTERACT: 'interact',
+  JACK_OUT: 'jack-out',
 });
 
 function gateOnApExhausted(ctx: ApplyIntentContext) {
@@ -218,6 +220,8 @@ export function applyIntent(intent: Intent, ctx: ApplyIntentContext) {
       return doInteract(ctx);
     case 'inventory':
       return doInventory(ctx);
+    case 'jack-out':
+      return doJackOut(ctx);
     case 'use-item':
       return doUseItem(intent, ctx);
     case 'end-turn': {
@@ -649,6 +653,16 @@ function doInventory(ctx: ApplyIntentContext) {
     throw new Error('applyIntent: inventory intent received but ctx.onPlayerAction is missing');
   }
   ctx.onPlayerAction(PLAYER_ACTIONS.INVENTORY);
+}
+
+function doJackOut(ctx: ApplyIntentContext) {
+  // Explicit jack-out is a Run-level transition, not an active-world action:
+  // it can eject the Decker even while the player is controlling the meat
+  // partner. The shell owns the active-Cyberspace gate and confirmation copy.
+  if (typeof ctx.onPlayerAction !== 'function') {
+    throw new Error('applyIntent: jack-out intent received but ctx.onPlayerAction is missing');
+  }
+  ctx.onPlayerAction(PLAYER_ACTIONS.JACK_OUT);
 }
 
 /**

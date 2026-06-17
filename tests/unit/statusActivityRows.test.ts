@@ -39,3 +39,25 @@ test('statusActionRows lets a single fresh action share the HUD with an ephemera
     { source: 'action', text: 'Access terminal sliced.' },
   ]);
 });
+
+test('statusActionRows keeps a priority transition visible under later combat lines', () => {
+  let history: string[] = [];
+  history = recordStatusActionLine(history, 'LINK DROPPED - back in your body.');
+  history = recordStatusActionLine(history, '[Sable]Vault Security strikes Blitz - HIT.');
+
+  assert.deepEqual(statusActionRows(history, 2, false, 'LINK DROPPED - back in your body.'), [
+    { source: 'action', text: '[Sable]Vault Security strikes Blitz - HIT.' },
+    { source: 'priority', text: 'LINK DROPPED - back in your body.' },
+  ]);
+});
+
+test('statusActionRows lets proximity hints sit above a priority transition', () => {
+  let history: string[] = [];
+  history = recordStatusActionLine(history, 'LINK DROPPED - back in your body.');
+  history = recordStatusActionLine(history, '[Sable]Vault Security strikes Blitz - HIT.');
+
+  assert.deepEqual(statusActionRows(history, 2, true, 'LINK DROPPED - back in your body.'), [
+    { source: 'ephemeral', text: '' },
+    { source: 'priority', text: 'LINK DROPPED - back in your body.' },
+  ]);
+});

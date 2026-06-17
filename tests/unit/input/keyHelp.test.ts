@@ -97,6 +97,7 @@ test('drift guard: every key handled by keymap.js dispatch appears in HELP_ROWS'
     'i',
     'l',
     'Tab',
+    'j',
     // system
     '.',
     'Escape',

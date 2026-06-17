@@ -68,7 +68,7 @@ import {
 } from '/src/game/hub/hubReveals.js';
 import type { Crew } from '/src/game/Crew.js';
 import { resolveEntityLabel, type Entity } from '/src/game/Entity.js';
-import type { RunResult, RunTelemetry, Outcome } from '/src/game/Run.js';
+import type { JackOutRequest, RunResult, RunTelemetry, Outcome } from '/src/game/Run.js';
 import type { Item } from '/src/game/items.js';
 import type { Intent } from '/src/input/applyIntent.js';
 import type { AimKind } from '/src/input/keymap.js';
@@ -273,6 +273,7 @@ function showBreachBlastOverlay(cx: number, cy: number): void {
  */
 let actionLineHistory: string[] = [];
 let pendingActionLineCount = 0;
+let priorityFlashLine: string | null = null;
 let lookCursor: { x: number; y: number } | null = null;
 
 /**
@@ -1202,11 +1203,8 @@ function wireRunConfirmations(run: Run): void {
       'abort-run'
     );
   };
-  run.onJackOutRequested = () => {
-    confirmationModalEl.showModal(
-      'Objective incomplete. Jack out anyway?\n\nThe link will burn — you cannot re-enter the grid this run.',
-      'jack-out-early'
-    );
+  run.onJackOutRequested = request => {
+    confirmationModalEl.showModal(jackOutConfirmationCopy(request), 'jack-out-early');
   };
   run.onJackInPresent = () => {
     sceneListenerController.rewire();
@@ -1225,6 +1223,22 @@ function wireRunConfirmations(run: Run): void {
     paint();
     flash(`⚠ OPERATOR DOWN — ${who} flatlined. Your meat cover is gone.`);
   };
+}
+
+function jackOutConfirmationCopy(request: JackOutRequest): string {
+  if (request.reason === 'explicit-key') {
+    const objectiveLine = request.objectiveComplete
+      ? 'Cyberspace objective is complete.'
+      : 'Cyberspace objective is incomplete and will fail.';
+    return (
+      `Emergency jack-out?\n\n${objectiveLine}\n` +
+      `The link will burn and neural shock will deal ${request.shockDamage} HP.`
+    );
+  }
+  return (
+    'Objective incomplete. Jack out anyway?\n\n' +
+    'The link will burn — you cannot re-enter the grid this run.'
+  );
 }
 
 function resumeCampaign(record: CampaignSnapshot | unknown) {
@@ -1578,6 +1592,9 @@ export function handleIntent(intent: Intent): void {
           break;
         case PLAYER_ACTIONS.INTERACT:
           handleInteract();
+          break;
+        case PLAYER_ACTIONS.JACK_OUT:
+          handleExplicitJackOut(run as Run);
           break;
         case PLAYER_ACTIONS.REACHED_EXIT:
           if (campaign?.state === CAMPAIGN_STATE.HUB) {
@@ -1946,6 +1963,14 @@ function handleInteract(): void {
   presentContractSelect(currentJobOptions);
 }
 
+function handleExplicitJackOut(run: Run): void {
+  if (run.state !== RUN_STATE.COMBAT || run.cyberspace?.phase !== 'active') {
+    flash('No active Cyberspace link to jack out from.');
+    return;
+  }
+  run.requestJackOut();
+}
+
 /**
  * Combat interact — scan Chebyshev-adjacent tiles for a lootable corpse.
  * If found: call `player.collectSalvage`, flash result, auto-end turn on AP
@@ -2102,7 +2127,7 @@ function rewireSceneListeners(): void {
 function completeJackOutShellSwap(): void {
   sceneListenerController.detachCyber();
   pipCanvas.hidden = true;
-  flash('LINK DROPPED — back in your body.');
+  flash('LINK DROPPED — back in your body.', { priority: true });
   recomputeVision();
   paint();
 }
@@ -2324,6 +2349,7 @@ function statusLine(state: InputState): string {
     latchedCorpMood,
     actionHistory: actionLineHistory,
     pendingActionCount: pendingActionLineCount,
+    priorityFlash: priorityFlashLine,
   });
   if (nextCorpMoodBody !== null) {
     corpToneActivityBody = nextCorpMoodBody;
@@ -2397,13 +2423,19 @@ function proximityHint(): string {
 }
 
 /** Stash a one-shot message that the next paint surfaces in the status bar. */
-function flash(line: string): void {
+function flash(line: string, opts: { priority?: boolean } = {}): void {
   const scene = currentScene();
   if (scene?.state === RUN_STATE.COMBAT && scene.queue?.currentFaction === FACTION.PLAYER) {
     corpToneActivityBody = null;
+    if (!opts.priority) {
+      priorityFlashLine = null;
+    }
   }
   actionLineHistory = recordStatusActionLine(actionLineHistory, line);
   pendingActionLineCount = Math.min(pendingActionLineCount + 1, actionLineHistory.length);
+  if (opts.priority) {
+    priorityFlashLine = actionLineHistory[0] ?? line;
+  }
   const currentActionLine = actionLineHistory[0] ?? '';
   if (currentActionLine) {
     logLines.unshift(`> ${currentActionLine}`);

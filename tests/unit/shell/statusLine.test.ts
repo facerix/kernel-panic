@@ -116,6 +116,26 @@ test('formatStatusLine latches corp mood on player slice', () => {
   assert.equal(playerSlice.nextCorpMoodBody, null);
 });
 
+test('formatStatusLine renders priority flash below newer ordinary action lines', () => {
+  const { html } = formatStatusLine({
+    stateLabel: '[COMBAT]',
+    sceneState: RUN_STATE.COMBAT,
+    input: { mode: MODE.IDLE, aimKind: null },
+    hasPlayer: true,
+    hasQueue: true,
+    contextHtml: '',
+    actionHistory: [
+      '[Sable]Vault Security strikes Blitz - HIT.',
+      'LINK DROPPED - back in your body.',
+    ],
+    pendingActionCount: 2,
+    priorityFlash: 'LINK DROPPED - back in your body.',
+  });
+
+  assert.match(html, /Security strikes Blitz/);
+  assert.match(html, /priority.*LINK DROPPED/);
+});
+
 test('hostileMoodTag reads ICE while jacked in', () => {
   assert.equal(hostileMoodTag(true, FACTION.RIVAL), 'ICE');
   assert.equal(hostileMoodTag(false, FACTION.RIVAL), 'RIVAL');

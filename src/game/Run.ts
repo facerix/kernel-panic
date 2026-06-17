@@ -42,6 +42,7 @@ import {
   SALVAGE_DROP_MIN,
   SALVAGE_DROP_MAX,
   ENEMY_ROLE,
+  JACK_OUT_SHOCK_DAMAGE,
   factionForPrincipalGroups,
 } from './constants.js';
 import { coordKey, explorationReachableKeys } from './mapConnectivity.js';
@@ -363,6 +364,12 @@ type KeyItemSnapshot = {
   doorId: string;
 };
 
+export type JackOutRequest = {
+  reason: 'exit-port' | 'explicit-key';
+  objectiveComplete: boolean;
+  shockDamage: number;
+};
+
 export type RunResult = {
   outcome: Outcome;
   telemetry: RunTelemetry;
@@ -381,9 +388,9 @@ export type RunOptions = {
    *  to finalise the abort extraction, or do nothing to let the player
    *  stay on the exit tile and keep playing. */
   onAbortRequested?: unknown;
-  /** P3.M3: called when the avatar routes out with the objective incomplete —
-   *  an irreversible step (the link burns, the objective latches
-   *  unsatisfiable). The shell should show a confirmation prompt; call
+  /** P3.M3/M4: called when jack-out needs confirmation: either incomplete
+   *  objective through the exit port, or the explicit jack-out key's neural
+   *  shock. The shell should show a confirmation prompt; call
    *  `run.confirmJackOut()` to finalize, or do nothing to keep the layer
    *  live. No callback registered → jack out immediately (tests/harness),
    *  matching the `onAbortRequested` posture. */
@@ -482,13 +489,14 @@ export class Run {
   onPersist: ((record: RunSnapshot) => void) | null;
   onResult: ((result: RunResult) => void) | null;
   onAbortRequested: (() => void) | null;
-  onJackOutRequested: (() => void) | null;
+  onJackOutRequested: ((request: JackOutRequest) => void) | null;
   /** Shell presentation hook — fired synchronously after jack-in completes. */
   onJackInPresent: (() => void) | null;
   /** Shell presentation hook — fired after jack-out finalizes. */
   onJackOutPresent: (() => void) | null;
   /** P3.M4.4 shell presentation hook — fired with the partner when it flatlines. */
   onPartnerDown: ((partner: Crew) => void) | null;
+  #pendingJackOut: JackOutRequest | null;
   _busUnsubs: (() => void)[];
 
   constructor({
@@ -579,10 +587,12 @@ export class Run {
     this.onPersist = (onPersist as ((record: RunSnapshot) => void) | undefined) ?? null;
     this.onResult = (onResult as ((result: RunResult) => void) | undefined) ?? null;
     this.onAbortRequested = (onAbortRequested as (() => void) | undefined) ?? null;
-    this.onJackOutRequested = (onJackOutRequested as (() => void) | undefined) ?? null;
+    this.onJackOutRequested =
+      (onJackOutRequested as ((request: JackOutRequest) => void) | undefined) ?? null;
     this.onJackInPresent = (onJackInPresent as (() => void) | undefined) ?? null;
     this.onJackOutPresent = (onJackOutPresent as (() => void) | undefined) ?? null;
     this.onPartnerDown = (onPartnerDown as ((partner: Crew) => void) | undefined) ?? null;
+    this.#pendingJackOut = null;
 
     /** @type {Array<() => void>} active bus subscriptions */
     this._busUnsubs = [];
@@ -1192,6 +1202,25 @@ export class Run {
    * variant (body under fire).
    */
   jackOut(): void {
+    this.#requestJackOut({ reason: 'exit-port', shockDamage: 0 });
+  }
+
+  /**
+   * P3.M4 explicit jack-out key: drop the link from anywhere in an active
+   * jack-in. Unlike the exit port, this always asks for confirmation when the
+   * shell is wired because it applies neural shock to the Decker's body.
+   */
+  requestJackOut(): void {
+    this.#requestJackOut({ reason: 'explicit-key', shockDamage: JACK_OUT_SHOCK_DAMAGE });
+  }
+
+  #requestJackOut({
+    reason,
+    shockDamage,
+  }: {
+    reason: JackOutRequest['reason'];
+    shockDamage: number;
+  }): void {
     if (this.state !== RUN_STATE.COMBAT) {
       throw new Error(`Run.jackOut: illegal from state ${this.state} (COMBAT only)`);
     }
@@ -1207,17 +1236,17 @@ export class Run {
     // P3.M3.4: the latch is the sliced-node tally at the moment the link
     // drops. Jacking out early leaves the objective permanently unsatisfiable
     // — extraction then routes through the existing abort-confirm flow.
-    const { sliced } = dataNodeProgress(layer.world);
-    const objectiveComplete = sliced >= objectiveCount(this.contract);
-    // S7.5: an incomplete jack-out is irreversible — defer to the shell for
-    // confirmation when a callback is registered (the port's interact AP is
-    // already spent; a re-request after cancel costs it again). No callback
-    // → resolve immediately, the `onAbortRequested` posture.
-    if (!objectiveComplete && this.onJackOutRequested) {
-      this.onJackOutRequested();
+    const objectiveComplete = this.#cyberObjectiveComplete(layer);
+    const request: JackOutRequest = { reason, objectiveComplete, shockDamage };
+    // S7.5/P3.M4: incomplete jack-out is irreversible; explicit-key jack-out
+    // additionally hurts the body. Defer to shell confirmation when wired. No
+    // callback → resolve immediately, the `onAbortRequested` posture.
+    if ((!objectiveComplete || shockDamage > 0) && this.onJackOutRequested) {
+      this.#pendingJackOut = request;
+      this.onJackOutRequested(request);
       return;
     }
-    this.#finalizeJackOut(layer, objectiveComplete);
+    this.#finalizeJackOut(layer, objectiveComplete, shockDamage);
   }
 
   /**
@@ -1228,7 +1257,8 @@ export class Run {
    * wiring bug and throws rather than silently no-oping.
    */
   confirmJackOut(): void {
-    if (this.state !== RUN_STATE.COMBAT || this.cyberspace?.phase !== 'active') {
+    const request = this.#pendingJackOut;
+    if (!request || this.state !== RUN_STATE.COMBAT || this.cyberspace?.phase !== 'active') {
       throw new Error(
         `Run.confirmJackOut: no jack-out pending (state ${this.state}, phase ${
           this.cyberspace?.phase ?? 'none'
@@ -1239,14 +1269,40 @@ export class Run {
       throw new Error('Run.confirmJackOut: COMBAT state without a contract');
     }
     const layer = this.cyberspace.layer;
+    this.#pendingJackOut = null;
     // Recompute rather than latch `false` blindly — honest if a future flow
     // ever confirms after progress changed.
+    this.#finalizeJackOut(layer, this.#cyberObjectiveComplete(layer), request.shockDamage);
+  }
+
+  #cyberObjectiveComplete(layer: CyberspaceLayer): boolean {
+    if (!this.contract) {
+      throw new Error('Run.#cyberObjectiveComplete: COMBAT state without a contract');
+    }
     const { sliced } = dataNodeProgress(layer.world);
-    this.#finalizeJackOut(layer, sliced >= objectiveCount(this.contract));
+    return sliced >= objectiveCount(this.contract);
+  }
+
+  /**
+   * P3.M4.6: while jacked in, the Decker's meat body cannot flatline from
+   * Meatspace damage. A hit that drives it to the danger floor ejects the Decker,
+   * clamps the body alive at 1 HP, burns the link, and latches the cyber
+   * objective at its current progress. Unlike voluntary early jack-out, this is
+   * not a choice, so it bypasses the confirmation hook.
+   */
+  #forceJackOutFromBodyDamage(layer: CyberspaceLayer): void {
+    if (!(this.player instanceof Decker)) {
+      throw new Error('Run.#forceJackOutFromBodyDamage: jacked body is not a Decker');
+    }
+    this.#pendingJackOut = null;
+    this.player.hp = 1;
+    this.player.alive = true;
+    this.#finalizeJackOut(layer, this.#cyberObjectiveComplete(layer), 0);
   }
 
   /** Active → resolved: teardown, latch, LINK BURNED, autosave. */
-  #finalizeJackOut(layer: CyberspaceLayer, objectiveComplete: boolean): void {
+  #finalizeJackOut(layer: CyberspaceLayer, objectiveComplete: boolean, shockDamage: number): void {
+    this.#pendingJackOut = null;
     layer.teardown();
     this.cyberspace = { phase: 'resolved', objectiveComplete };
     // P3.M4.2: the Decker is back in its body — unfreeze it, return control to
@@ -1260,10 +1316,31 @@ export class Run {
     this.activeLayer = 'meat';
     // S5: the link is burned — re-jack-in refused for the rest of the run.
     this.#meatJackInPoint().burn();
+    this.#applyJackOutShock(shockDamage);
+    if (this.state !== RUN_STATE.COMBAT) return;
     if (this.onPersist) {
       this.onPersist(this.snapshot());
     }
     this.onJackOutPresent?.();
+  }
+
+  #applyJackOutShock(shockDamage: number): void {
+    if (shockDamage === 0) return;
+    if (!Number.isInteger(shockDamage) || shockDamage < 0) {
+      throw new RangeError(`Run.#applyJackOutShock: invalid shockDamage ${shockDamage}`);
+    }
+    if (!this.player) {
+      throw new Error('Run.#applyJackOutShock: COMBAT state without a player');
+    }
+    const applied = this.player.damage(shockDamage);
+    this.telemetry.lastDamageSource = 'neural-shock';
+    this.telemetry.lastAttacker = null;
+    this.telemetry.hpAtDamage = this.player.hp;
+    if (!this.player.alive) {
+      this.telemetry.hpAtDeath = 0;
+      this.telemetry.cause = `neural-shock(${applied})`;
+      this.enterResult({ outcome: OUTCOME.DEATH });
+    }
   }
   #meatJackInPoint(): JackInPoint {
     if (!this.world) {
@@ -1579,6 +1656,10 @@ export class Run {
       this.telemetry.lastDamageSource = source ?? null;
       this.telemetry.lastAttacker = attacker?.id ?? null;
       this.telemetry.hpAtDamage = this.player.hp;
+      if (this.cyberspace?.phase === 'active' && this.player.hp <= 1) {
+        this.#forceJackOutFromBodyDamage(this.cyberspace.layer);
+        return;
+      }
       if (killed) {
         this.telemetry.hpAtDeath = 0;
         this.telemetry.cause = `${attacker?.id ?? 'unknown'}::${source ?? 'unknown'}(${damage})`;
