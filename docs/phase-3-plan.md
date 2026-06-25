@@ -46,7 +46,8 @@ A new **player archetype** recruited mid-campaign (late Act 1 / start of Act 2),
 | P3.M3 — Cyberspace grid + ICE | ✅ Done (full ICE roster: Probe, Spark, Guardian) |
 | P3.M4 — Simstim flip (dual-deploy) | ✅ Done |
 | P3.M5 — The Score (climactic mission) | ✅ Done |
-| P3.M6 — Chronicle (campaign narrative memory) | 🟡 End-summary foundation shipped |
+| P3.M6 — Stolen Blueprints (shop rework + meta-progression) | 🔲 Not started |
+| P3.M7 — Chronicle (campaign narrative memory) | 🟡 End-summary foundation shipped |
 
 **Phase 3** is complete when:
 
@@ -417,7 +418,61 @@ Placement is collision-safe (`pickFreeRingTile` consumes one rng draw then scans
 
 ---
 
-### P3.M6 — Chronicle (campaign narrative memory) 🟡
+### P3.M6 — Stolen Blueprints (shop rework + meta-progression) 🔲
+
+**Depends on:** P3.M5 (Score completion path — unlock writes to meta-store on `score-complete`); P2.5.M5 (existing shop/rep system being replaced).
+
+**Goal:** Replace rep-gated shop access with a **meta-progression unlock system** rooted in successful Score heists. The item catalog is restructured into two explicit groups: **default items** (always available) and **scoreable items** (each a distinct Score target, unlocked permanently by stealing its blueprint). An enriched scoreable pool (8–12 items total, at least 5 net-new) means multiple campaigns have distinct heist targets before the pool exhausts; once exhausted, Scores shift to abstract RNG-driven credit payloads that keep the arc alive indefinitely.
+
+**Scope:**
+
+- **Data model change:** The current `minRepTier` property on items is retired as a shop-access mechanism. Items are reorganized into two fixed compile-time catalogs:
+  - **`DEFAULT_ITEMS`:** Items previously flagged `BURNED` or `UNKNOWN` `minRepTier`. Always available in Finn's shop; no condition, no gate.
+  - **`SCOREABLE_ITEMS`:** Items previously flagged `KNOWN` `minRepTier`, plus at least 5 net-new items added as part of this milestone. Each has a unique ID, a name, stats, and a short flavor line describing what was stolen (the prototype, the implant design, the weapons schematic). Not available in the shop until unlocked via a Score heist.
+  - `minRepTier` can be safely removed from item definitions, as it no longer influences shop availability after this milestone, and is not referenced elsewhere.
+
+- **Finn's shop rework:** Rep no longer gates shop inventory.
+  - `DEFAULT_ITEMS` always stocked from campaign start.
+  - Unlocked `SCOREABLE_ITEMS` added to stock permanently once acquired; locked scoreable items are not shown at all. The discovery of a new item appearing in Finn's shop after a Score is the reward.
+  - Shop variance = which scoreable items the meta-crew has acquired across all past campaigns. Rep meter decoupled from shop access (still drives arc transitions as before).
+
+- **Score target rework:** `buildScoreContract()` draws from the set of not-yet-acquired `SCOREABLE_ITEMS`. The Score target site is still a synthesized CRITICAL-tier facility, but briefing copy and objective text frame the site around the specific payload — the R&D lab, the secure vault, the production facility where the prototype lives. On clean `score-complete`, the item ID is written to the meta-progression store and the item becomes permanently available in Finn's shop.
+
+- **Abstract Score targets (pool exhausted):** When all `SCOREABLE_ITEMS` are acquired, `buildScoreContract()` shifts to abstract RNG-driven credit payloads drawn from a small fixed category set (corp payroll, exotic meta-materials, black-market data cache, prototype weapons cache, etc.). Payload category is seeded from the contract RNG so each exhausted-pool campaign gets different flavor. The full arc structure runs identically; the payout is a substantial credit sum rather than a shop unlock. No item is written to the meta-store.
+
+- **Meta-progression store:** New `DataStore` key `unlockedScoreableItems: string[]` (item IDs, ordered by acquisition date). Written only on `score-complete` (not `score-partial` — the prototype wasn't secured). Read at campaign init and Hub load. Idempotent archival: writing a duplicate ID is a no-op (no throw, no double-entry). Half-populated or structurally invalid store throws on restore rather than silently falling back to an empty list.
+
+- **Hub surface:** Finn's shop renders only purchasable items — `DEFAULT_ITEMS + unlockedScoreableItems`. An `ACQUISITIONS: N / M` counter is deferred to P3.M7, where it fits naturally in the Chronicle / history view.
+
+**Implementation slices:**
+
+| Slice | Status | Change | Tests |
+|---|---|---|---|
+| **P3.M6.1 Meta-store** | 🔲 | `DataStore` key `unlockedScoreableItems`; write on Score complete; read at campaign init; idempotent; duplicate is no-op; corrupt throws | round-trip, idempotent archival, duplicate no-op, corrupt throws |
+| **P3.M6.2 Item catalog split** | 🔲 | Define `DEFAULT_ITEMS` and `SCOREABLE_ITEMS` catalogs; retire `minRepTier` as shop gate; add at least 5 net-new scoreable items | catalog validation, no duplicate IDs, all items have required fields, `minRepTier` not read by shop |
+| **P3.M6.3 Shop rework** | 🔲 | Shop stocks `DEFAULT_ITEMS + unlockedScoreableItems`; no rep gate; locked scoreable items not rendered | shop shows only default items when meta-store is empty; adds unlocked scoreable items as they accrue; rep change has no effect on stock |
+| **P3.M6.4 Score target rework** | 🔲 | `buildScoreContract()` draws from unacquired `SCOREABLE_ITEMS`; briefing copy reflects item; completion writes meta-store | available targets exclude acquired; retired items not rolled; store updated on complete |
+| **P3.M6.5 Abstract targets** | 🔲 | Exhausted-pool Score draws RNG credit payload from category set; seeded flavor; arc gates pass with empty scoreable pool | category selection determinism, arc unaffected, no meta-store write |
+| **P3.M6.6 Hub surface** | 🔲 | Shop renders only purchasable items; no locked placeholders | shop never renders a locked scoreable item regardless of meta-store state |
+
+**Recorded design decisions:**
+
+- **Why `minRepTier` is retired as a shop gate:** Rep-gated access was mechanical — the best gear was reachable by grinding rep without doing anything interesting. Two explicit catalogs make availability rules legible in the data rather than computed from a tier comparison at runtime.
+- **Why default items are fixed:** The interesting question is "which upgrades has the meta-crew earned?" not "will Finn have ammo today?" Fixed default stock removes friction and keeps meaningful variance on scoreable unlocks.
+- **Why abstract payloads instead of pool reset:** Resetting would retroactively devalue past heists. Abstract payloads acknowledge mastery — "you've stolen everything worth stealing; now you're just taking their money" — while keeping the arc valid indefinitely for long-running meta-campaigns.
+- **Why partial Score doesn't unlock:** Incomplete extraction means the prototype wasn't secured. Clean win only; the fiction holds.
+
+**Acceptance:**
+
+- Finn's shop never gates by rep; `DEFAULT_ITEMS` always present from campaign start.
+- Unlocked `SCOREABLE_ITEMS` appear in shop; locked ones are not rendered.
+- `buildScoreContract()` excludes acquired scoreable items; draws abstract credit payload when pool is exhausted.
+- Meta-store persists across campaign boundaries; duplicate ID writes are no-ops; corrupt store throws.
+- Golden-path test: complete Score with scoreable item target → next campaign shows item in Finn's shop and excludes it from Score target pool.
+
+---
+
+### P3.M7 — Chronicle (campaign narrative memory) 🟡
 
 **Depends on:** P3.M1 (arc structure provides the narrative beats to chronicle). Can begin data collection earlier if arc state is available.
 
@@ -427,9 +482,10 @@ Placement is collision-safe (`pickFreeRingTile` consumes one rng draw then scans
 
 - **Active campaign chronicle:** Entries for each run (jobs taken, outcomes, objectives completed/failed, major Rep deltas, crew changes, Decker recruitment, Score prep milestones) stored **in the campaign save**.
 - **Arc-aware entries:** Chronicle entries reflect the campaign's narrative arc — Act 1 entries read as "getting established"; Act 2 entries reference the Score target; Act 3 entries build tension toward the climax.
-- **Presentation:** Surfaced from the Hub **Terminal** alongside / inside the existing **crew** view (exact IA: tab, section, or shared scroll — TBD).
+- **Presentation:** Surfaced from a new Hub entry point (not the existing crew terminal: it remains focused on crew stats, inventory, and recruiting).
 - **Campaign end summary:** On win (Score completed) or loss (flatline / clock expired), roll up a **summary record** into a **persistent history** list (localStorage / DataStore — same durability pattern as runs/prefs). High-scores-style: scannable list with campaign stats, arc outcome, run count, crew roster at end.
 - **History access:** Hub waypoint or menu entry to view past campaign summaries. Viewable without an active campaign.
+- **Acquisitions counter:** The Chronicle / history view surfaces an `ACQUISITIONS: N / M` counter showing how many scoreable item blueprints the meta-crew has stolen across all campaigns (read from `unlockedScoreableItems` in the meta-store). The shop itself shows only purchasable items; this is the right place to communicate meta-progression depth.
 
 **Acceptance:**
 
@@ -439,7 +495,7 @@ Placement is collision-safe (`pickFreeRingTile` consumes one rng draw then scans
 - Hub can open chronicle (active campaign) and history (past campaigns) without errors.
 - Tests for append + round-trip + cap/trim policy if the list is bounded.
 
-**P3.M6 implementation note:** The end-summary foundation is shipped. A validated `CampaignSummary` is built only after campaign settlement reaches `ENDED`, so the final completed-job increment, Credits (including the Score payoff), Rep, seed, and roster state are captured from the canonical final campaign. Salvage remains a campaign resource rather than a summary measure of value. `DataStore` keeps summaries newest-first, preserves the original record on duplicate archival, and trims history to 50 campaigns. Live completion and restored ended saves share the same idempotent archival path. `<game-over>` is now the single terminal campaign overlay with success and failure modes; terminal outcomes bypass the recoverable job-level `<crash-dump>` debrief. Active per-job chronicle entries, Terminal presentation, and history browsing remain follow-up work within P3.M6.
+**P3.M7 implementation note:** The end-summary foundation is shipped. A validated `CampaignSummary` is built only after campaign settlement reaches `ENDED`, so the final completed-job increment, Credits (including the Score payoff), Rep, seed, and roster state are captured from the canonical final campaign. Salvage remains a campaign resource rather than a summary measure of value. `DataStore` keeps summaries newest-first, preserves the original record on duplicate archival, and trims history to 50 campaigns. Live completion and restored ended saves share the same idempotent archival path. `<game-over>` is now the single terminal campaign overlay with success and failure modes; terminal outcomes bypass the recoverable job-level `<crash-dump>` debrief. Active per-job chronicle entries, Terminal presentation, and history browsing remain follow-up work within P3.M6.
 
 ---
 
