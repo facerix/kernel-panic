@@ -35,7 +35,14 @@ import {
   type HubReveals,
 } from './hub/hubReveals.js';
 import { buildHub } from './hub/SafeSpace.js';
-import { getItemById, ITEM_SCOPE, metaKeyFor } from './items.js';
+import {
+  getItemById,
+  ITEM_SCOPE,
+  metaKeyFor,
+  SCOREABLE_ITEMS,
+  SCOREABLE_ITEM_IDS,
+  type Item,
+} from './items.js';
 import { OUTCOME, Run } from './Run.js';
 import {
   generateSiteId,
@@ -83,6 +90,33 @@ export function clockDeadlineApplies(arcStage: CampaignArcStage): boolean {
 /** Campaign-ending payday for completing THE SCORE. */
 export const SCORE_CREDITS_REWARD = 5_000;
 const SYNTHETIC_SCORE_TARGET_DIFFICULTY = CONTRACT_DIFFICULTY.CRITICAL;
+/**
+ * Salt mixed into the Score target seed when picking the heist payload (P3.M6.4),
+ * so blueprint selection is deterministic per campaign but independent of the
+ * map-generation roll that shares the same seed.
+ */
+const SCORE_PAYLOAD_SALT = 0x5c07e;
+
+/**
+ * Deterministically pick the unacquired scoreable blueprint this Score targets.
+ * Draws from {@link SCOREABLE_ITEMS} minus the meta-crew's already-stolen ids;
+ * a retired/forward-version id in `acquiredIds` simply isn't in the pool, so it
+ * is never rolled. Returns `null` when the pool is exhausted (every blueprint
+ * stolen) — the abstract-payload Score is M6.5's job.
+ */
+function pickScorePayload(seed: number, acquiredIds: readonly string[]): Item | null {
+  const acquired = new Set(acquiredIds);
+  const pool = SCOREABLE_ITEMS.filter(item => !acquired.has(item.id));
+  if (pool.length === 0) return null;
+  const rng = new Rng(((seed >>> 0) ^ SCORE_PAYLOAD_SALT) >>> 0);
+  return pool[Math.floor(rng.next() * pool.length)] ?? null;
+}
+
+/** Read the embedded heist payload id from a completed Score contract (or `null`). */
+function scorePayloadItemId(contract: Contract | null): string | null {
+  const raw = contract?.objective?.params?.scoreItemId;
+  return typeof raw === 'string' && SCOREABLE_ITEM_IDS.has(raw) ? raw : null;
+}
 
 export const CAMPAIGN_STATE = Object.freeze({
   HUB: 'HUB',
@@ -602,20 +636,21 @@ export class Campaign {
       throw new TypeError(`Campaign.onJobEnd: completed must be boolean`);
     }
 
+    // Capture the contract before settlement clears `activeRun` — the completed
+    // Score's payload id (P3.M6.4) is read from it after the run is torn down.
+    const activeContract = this.activeRun.contract;
     const completedScoreRun =
-      this.activeRun.contract !== null &&
-      isScoreContract(this.activeRun.contract) &&
+      activeContract !== null &&
+      isScoreContract(activeContract) &&
       outcome === OUTCOME.EXIT &&
       completed;
     const partialScoreRun =
-      this.activeRun.contract !== null &&
-      isScoreContract(this.activeRun.contract) &&
+      activeContract !== null &&
+      isScoreContract(activeContract) &&
       outcome === OUTCOME.EXIT &&
       !completed;
     const failedScoreRun =
-      this.activeRun.contract !== null &&
-      isScoreContract(this.activeRun.contract) &&
-      outcome === OUTCOME.DEATH;
+      activeContract !== null && isScoreContract(activeContract) && outcome === OUTCOME.DEATH;
 
     // P3.M4.4: a meat partner that flatlined on the field is gone for good —
     // independent of the Decker's outcome. The Decker may have extracted clean
@@ -685,6 +720,12 @@ export class Campaign {
     if (completedScoreRun) {
       this.arc.scoreCompleted = true;
       this.arc.arcStage = 'score';
+      // P3.M6.4: record the stolen blueprint so settlement writes it to the
+      // cross-campaign meta-store. Persisted on `meta` (alongside `scorePartial`)
+      // so a refresh after completion still surfaces the unlock to the shell —
+      // the actual `DataStore.archiveScoreableItem` write is idempotent.
+      const payloadId = scorePayloadItemId(activeContract);
+      if (payloadId) this.meta.scoreUnlockedItemId = payloadId;
       this.state = CAMPAIGN_STATE.ENDED;
       this.#tearDownHubWorld();
       this.#persist();
@@ -693,6 +734,17 @@ export class Campaign {
 
     this.state = CAMPAIGN_STATE.HUB;
     this.enterHub();
+  }
+
+  /**
+   * The scoreable blueprint id stolen by a completed Score, or `null` if the
+   * Score isn't complete / drew an abstract payload (P3.M6.4). Read by the shell
+   * on terminal settlement to write the cross-campaign meta-store. Returns a
+   * known scoreable id only — a stale/foreign meta value is treated as absent.
+   */
+  get scoreUnlockedItemId(): string | null {
+    const raw = this.meta.scoreUnlockedItemId;
+    return typeof raw === 'string' && SCOREABLE_ITEM_IDS.has(raw) ? raw : null;
   }
 
   canAttemptScore(): boolean {
@@ -704,7 +756,18 @@ export class Campaign {
     return this.#scoreTargetSiteOrNull() !== null;
   }
 
-  buildScoreContract(): Contract {
+  /**
+   * Build the climactic Score contract. P3.M6.4: the heist targets a specific
+   * unacquired scoreable blueprint (drawn deterministically from the seed minus
+   * the meta-crew's already-stolen ids), and the briefing frames the site around
+   * that prototype. The chosen id rides along in `objective.params.scoreItemId`
+   * so the completion path can unlock it. An exhausted pool yields the generic
+   * framing with no payload id (abstract credit payloads are M6.5).
+   *
+   * @param unlockedScoreableIds — acquired blueprint ids from the meta-store
+   *   (`DataStore.unlockedScoreableItems`); these are excluded from the draw.
+   */
+  buildScoreContract(unlockedScoreableIds: readonly string[] = []): Contract {
     if (!this.canAttemptScore()) {
       throw new Error('Campaign.buildScoreContract: Score is not available');
     }
@@ -724,6 +787,15 @@ export class Campaign {
     const heatThreat = Math.min(6, 4 + this.clockHeat);
     const objectiveKind = OBJECTIVES.SCORE_FINAL;
     const doorId = 'score-door-0';
+    const siteLabel = target.label
+      .replace(/^\/\//, '')
+      .replace(/\s+-\s+Score target$/i, '')
+      .trim();
+    const payload = pickScorePayload(seed, unlockedScoreableIds);
+    const briefing = payload
+      ? `${payload.flavor} Their prototype is held at ${siteLabel}. Breach the facility, ` +
+        `secure the ${payload.label}, and extract with the crew alive.`
+      : `Hit ${siteLabel} and extract with the crew alive.`;
     return {
       seed,
       mapWidth: target.mapWidth,
@@ -731,14 +803,12 @@ export class Campaign {
       objective: {
         kind: objectiveKind,
         title: 'The Score',
-        briefing: `Hit ${target.label
-          .replace(/^\/\//, '')
-          .replace(/\s+-\s+Score target$/i, '')
-          .trim()} and extract with the crew alive.`,
+        briefing,
         params: {
           requiresCyberspace: true,
           count: 1,
           doorId,
+          ...(payload ? { scoreItemId: payload.id } : {}),
         },
       },
       difficulty: CONTRACT_DIFFICULTY.CRITICAL,

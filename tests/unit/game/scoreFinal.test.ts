@@ -8,8 +8,14 @@ import { CyberspaceLayer } from '../../../src/game/cyber/CyberspaceLayer.js';
 import { Door } from '../../../src/game/entities/Door.js';
 import { JackInPoint } from '../../../src/game/entities/JackInPoint.js';
 import { Pickup } from '../../../src/game/entities/Pickup.js';
-import { snapshot, restore } from '../../../src/game/persistence.js';
+import {
+  snapshot,
+  restore,
+  snapshotCampaign,
+  restoreCampaign,
+} from '../../../src/game/persistence.js';
 import { buildCrewMember } from '../../../src/game/archetypes/index.js';
+import { SCOREABLE_ITEMS, SCOREABLE_ITEM_IDS } from '../../../src/game/items.js';
 import { CONTRACT_DIFFICULTY } from '../../../src/game/constants.js';
 import { OBJECTIVES } from '../../../src/game/hub/Curator.js';
 import { Rng } from '../../../src/rng.js';
@@ -231,4 +237,149 @@ test('Campaign records partial Score as terminal without full reward', () => {
   assert.equal(campaign.state, CAMPAIGN_STATE.ENDED);
   assert.equal(campaign.endReason, 'score-partial');
   assert.equal(campaign.credits, 25);
+});
+
+// ---------------------------------------------------------------------------
+// P3.M6.4 — Score target draws an unacquired scoreable blueprint
+// ---------------------------------------------------------------------------
+
+/** A Score-ready campaign (Act 3, living Decker + partner, designated target). */
+function scoreReadyCampaign() {
+  const campaign = new Campaign({
+    seed: 42,
+    credits: 25,
+    rep: 65,
+    completedJobs: 9,
+    siteRoster: [
+      scoreSite(),
+      scoreSite({ id: 'case-1', tier: 'roster', scoreTarget: false, seed: '101' }),
+      scoreSite({ id: 'case-2', tier: 'roster', scoreTarget: false, seed: '102' }),
+    ],
+  });
+  assert.ok(campaign.canAttemptScore(), 'fixture should be Score-ready');
+  return campaign;
+}
+
+test('buildScoreContract embeds an unacquired scoreable blueprint id + frames briefing', () => {
+  const campaign = scoreReadyCampaign();
+  const contract = campaign.buildScoreContract([]);
+  const itemId = contract.objective.params!.scoreItemId as string;
+  assert.ok(SCOREABLE_ITEM_IDS.has(itemId), `payload "${itemId}" must be a known scoreable`);
+  const item = SCOREABLE_ITEMS.find(i => i.id === itemId)!;
+  // Briefing frames the heist around the specific prototype.
+  assert.ok(contract.objective.briefing.includes(item.label), 'briefing names the payload');
+});
+
+test('buildScoreContract payload selection is deterministic for a campaign', () => {
+  const campaign = scoreReadyCampaign();
+  const a = campaign.buildScoreContract([]).objective.params!.scoreItemId;
+  const b = campaign.buildScoreContract([]).objective.params!.scoreItemId;
+  assert.equal(a, b, 'same seed + same acquired set → same payload');
+});
+
+test('buildScoreContract excludes already-acquired blueprints', () => {
+  const campaign = scoreReadyCampaign();
+  const firstPick = campaign.buildScoreContract([]).objective.params!.scoreItemId as string;
+  // Acquire the would-be pick — the Score must now target a different blueprint.
+  const nextPick = campaign.buildScoreContract([firstPick]).objective.params!.scoreItemId as string;
+  assert.notEqual(nextPick, firstPick);
+  assert.ok(SCOREABLE_ITEM_IDS.has(nextPick));
+});
+
+test('buildScoreContract targets the sole remaining blueprint when all others are acquired', () => {
+  const campaign = scoreReadyCampaign();
+  const allIds = SCOREABLE_ITEMS.map(i => i.id);
+  const remaining = allIds[3]!; // arbitrary survivor
+  const acquired = allIds.filter(id => id !== remaining);
+  const pick = campaign.buildScoreContract(acquired).objective.params!.scoreItemId;
+  assert.equal(pick, remaining);
+});
+
+test('buildScoreContract never rolls a retired/foreign id passed as acquired', () => {
+  const campaign = scoreReadyCampaign();
+  // A ghost id isn't in the pool, so it can't shrink it — selection is unchanged.
+  const baseline = campaign.buildScoreContract([]).objective.params!.scoreItemId;
+  const withGhost = campaign.buildScoreContract(['ghost-blueprint']).objective.params!.scoreItemId;
+  assert.equal(withGhost, baseline);
+  assert.ok(SCOREABLE_ITEM_IDS.has(withGhost as string));
+});
+
+test('buildScoreContract on an exhausted pool drops the payload id (abstract target is M6.5)', () => {
+  const campaign = scoreReadyCampaign();
+  const allAcquired = SCOREABLE_ITEMS.map(i => i.id);
+  const contract = campaign.buildScoreContract(allAcquired);
+  assert.equal(contract.objective.params!.scoreItemId, undefined);
+  // Generic framing, no specific prototype named.
+  assert.ok(contract.objective.briefing.length > 0);
+});
+
+test('clean Score completion records the stolen blueprint for the meta-store', () => {
+  const campaign = scoreReadyCampaign();
+  const decker = campaign.crew.find(member => member.archetype === 'Decker')!;
+  const partner = campaign.crew.find(member => member.archetype !== 'Decker')!;
+  const contract = campaign.buildScoreContract([]);
+  const expectedId = contract.objective.params!.scoreItemId as string;
+  campaign.deployCrewMember(decker.id, contract, partner.id).enterCombat();
+
+  campaign.onJobEnd({ outcome: OUTCOME.EXIT, completed: true });
+  assert.equal(campaign.endReason, 'score-complete');
+  assert.equal(campaign.scoreUnlockedItemId, expectedId, 'unlock recorded for settlement');
+});
+
+test('partial Score records no blueprint unlock (prototype not secured)', () => {
+  const campaign = scoreReadyCampaign();
+  const decker = campaign.crew.find(member => member.archetype === 'Decker')!;
+  const partner = campaign.crew.find(member => member.archetype !== 'Decker')!;
+  campaign.deployCrewMember(decker.id, campaign.buildScoreContract([]), partner.id).enterCombat();
+
+  campaign.onJobEnd({ outcome: OUTCOME.EXIT, completed: false });
+  assert.equal(campaign.endReason, 'score-partial');
+  assert.equal(campaign.scoreUnlockedItemId, null);
+});
+
+test('Score payload pickup is labelled + flavored from the target blueprint', () => {
+  const item = SCOREABLE_ITEMS[0]!;
+  const contract = scoreContract();
+  contract.objective.params = { ...contract.objective.params, scoreItemId: item.id };
+  const run = new Run({ crewMember: makeDecker(), partnerMember: makeMerc(), seed: 100 });
+  run.enterBriefing(contract);
+  run.enterCombat();
+  const payload = scorePayload(run);
+  assert.equal(payload.label, item.label);
+  assert.equal(payload.detail, item.flavor);
+});
+
+test('Score payload falls back to a generic label with no flavor for an abstract target', () => {
+  const run = scoreRun(); // scoreContract() carries no scoreItemId
+  const payload = scorePayload(run);
+  assert.equal(payload.label, 'Score payload');
+  assert.equal(payload.detail, undefined);
+});
+
+test('Score payload flavor detail survives a run snapshot/restore', () => {
+  const item = SCOREABLE_ITEMS[0]!;
+  const contract = scoreContract();
+  contract.objective.params = { ...contract.objective.params, scoreItemId: item.id };
+  const run = new Run({ crewMember: makeDecker(), partnerMember: makeMerc(), seed: 100 });
+  run.enterBriefing(contract);
+  run.enterCombat();
+
+  const { run: restored } = restore(structuredClone(snapshot(run)));
+  const payload = scorePayload(restored);
+  assert.equal(payload.label, item.label);
+  assert.equal(payload.detail, item.flavor);
+});
+
+test('recorded Score unlock survives campaign snapshot/restore (resume can still write it)', () => {
+  const campaign = scoreReadyCampaign();
+  const decker = campaign.crew.find(member => member.archetype === 'Decker')!;
+  const partner = campaign.crew.find(member => member.archetype !== 'Decker')!;
+  const contract = campaign.buildScoreContract([]);
+  const expectedId = contract.objective.params!.scoreItemId as string;
+  campaign.deployCrewMember(decker.id, contract, partner.id).enterCombat();
+  campaign.onJobEnd({ outcome: OUTCOME.EXIT, completed: true });
+
+  const restored = restoreCampaign(snapshotCampaign(campaign));
+  assert.equal(restored.endReason, 'score-complete');
+  assert.equal(restored.scoreUnlockedItemId, expectedId);
 });

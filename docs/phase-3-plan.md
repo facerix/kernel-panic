@@ -46,7 +46,7 @@ A new **player archetype** recruited mid-campaign (late Act 1 / start of Act 2),
 | P3.M3 — Cyberspace grid + ICE | ✅ Done (full ICE roster: Probe, Spark, Guardian) |
 | P3.M4 — Simstim flip (dual-deploy) | ✅ Done |
 | P3.M5 — The Score (climactic mission) | ✅ Done |
-| P3.M6 — Stolen Blueprints (shop rework + meta-progression) | 🟡 Meta-store + catalog split + shop rework shipped (M6.1–M6.3) |
+| P3.M6 — Stolen Blueprints (shop rework + meta-progression) | 🟡 Meta-store + catalog split + shop rework + Score target rework shipped (M6.1–M6.4) |
 | P3.M7 — Chronicle (campaign narrative memory) | 🟡 End-summary foundation shipped |
 
 **Phase 3** is complete when:
@@ -451,7 +451,7 @@ Placement is collision-safe (`pickFreeRingTile` consumes one rng draw then scans
 | **P3.M6.1 Meta-store** | ✅ | `DataStore` key `unlockedScoreableItems`; read at campaign init; idempotent archival; duplicate no-op; corrupt throws | round-trip, idempotent archival, duplicate no-op, corrupt throws |
 | **P3.M6.2 Item catalog split** | ✅ | Define `DEFAULT_ITEMS` and `SCOREABLE_ITEMS` catalogs; retire `minRepTier` as shop gate; add at least 5 net-new scoreable items (fully wired gear) | catalog validation, no duplicate IDs, all items have required fields, `minRepTier` not read by shop |
 | **P3.M6.3 Shop rework** | ✅ | Shop stocks `DEFAULT_ITEMS + unlockedScoreableItems`; no rep gate; locked scoreable items not rendered | shop shows only default items when meta-store is empty; adds unlocked scoreable items as they accrue; rep change has no effect on stock |
-| **P3.M6.4 Score target rework** | 🔲 | `buildScoreContract()` draws from unacquired `SCOREABLE_ITEMS`; briefing copy reflects item; completion writes meta-store | available targets exclude acquired; retired items not rolled; store updated on complete |
+| **P3.M6.4 Score target rework** | ✅ | `buildScoreContract()` draws from unacquired `SCOREABLE_ITEMS`; briefing copy reflects item; completion writes meta-store | available targets exclude acquired; retired items not rolled; store updated on complete |
 | **P3.M6.5 Abstract targets** | 🔲 | Exhausted-pool Score draws RNG credit payload from category set; seeded flavor; arc gates pass with empty scoreable pool | category selection determinism, arc unaffected, no meta-store write |
 | **P3.M6.6 Hub surface** | 🔲 | Shop renders only purchasable items; no locked placeholders | shop never renders a locked scoreable item regardless of meta-store state |
 
@@ -537,6 +537,31 @@ nonexistent item, and hard-failing would brick saves across catalog changes. Thi
 the M6.1 "catalog membership validation" follow-up in the shop layer (the store stays
 structural-only). The `buildScoreContract` acquired-set exclusion (which also needs the
 unlock list) lands in M6.4; it will read the same `dataStore.unlockedScoreableItems`.
+
+**P3.M6.4 implementation note:** `buildScoreContract(unlockedScoreableIds = [])` now draws a
+specific heist payload via `pickScorePayload(seed, acquired)` — `SCOREABLE_ITEMS` minus the
+acquired ids, selected with a `Rng` seeded from the target seed XORed with a salt
+(`SCORE_PAYLOAD_SALT`) so the choice is deterministic per campaign yet independent of the
+map roll. Retired/foreign ids in the acquired list simply aren't in the pool, so they're
+never rolled. The chosen blueprint's `flavor` + `label` frame the briefing, and its id rides
+in `objective.params.scoreItemId` (a plain `ObjectiveParams` string that `cloneObjective`
+preserves across a mid-run save/restore). On clean `score-complete`, `onJobEnd` reads that id
+off the completing contract and records it on `meta.scoreUnlockedItemId` (alongside the
+existing `meta.scorePartial`), exposed via the `Campaign.scoreUnlockedItemId` getter
+(validated against `SCOREABLE_ITEM_IDS`). The shell writes it to the meta-store in
+`presentEndedCampaignOverlay` — the shared terminal-settlement chokepoint for both live
+completion and a restored already-ended save — right beside `archiveCampaign`, and the write
+is idempotent so the double path is safe. Partial Scores record nothing (prototype not
+secured). **Exhausted pool:** `pickScorePayload` returns `null`, the contract drops the
+`scoreItemId` param and falls back to generic briefing with no unlock — the abstract
+credit-payload Score is M6.5.
+
+*Messaging polish (playtest feedback):* the Score payload pickup is now labelled with the
+target blueprint and carries its `flavor` (new optional `Pickup.detail`, persisted), so the
+grab logs e.g. `secures Monoblade` followed by the flavor beat; the `<game-over>` win screen
+names the stolen blueprint + flavor via a presentation-only `setScoreReward` (re-derived from
+`scoreUnlockedItemId`, **not** added to the validated `CampaignSummary` schema). Abstract /
+exhausted-pool Scores keep the generic "Score payload" with no flavor beat.
 
 **Recorded design decisions:**
 

@@ -112,6 +112,41 @@ const CSS = `
   line-height: 1.45;
 }
 
+.reward {
+  display: none;
+  margin: 0 0 1.25rem;
+  padding: 0.6rem 0.85rem;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--go-roster-border);
+  border-radius: 4px;
+  text-align: center;
+}
+
+.reward .reward-kicker {
+  display: block;
+  font-size: 0.7rem;
+  letter-spacing: 0.18em;
+  color: var(--go-dim);
+}
+
+.reward .reward-name {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 1.1rem;
+  letter-spacing: 0.06em;
+  color: var(--go-accent);
+  text-shadow: 0 0 12px color-mix(in srgb, var(--go-accent) 40%, transparent);
+}
+
+.reward .reward-flavor {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 0.82rem;
+  font-style: italic;
+  color: var(--go-text);
+  line-height: 1.4;
+}
+
 .roster {
   margin: 0 0 1.25rem;
   padding: 0.65rem 0.85rem;
@@ -231,13 +266,20 @@ function detailCopy(summary: CampaignSummary): string {
   return 'Every crew slot on the roster is flatlined. Their campaign ends here.';
 }
 
+/** Presentation-only Score prize (P3.M6.4) — not part of the persisted summary. */
+export type ScoreReward = { label: string; flavor: string };
+
 class GameOver extends HTMLElement {
   #summary: CampaignSummary | null = null;
+  #scoreReward: ScoreReward | null = null;
   #ready = false;
   #els: {
     banner: HTMLElement;
     reason: HTMLElement;
     detail: HTMLElement;
+    reward: HTMLElement;
+    rewardName: HTMLElement;
+    rewardFlavor: HTMLElement;
     rosterList: HTMLElement;
     jobsDd: HTMLElement;
     repDd: HTMLElement;
@@ -256,6 +298,13 @@ class GameOver extends HTMLElement {
     const banner = h('h1', { className: 'banner' });
     const reason = h('p', { className: 'reason' });
     const detail = h('p', { className: 'detail' });
+    const rewardName = h('span', { className: 'reward-name' });
+    const rewardFlavor = h('span', { className: 'reward-flavor' });
+    const reward = h('p', { className: 'reward' }, [
+      h('span', { className: 'reward-kicker', textContent: 'BLUEPRINT SECURED' }),
+      rewardName,
+      rewardFlavor,
+    ]);
     const rosterList = h('dd');
     const jobsDd = h('dd', { id: 'jobs' });
     const repDd = h('dd', { id: 'rep' });
@@ -279,6 +328,7 @@ class GameOver extends HTMLElement {
       h('hr', { className: 'rule' }),
       reason,
       detail,
+      reward,
       roster,
       h('dl', { className: 'meta' }, [
         h('dt', { textContent: 'jobs' }),
@@ -299,6 +349,9 @@ class GameOver extends HTMLElement {
       banner,
       reason,
       detail,
+      reward,
+      rewardName,
+      rewardFlavor,
       rosterList,
       jobsDd,
       repDd,
@@ -313,6 +366,17 @@ class GameOver extends HTMLElement {
   setSummary(summary: CampaignSummary) {
     this.#summary = validateCampaignSummary(summary);
     this.setAttribute('result', this.#summary.result);
+    if (this.#ready) this.#render();
+  }
+
+  /**
+   * Set (or clear) the stolen Score blueprint shown on a win (P3.M6.4).
+   * Presentation-only — the persisted {@link CampaignSummary} schema is
+   * untouched; the shell re-derives this from the meta-store on both live
+   * completion and a restored ended save.
+   */
+  setScoreReward(reward: ScoreReward | null) {
+    this.#scoreReward = reward;
     if (this.#ready) this.#render();
   }
 
@@ -337,6 +401,15 @@ class GameOver extends HTMLElement {
     this.#els.banner.textContent = summary.result === 'win' ? 'SCORE COMPLETE' : 'GAME OVER';
     this.#els.reason.textContent = reasonCopy(summary);
     this.#els.detail.textContent = detailCopy(summary);
+    // Score prize — only meaningful on a win that stole a blueprint.
+    const reward = summary.result === 'win' ? this.#scoreReward : null;
+    if (reward) {
+      this.#els.rewardName.textContent = reward.label;
+      this.#els.rewardFlavor.textContent = reward.flavor;
+      this.#els.reward.style.display = 'block';
+    } else {
+      this.#els.reward.style.display = 'none';
+    }
     this.#els.jobsDd.textContent = String(summary.completedJobs);
     this.#els.repDd.textContent = String(summary.rep);
     this.#els.creditsDd.textContent = String(summary.credits);

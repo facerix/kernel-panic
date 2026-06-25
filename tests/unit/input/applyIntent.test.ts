@@ -246,6 +246,38 @@ test('move onto an objective pickup secures it without routing to interact', () 
   assert.ok(log.some(l => l.includes('secures Sublevel cache')));
 });
 
+test('securing a pickup with flavor detail logs the flavor as a second beat', () => {
+  const { ctx, log, world } = buildCtx({ placeDrone: false });
+  world.addEntity(
+    new Pickup({
+      id: 'pickup-0',
+      x: 2,
+      y: 3,
+      label: 'Monoblade',
+      detail: 'A monomolecular blade schematic — an edge that never dulls.',
+    })
+  );
+
+  applyIntent({ type: 'move', dx: 0, dy: 1 }, ctx);
+
+  assert.ok(log.some(l => l.includes('secures Monoblade')));
+  assert.ok(
+    log.some(l => l.includes('A monomolecular blade schematic')),
+    'flavor detail surfaced on secure'
+  );
+});
+
+test('securing a pickup without detail logs only the secure beat', () => {
+  const { ctx, log, world } = buildCtx({ placeDrone: false });
+  world.addEntity(new Pickup({ id: 'pickup-0', x: 2, y: 3, label: 'Plain cache' }));
+
+  applyIntent({ type: 'move', dx: 0, dy: 1 }, ctx);
+
+  const beats = log.filter(l => l.startsWith('> '));
+  assert.equal(beats.length, 1, 'no flavor beat without detail');
+  assert.ok(beats[0]!.includes('secures Plain cache'));
+});
+
 test('move onto a consumable pickup adds it to inventory and removes the pickup', () => {
   const { ctx, log, player, world } = buildCtx({ placeDrone: false });
   world.addEntity(

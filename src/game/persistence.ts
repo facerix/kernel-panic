@@ -470,6 +470,9 @@ function readPickup(extra: EntitySnapshotExtra, id: string): PickupSnapshot {
     label: requireString(p.label, `restore: pickup ${id} label must be a non-empty string`),
     secured: requireBoolean(p.secured, `restore: pickup ${id} secured must be boolean`),
     armed: requireBoolean(p.armed, `restore: pickup ${id} armed must be boolean`),
+    // P3.M6.4: optional flavor detail (Score blueprint). Absent on legacy saves
+    // and ordinary pickups; preserved when present.
+    ...(typeof p.detail === 'string' ? { detail: p.detail } : {}),
   };
 }
 
@@ -800,7 +803,7 @@ const ENTITY_RESTORE: Partial<Record<EntityArchetypeId, RestoreEntry>> = Object.
   pickup: {
     buildProps(extra, rec) {
       const p = readPickup(extra, rec.id);
-      return { label: p.label, secured: p.secured, armed: p.armed };
+      return { label: p.label, secured: p.secured, armed: p.armed, detail: p.detail };
     },
     apply(entity, _extra, rec) {
       if (!(entity instanceof Pickup)) {

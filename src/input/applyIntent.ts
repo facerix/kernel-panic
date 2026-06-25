@@ -324,8 +324,11 @@ function collectTileLoot(ctx: ApplyIntentContext) {
   const { world, player, log } = ctx;
   const objectivePickup = player.alive ? world.objectivePickupAt(player.x, player.y) : null;
   if (objectivePickup) {
+    const flavor = objectivePickup.detail;
     objectivePickup.secureWalkOnto(world);
     log(`> ${entityLabel(player)} secures ${objectivePickup.label}.`);
+    // P3.M6.4: a Score blueprint carries a flavor beat — surface what was stolen.
+    if (flavor) log(`> ${flavor}`);
   }
   // Capability sniff (P3.M3.6): the CyberAvatar carries no gear — pickups
   // stay on the tile for whoever has pockets.

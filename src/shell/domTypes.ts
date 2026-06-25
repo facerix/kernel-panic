@@ -34,6 +34,7 @@ export type CrashDumpElement = ModalElement & {
 
 export type GameOverElement = ModalElement & {
   setSummary(summary: CampaignSummary): void;
+  setScoreReward(reward: { label: string; flavor: string } | null): void;
 };
 
 export type FaultScreenElement = ModalElement & {

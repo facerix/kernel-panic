@@ -90,7 +90,7 @@ import { SparkIce } from './cyber/SparkIce.js';
 import { GuardianIce } from './cyber/GuardianIce.js';
 import { applyMutationDeltas } from './locations.js';
 import { BreachingCharge } from './entities/BreachingCharge.js';
-import { ITEM_ID, getItemById } from './items.js';
+import { ITEM_ID, getItemById, SCOREABLE_ITEMS } from './items.js';
 import { resetCorpTurnStatusCache } from './corpTurnStatusCopy.js';
 import {
   objectiveProgress as resolveObjectiveProgress,
@@ -2077,12 +2077,14 @@ export class Run {
         doorId,
         this.rng
       );
+      const payloadDesc = scorePayloadDescriptor(this.contract);
       this.world.addEntity(
         new Pickup({
           id: scorePayloadId(this.contract),
           x: payloadAnchor.x,
           y: payloadAnchor.y,
-          label: 'Score payload',
+          label: payloadDesc.label,
+          detail: payloadDesc.detail,
         })
       );
     }
@@ -2496,6 +2498,21 @@ function scorePayloadId(contract: Contract): string {
   return `score-payload-${doorId}`;
 }
 
+/**
+ * Label + flavor for the Score payload pickup (P3.M6.4). When the contract names
+ * a specific stolen blueprint (`objective.params.scoreItemId`), the grab reads as
+ * that item with its heist flavor; an exhausted-pool / abstract Score falls back
+ * to the generic label with no flavor beat.
+ */
+function scorePayloadDescriptor(contract: Contract): { label: string; detail?: string } {
+  const itemId = contract.objective.params?.scoreItemId;
+  if (typeof itemId === 'string') {
+    const item = SCOREABLE_ITEMS.find(i => i.id === itemId);
+    if (item) return { label: item.label, detail: item.flavor };
+  }
+  return { label: 'Score payload' };
+}
+
 export type UnlockMethod = 'terminal' | 'keycard';
 
 /**
@@ -2668,7 +2685,13 @@ const SNAPSHOT_EXTRACTORS: Partial<Record<EntityArchetypeId, (e: Entity) => Enti
     },
     pickup: e => {
       const p = e as Pickup;
-      return { label: p.label, secured: p.secured, armed: p.armed } satisfies PickupSnapshot;
+      // Only serialize `detail` when present, keeping ordinary pickups byte-stable.
+      return {
+        label: p.label,
+        secured: p.secured,
+        armed: p.armed,
+        ...(p.detail !== undefined ? { detail: p.detail } : {}),
+      } satisfies PickupSnapshot;
     },
     contact: e => {
       const c = e as Contact;

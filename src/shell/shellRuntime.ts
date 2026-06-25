@@ -723,7 +723,7 @@ function onCrewRecruit(evt: Event) {
       campaign.canAttemptScore() &&
       !currentJobOptions.some(contract => contract.context.recipeId === 'score-final')
     ) {
-      currentJobOptions.push(campaign.buildScoreContract());
+      currentJobOptions.push(campaign.buildScoreContract(dataStore.unlockedScoreableItems));
     }
     // Refresh the roster to reflect the new crew + hide recruit section.
     presentCrewRoster();
@@ -752,7 +752,7 @@ function generateCurrentJobOptions(): Contract[] {
   }
   const contracts = campaign.curator.generateContracts(campaign.rng, campaign);
   if (campaign.canAttemptScore()) {
-    contracts.push(campaign.buildScoreContract());
+    contracts.push(campaign.buildScoreContract(dataStore.unlockedScoreableItems));
   }
   return contracts;
 }
@@ -1130,8 +1130,21 @@ function handlePersist() {
 }
 
 function presentEndedCampaignOverlay(c: Campaign): void {
+  // P3.M6.4: commit a stolen blueprint to the cross-campaign meta-store before
+  // archiving the summary. Idempotent (duplicate id → no-op), so it's safe on
+  // both live Score completion and a restored already-ended save.
+  const unlockedItemId = c.scoreUnlockedItemId;
+  if (unlockedItemId) dataStore.archiveScoreableItem(unlockedItemId);
   const summary = dataStore.archiveCampaign(buildCampaignSummary(c, new Date().toISOString()));
   gameOverEl.setSummary(summary);
+  // P3.M6.4: name the stolen blueprint on the win screen. Re-derived from the
+  // meta-store id on both live completion and a restored ended save.
+  if (unlockedItemId) {
+    const item = getItemById(unlockedItemId);
+    gameOverEl.setScoreReward({ label: item.label, flavor: item.flavor ?? '' });
+  } else {
+    gameOverEl.setScoreReward(null);
+  }
 }
 
 function presentCampaignEnd(c: Campaign): void {

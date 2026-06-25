@@ -11,23 +11,33 @@ import type { World } from '../World.js';
 
 export interface PickupInit extends Omit<InteractableInit, 'glyph' | 'label' | 'passable'> {
   label?: string;
+  detail?: string;
 }
 
-/** P2.7.M6.2: Pickup snapshot `extra`. */
+/** P2.7.M6.2: Pickup snapshot `extra`. `detail` added P3.M6.4 (Score flavor). */
 export type PickupSnapshot = {
   label: string;
   secured: boolean;
   armed: boolean;
+  detail?: string;
 };
 
 export class Pickup extends Interactable {
-  constructor({ label = 'Objective pickup', ...props }: PickupInit) {
+  /**
+   * Optional flavor line surfaced when the pickup is secured (P3.M6.4) — e.g.
+   * the stolen Score blueprint's `flavor`. `collectTileLoot` logs it as a
+   * second beat after the secure message. Absent on ordinary pickups.
+   */
+  detail?: string;
+
+  constructor({ label = 'Objective pickup', detail, ...props }: PickupInit) {
     super({
       ...props,
       glyph: PICKUP_GLYPH,
       label,
       passable: true,
     });
+    this.detail = detail;
   }
 
   /**
