@@ -826,7 +826,7 @@ function onBriefingDeploy(evt: Event) {
 
 function presentFinnShop() {
   if (!campaign || !campaign.finn) return;
-  const catalog = campaign.finn.catalog(campaign.rep);
+  const catalog = campaign.finn.catalog();
   finnShopEl.setCatalog(catalog, campaign.crew, {
     credits: campaign.credits,
     salvage: campaign.salvage,

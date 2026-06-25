@@ -37,10 +37,11 @@ export class Finn extends Entity {
   }
 
   /**
-   * Return the shop catalog filtered by the player's current Rep tier.
-   * Higher Rep unlocks more items — see `getShopCatalog` for tier mapping.
+   * Return Finn's purchasable stock. Rep no longer gates the shop (P3.M6.2);
+   * this is the always-available {@link DEFAULT_ITEMS}. Unlocked scoreable
+   * items are folded in by the M6.3 shop rework.
    */
-  catalog(rep: number = 20) {
-    return getShopCatalog(rep);
+  catalog() {
+    return getShopCatalog();
   }
 }

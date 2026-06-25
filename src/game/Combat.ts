@@ -70,6 +70,10 @@ function attackerRangedDamage(attacker: Entity, override?: number): number {
 
 function attackerMeleeDamage(attacker: Entity, override?: number): number {
   if (override !== undefined) return override;
+  const meleeAttackDamage = (attacker as { meleeAttackDamage?: () => number }).meleeAttackDamage;
+  if (typeof meleeAttackDamage === 'function') {
+    return meleeAttackDamage.call(attacker);
+  }
   if ('meleeDamage' in attacker) {
     return (attacker as { meleeDamage: number }).meleeDamage;
   }

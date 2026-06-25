@@ -899,6 +899,12 @@ type CampaignCrewSnapshot = {
   maxHp: number;
   ap: number;
   maxAp: number;
+  /**
+   * P3.M6.2: live `damageReduction` (Subdermal Plating armour). Persisted like
+   * `maxHp`/`maxAp` — the live stat is the source of truth, `gear.armorBonus`
+   * only tracks it for cap-clamping. Absent on pre-M6.2 saves → restores to 0.
+   */
+  damageReduction?: number;
   alive: boolean;
   inventory: Inventory | null;
   gear: Gear | null;
@@ -1694,6 +1700,29 @@ function repairGearForCrew(member: Crew) {
   if (rangedBonus > member.maxRangedDamageBonus) {
     gear.rangedDamageBonus = member.maxRangedDamageBonus;
   }
+  // P3.M6.2 scoreable channels. armorBonus/apBonus only track their live stats
+  // (damageReduction/maxAp, restored directly); clamp the tracking value so a
+  // tampered save can't carry an over-cap bonus forward.
+  const meleeBonus = gear.meleeDamageBonus ?? 0;
+  if (meleeBonus > member.maxMeleeDamageBonus) {
+    gear.meleeDamageBonus = member.maxMeleeDamageBonus;
+  }
+  const armorBonus = gear.armorBonus ?? 0;
+  if (armorBonus > member.maxArmorBonus) {
+    gear.armorBonus = member.maxArmorBonus;
+  }
+  const apBonus = gear.apBonus ?? 0;
+  if (apBonus > member.maxApBonus) {
+    gear.apBonus = member.maxApBonus;
+  }
+  const shieldRegen = gear.shieldRegen ?? 0;
+  if (shieldRegen > member.maxShieldRegen) {
+    gear.shieldRegen = member.maxShieldRegen;
+  }
+  const hpRegen = gear.hpRegen ?? 0;
+  if (hpRegen > member.maxHpRegen) {
+    gear.hpRegen = member.maxHpRegen;
+  }
 }
 
 function snapshotCrewMember(member: Crew): CampaignCrewSnapshot {
@@ -1707,6 +1736,7 @@ function snapshotCrewMember(member: Crew): CampaignCrewSnapshot {
     maxHp: member.maxHp,
     ap: member.ap,
     maxAp: member.maxAp,
+    damageReduction: member.damageReduction,
     alive: !!member.alive,
     inventory: member.inventory,
     gear: member.gear,
@@ -1792,6 +1822,7 @@ function restoreCrewMember(rec: CampaignCrewSnapshot): Crew {
     gear: rec.gear ?? null,
     maxHp: rec.maxHp,
     maxAp: rec.maxAp,
+    damageReduction: rec.damageReduction ?? 0,
     // P3.M3.3: Decker cyber stats (validated; throws on a non-decker record).
     ...readCampaignCrewCyber(rec),
   });

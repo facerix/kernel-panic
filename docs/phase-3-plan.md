@@ -46,7 +46,7 @@ A new **player archetype** recruited mid-campaign (late Act 1 / start of Act 2),
 | P3.M3 — Cyberspace grid + ICE | ✅ Done (full ICE roster: Probe, Spark, Guardian) |
 | P3.M4 — Simstim flip (dual-deploy) | ✅ Done |
 | P3.M5 — The Score (climactic mission) | ✅ Done |
-| P3.M6 — Stolen Blueprints (shop rework + meta-progression) | 🔲 Not started |
+| P3.M6 — Stolen Blueprints (shop rework + meta-progression) | 🟡 Meta-store + catalog split shipped (M6.1–M6.2) |
 | P3.M7 — Chronicle (campaign narrative memory) | 🟡 End-summary foundation shipped |
 
 **Phase 3** is complete when:
@@ -449,7 +449,7 @@ Placement is collision-safe (`pickFreeRingTile` consumes one rng draw then scans
 | Slice | Status | Change | Tests |
 |---|---|---|---|
 | **P3.M6.1 Meta-store** | ✅ | `DataStore` key `unlockedScoreableItems`; read at campaign init; idempotent archival; duplicate no-op; corrupt throws | round-trip, idempotent archival, duplicate no-op, corrupt throws |
-| **P3.M6.2 Item catalog split** | 🔲 | Define `DEFAULT_ITEMS` and `SCOREABLE_ITEMS` catalogs; retire `minRepTier` as shop gate; add at least 5 net-new scoreable items | catalog validation, no duplicate IDs, all items have required fields, `minRepTier` not read by shop |
+| **P3.M6.2 Item catalog split** | ✅ | Define `DEFAULT_ITEMS` and `SCOREABLE_ITEMS` catalogs; retire `minRepTier` as shop gate; add at least 5 net-new scoreable items (fully wired gear) | catalog validation, no duplicate IDs, all items have required fields, `minRepTier` not read by shop |
 | **P3.M6.3 Shop rework** | 🔲 | Shop stocks `DEFAULT_ITEMS + unlockedScoreableItems`; no rep gate; locked scoreable items not rendered | shop shows only default items when meta-store is empty; adds unlocked scoreable items as they accrue; rep change has no effect on stock |
 | **P3.M6.4 Score target rework** | 🔲 | `buildScoreContract()` draws from unacquired `SCOREABLE_ITEMS`; briefing copy reflects item; completion writes meta-store | available targets exclude acquired; retired items not rolled; store updated on complete |
 | **P3.M6.5 Abstract targets** | 🔲 | Exhausted-pool Score draws RNG credit payload from category set; seeded flavor; arc gates pass with empty scoreable pool | category selection determinism, arc unaffected, no meta-store write |
@@ -473,6 +473,55 @@ exists in M6.2. The `score-complete` write call-site lands in M6.4. **Follow-up:
 retrofitted in this slice). Tests: `scoreableUnlocks.test.ts`, plus three
 `DataStore.test.ts` cases (absent → `[]`, idempotent archival + persistence + defensive
 copy, corrupt store throws).
+
+**P3.M6.2 implementation note:** The single rep-gated `CATALOG` was split into two
+frozen arrays — `DEFAULT_ITEMS` (the four always-available consumables: Stim, Smoke,
+Incendiary, Breaching Charge) and `SCOREABLE_ITEMS` (the four former KNOWN-tier gear
+items plus **five net-new prototypes**). `minRepTier` was removed from the `Item` type
+and every descriptor; `getShopCatalog()` now takes no rep argument and returns a fresh
+copy of `DEFAULT_ITEMS` only (the unlocked-scoreable merge is M6.3's seam). `getItemById`
+searches both catalogs; `SCOREABLE_ITEM_IDS` (a frozen `Set`) is exported for M6.4's
+pool membership checks. Each scoreable item carries a `flavor` line (the stolen-prototype
+fiction) for M6.4 briefing copy.
+
+Rather than scale the existing four gear channels, the **five net-new items each fill a
+stat channel no crew gear previously touched** (a deliberate design choice — a heist reward
+should be a new capability, not a bigger number). Premium "bigger X" variants were
+explicitly rejected in design review: with random unlock order and no equip limit, a
+premium can arrive before its base and double-buying the base is identical, so the variant
+adds nothing.
+- **Monoblade** (`+1 melee dmg`) — the Razor's signature attack had zero gear support.
+  New `gear.meleeDamageBonus`, applied via a new `Crew.meleeAttackDamage()` that mirrors
+  `rangedAttackDamage()`; `Combat.attackerMeleeDamage` now prefers that method.
+- **Subdermal Plating** (`+1 damageReduction`) — the flat-armour channel (min-1 floor in
+  `Combat.applyDamageReduction`) existed but no crew gear set it. The live `damageReduction`
+  stat is the source of truth; `gear.armorBonus` tracks it for cap-clamping. This stat was
+  **not** carried by the campaign-crew snapshot, so `snapshotCrewMember`/`restoreCrewMember`
+  were extended to persist it (the in-job entity snapshot already round-tripped it).
+- **Reflex Booster** (`+1 maxAp`, hard-capped at 1) — the master action resource. `maxAp`
+  already round-trips on both save paths; `gear.apBonus` tracks. Immediate benefit (the
+  extra AP is usable the same turn), matching Armour Plating's `+hp`.
+- **Phase Shield Prototype** (`+1 shield/turn`) — re-grants `shieldHp` at the start of each
+  crew turn via a new `Crew.refreshAp()` override (the same hook the Razor uses to clear
+  stealth; `super.refreshAp` zeroes the shield, the override tops it back up). Free and
+  uncontested, unlike the Medic's AP-costed `MEDIC_SHIELD_HP`, so kept to +1.
+- **Regen Mesh** (`+1 HP/turn`) — heals real HP up to max each turn via the same refresh
+  hook; slow in-combat sustain distinct from the shield's resettable buffer.
+
+`refreshAp` regen is guarded (`alive` + amount `> 0`) so a flatlined body regenerates
+nothing (`heal`/`addShield` would otherwise throw on a corpse). The five new `Gear` fields
+are optional (`?? 0` reads) so pre-M6.2 gear snapshots restore cleanly; `repairGearForCrew`
+clamps the capped bonuses. Capped items follow the Ballistics Coil pattern (bonus = cap → a
+duplicate purchase is a harmless no-op). **Known transitional state:** between M6.2 and M6.3
+the shop shows only `DEFAULT_ITEMS`, so the former KNOWN gear is temporarily unbuyable until
+the M6.3 unlocked-item merge lands.
+
+**Follow-up (kaizen, tabled):** a **revive** path — un-flatline a crew member at the Hub for
+a steep Cred cost, zeroing their gear (and resetting the derived maxHp/maxAp/damageReduction
+to archetype base). Pure Hub economy + narrative, no combat-mechanics implications. Needs a
+new `Campaign.reviveMember()` and a delivery surface (Clinic service vs. Finn purchase — the
+shop target-picker currently excludes flatlined crew). Deferred to its own slice; revisit
+after M6.3/M6.4.
 
 **Recorded design decisions:**
 

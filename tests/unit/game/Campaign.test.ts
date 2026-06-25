@@ -540,8 +540,47 @@ test('crew gear survives campaign snapshot/restore round-trip', () => {
     hitBonus: 0.1,
     dodgeBonus: 0,
     rangedDamageBonus: 0,
+    meleeDamageBonus: 0,
+    armorBonus: 0,
+    apBonus: 0,
+    shieldRegen: 0,
+    hpRegen: 0,
   });
   assert.equal(restoredMember.maxHp, member.maxHp);
+});
+
+test('net-new scoreable gear survives campaign round-trip', () => {
+  // Subdermal Plating writes the live `damageReduction` stat, which the
+  // campaign-crew snapshot did NOT carry before P3.M6.2 — guard the round-trip.
+  // Phase Shield / Regen Mesh are pure per-turn rates on `gear`.
+  const campaign = new Campaign({
+    seed: 42,
+    credits:
+      SHOP_COST.SUBDERMAL_PLATING +
+      SHOP_COST.REFLEX_BOOSTER +
+      SHOP_COST.MONOBLADE +
+      SHOP_COST.PHASE_SHIELD +
+      SHOP_COST.REGEN_MESH,
+  });
+  const member = campaign.crew[0];
+  const baseMaxAp = member.maxAp;
+  campaign.purchase({ itemId: 'subdermal-plating', targetMemberId: member.id });
+  campaign.purchase({ itemId: 'reflex-booster', targetMemberId: member.id });
+  campaign.purchase({ itemId: 'monoblade', targetMemberId: member.id });
+  campaign.purchase({ itemId: 'phase-shield', targetMemberId: member.id });
+  campaign.purchase({ itemId: 'regen-mesh', targetMemberId: member.id });
+  assert.equal(member.damageReduction, 1);
+  assert.equal(member.maxAp, baseMaxAp + 1);
+
+  const restored = restoreCampaign(snapshotCampaign(campaign)).crew[0];
+  assert.equal(restored.damageReduction, 1, 'armour (damageReduction) round-trips');
+  assert.equal(restored.maxAp, baseMaxAp + 1, 'reflex booster maxAp round-trips');
+  assert.equal(restored.gear.armorBonus, 1);
+  assert.equal(restored.gear.apBonus, 1);
+  assert.equal(restored.gear.meleeDamageBonus, 1);
+  assert.equal(restored.gear.shieldRegen, 1, 'phase shield regen round-trips');
+  assert.equal(restored.gear.hpRegen, 1, 'regen mesh round-trips');
+  assert.equal(restored.meleeAttackDamage(), member.meleeAttackDamage());
 });
 
 test('meta state survives campaign snapshot/restore round-trip', () => {

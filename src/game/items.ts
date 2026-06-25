@@ -24,9 +24,11 @@ import {
   TARGETING_BONUS,
   DODGE_BONUS,
   RANGED_DAMAGE_BONUS,
-  REP_TIER,
-  repTierForRep,
-  type RepTierId,
+  MELEE_DAMAGE_BONUS,
+  ARMOR_BONUS,
+  AP_BONUS,
+  SHIELD_REGEN,
+  HP_REGEN,
 } from './constants.js';
 
 export type Item = {
@@ -50,17 +52,11 @@ export type Item = {
    */
   needsAim?: boolean;
   /**
-   * Minimum Rep tier required for this item to appear in Finn's shop (P2.5.M5.2).
-   * Items below the player's current tier are hidden. Progression:
-   *   BURNED  → Stim only
-   *   UNKNOWN → + Smoke Charge, Incendiary Bomb
-   *   KNOWN   → + Armour Plating, Targeting Chip, Reflex Weave
-   *   TRUSTED → all (future expansion)
-   *
-   * Optional on the type because inventory-stored items (consumable records)
-   * don't carry shop metadata.
+   * Heist fiction for a scoreable item — one line describing what was stolen
+   * (P3.M6.2). Surfaced by the Score briefing copy in M6.4. Present on every
+   * {@link SCOREABLE_ITEMS} entry, absent on default stock and consumable records.
    */
-  minRepTier?: RepTierId;
+  flavor?: string;
   unique?: boolean;
   metaGate?: string;
 };
@@ -80,20 +76,33 @@ export const ITEM_ID = Object.freeze({
   TARGETING_CHIP: 'targeting-chip',
   REFLEX_WEAVE: 'reflex-weave',
   BALLISTICS_COIL: 'ballistics-coil',
+  // Net-new scoreable gear (P3.M6.2) — each fills a previously-untouched stat
+  // channel (melee dmg, flat armour, AP, shield regen, HP regen).
+  MONOBLADE: 'monoblade',
+  SUBDERMAL_PLATING: 'subdermal-plating',
+  REFLEX_BOOSTER: 'reflex-booster',
+  PHASE_SHIELD: 'phase-shield',
+  REGEN_MESH: 'regen-mesh',
 });
 
 /**
- * Full item catalog. Each entry is a frozen descriptor:
+ * Two explicit catalogs replace the old single rep-gated list (P3.M6.2). Each
+ * entry is a frozen descriptor:
  *   - `id`          — unique key, matches ITEM_ID
  *   - `label`       — display name for the shop UI
  *   - `scope`       — ITEM_SCOPE value
  *   - `cost`        — Cred price
  *   - `description` — one-line effect summary for the shop
  *   - `needsTarget` — true if purchase requires a target crew member
+ *   - `needsAim`    — true if the consumable resolves along an aim direction
+ *   - `flavor`      — (scoreable only) one line describing the stolen prototype
  *   - `metaGate`    — if set, item only appears when `meta[metaGate]` is truthy
  *   - `unique`      — if true, can only be purchased once (meta-scope items)
+ *
+ * **`DEFAULT_ITEMS`** — Finn's permanent stock. Always available from campaign
+ * start, no condition, no gate (the old BURNED/UNKNOWN consumables).
  */
-const CATALOG: readonly Item[] = Object.freeze([
+export const DEFAULT_ITEMS: readonly Item[] = Object.freeze([
   Object.freeze({
     id: ITEM_ID.STIM,
     label: 'Stim',
@@ -101,7 +110,6 @@ const CATALOG: readonly Item[] = Object.freeze([
     cost: SHOP_COST.STIM,
     description: `Restores ${STIM_HEAL} HP to the deployed crew member. Single use.`,
     needsTarget: true,
-    minRepTier: REP_TIER.BURNED,
   }),
   Object.freeze({
     id: ITEM_ID.SMOKE_CHARGE,
@@ -110,7 +118,6 @@ const CATALOG: readonly Item[] = Object.freeze([
     cost: SHOP_COST.SMOKE_CHARGE,
     description: `Blocks LOS in radius ${SMOKE_RADIUS} for 1 turn. Single use.`,
     needsTarget: true,
-    minRepTier: REP_TIER.UNKNOWN,
   }),
   Object.freeze({
     id: ITEM_ID.INCENDIARY,
@@ -120,7 +127,6 @@ const CATALOG: readonly Item[] = Object.freeze([
     description: `Throw ${INCENDIARY_THROW_DIST} tiles in a chosen direction; ignites a persistent hazard cluster. Single use.`,
     needsTarget: true,
     needsAim: true,
-    minRepTier: REP_TIER.UNKNOWN,
   }),
   Object.freeze({
     id: ITEM_ID.BREACHING_CHARGE,
@@ -130,8 +136,18 @@ const CATALOG: readonly Item[] = Object.freeze([
     description: `Destroy a wall, locked door, or reinforced objective within ${BREACHING_CHARGE_RANGE} tile. Single use.`,
     needsTarget: true,
     needsAim: true,
-    minRepTier: REP_TIER.UNKNOWN,
   }),
+]);
+
+/**
+ * **`SCOREABLE_ITEMS`** — each a distinct Score heist target, unlocked
+ * permanently by stealing its blueprint (the unlock writes to the meta-store in
+ * M6.4). Not shown in Finn's shop until acquired. The first four are the old
+ * KNOWN-tier gear; the rest (P3.M6.2) are net-new prototypes that each fill a
+ * stat channel existing gear never touched — melee damage, flat armour, AP,
+ * shield regen, and HP regen.
+ */
+export const SCOREABLE_ITEMS: readonly Item[] = Object.freeze([
   Object.freeze({
     id: ITEM_ID.ARMOUR_PLATING,
     label: 'Armour Plating',
@@ -139,16 +155,7 @@ const CATALOG: readonly Item[] = Object.freeze([
     cost: SHOP_COST.ARMOUR_PLATING,
     description: "+1 max HP (Tech's turrets deploy at that max HP).",
     needsTarget: true,
-    minRepTier: REP_TIER.KNOWN,
-  }),
-  Object.freeze({
-    id: ITEM_ID.REFLEX_WEAVE,
-    label: 'Reflex Weave',
-    scope: ITEM_SCOPE.CAMPAIGN,
-    cost: SHOP_COST.REFLEX_WEAVE,
-    description: `+${(DODGE_BONUS * 100).toFixed(0)}% melee dodge chance.`,
-    needsTarget: true,
-    minRepTier: REP_TIER.KNOWN,
+    flavor: 'Corp-issue trauma plating, lifted straight off a fabrication line.',
   }),
   Object.freeze({
     id: ITEM_ID.TARGETING_CHIP,
@@ -157,7 +164,16 @@ const CATALOG: readonly Item[] = Object.freeze([
     cost: SHOP_COST.TARGETING_CHIP,
     description: `+${(TARGETING_BONUS * 100).toFixed(0)}% ranged hit chance.`,
     needsTarget: true,
-    minRepTier: REP_TIER.KNOWN,
+    flavor: 'A smartgun targeting co-processor, pulled still-warm from a test rig.',
+  }),
+  Object.freeze({
+    id: ITEM_ID.REFLEX_WEAVE,
+    label: 'Reflex Weave',
+    scope: ITEM_SCOPE.CAMPAIGN,
+    cost: SHOP_COST.REFLEX_WEAVE,
+    description: `+${(DODGE_BONUS * 100).toFixed(0)}% melee dodge chance.`,
+    needsTarget: true,
+    flavor: "Subdermal reflex mesh, cut from an exec's private medbay.",
   }),
   Object.freeze({
     id: ITEM_ID.BALLISTICS_COIL,
@@ -166,43 +182,76 @@ const CATALOG: readonly Item[] = Object.freeze([
     cost: SHOP_COST.BALLISTICS_COIL,
     description: `+${RANGED_DAMAGE_BONUS} ranged damage (Tech's turrets inherit the bonus).`,
     needsTarget: true,
-    minRepTier: REP_TIER.KNOWN,
+    flavor: 'An accelerator coil prised off a prototype railgun bench.',
+  }),
+  Object.freeze({
+    id: ITEM_ID.MONOBLADE,
+    label: 'Monoblade',
+    scope: ITEM_SCOPE.CAMPAIGN,
+    cost: SHOP_COST.MONOBLADE,
+    description: `+${MELEE_DAMAGE_BONUS} melee damage.`,
+    needsTarget: true,
+    flavor: 'A monomolecular blade schematic — an edge that never dulls.',
+  }),
+  Object.freeze({
+    id: ITEM_ID.SUBDERMAL_PLATING,
+    label: 'Subdermal Plating',
+    scope: ITEM_SCOPE.CAMPAIGN,
+    cost: SHOP_COST.SUBDERMAL_PLATING,
+    description: `+${ARMOR_BONUS} armour — reduces every incoming hit (minimum 1 damage).`,
+    needsTarget: true,
+    flavor: 'Military subdermal armour, woven from layered impact ceramics.',
+  }),
+  Object.freeze({
+    id: ITEM_ID.REFLEX_BOOSTER,
+    label: 'Reflex Booster',
+    scope: ITEM_SCOPE.CAMPAIGN,
+    cost: SHOP_COST.REFLEX_BOOSTER,
+    description: `+${AP_BONUS} max AP. One per operator.`,
+    needsTarget: true,
+    flavor: 'A black-clinic adrenal booster — the world slows when it fires.',
+  }),
+  Object.freeze({
+    id: ITEM_ID.PHASE_SHIELD,
+    label: 'Phase Shield Prototype',
+    scope: ITEM_SCOPE.CAMPAIGN,
+    cost: SHOP_COST.PHASE_SHIELD,
+    description: `Regenerates +${SHIELD_REGEN} shield at the start of each turn (absorbs damage before HP).`,
+    needsTarget: true,
+    flavor: 'A phase-shield emitter that bleeds incoming kinetic force into a flicker field.',
+  }),
+  Object.freeze({
+    id: ITEM_ID.REGEN_MESH,
+    label: 'Regen Mesh',
+    scope: ITEM_SCOPE.CAMPAIGN,
+    cost: SHOP_COST.REGEN_MESH,
+    description: `Regenerates +${HP_REGEN} HP at the start of each turn (up to max HP).`,
+    needsTarget: true,
+    flavor: 'A subdermal nanite mesh that knits wounds closed mid-firefight.',
   }),
 ]);
 
-/**
- * Rep tier ordering for comparison — index 0 is lowest tier. Used by
- * `getShopCatalog` to filter items whose `minRepTier` exceeds the player's
- * current tier.
- */
-const TIER_ORDER: readonly RepTierId[] = [
-  REP_TIER.BURNED,
-  REP_TIER.UNKNOWN,
-  REP_TIER.KNOWN,
-  REP_TIER.TRUSTED,
-];
+/** Frozen id set for the scoreable pool — O(1) membership checks (M6.4). */
+export const SCOREABLE_ITEM_IDS: ReadonlySet<string> = Object.freeze(
+  new Set(SCOREABLE_ITEMS.map(item => item.id))
+) as ReadonlySet<string>;
+
+/** Every descriptor, both catalogs — backing store for {@link getItemById}. */
+const CATALOG: readonly Item[] = Object.freeze([...DEFAULT_ITEMS, ...SCOREABLE_ITEMS]);
 
 /**
- * Return the shop catalog filtered by the player's current Rep. Items whose
- * `minRepTier` exceeds the player's tier are hidden — the shop grows as
- * standing improves.
- *
- * @param rep — campaign Rep value (0–100). Defaults to REP.START (20) so
- *   callers that omit it see the UNKNOWN-tier catalog.
+ * Return Finn's always-available stock — the {@link DEFAULT_ITEMS}. Rep no
+ * longer gates the shop (P3.M6.2 retired `minRepTier`); unlocked
+ * {@link SCOREABLE_ITEMS} are folded in by the shop rework in M6.3, which reads
+ * the meta-progression store rather than any tier comparison.
  */
-export function getShopCatalog(rep: number = 20) {
-  const currentTier = repTierForRep(rep);
-  const currentIndex = TIER_ORDER.indexOf(currentTier.id);
-  return CATALOG.filter(item => {
-    const itemTier = item.minRepTier ?? REP_TIER.BURNED;
-    const itemIndex = TIER_ORDER.indexOf(itemTier);
-    return itemIndex <= currentIndex;
-  });
+export function getShopCatalog(): Item[] {
+  return [...DEFAULT_ITEMS];
 }
 
 /**
- * Look up a single item descriptor by id. Throws on unknown id — no silent
- * fallback for a typo in a purchase call.
+ * Look up a single item descriptor by id, across both catalogs. Throws on
+ * unknown id — no silent fallback for a typo in a purchase call.
  */
 export function getItemById(itemId: string) {
   const item = CATALOG.find(i => i.id === itemId);

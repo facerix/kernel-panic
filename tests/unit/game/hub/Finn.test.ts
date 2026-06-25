@@ -27,60 +27,35 @@ test('Finn is immobile — refreshAp keeps AP at 0', () => {
   assert.equal(f.canAfford(1), false);
 });
 
-test('Finn.catalog at TRUSTED rep returns the full shop catalog', () => {
+test('Finn.catalog returns the default consumable stock, no rep gate (P3.M6.2)', () => {
   const f = new Finn();
-  const items = f.catalog(85); // TRUSTED tier
+  const items = f.catalog();
   assert.ok(Array.isArray(items));
-  assert.ok(items.length > 0);
-  const ids = items.map(i => i.id);
-  assert.ok(ids.includes(ITEM_ID.STIM));
-  assert.ok(ids.includes(ITEM_ID.SMOKE_CHARGE));
-  assert.ok(ids.includes(ITEM_ID.INCENDIARY));
-  assert.ok(ids.includes(ITEM_ID.BREACHING_CHARGE));
-  assert.ok(ids.includes(ITEM_ID.ARMOUR_PLATING));
-  assert.ok(ids.includes(ITEM_ID.TARGETING_CHIP));
-  assert.ok(ids.includes(ITEM_ID.REFLEX_WEAVE));
-});
-
-test('Finn.catalog at BURNED rep only shows Stim', () => {
-  const f = new Finn();
-  const items = f.catalog(5); // BURNED tier
-  const ids = items.map(i => i.id);
-  assert.equal(items.length, 1);
-  assert.ok(ids.includes(ITEM_ID.STIM));
-});
-
-test('Finn.catalog at UNKNOWN rep shows Stim + Smoke + Incendiary + Breach', () => {
-  const f = new Finn();
-  const items = f.catalog(25); // UNKNOWN tier
   const ids = items.map(i => i.id);
   assert.equal(items.length, 4);
   assert.ok(ids.includes(ITEM_ID.STIM));
   assert.ok(ids.includes(ITEM_ID.SMOKE_CHARGE));
   assert.ok(ids.includes(ITEM_ID.INCENDIARY));
   assert.ok(ids.includes(ITEM_ID.BREACHING_CHARGE));
-  assert.ok(!ids.includes(ITEM_ID.ARMOUR_PLATING));
 });
 
-test('Finn.catalog at KNOWN rep adds gear items', () => {
+test('Finn.catalog never surfaces a locked scoreable item', () => {
   const f = new Finn();
-  const items = f.catalog(55); // KNOWN tier
-  const ids = items.map(i => i.id);
-  assert.equal(items.length, 8);
-  assert.ok(ids.includes(ITEM_ID.ARMOUR_PLATING));
-  assert.ok(ids.includes(ITEM_ID.TARGETING_CHIP));
-  assert.ok(ids.includes(ITEM_ID.REFLEX_WEAVE));
-  assert.ok(ids.includes(ITEM_ID.BALLISTICS_COIL));
+  const ids = f.catalog().map(i => i.id);
+  // The former KNOWN-tier gear is now scoreable — locked until a Score unlock.
+  assert.ok(!ids.includes(ITEM_ID.ARMOUR_PLATING));
+  assert.ok(!ids.includes(ITEM_ID.TARGETING_CHIP));
+  assert.ok(!ids.includes(ITEM_ID.REFLEX_WEAVE));
+  assert.ok(!ids.includes(ITEM_ID.BALLISTICS_COIL));
 });
 
 // ---------------------------------------------------------------------------
 // Item catalog (pure functions)
 // ---------------------------------------------------------------------------
 
-test('getShopCatalog returns all items at TRUSTED rep', () => {
-  const items = getShopCatalog(85);
-  // 8 items (4 consumables + 4 gear) visible at TRUSTED tier.
-  assert.equal(items.length, 8);
+test('getShopCatalog returns the four default items regardless of standing', () => {
+  const items = getShopCatalog();
+  assert.equal(items.length, 4);
 });
 
 test('getItemById returns the item for a valid id', () => {
@@ -95,7 +70,7 @@ test('getItemById throws on unknown id', () => {
 });
 
 test('every catalog item has a valid scope', () => {
-  const items = getShopCatalog({});
+  const items = getShopCatalog();
   const validScopes = new Set(Object.values(ITEM_SCOPE));
   for (const item of items) {
     assert.ok(validScopes.has(item.scope), `item ${item.id} has unknown scope "${item.scope}"`);
@@ -103,7 +78,7 @@ test('every catalog item has a valid scope', () => {
 });
 
 test('every catalog item has a positive integer cost', () => {
-  const items = getShopCatalog({});
+  const items = getShopCatalog();
   for (const item of items) {
     assert.ok(Number.isInteger(item.cost) && item.cost > 0, `item ${item.id} has invalid cost`);
   }

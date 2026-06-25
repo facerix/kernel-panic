@@ -15,6 +15,16 @@ import {
   TURRET_DAMAGE,
   RANGED_DAMAGE_BONUS,
   RANGED_MAX_DAMAGE_BONUS,
+  MELEE_DAMAGE_BONUS,
+  MELEE_MAX_DAMAGE_BONUS,
+  ARMOR_BONUS,
+  MAX_ARMOR_BONUS,
+  AP_BONUS,
+  MAX_AP_BONUS,
+  SHIELD_REGEN,
+  MAX_SHIELD_REGEN,
+  HP_REGEN,
+  MAX_HP_REGEN,
   type FactionId,
 } from './constants.js';
 import { ITEM_ID } from './items.js';
@@ -33,6 +43,25 @@ export type Gear = {
   hitBonus: number;
   dodgeBonus: number;
   rangedDamageBonus: number;
+  /**
+   * Net-new scoreable channels (P3.M6.2). Optional so pre-M6.2 gear snapshots
+   * (which lack them) restore cleanly; consumers read `?? 0`.
+   *   - `meleeDamageBonus` — Monoblade; added in {@link Crew.meleeAttackDamage}.
+   *   - `armorBonus`       — Subdermal Plating; tracks the value applied to
+   *                          `damageReduction` (the live combat stat).
+   *   - `apBonus`          — Reflex Booster; tracks the value added to `maxAp`.
+   *   - `shieldRegen`      — Phase Shield; `shieldHp` re-granted each turn in
+   *                          {@link Crew.refreshAp}.
+   *   - `hpRegen`          — Regen Mesh; HP healed each turn in the same hook.
+   * `armorBonus`/`apBonus` mirror `maxHpBonus`: the live stat is the source of
+   * truth in combat, the bonus field exists for cap-clamping on restore.
+   * `shieldRegen`/`hpRegen` are pure per-turn effect rates (no live-stat twin).
+   */
+  meleeDamageBonus?: number;
+  armorBonus?: number;
+  apBonus?: number;
+  shieldRegen?: number;
+  hpRegen?: number;
 };
 
 /**
@@ -52,6 +81,11 @@ const createDefaultGear = (): Gear => ({
   hitBonus: 0,
   dodgeBonus: 0,
   rangedDamageBonus: 0,
+  meleeDamageBonus: 0,
+  armorBonus: 0,
+  apBonus: 0,
+  shieldRegen: 0,
+  hpRegen: 0,
 });
 
 /**
@@ -165,6 +199,46 @@ export class Crew extends Entity {
     return this.rangedDamage + this.effectiveRangedDamageBonus;
   }
 
+  /** Cap for {@link ITEM_ID.MONOBLADE} melee-damage bonus on this operator. */
+  get maxMeleeDamageBonus(): number {
+    return MELEE_MAX_DAMAGE_BONUS;
+  }
+
+  /** Capped Monoblade bonus for this operator's outgoing melee damage. */
+  get effectiveMeleeDamageBonus(): number {
+    return Math.min(this.gear?.meleeDamageBonus ?? 0, this.maxMeleeDamageBonus);
+  }
+
+  /**
+   * Outgoing melee damage for this crew member (archetype base + gear). Mirrors
+   * {@link rangedAttackDamage}; `Combat.resolveMelee` prefers this method over
+   * the bare `meleeDamage` getter so the Monoblade bonus lands without each
+   * archetype having to re-implement its `meleeDamage` override.
+   */
+  meleeAttackDamage(): number {
+    return this.meleeDamage + this.effectiveMeleeDamageBonus;
+  }
+
+  /** Cap for the {@link ITEM_ID.SUBDERMAL_PLATING} armour bonus. */
+  get maxArmorBonus(): number {
+    return MAX_ARMOR_BONUS;
+  }
+
+  /** Cap for the {@link ITEM_ID.REFLEX_BOOSTER} AP bonus. */
+  get maxApBonus(): number {
+    return MAX_AP_BONUS;
+  }
+
+  /** Cap for the {@link ITEM_ID.PHASE_SHIELD} per-turn shield regen. */
+  get maxShieldRegen(): number {
+    return MAX_SHIELD_REGEN;
+  }
+
+  /** Cap for the {@link ITEM_ID.REGEN_MESH} per-turn HP regen. */
+  get maxHpRegen(): number {
+    return MAX_HP_REGEN;
+  }
+
   /**
    * Stats for a player turret this crew member deploys (Tech). HP mirrors the
    * owner's current max (includes Armour Plating); damage uses the same coil
@@ -260,9 +334,64 @@ export class Crew extends Entity {
           this.maxRangedDamageBonus
         );
         break;
+      case ITEM_ID.MONOBLADE:
+        // Tracking-only bonus, read via `meleeAttackDamage`. Capped like the coil.
+        this.gear!.meleeDamageBonus = Math.min(
+          (this.gear!.meleeDamageBonus ?? 0) + MELEE_DAMAGE_BONUS,
+          this.maxMeleeDamageBonus
+        );
+        break;
+      case ITEM_ID.SUBDERMAL_PLATING: {
+        // Mirror Armour Plating: `damageReduction` is the live stat, `armorBonus`
+        // tracks it. Delta-apply so a capped second purchase is a no-op.
+        const next = Math.min((this.gear!.armorBonus ?? 0) + ARMOR_BONUS, this.maxArmorBonus);
+        this.damageReduction += next - (this.gear!.armorBonus ?? 0);
+        this.gear!.armorBonus = next;
+        break;
+      }
+      case ITEM_ID.REFLEX_BOOSTER: {
+        // `maxAp` is the live stat, `apBonus` tracks it. Immediate benefit: the
+        // extra AP is available this turn too (matches Armour Plating's +hp).
+        const next = Math.min((this.gear!.apBonus ?? 0) + AP_BONUS, this.maxApBonus);
+        const delta = next - (this.gear!.apBonus ?? 0);
+        this.maxAp += delta;
+        this.ap += delta;
+        this.gear!.apBonus = next;
+        break;
+      }
+      case ITEM_ID.PHASE_SHIELD:
+        // Per-turn effect rate — applied in `refreshAp`, not a live stat here.
+        this.gear!.shieldRegen = Math.min(
+          (this.gear!.shieldRegen ?? 0) + SHIELD_REGEN,
+          this.maxShieldRegen
+        );
+        break;
+      case ITEM_ID.REGEN_MESH:
+        this.gear!.hpRegen = Math.min((this.gear!.hpRegen ?? 0) + HP_REGEN, this.maxHpRegen);
+        break;
       default:
         throw new Error(`Crew.applyGear: unknown gear item "${itemId}"`);
     }
+  }
+
+  /**
+   * Refresh AP at the start of this crew member's turn, then apply per-turn
+   * gear regen (P3.M6.2). `super.refreshAp` (Entity) zeroes `shieldHp`, so the
+   * Phase Shield re-grant here tops the buffer back to `shieldRegen` each turn
+   * — free and automatic, unlike the Medic's AP-costed top-up. Regen Mesh heals
+   * real HP up to max. Both are guarded: a flatlined/dead body regenerates
+   * nothing (`addShield`/`heal` would otherwise throw on a corpse).
+   *
+   * Razor overrides this to also clear stealth; its `super.refreshAp()` chains
+   * through here, so the Razor benefits from regen gear too.
+   */
+  override refreshAp(): void {
+    super.refreshAp();
+    if (!this.alive || !this.gear) return;
+    const hpRegen = this.gear.hpRegen ?? 0;
+    if (hpRegen > 0) this.heal(hpRegen);
+    const shieldRegen = this.gear.shieldRegen ?? 0;
+    if (shieldRegen > 0) this.addShield(shieldRegen);
   }
 
   /**

@@ -361,6 +361,37 @@ export const TARGETING_BONUS = 0.1;
 export const DODGE_BONUS = 0.1;
 
 /**
+ * Net-new scoreable gear tuning (P3.M6.2). Each fills a stat channel that
+ * existing shop gear never touched — the reward fiction is a stolen prototype,
+ * not a bigger number on an existing chip (premium variants were rejected:
+ * random unlock order and no equip limit make "bigger X" incoherent). Caps
+ * mirror the {@link RANGED_DAMAGE_BONUS} pattern (bonus equals cap → a second
+ * purchase is a harmless no-op).
+ *
+ *   - **Monoblade** (`MELEE_DAMAGE_BONUS`) — the Razor's signature attack had no
+ *     gear path. +1 melee damage, applied via {@link Crew.meleeAttackDamage}.
+ *   - **Subdermal Plating** (`ARMOR_BONUS`) — flat `damageReduction` (min-1 floor
+ *     in `Combat.applyDamageReduction`); the channel existed but no crew gear set it.
+ *   - **Reflex Booster** (`AP_BONUS`) — +1 `maxAp`, the master action resource.
+ *     Capped hard at 1: two extra AP would warp the turn economy.
+ *   - **Phase Shield** (`SHIELD_REGEN`) — re-grants `shieldHp` at the start of each
+ *     crew turn via {@link Crew.refreshAp}. Free and uncontested (unlike the
+ *     Medic's AP-costed {@link MEDIC_SHIELD_HP}), so kept to +1.
+ *   - **Regen Mesh** (`HP_REGEN`) — heals real HP each turn via the same refresh
+ *     hook; slow in-combat sustain distinct from the shield's resettable buffer.
+ */
+export const MELEE_DAMAGE_BONUS = 1;
+export const MELEE_MAX_DAMAGE_BONUS = 1;
+export const ARMOR_BONUS = 1;
+export const MAX_ARMOR_BONUS = 1;
+export const AP_BONUS = 1;
+export const MAX_AP_BONUS = 1;
+export const SHIELD_REGEN = 1;
+export const MAX_SHIELD_REGEN = 1;
+export const HP_REGEN = 1;
+export const MAX_HP_REGEN = 1;
+
+/**
  * Legacy flat salvage-to-Cred rate. Retained for backward-compat references
  * (e.g. TRUSTED tier rewardFloorBump calculation). New sell paths use the
  * per-type `SALVAGE_SELL_RATE` instead.
@@ -391,6 +422,14 @@ export const SHOP_COST = Object.freeze({
   TARGETING_CHIP: 80,
   REFLEX_WEAVE: 80,
   BALLISTICS_COIL: 80,
+  // Net-new scoreable gear (P3.M6.2) — priced above baseline KNOWN gear; the
+  // reward is the unlock, the Cred cost is the install. Reflex Booster (+1 AP)
+  // is the priciest, matching its outsized impact on the turn economy.
+  MONOBLADE: 90,
+  SUBDERMAL_PLATING: 100,
+  REFLEX_BOOSTER: 150,
+  PHASE_SHIELD: 110,
+  REGEN_MESH: 120,
 });
 
 /** Patch clinic — Creds per HP restored (partial heal not offered). */
