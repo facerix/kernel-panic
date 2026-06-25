@@ -558,10 +558,15 @@ credit-payload Score is M6.5.
 
 *Messaging polish (playtest feedback):* the Score payload pickup is now labelled with the
 target blueprint and carries its `flavor` (new optional `Pickup.detail`, persisted), so the
-grab logs e.g. `secures Monoblade` followed by the flavor beat; the `<game-over>` win screen
-names the stolen blueprint + flavor via a presentation-only `setScoreReward` (re-derived from
-`scoreUnlockedItemId`, **not** added to the validated `CampaignSummary` schema). Abstract /
-exhausted-pool Scores keep the generic "Score payload" with no flavor beat.
+grab logs e.g. `secures Monoblade` followed by the flavor beat. The stolen blueprint is
+captured **in the `CampaignSummary`** as an optional, self-contained `scoreReward`
+(`{ id, label, flavor }`) — `buildCampaignSummary` resolves it from `scoreUnlockedItemId`,
+and `<game-over>` reads it straight off the summary on a win. Persisting it (rather than a
+presentation-only setter) seeds the **M7 Chronicle**, which will surface acquisitions from
+history. `validateCampaignSummary` gained a `requireKeys(required, optional)` helper so the
+schema tolerates the new optional field (and future ones); the reward is validated
+self-contained and round-trips through clone. Abstract / exhausted-pool Scores carry no
+`scoreReward` and keep the generic "Score payload" pickup.
 
 **Recorded design decisions:**
 

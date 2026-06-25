@@ -1135,16 +1135,10 @@ function presentEndedCampaignOverlay(c: Campaign): void {
   // both live Score completion and a restored already-ended save.
   const unlockedItemId = c.scoreUnlockedItemId;
   if (unlockedItemId) dataStore.archiveScoreableItem(unlockedItemId);
+  // The summary captures the stolen blueprint (P3.M6.4) for the win screen and
+  // the M7 Chronicle; `<game-over>` reads it straight off the summary.
   const summary = dataStore.archiveCampaign(buildCampaignSummary(c, new Date().toISOString()));
   gameOverEl.setSummary(summary);
-  // P3.M6.4: name the stolen blueprint on the win screen. Re-derived from the
-  // meta-store id on both live completion and a restored ended save.
-  if (unlockedItemId) {
-    const item = getItemById(unlockedItemId);
-    gameOverEl.setScoreReward({ label: item.label, flavor: item.flavor ?? '' });
-  } else {
-    gameOverEl.setScoreReward(null);
-  }
 }
 
 function presentCampaignEnd(c: Campaign): void {

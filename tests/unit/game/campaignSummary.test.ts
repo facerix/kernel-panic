@@ -6,12 +6,14 @@ import {
   CAMPAIGN_HISTORY_CAP,
   archiveCampaignSummary,
   buildCampaignSummary,
+  cloneCampaignSummary,
   normalizeCampaignHistory,
   validateCampaignSummary,
   type CampaignSummary,
 } from '../../../src/game/campaignSummary.js';
 import { OUTCOME } from '../../../src/game/Run.js';
 import { makeSalvage } from '../../../src/game/salvage.js';
+import { SCOREABLE_ITEM_IDS } from '../../../src/game/items.js';
 import type { LocationSite } from '../../../src/types.js';
 
 const COMPLETED_AT = '2026-06-14T19:30:00.000Z';
@@ -85,6 +87,11 @@ test('Score completion summary uses post-settlement jobs, Rep, and Credits', () 
   assert.equal(record.credits, 125 + SCORE_CREDITS_REWARD);
   assert.equal('salvage' in record, false);
   assert.ok(record.crewRoster.some(member => member.archetype === 'Decker'));
+  // P3.M6.4: a winning Score captures the stolen blueprint, self-contained.
+  assert.ok(record.scoreReward, 'win summary carries the stolen blueprint');
+  assert.ok(SCOREABLE_ITEM_IDS.has(record.scoreReward.id));
+  assert.ok(record.scoreReward.label.length > 0);
+  assert.equal(typeof record.scoreReward.flavor, 'string');
 });
 
 test('loss summaries preserve each terminal reason and final roster state', () => {
@@ -122,6 +129,45 @@ test('CampaignSummary validation rejects mismatched outcomes and malformed credi
   assert.throws(
     () => validateCampaignSummary({ ...summary(), credits: -1 }),
     /credits must be a non-negative integer/
+  );
+});
+
+test('summary without scoreReward validates (optional field, legacy-compatible)', () => {
+  const record = validateCampaignSummary(summary());
+  assert.equal(record.scoreReward, undefined);
+});
+
+test('summary with a well-formed scoreReward round-trips through validate + clone', () => {
+  const withReward = summary({
+    scoreReward: { id: 'monoblade', label: 'Monoblade', flavor: 'An edge that never dulls.' },
+  });
+  const record = validateCampaignSummary(withReward);
+  assert.deepEqual(record.scoreReward, {
+    id: 'monoblade',
+    label: 'Monoblade',
+    flavor: 'An edge that never dulls.',
+  });
+  // Clone is deep — mutating the clone must not touch the original.
+  const clone = cloneCampaignSummary(record);
+  clone.scoreReward!.label = 'CHANGED';
+  assert.equal(record.scoreReward!.label, 'Monoblade');
+});
+
+test('CampaignSummary validation rejects unexpected keys and malformed scoreReward', () => {
+  assert.throws(
+    () => validateCampaignSummary({ ...summary(), bogus: true }),
+    /unexpected key "bogus"/
+  );
+  assert.throws(
+    () => validateCampaignSummary(summary({ scoreReward: { id: 'x', label: 'X' } as never })),
+    /scoreReward is missing required key "flavor"/
+  );
+  assert.throws(
+    () =>
+      validateCampaignSummary(
+        summary({ scoreReward: { id: '', label: 'X', flavor: 'f' } as never })
+      ),
+    /scoreReward\.id/
   );
 });
 

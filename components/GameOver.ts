@@ -266,12 +266,8 @@ function detailCopy(summary: CampaignSummary): string {
   return 'Every crew slot on the roster is flatlined. Their campaign ends here.';
 }
 
-/** Presentation-only Score prize (P3.M6.4) — not part of the persisted summary. */
-export type ScoreReward = { label: string; flavor: string };
-
 class GameOver extends HTMLElement {
   #summary: CampaignSummary | null = null;
-  #scoreReward: ScoreReward | null = null;
   #ready = false;
   #els: {
     banner: HTMLElement;
@@ -369,17 +365,6 @@ class GameOver extends HTMLElement {
     if (this.#ready) this.#render();
   }
 
-  /**
-   * Set (or clear) the stolen Score blueprint shown on a win (P3.M6.4).
-   * Presentation-only — the persisted {@link CampaignSummary} schema is
-   * untouched; the shell re-derives this from the meta-store on both live
-   * completion and a restored ended save.
-   */
-  setScoreReward(reward: ScoreReward | null) {
-    this.#scoreReward = reward;
-    if (this.#ready) this.#render();
-  }
-
   show() {
     this.setAttribute('open', '');
     queueMicrotask(() => {
@@ -401,8 +386,8 @@ class GameOver extends HTMLElement {
     this.#els.banner.textContent = summary.result === 'win' ? 'SCORE COMPLETE' : 'GAME OVER';
     this.#els.reason.textContent = reasonCopy(summary);
     this.#els.detail.textContent = detailCopy(summary);
-    // Score prize — only meaningful on a win that stole a blueprint.
-    const reward = summary.result === 'win' ? this.#scoreReward : null;
+    // Score prize — present on a win that stole a specific blueprint.
+    const reward = summary.result === 'win' ? (summary.scoreReward ?? null) : null;
     if (reward) {
       this.#els.rewardName.textContent = reward.label;
       this.#els.rewardFlavor.textContent = reward.flavor;

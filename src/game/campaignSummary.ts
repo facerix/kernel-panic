@@ -1,4 +1,5 @@
 import type { CampaignEndReason } from '../types.js';
+import { SCOREABLE_ITEMS } from './items.js';
 
 export const CAMPAIGN_HISTORY_CAP = 50;
 
@@ -8,6 +9,18 @@ export type CampaignSummaryCrew = {
   callsign: string;
   archetype: string;
   flatlined: boolean;
+};
+
+/**
+ * Blueprint stolen by a winning Score (P3.M6.4), captured self-contained
+ * (id + display copy) so the record reads correctly forever even if the catalog
+ * changes. Absent on losses, partials, and abstract (exhausted-pool) Scores.
+ * Surfaced on the win screen now and the Chronicle in M7.
+ */
+export type CampaignSummaryScoreReward = {
+  id: string;
+  label: string;
+  flavor: string;
 };
 
 export type CampaignSummary = {
@@ -20,6 +33,8 @@ export type CampaignSummary = {
   rep: number;
   credits: number;
   crewRoster: CampaignSummaryCrew[];
+  /** Optional — present only when a win stole a specific blueprint. */
+  scoreReward?: CampaignSummaryScoreReward;
 };
 
 type EndedCampaignLike = {
@@ -30,6 +45,8 @@ type EndedCampaignLike = {
   completedJobs: number;
   rep: number;
   credits: number;
+  /** The stolen blueprint id (P3.M6.4); resolved to display copy in the summary. */
+  scoreUnlockedItemId?: string | null;
   crew: Array<{
     id: string;
     callsign: string | null;
@@ -37,6 +54,14 @@ type EndedCampaignLike = {
     flatlined: boolean;
   }>;
 };
+
+/** Resolve a stolen-blueprint id to a self-contained summary reward (or undefined). */
+function resolveScoreReward(id: string | null | undefined): CampaignSummaryScoreReward | undefined {
+  if (typeof id !== 'string') return undefined;
+  const item = SCOREABLE_ITEMS.find(entry => entry.id === id);
+  if (!item) return undefined;
+  return { id: item.id, label: item.label, flavor: item.flavor ?? '' };
+}
 
 const END_REASONS: readonly CampaignEndReason[] = [
   'crew-wipe',
@@ -60,6 +85,7 @@ export function buildCampaignSummary(
     throw new Error('buildCampaignSummary requires a campaign end reason');
   }
 
+  const scoreReward = resolveScoreReward(campaign.scoreUnlockedItemId);
   return validateCampaignSummary({
     campaignId: campaign.id,
     completedAt,
@@ -74,6 +100,7 @@ export function buildCampaignSummary(
       archetype: member.archetype,
       flatlined: member.flatlined,
     })),
+    ...(scoreReward ? { scoreReward } : {}),
   });
 }
 
@@ -82,17 +109,21 @@ export function validateCampaignSummary(value: unknown): CampaignSummary {
     throw new TypeError('CampaignSummary must be a plain object');
   }
   const summary = value as Record<string, unknown>;
-  requireExactKeys(summary, [
-    'campaignId',
-    'completedAt',
-    'result',
-    'endReason',
-    'seed',
-    'completedJobs',
-    'rep',
-    'credits',
-    'crewRoster',
-  ]);
+  requireKeys(
+    summary,
+    [
+      'campaignId',
+      'completedAt',
+      'result',
+      'endReason',
+      'seed',
+      'completedJobs',
+      'rep',
+      'credits',
+      'crewRoster',
+    ],
+    ['scoreReward']
+  );
   const campaignId = requireNonEmptyString(summary.campaignId, 'CampaignSummary.campaignId');
   const completedAt = requireIsoTimestamp(summary.completedAt);
   if (summary.result !== 'win' && summary.result !== 'partial' && summary.result !== 'loss') {
@@ -117,6 +148,7 @@ export function validateCampaignSummary(value: unknown): CampaignSummary {
     throw new TypeError('CampaignSummary.crewRoster must be an array');
   }
   const crewRoster = summary.crewRoster.map((member, index) => validateCrew(member, index));
+  const scoreReward = validateScoreReward(summary.scoreReward);
 
   return {
     campaignId,
@@ -128,6 +160,23 @@ export function validateCampaignSummary(value: unknown): CampaignSummary {
     rep,
     credits,
     crewRoster,
+    ...(scoreReward ? { scoreReward } : {}),
+  };
+}
+
+function validateScoreReward(value: unknown): CampaignSummaryScoreReward | undefined {
+  if (value === undefined) return undefined;
+  if (!isPlainObject(value)) {
+    throw new TypeError('CampaignSummary.scoreReward must be a plain object when present');
+  }
+  requireKeys(value, ['id', 'label', 'flavor'], [], 'CampaignSummary.scoreReward');
+  if (typeof value.flavor !== 'string') {
+    throw new TypeError('CampaignSummary.scoreReward.flavor must be a string');
+  }
+  return {
+    id: requireNonEmptyString(value.id, 'CampaignSummary.scoreReward.id'),
+    label: requireNonEmptyString(value.label, 'CampaignSummary.scoreReward.label'),
+    flavor: value.flavor,
   };
 }
 
@@ -175,6 +224,7 @@ export function cloneCampaignSummary(summary: CampaignSummary): CampaignSummary 
   return {
     ...summary,
     crewRoster: summary.crewRoster.map(member => ({ ...member })),
+    ...(summary.scoreReward ? { scoreReward: { ...summary.scoreReward } } : {}),
   };
 }
 
@@ -239,5 +289,30 @@ function requireExactKeys(value: Record<string, unknown>, expected: readonly str
   const wanted = [...expected].sort();
   if (actual.length !== wanted.length || actual.some((key, index) => key !== wanted[index])) {
     throw new TypeError(`CampaignSummary keys must be exactly ${wanted.join(', ')}`);
+  }
+}
+
+/**
+ * Like {@link requireExactKeys} but tolerant of optional keys: every `required`
+ * key must be present, and no key outside `required ∪ optional` may appear.
+ * Lets the schema gain optional fields (e.g. `scoreReward`) without rejecting
+ * older summaries that predate them.
+ */
+function requireKeys(
+  value: Record<string, unknown>,
+  required: readonly string[],
+  optional: readonly string[],
+  label = 'CampaignSummary'
+): void {
+  const allowed = new Set([...required, ...optional]);
+  for (const key of Object.keys(value)) {
+    if (!allowed.has(key)) {
+      throw new TypeError(`${label} has unexpected key "${key}"`);
+    }
+  }
+  for (const key of required) {
+    if (!(key in value)) {
+      throw new TypeError(`${label} is missing required key "${key}"`);
+    }
   }
 }
