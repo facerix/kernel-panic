@@ -448,12 +448,31 @@ Placement is collision-safe (`pickFreeRingTile` consumes one rng draw then scans
 
 | Slice | Status | Change | Tests |
 |---|---|---|---|
-| **P3.M6.1 Meta-store** | 🔲 | `DataStore` key `unlockedScoreableItems`; write on Score complete; read at campaign init; idempotent; duplicate is no-op; corrupt throws | round-trip, idempotent archival, duplicate no-op, corrupt throws |
+| **P3.M6.1 Meta-store** | ✅ | `DataStore` key `unlockedScoreableItems`; read at campaign init; idempotent archival; duplicate no-op; corrupt throws | round-trip, idempotent archival, duplicate no-op, corrupt throws |
 | **P3.M6.2 Item catalog split** | 🔲 | Define `DEFAULT_ITEMS` and `SCOREABLE_ITEMS` catalogs; retire `minRepTier` as shop gate; add at least 5 net-new scoreable items | catalog validation, no duplicate IDs, all items have required fields, `minRepTier` not read by shop |
 | **P3.M6.3 Shop rework** | 🔲 | Shop stocks `DEFAULT_ITEMS + unlockedScoreableItems`; no rep gate; locked scoreable items not rendered | shop shows only default items when meta-store is empty; adds unlocked scoreable items as they accrue; rep change has no effect on stock |
 | **P3.M6.4 Score target rework** | 🔲 | `buildScoreContract()` draws from unacquired `SCOREABLE_ITEMS`; briefing copy reflects item; completion writes meta-store | available targets exclude acquired; retired items not rolled; store updated on complete |
 | **P3.M6.5 Abstract targets** | 🔲 | Exhausted-pool Score draws RNG credit payload from category set; seeded flavor; arc gates pass with empty scoreable pool | category selection determinism, arc unaffected, no meta-store write |
 | **P3.M6.6 Hub surface** | 🔲 | Shop renders only purchasable items; no locked placeholders | shop never renders a locked scoreable item regardless of meta-store state |
+
+**P3.M6.1 implementation note:** The meta-progression store lands as a new
+`DataStore` key, `unlockedScoreableItems: string[]` (item IDs, acquisition order,
+newest-last), backed by a pure validator module `src/game/scoreableUnlocks.ts`
+(mirroring the `campaignSummary.ts` ⇄ `DataStore` relationship):
+`normalizeUnlockedScoreableItems` (absent → `[]`, non-array/non-string-element throws,
+de-dupes preserving order) and `archiveScoreableItem` (idempotent append, duplicate →
+`{ added: false }`). `DataStore.archiveScoreableItem(id)` only emits a `change` event /
+saves when the store actually changes (matching `archiveCampaign`'s `added` gate); the
+getter returns a defensive copy. Per the global "crashing beats data corruption"
+directive, `#loadDataFromJson` was split so an unparseable blob still resets to defaults
+but a **structurally corrupt (yet parseable) scoreable store throws** out of
+`init`/`import` rather than silently erasing earned blueprints. Structural validation
+only — catalog membership (id ∈ `SCOREABLE_ITEMS`) is a follow-up once that catalog
+exists in M6.2. The `score-complete` write call-site lands in M6.4. **Follow-up:**
+`campaignHistory` keeps its older swallow-and-reset-on-corrupt posture (deliberately not
+retrofitted in this slice). Tests: `scoreableUnlocks.test.ts`, plus three
+`DataStore.test.ts` cases (absent → `[]`, idempotent archival + persistence + defensive
+copy, corrupt store throws).
 
 **Recorded design decisions:**
 
