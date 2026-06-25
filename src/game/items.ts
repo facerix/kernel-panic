@@ -240,13 +240,21 @@ export const SCOREABLE_ITEM_IDS: ReadonlySet<string> = Object.freeze(
 const CATALOG: readonly Item[] = Object.freeze([...DEFAULT_ITEMS, ...SCOREABLE_ITEMS]);
 
 /**
- * Return Finn's always-available stock — the {@link DEFAULT_ITEMS}. Rep no
- * longer gates the shop (P3.M6.2 retired `minRepTier`); unlocked
- * {@link SCOREABLE_ITEMS} are folded in by the shop rework in M6.3, which reads
- * the meta-progression store rather than any tier comparison.
+ * Return Finn's purchasable stock (P3.M6.3): the always-available
+ * {@link DEFAULT_ITEMS} plus any {@link SCOREABLE_ITEMS} the meta-crew has
+ * unlocked across all campaigns. Rep no longer gates anything — the only
+ * variance is which blueprints have been stolen.
+ *
+ * @param unlockedScoreableIds — item ids from the meta-progression store
+ *   (`DataStore.unlockedScoreableItems`). Defaults to empty: a fresh meta-crew
+ *   sees default stock only. Ids not present in `SCOREABLE_ITEMS` are ignored
+ *   (a retired/forward-version blueprint can't be rendered) rather than thrown —
+ *   the store, not the shop, owns earned-data integrity. Locked scoreable items
+ *   are never included, so the shop never renders a placeholder.
  */
-export function getShopCatalog(): Item[] {
-  return [...DEFAULT_ITEMS];
+export function getShopCatalog(unlockedScoreableIds: readonly string[] = []): Item[] {
+  const unlocked = new Set(unlockedScoreableIds);
+  return [...DEFAULT_ITEMS, ...SCOREABLE_ITEMS.filter(item => unlocked.has(item.id))];
 }
 
 /**

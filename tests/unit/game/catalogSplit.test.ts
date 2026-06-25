@@ -100,33 +100,66 @@ test('SCOREABLE_ITEM_IDS matches the SCOREABLE_ITEMS pool exactly', () => {
 });
 
 // ---------------------------------------------------------------------------
-// getShopCatalog — rep no longer gates; only DEFAULT_ITEMS until M6.3
+// getShopCatalog — P3.M6.3 shop rework: DEFAULT_ITEMS + unlocked scoreable
 // ---------------------------------------------------------------------------
 
-test('getShopCatalog returns exactly the default items (no rep gate)', () => {
-  const catalog = getShopCatalog();
+test('getShopCatalog with an empty meta-store returns exactly the default items', () => {
+  const catalog = getShopCatalog([]);
   assert.deepEqual(catalog.map(i => i.id).sort(), DEFAULT_ITEMS.map(i => i.id).sort());
 });
 
-test('getShopCatalog never surfaces a scoreable item (locked until unlocked)', () => {
-  const shopIds = new Set(getShopCatalog().map(i => i.id));
+test('getShopCatalog defaults to default-only stock when called with no arg', () => {
+  assert.deepEqual(
+    getShopCatalog()
+      .map(i => i.id)
+      .sort(),
+    DEFAULT_ITEMS.map(i => i.id).sort()
+  );
+});
+
+test('getShopCatalog folds in unlocked scoreable items as they accrue', () => {
+  const oneUnlock = getShopCatalog([ITEM_ID.MONOBLADE]);
+  const ids = oneUnlock.map(i => i.id);
+  // All default items still present...
+  for (const item of DEFAULT_ITEMS) assert.ok(ids.includes(item.id));
+  // ...plus exactly the one unlocked scoreable.
+  assert.ok(ids.includes(ITEM_ID.MONOBLADE));
+  assert.equal(oneUnlock.length, DEFAULT_ITEMS.length + 1);
+
+  const twoUnlocks = getShopCatalog([ITEM_ID.MONOBLADE, ITEM_ID.ARMOUR_PLATING]);
+  assert.equal(twoUnlocks.length, DEFAULT_ITEMS.length + 2);
+  assert.ok(twoUnlocks.some(i => i.id === ITEM_ID.ARMOUR_PLATING));
+});
+
+test('getShopCatalog never renders a locked scoreable item', () => {
+  // Unlock only the Monoblade — every other scoreable stays hidden.
+  const ids = new Set(getShopCatalog([ITEM_ID.MONOBLADE]).map(i => i.id));
   for (const item of SCOREABLE_ITEMS) {
-    assert.ok(!shopIds.has(item.id), `scoreable "${item.id}" leaked into default shop stock`);
+    if (item.id === ITEM_ID.MONOBLADE) continue;
+    assert.ok(!ids.has(item.id), `locked scoreable "${item.id}" should not render`);
   }
 });
 
-test('getShopCatalog takes no rep argument and is independent of standing', () => {
-  // Signature regression guard: the rep-gated overload is gone. Calling with a
-  // stray argument is a no-op rather than a tier filter.
-  assert.equal(getShopCatalog.length, 0);
-  const a = getShopCatalog();
-  const b = (getShopCatalog as (rep?: number) => Item[])(100);
+test('getShopCatalog ignores an unlocked id that is not a known scoreable item', () => {
+  // A retired / forward-version blueprint can't be rendered; it must not crash
+  // or leak a phantom entry — the store owns earned-data integrity, not the shop.
+  const catalog = getShopCatalog([ITEM_ID.MONOBLADE, 'ghost-blueprint', ITEM_ID.STIM]);
+  const ids = catalog.map(i => i.id);
+  assert.ok(!ids.includes('ghost-blueprint'));
+  // STIM is a default item, not scoreable — passing it as "unlocked" doesn't
+  // duplicate it (default items are added once, unconditionally).
+  assert.equal(ids.filter(id => id === ITEM_ID.STIM).length, 1);
+  assert.ok(ids.includes(ITEM_ID.MONOBLADE));
+});
+
+test('getShopCatalog stock depends only on unlocks, never on rep (no rep param)', () => {
+  // Structural decoupling: there is no rep argument. Same unlocks → same stock.
   assert.deepEqual(
-    a.map(i => i.id),
-    b.map(i => i.id)
+    getShopCatalog([ITEM_ID.MONOBLADE]).map(i => i.id),
+    getShopCatalog([ITEM_ID.MONOBLADE]).map(i => i.id)
   );
   // Returns a fresh array each call — callers may mutate without corrupting source.
-  assert.notEqual(a, b);
+  assert.notEqual(getShopCatalog([]), getShopCatalog([]));
 });
 
 test('getItemById resolves across both catalogs and throws on unknown', () => {

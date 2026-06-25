@@ -49,6 +49,18 @@ test('Finn.catalog never surfaces a locked scoreable item', () => {
   assert.ok(!ids.includes(ITEM_ID.BALLISTICS_COIL));
 });
 
+test('Finn.catalog folds in unlocked scoreable blueprints from the meta-store', () => {
+  const f = new Finn();
+  const ids = f.catalog([ITEM_ID.ARMOUR_PLATING, ITEM_ID.MONOBLADE]).map(i => i.id);
+  // Default stock still present.
+  assert.ok(ids.includes(ITEM_ID.STIM));
+  // Unlocked scoreable now stocked.
+  assert.ok(ids.includes(ITEM_ID.ARMOUR_PLATING));
+  assert.ok(ids.includes(ITEM_ID.MONOBLADE));
+  // Still-locked scoreable stays hidden.
+  assert.ok(!ids.includes(ITEM_ID.TARGETING_CHIP));
+});
+
 // ---------------------------------------------------------------------------
 // Item catalog (pure functions)
 // ---------------------------------------------------------------------------

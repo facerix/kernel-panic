@@ -37,11 +37,12 @@ export class Finn extends Entity {
   }
 
   /**
-   * Return Finn's purchasable stock. Rep no longer gates the shop (P3.M6.2);
-   * this is the always-available {@link DEFAULT_ITEMS}. Unlocked scoreable
-   * items are folded in by the M6.3 shop rework.
+   * Return Finn's purchasable stock (P3.M6.3): {@link DEFAULT_ITEMS} plus the
+   * meta-crew's unlocked scoreable blueprints. Rep no longer gates the shop;
+   * the caller supplies the unlocked ids from the meta-progression store
+   * (`DataStore.unlockedScoreableItems`).
    */
-  catalog() {
-    return getShopCatalog();
+  catalog(unlockedScoreableIds: readonly string[] = []) {
+    return getShopCatalog(unlockedScoreableIds);
   }
 }

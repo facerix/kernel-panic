@@ -46,7 +46,7 @@ A new **player archetype** recruited mid-campaign (late Act 1 / start of Act 2),
 | P3.M3 — Cyberspace grid + ICE | ✅ Done (full ICE roster: Probe, Spark, Guardian) |
 | P3.M4 — Simstim flip (dual-deploy) | ✅ Done |
 | P3.M5 — The Score (climactic mission) | ✅ Done |
-| P3.M6 — Stolen Blueprints (shop rework + meta-progression) | 🟡 Meta-store + catalog split shipped (M6.1–M6.2) |
+| P3.M6 — Stolen Blueprints (shop rework + meta-progression) | 🟡 Meta-store + catalog split + shop rework shipped (M6.1–M6.3) |
 | P3.M7 — Chronicle (campaign narrative memory) | 🟡 End-summary foundation shipped |
 
 **Phase 3** is complete when:
@@ -450,7 +450,7 @@ Placement is collision-safe (`pickFreeRingTile` consumes one rng draw then scans
 |---|---|---|---|
 | **P3.M6.1 Meta-store** | ✅ | `DataStore` key `unlockedScoreableItems`; read at campaign init; idempotent archival; duplicate no-op; corrupt throws | round-trip, idempotent archival, duplicate no-op, corrupt throws |
 | **P3.M6.2 Item catalog split** | ✅ | Define `DEFAULT_ITEMS` and `SCOREABLE_ITEMS` catalogs; retire `minRepTier` as shop gate; add at least 5 net-new scoreable items (fully wired gear) | catalog validation, no duplicate IDs, all items have required fields, `minRepTier` not read by shop |
-| **P3.M6.3 Shop rework** | 🔲 | Shop stocks `DEFAULT_ITEMS + unlockedScoreableItems`; no rep gate; locked scoreable items not rendered | shop shows only default items when meta-store is empty; adds unlocked scoreable items as they accrue; rep change has no effect on stock |
+| **P3.M6.3 Shop rework** | ✅ | Shop stocks `DEFAULT_ITEMS + unlockedScoreableItems`; no rep gate; locked scoreable items not rendered | shop shows only default items when meta-store is empty; adds unlocked scoreable items as they accrue; rep change has no effect on stock |
 | **P3.M6.4 Score target rework** | 🔲 | `buildScoreContract()` draws from unacquired `SCOREABLE_ITEMS`; briefing copy reflects item; completion writes meta-store | available targets exclude acquired; retired items not rolled; store updated on complete |
 | **P3.M6.5 Abstract targets** | 🔲 | Exhausted-pool Score draws RNG credit payload from category set; seeded flavor; arc gates pass with empty scoreable pool | category selection determinism, arc unaffected, no meta-store write |
 | **P3.M6.6 Hub surface** | 🔲 | Shop renders only purchasable items; no locked placeholders | shop never renders a locked scoreable item regardless of meta-store state |
@@ -522,6 +522,21 @@ to archetype base). Pure Hub economy + narrative, no combat-mechanics implicatio
 new `Campaign.reviveMember()` and a delivery surface (Clinic service vs. Finn purchase — the
 shop target-picker currently excludes flatlined crew). Deferred to its own slice; revisit
 after M6.3/M6.4.
+
+**P3.M6.3 implementation note:** `getShopCatalog(unlockedScoreableIds = [])` now returns
+`DEFAULT_ITEMS` plus the `SCOREABLE_ITEMS` whose ids appear in the supplied unlock list
+(membership via a `Set`); rep is structurally gone (no parameter). `Finn.catalog()` is a
+thin passthrough. The shell reads the meta-store **live** at shop-open time
+(`presentFinnShop` → `dataStore.unlockedScoreableItems`) rather than caching it at campaign
+init — a refinement of the M6.1 "read at init/Hub load" sketch. This is simpler and always
+correct, and the practical difference is nil: the only in-campaign unlock path is completing
+the climactic Score (M6.4), after which the player doesn't return to shop. **Lenient
+membership:** an unlocked id that isn't a known scoreable item (a retired or
+forward-version blueprint) is silently skipped, not thrown — the shop can't render a
+nonexistent item, and hard-failing would brick saves across catalog changes. This resolves
+the M6.1 "catalog membership validation" follow-up in the shop layer (the store stays
+structural-only). The `buildScoreContract` acquired-set exclusion (which also needs the
+unlock list) lands in M6.4; it will read the same `dataStore.unlockedScoreableItems`.
 
 **Recorded design decisions:**
 

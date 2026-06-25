@@ -826,7 +826,10 @@ function onBriefingDeploy(evt: Event) {
 
 function presentFinnShop() {
   if (!campaign || !campaign.finn) return;
-  const catalog = campaign.finn.catalog();
+  // P3.M6.3: stock = default items + scoreable blueprints stolen across all
+  // campaigns. Read live from the meta-store so a Score unlock surfaces at the
+  // next shop visit; rep no longer influences stock.
+  const catalog = campaign.finn.catalog(dataStore.unlockedScoreableItems);
   finnShopEl.setCatalog(catalog, campaign.crew, {
     credits: campaign.credits,
     salvage: campaign.salvage,
