@@ -299,6 +299,10 @@ export type RunSnapshot = {
   mapMemory?: MapMemorySnapshot;
   /** Pickup unification: removed objective pickups still count as secured. */
   objectiveProgress?: ObjectiveProgressSnapshot;
+  /** P3.M5: Score-only independent extraction latch. */
+  extractedOperativeIds?: string[];
+  /** P3.M5: off-grid crew records for extracted Score operatives. */
+  extractedOperatives?: RunEntitySnapshot[];
   /** Run-scoped key items / keycards without a siteId (P2.5.M6.2). Defaults to []. */
   keyItems?: KeyItemSnapshot[];
   /** Terrain/entity mutations recorded during the run (P2.5.M7.1). Defaults to []. */
@@ -480,6 +484,8 @@ export class Run {
   mapSeen: Set<string>;
   /** Run-scoped key items / keycards without a siteId (P2.5.M6.2). Lost on run end. */
   keyItems: KeyItem[];
+  /** P3.M5: Score-only independent extraction latch. Empty on normal runs. */
+  extractedOperativeIds: Set<string>;
   /** Prior-visit terrain mutations replayed in `enterCombat` (P2.5.M7.2). */
   priorMutationDeltas: TileDelta[];
   /** Prior-visit exploration memory restored into shell fog on jack-in (P2.5.M7.2). */
@@ -576,6 +582,7 @@ export class Run {
     this.objectiveTimer = freshObjectiveTimer();
     this.mapSeen = new Set();
     this.keyItems = [];
+    this.extractedOperativeIds = new Set();
     // Deltas are validated structurally on application (`applyMutationDeltas`)
     // and on campaign restore (`normalizeLocationSite`); store a shallow copy
     // so external mutation can't reach into the run.
@@ -658,13 +665,35 @@ export class Run {
     this.meatActor = this.player;
     this.activeLayer = 'meat';
     this.world.addEntity(this.player);
+    let scoreDoorPlaced = false;
     for (let i = 0; i < map.doors.length; i++) {
       const a = map.doors[i]!;
       // A door breached on a prior visit left its cell as RUBBLE (via the
       // companion tile delta). Skip re-placing the door so the breach persists.
       if (this.world.grid.tileAt(a.x, a.y) === TILE.RUBBLE) continue;
+      const doorId =
+        this.contract.objective.kind === OBJECTIVES.SCORE_FINAL && !scoreDoorPlaced
+          ? scoreDoorId(this.contract)
+          : `door-${i}`;
+      this.world.addEntity(new Door({ id: `door-entity-${i}`, doorId, x: a.x, y: a.y }));
+      if (doorId === scoreDoorIdOrNull(this.contract)) scoreDoorPlaced = true;
+    }
+    if (this.contract.objective.kind === OBJECTIVES.SCORE_FINAL && !scoreDoorPlaced) {
+      const fallback = map.dynamicDoors.find(
+        anchor =>
+          this.world!.grid.isPassable(anchor.door.x, anchor.door.y) &&
+          !this.world!.liveEntityAt(anchor.door.x, anchor.door.y)
+      );
+      if (!fallback) {
+        throw new Error('Run.enterCombat: Score contract has no legal locked-route door anchor');
+      }
       this.world.addEntity(
-        new Door({ id: `door-entity-${i}`, doorId: `door-${i}`, x: a.x, y: a.y })
+        new Door({
+          id: 'door-entity-score',
+          doorId: scoreDoorId(this.contract),
+          x: fallback.door.x,
+          y: fallback.door.y,
+        })
       );
     }
     // Phase 2.9: one hostile faction per run, derived from the contract
@@ -918,6 +947,14 @@ export class Run {
       objectiveTimer: { ...this.objectiveTimer },
       mapMemory: { seen: this.mapSeenKeys() },
       objectiveProgress: { securedPickups: world.securedPickupIds() },
+      ...(this.extractedOperativeIds.size > 0
+        ? {
+            extractedOperativeIds: [...this.extractedOperativeIds].sort(),
+            extractedOperatives: [this.crewMember, this.partnerMember]
+              .filter((crew): crew is Crew => !!crew && this.extractedOperativeIds.has(crew.id))
+              .map(crew => ({ ...snapshotEntity(crew), x: 0, y: 0 })),
+          }
+        : {}),
       keyItems: this.keyItems.map(k => ({ id: k.id, label: k.label, doorId: k.doorId })),
       mutationDeltas: world.mutationDeltas.map(delta => ({ ...delta })),
       // P3.M4.1/M4.2: the reserved meat partner. While the cyber layer is still
@@ -1280,7 +1317,20 @@ export class Run {
       throw new Error('Run.#cyberObjectiveComplete: COMBAT state without a contract');
     }
     const { sliced } = dataNodeProgress(layer.world);
-    return sliced >= objectiveCount(this.contract);
+    const complete = sliced >= objectiveCount(this.contract);
+    if (complete) this.#syncScoreDoorUnlock();
+    return complete;
+  }
+
+  #syncScoreDoorUnlock(): void {
+    if (!this.contract || this.contract.objective.kind !== OBJECTIVES.SCORE_FINAL) return;
+    if (!this.world) return;
+    const cyber = this.#cyberNodeProgress();
+    if (!cyber || cyber.sliced < cyber.required) return;
+    const door = assertDoorExists(this.world, scoreDoorId(this.contract));
+    if (!door.locked) return;
+    door.unlock();
+    this.world.events?.emit(EVENT.DOOR_UNLOCKED, { door, source: 'score-core' });
   }
 
   /**
@@ -1464,7 +1514,12 @@ export class Run {
    */
   #cyberNodeProgress(): CyberNodeProgress | undefined {
     if (!this.contract || !this.cyberspace) return undefined;
-    if (this.contract.objective.kind !== OBJECTIVES.DATA_NODE_SLICE) return undefined;
+    if (
+      this.contract.objective.kind !== OBJECTIVES.DATA_NODE_SLICE &&
+      this.contract.objective.kind !== OBJECTIVES.SCORE_FINAL
+    ) {
+      return undefined;
+    }
     const required = objectiveCount(this.contract);
     switch (this.cyberspace.phase) {
       case 'dormant':
@@ -1611,6 +1666,7 @@ export class Run {
       layer.bus.on(EVENT.ENTITY_DAMAGED, payload =>
         this.#onCyberEntityDamaged(payload as EntityDamagedPayload)
       ),
+      layer.bus.on(EVENT.DATA_NODE_SLICED, () => this.#syncScoreDoorUnlock()),
       layer.bus.on(EVENT.JACK_OUT, () => this.jackOut())
     );
   }
@@ -1735,10 +1791,10 @@ export class Run {
   #onEntityMoved({ entity, to }: EntityMovedPayload): void {
     if (this.state !== RUN_STATE.COMBAT) return;
     if (!this.exitTile) return;
-    if (entity === this.player) {
+    if (entity === this.player || entity === this.partnerMember) {
       this.#recordCurrentPlayerVision();
       if (to.x === this.exitTile.x && to.y === this.exitTile.y) {
-        this.#tryExtractFromExit();
+        this.#tryExtractFromExit(entity as Crew);
       }
       return;
     }
@@ -1751,7 +1807,7 @@ export class Run {
     }
   }
 
-  #tryExtractFromExit(): void {
+  #tryExtractFromExit(actor: Crew = this.player as Crew): void {
     if (!this.contract) {
       throw new Error('Run.#tryExtractFromExit: exit reached without an active contract');
     }
@@ -1770,6 +1826,10 @@ export class Run {
         return;
       }
     }
+    if (this.contract.objective.kind === OBJECTIVES.SCORE_FINAL && objectiveComplete) {
+      this.#extractScoreOperative(actor);
+      return;
+    }
     this.telemetry.cause = objectiveComplete
       ? 'exit-reached'
       : objectiveExpired
@@ -1778,10 +1838,82 @@ export class Run {
     this.enterResult({
       outcome: OUTCOME.EXIT,
       telemetry: {
-        objectiveComplete,
+        objectiveComplete:
+          this.contract.objective.kind === OBJECTIVES.SCORE_FINAL ? false : objectiveComplete,
         objectiveExpired,
       },
     });
+  }
+
+  #extractScoreOperative(actor: Crew): void {
+    if (!this.contract || this.contract.objective.kind !== OBJECTIVES.SCORE_FINAL) {
+      throw new Error('Run.#extractScoreOperative: active contract is not the Score');
+    }
+    if (!this.world) {
+      throw new Error('Run.#extractScoreOperative: no live world');
+    }
+    if (this.extractedOperativeIds.has(actor.id)) return;
+    this.extractedOperativeIds.add(actor.id);
+    this.world.removeEntity(actor.id);
+    if (this.meatActor === actor) {
+      this.meatActor = this.#nextScoreMeatActor();
+      if (this.cyberspace?.phase === 'active') {
+        this.activeLayer = 'cyber';
+      }
+    }
+    if (this.player === actor && this.cyberspace?.phase === 'active') {
+      throw new Error('Run.#extractScoreOperative: cannot extract a jacked-in Decker body');
+    }
+    const required = this.#scoreOperativeIds();
+    if (
+      [this.crewMember, this.partnerMember].some(
+        crew => crew && required.includes(crew.id) && !crew.alive
+      )
+    ) {
+      this.telemetry.cause = 'score-partial';
+      this.enterResult({
+        outcome: OUTCOME.EXIT,
+        telemetry: {
+          objectiveComplete: false,
+          objectiveExpired: false,
+        },
+      });
+      return;
+    }
+    const allExtracted = required.every(id => this.extractedOperativeIds.has(id));
+    if (!allExtracted) {
+      if (this.onPersist) this.onPersist(this.snapshot());
+      return;
+    }
+    this.telemetry.cause = 'score-extracted';
+    this.enterResult({
+      outcome: OUTCOME.EXIT,
+      telemetry: {
+        objectiveComplete: true,
+        objectiveExpired: false,
+      },
+    });
+  }
+
+  #nextScoreMeatActor(): Crew | null {
+    for (const crew of [this.player, this.partnerMember]) {
+      if (
+        crew &&
+        crew.alive &&
+        this.world?.entities.has(crew.id) &&
+        !this.extractedOperativeIds.has(crew.id)
+      ) {
+        return crew;
+      }
+    }
+    return null;
+  }
+
+  #scoreOperativeIds(): string[] {
+    if (!this.partnerMember) {
+      throw new Error('Run.#scoreOperativeIds: Score run requires a meat partner');
+    }
+    return [this.crewMember.id, this.partnerMember.id];
   }
 
   /**
@@ -1835,7 +1967,10 @@ export class Run {
     const linkedDoorId = objectiveDoorId(this.contract);
     if (linkedDoorId) {
       assertDoorExists(this.world, linkedDoorId);
-      if (this.contract.objective.kind !== OBJECTIVES.TERMINAL_SLICE) {
+      if (
+        this.contract.objective.kind !== OBJECTIVES.TERMINAL_SLICE &&
+        this.contract.objective.kind !== OBJECTIVES.SCORE_FINAL
+      ) {
         const revisitSiteId = this.contract.context.locationSiteId;
         const priorKey =
           revisitSiteId &&
@@ -1922,6 +2057,32 @@ export class Run {
           id: 'jack-in-0',
           x: anchor.x,
           y: anchor.y,
+        })
+      );
+    }
+    if (this.contract.objective.kind === OBJECTIVES.SCORE_FINAL) {
+      const doorId = scoreDoorId(this.contract);
+      const jackAnchor = findInteractableAnchor(this.world, this.player, this.exitTile, this.rng);
+      this.world.addEntity(
+        new JackInPoint({
+          id: 'jack-in-0',
+          x: jackAnchor.x,
+          y: jackAnchor.y,
+        })
+      );
+      const payloadAnchor = findBehindDoorAnchor(
+        this.world,
+        this.player,
+        this.exitTile,
+        doorId,
+        this.rng
+      );
+      this.world.addEntity(
+        new Pickup({
+          id: scorePayloadId(this.contract),
+          x: payloadAnchor.x,
+          y: payloadAnchor.y,
+          label: 'Score payload',
         })
       );
     }
@@ -2179,6 +2340,7 @@ export class Run {
       reconSeen: this.mapSeen,
       cyber: this.#cyberNodeProgress(),
     });
+    this.#syncScoreDoorUnlock();
     const limit = turnLimitForContract(this.contract);
     if (limit === null || !this.queue) return satisfied;
 
@@ -2290,6 +2452,8 @@ function isObjectiveFamilySatisfied(
       const cyber = objectiveState?.cyber;
       return !!cyber && cyber.required > 0 && cyber.sliced >= cyber.required;
     }
+    case OBJECTIVES.SCORE_FINAL:
+      return isScoreFinalSatisfied(contract, world, objectiveState);
     default: {
       const exhaustive: never = kind;
       throw new Error(`Run.isObjectiveSatisfied: unknown objective kind "${exhaustive}"`);
@@ -2310,6 +2474,26 @@ function objectiveDoorId(contract: Contract): string | null {
     throw new TypeError('Run: objective params.doorId must be a non-empty string when set');
   }
   return doorId;
+}
+
+function scoreDoorId(contract: Contract): string {
+  if (contract.objective.kind !== OBJECTIVES.SCORE_FINAL) {
+    throw new Error('Run: scoreDoorId requires a score-final contract');
+  }
+  const doorId = objectiveDoorId(contract);
+  if (!doorId) {
+    throw new Error('Run: score-final objective is missing a linked door id');
+  }
+  return doorId;
+}
+
+function scoreDoorIdOrNull(contract: Contract): string | null {
+  return contract.objective.kind === OBJECTIVES.SCORE_FINAL ? scoreDoorId(contract) : null;
+}
+
+function scorePayloadId(contract: Contract): string {
+  const doorId = scoreDoorId(contract);
+  return `score-payload-${doorId}`;
 }
 
 export type UnlockMethod = 'terminal' | 'keycard';
@@ -2665,6 +2849,20 @@ function isRetrieveSatisfied(contract: Contract, world?: World | null): boolean 
     if (entity instanceof Pickup && entity.secured) secured.add(entity.id);
   }
   return secured.size >= required;
+}
+
+function isScoreFinalSatisfied(
+  contract: Contract,
+  world?: World | null,
+  objectiveState: ObjectiveState = {}
+): boolean {
+  if (!world) return false;
+  const cyber = objectiveState.cyber;
+  if (!cyber || cyber.required <= 0 || cyber.sliced < cyber.required) return false;
+  const payloadId = scorePayloadId(contract);
+  if (world.securedPickupIds().includes(payloadId)) return true;
+  const payload = world.entities.get(payloadId);
+  return payload instanceof Pickup && payload.secured;
 }
 
 function isHandoffSatisfied(contract: Contract, world?: World | null): boolean {

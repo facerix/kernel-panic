@@ -182,7 +182,7 @@ export function willEndCampaignAfterResult(
   }
   if (outcome === OUTCOME.DEATH && willEndCampaignOnThisDeath(campaign)) return true;
   const contract = campaign.activeRun?.contract;
-  if (outcome === OUTCOME.EXIT && completed && contract && isScoreContract(contract)) return true;
+  if (outcome === OUTCOME.EXIT && contract && isScoreContract(contract)) return true;
   return Boolean(
     campaign.arc?.scoreRevealed &&
     clockDeadlineApplies(campaign.arc.arcStage) &&
@@ -375,6 +375,10 @@ export class Campaign {
     return this.crew.some(member => member.archetype === 'Decker' && !member.flatlined);
   }
 
+  get hasLivingScorePartner(): boolean {
+    return this.crew.some(member => member.archetype !== 'Decker' && !member.flatlined);
+  }
+
   get scoreDeadlineJobsRemaining(): number {
     return Math.max(0, CLOCK_ACT2_DEADLINE_JOBS - this.clockJobsTaken);
   }
@@ -383,6 +387,7 @@ export class Campaign {
   get endReason(): CampaignEndReason | null {
     if (this.state !== CAMPAIGN_STATE.ENDED) return null;
     if (this.arc.scoreCompleted) return 'score-complete';
+    if (this.meta.scorePartial === true) return 'score-partial';
     if (this.arc.scoreAttempted && this.arc.arcStage === 'score') {
       return 'decker-flatlined-score';
     }
@@ -499,6 +504,9 @@ export class Campaign {
         `Campaign.deployCrewMember: contract "${contract.label}" requires a living Decker to jack in`
       );
     }
+    if (isScoreContract(contract) && !partnerId) {
+      throw new Error('Campaign.deployCrewMember: THE SCORE requires a living meat partner');
+    }
     // P3.M4.1: a dual-deploy rides a meat partner alongside the Decker. The
     // partner is optional at this layer (the briefing requires one for normal
     // play, but a solo Decker cyber run stays legal); when supplied it must be
@@ -599,6 +607,11 @@ export class Campaign {
       isScoreContract(this.activeRun.contract) &&
       outcome === OUTCOME.EXIT &&
       completed;
+    const partialScoreRun =
+      this.activeRun.contract !== null &&
+      isScoreContract(this.activeRun.contract) &&
+      outcome === OUTCOME.EXIT &&
+      !completed;
     const failedScoreRun =
       this.activeRun.contract !== null &&
       isScoreContract(this.activeRun.contract) &&
@@ -625,7 +638,7 @@ export class Campaign {
         this.credits += reward?.credits ?? 0;
         if (reward) this.adjustRep(reward.repDelta);
         if (reward?.recruit) this.pendingRecruitReward = true;
-      } else {
+      } else if (!partialScoreRun) {
         // Abort extraction: objective abandoned — rep penalty, no rewards.
         this.adjustRep(REP.ABORT_PENALTY);
       }
@@ -647,6 +660,15 @@ export class Campaign {
     this.deployedPartnerId = null;
 
     if (failedScoreRun) {
+      this.state = CAMPAIGN_STATE.ENDED;
+      this.#tearDownHubWorld();
+      this.#persist();
+      return;
+    }
+
+    if (partialScoreRun) {
+      this.meta.scorePartial = true;
+      this.arc.arcStage = 'score';
       this.state = CAMPAIGN_STATE.ENDED;
       this.#tearDownHubWorld();
       this.#persist();
@@ -678,6 +700,7 @@ export class Campaign {
     if (this.arc.arcStage !== 'act-3') return false;
     if (this.arc.scoreAttempted || this.arc.scoreCompleted) return false;
     if (!this.hasLivingDecker) return false;
+    if (!this.hasLivingScorePartner) return false;
     return this.#scoreTargetSiteOrNull() !== null;
   }
 
@@ -699,7 +722,8 @@ export class Campaign {
     const principal = locationContextToken(target.principal);
     const site = target.site ? locationContextToken(target.site) : undefined;
     const heatThreat = Math.min(6, 4 + this.clockHeat);
-    const objectiveKind = OBJECTIVES.DATA_NODE_SLICE;
+    const objectiveKind = OBJECTIVES.SCORE_FINAL;
+    const doorId = 'score-door-0';
     return {
       seed,
       mapWidth: target.mapWidth,
@@ -714,6 +738,7 @@ export class Campaign {
         params: {
           requiresCyberspace: true,
           count: 1,
+          doorId,
         },
       },
       difficulty: CONTRACT_DIFFICULTY.CRITICAL,
@@ -725,7 +750,13 @@ export class Campaign {
         ...(site ? { site } : {}),
         asset: { id: 'score-target', label: 'Score target', groups: ['score'] },
         action: { id: 'score-run', label: 'run', groups: ['score'] },
-        tags: ['score', 'meatspace', `objective:${objectiveKind}`, `principal:${principal.id}`],
+        tags: [
+          'score',
+          'meatspace',
+          'cyberspace',
+          `objective:${objectiveKind}`,
+          `principal:${principal.id}`,
+        ],
         arcStage: 'score',
         locationSiteId: target.id,
       },
@@ -1364,6 +1395,9 @@ export class Campaign {
     }
     if (this.arc.scoreCompleted) {
       throw new Error('Campaign.deployCrewMember: Score is already complete');
+    }
+    if (contract.objective.kind !== OBJECTIVES.SCORE_FINAL) {
+      throw new Error('Campaign.deployCrewMember: Score contract must use score-final objective');
     }
     const target = this.#scoreTargetSiteOrNull();
     if (!target || contract.context.locationSiteId !== target.id) {

@@ -151,6 +151,49 @@ export function isScorePrincipalContract(
   return true;
 }
 
+/**
+ * A location badge for the job board. `variant` maps to the CSS modifier the
+ * renderer appends after the base `known` class (`'revisit'` is the bare
+ * `known` styling).
+ */
+export interface ContractLocationBadge {
+  variant: 'score-site' | 'casing' | 'revisit';
+  text: string;
+}
+
+/**
+ * Ordered location badges for a contract. Score-intel status (SCORE SITE /
+ * CASING) and revisit memory (`// known site`) are *independent* facts: a
+ * casing job at the score principal can also be a place we've already cased, so
+ * both badges surface together.
+ *
+ * The Score *target* is excluded from the revisit badge. This is sound because
+ * the target is always net-new when the board renders: the Score is a one-shot
+ * that ends the campaign on any outcome (so it's never deployed to twice), and
+ * no normal run can accrue memory onto it — its roster id is namespaced
+ * (`score-…`) out of reach of `generateSiteId(seed)`, and the Curator filters
+ * the target out of revisit rolls. The suppression is belt-and-suspenders
+ * against a double-badge, not a correctness dependency. Non-target `score`-tier
+ * sites are *not* special-cased — they can be cased/revisited like any other.
+ */
+export function contractLocationBadges(
+  contract: Contract,
+  scoreTargetSiteId: string | null | undefined,
+  scorePrincipalId: string | null | undefined
+): ContractLocationBadge[] {
+  const badges: ContractLocationBadge[] = [];
+  const scoreSite = isScoreSiteContract(contract, scoreTargetSiteId);
+  if (scoreSite) {
+    badges.push({ variant: 'score-site', text: 'SCORE SITE' });
+  } else if (isScorePrincipalContract(contract, scorePrincipalId, scoreTargetSiteId)) {
+    badges.push({ variant: 'casing', text: 'CASING' });
+  }
+  if (contract.context.locationSiteId && !scoreSite) {
+    badges.push({ variant: 'revisit', text: '// known site' });
+  }
+  return badges;
+}
+
 export function scoreTargetSiteId(campaign: ArcSurfaceCampaign): string | null {
   return findScoreTargetSite(campaign.siteRoster)?.id ?? null;
 }

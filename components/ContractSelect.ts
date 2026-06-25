@@ -6,7 +6,7 @@
 
 import { h } from '/src/domUtils.js';
 import { encounterHostileCount } from '/src/game/encounters.js';
-import { isScorePrincipalContract, isScoreSiteContract } from '/src/game/hub/arcSurface.js';
+import { contractLocationBadges } from '/src/game/hub/arcSurface.js';
 import { cloneObjective } from '/src/game/hub/Curator.js';
 import type { Contract } from '/src/game/hub/Curator.js';
 
@@ -406,16 +406,13 @@ function locationLine(
   scoreTargetSiteId: string | null,
   scorePrincipalId: string | null
 ): HTMLElement[] {
-  const { principal, site, siteState, locationSiteId } = contract.context;
+  const { principal, site, siteState } = contract.context;
   const place = site ? `${principal.label} ${site.label}` : principal.label;
   const state = siteState ? ` [${siteState.label}]` : '';
   const nodes: HTMLElement[] = [h('span', { textContent: `Location: ${place}${state}` })];
-  if (isScoreSiteContract(contract, scoreTargetSiteId)) {
-    nodes.push(h('span', { className: 'known score-site', textContent: 'SCORE SITE' }));
-  } else if (isScorePrincipalContract(contract, scorePrincipalId, scoreTargetSiteId)) {
-    nodes.push(h('span', { className: 'known casing', textContent: 'CASING' }));
-  } else if (locationSiteId) {
-    nodes.push(h('span', { className: 'known', textContent: '// known site' }));
+  for (const badge of contractLocationBadges(contract, scoreTargetSiteId, scorePrincipalId)) {
+    const className = badge.variant === 'revisit' ? 'known' : `known ${badge.variant}`;
+    nodes.push(h('span', { className, textContent: badge.text }));
   }
   return nodes;
 }

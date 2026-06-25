@@ -2,7 +2,7 @@ import type { CampaignEndReason } from '../types.js';
 
 export const CAMPAIGN_HISTORY_CAP = 50;
 
-export type CampaignSummaryResult = 'win' | 'loss';
+export type CampaignSummaryResult = 'win' | 'partial' | 'loss';
 
 export type CampaignSummaryCrew = {
   callsign: string;
@@ -42,6 +42,7 @@ const END_REASONS: readonly CampaignEndReason[] = [
   'crew-wipe',
   'clock-expired',
   'decker-flatlined-score',
+  'score-partial',
   'score-complete',
 ];
 
@@ -62,7 +63,7 @@ export function buildCampaignSummary(
   return validateCampaignSummary({
     campaignId: campaign.id,
     completedAt,
-    result: campaign.endReason === 'score-complete' ? 'win' : 'loss',
+    result: resultForEndReason(campaign.endReason),
     endReason: campaign.endReason,
     seed: campaign.seed,
     completedJobs: campaign.completedJobs,
@@ -94,14 +95,14 @@ export function validateCampaignSummary(value: unknown): CampaignSummary {
   ]);
   const campaignId = requireNonEmptyString(summary.campaignId, 'CampaignSummary.campaignId');
   const completedAt = requireIsoTimestamp(summary.completedAt);
-  if (summary.result !== 'win' && summary.result !== 'loss') {
-    throw new Error(`CampaignSummary.result must be win or loss, got ${summary.result}`);
+  if (summary.result !== 'win' && summary.result !== 'partial' && summary.result !== 'loss') {
+    throw new Error(`CampaignSummary.result must be win, partial, or loss, got ${summary.result}`);
   }
   if (!END_REASONS.includes(summary.endReason as CampaignEndReason)) {
     throw new Error(`CampaignSummary.endReason is invalid: ${summary.endReason}`);
   }
   const endReason = summary.endReason as CampaignEndReason;
-  const expectedResult: CampaignSummaryResult = endReason === 'score-complete' ? 'win' : 'loss';
+  const expectedResult = resultForEndReason(endReason);
   if (summary.result !== expectedResult) {
     throw new Error(`CampaignSummary ${endReason} must have result ${expectedResult}`);
   }
@@ -128,6 +129,12 @@ export function validateCampaignSummary(value: unknown): CampaignSummary {
     credits,
     crewRoster,
   };
+}
+
+function resultForEndReason(endReason: CampaignEndReason): CampaignSummaryResult {
+  if (endReason === 'score-complete') return 'win';
+  if (endReason === 'score-partial') return 'partial';
+  return 'loss';
 }
 
 export function normalizeCampaignHistory(value: unknown): CampaignSummary[] {

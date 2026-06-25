@@ -1075,6 +1075,8 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
   }
 
   const restoredEntities = record.entities.map(entityRec => restoreEntity(entityRec, grid));
+  const extractedOperativeIds = normalizeExtractedOperativeIds(record.extractedOperativeIds);
+  const extractedOperatives = normalizeExtractedOperatives(record.extractedOperatives, grid);
   const playerCrew = restoredEntities.filter(
     (e): e is Crew => e instanceof Crew && e.faction === FACTION.PLAYER
   );
@@ -1084,7 +1086,16 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
   let player: Crew;
   let gridPartner: Crew | null = null;
   if (playerCrew.length === 1) {
-    player = playerCrew[0]!;
+    const lone = playerCrew[0]!;
+    const extractedPrimary = extractedOperatives.find(
+      (e): e is Crew => e instanceof Decker && extractedOperativeIds.includes(e.id)
+    );
+    if (extractedPrimary && !(lone instanceof Decker)) {
+      player = extractedPrimary;
+      gridPartner = lone;
+    } else {
+      player = lone;
+    }
   } else if (playerCrew.length === 2) {
     const deckers = playerCrew.filter(e => e instanceof Decker);
     const others = playerCrew.filter(e => !(e instanceof Decker));
@@ -1136,6 +1147,11 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
     run.partnerMember = partner;
   } else if (gridPartner) {
     run.partnerMember = gridPartner;
+  } else {
+    const extractedPartner = extractedOperatives.find(
+      (e): e is Crew => e instanceof Crew && !(e instanceof Decker)
+    );
+    if (extractedPartner) run.partnerMember = extractedPartner;
   }
 
   // P3.M4.2: re-establish the simstim flip state. While jacked in the Decker
@@ -1153,7 +1169,11 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
     run.meatActor = liveMeatPartner ?? player;
     run.activeLayer = liveMeatPartner && record.activeLayer !== 'cyber' ? 'meat' : 'cyber';
   } else {
-    run.meatActor = player;
+    run.meatActor = !extractedOperativeIds.includes(player.id)
+      ? player
+      : gridPartner && !extractedOperativeIds.includes(gridPartner.id)
+        ? gridPartner
+        : null;
     run.activeLayer = 'meat';
   }
   run.exitTile = record.exitTile ? { ...record.exitTile } : null;
@@ -1165,6 +1185,7 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
   run.world.restoreSecuredPickups(
     normalizeObjectiveProgress(record.objectiveProgress).securedPickups
   );
+  run.extractedOperativeIds = new Set(extractedOperativeIds);
   run.world.mutationDeltas = normalizeMutationDeltas(record.mutationDeltas, grid);
   if (record.alarm) {
     run.world.restoreAlarm(record.alarm);
@@ -1199,9 +1220,13 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
     }
   }
   if (run.state === RUN_STATE.COMBAT && !run.player) {
-    throw new Error(
-      `restore: COMBAT snapshot has no player entity matching archetype "${run.archetype}"`
-    );
+    if (run.extractedOperativeIds.has(player.id)) {
+      run.player = player;
+    } else {
+      throw new Error(
+        `restore: COMBAT snapshot has no player entity matching archetype "${run.archetype}"`
+      );
+    }
   }
 
   if (run.state === RUN_STATE.COMBAT) {
@@ -1814,6 +1839,10 @@ function restoreActiveRun(
   if (record.snapshot) {
     const restored = restore(record.snapshot, options).run;
     restored.crewMember = member;
+    restored.archetype = archetypeOfCrew(member);
+    if (restored.extractedOperativeIds.has(member.id)) {
+      restored.player = member;
+    }
     // P3.M4.1/M4.4: re-bind the partner to the canonical roster object ONLY
     // while it is still off-grid — a dormant reserve, the object a later jack-in
     // spawns onto the meat grid. Once the partner is a *live grid entity*
@@ -1824,6 +1853,13 @@ function restoreActiveRun(
     // on-grid copy sat frozen in place.
     if (partner && !restored.world?.entities.has(partner.id)) {
       restored.partnerMember = partner;
+    }
+    if (
+      partner &&
+      restored.meatActor?.id === partner.id &&
+      !restored.world?.entities.has(partner.id)
+    ) {
+      restored.meatActor = partner;
     }
     return restored;
   }
@@ -1966,6 +2002,38 @@ function normalizeObjectiveProgress(progress: unknown): ObjectiveProgressSnapsho
     }
   }
   return { securedPickups: [...candidate.securedPickups] };
+}
+
+function normalizeExtractedOperativeIds(raw: unknown): string[] {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) {
+    throw new TypeError('restore: extractedOperativeIds must be an array when supplied');
+  }
+  const seen = new Set<string>();
+  for (const id of raw) {
+    if (typeof id !== 'string' || id.length === 0) {
+      throw new TypeError('restore: extractedOperativeIds entries must be non-empty strings');
+    }
+    if (seen.has(id)) {
+      throw new Error(`restore: duplicate extracted operative id "${id}"`);
+    }
+    seen.add(id);
+  }
+  return [...seen];
+}
+
+function normalizeExtractedOperatives(raw: unknown, grid: Grid): Crew[] {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) {
+    throw new TypeError('restore: extractedOperatives must be an array when supplied');
+  }
+  return raw.map((rec, index) => {
+    const entity = restoreEntity(rec as RunEntitySnapshot, grid);
+    if (!(entity instanceof Crew)) {
+      throw new TypeError(`restore: extractedOperatives[${index}] must be a crew entity`);
+    }
+    return entity;
+  });
 }
 
 /**

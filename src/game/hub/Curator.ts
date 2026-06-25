@@ -36,6 +36,8 @@ export const OBJECTIVES = Object.freeze({
   ESCORT_EXTRACT: 'escort-extract',
   /** P3.M3: slice a data node in Cyberspace — requires a living Decker to jack in. */
   DATA_NODE_SLICE: 'data-node-slice',
+  /** P3.M5: THE SCORE finale — linked Cyberspace core, Meatspace door, payload. */
+  SCORE_FINAL: 'score-final',
 });
 
 const KNOWN_OBJECTIVE_KINDS = new Set(Object.values(OBJECTIVES));
@@ -714,7 +716,7 @@ function validateCyberspaceObjective(
   kind: ObjectiveKind,
   params: ObjectiveParams | undefined
 ): void {
-  if (kind === OBJECTIVES.DATA_NODE_SLICE) {
+  if (kind === OBJECTIVES.DATA_NODE_SLICE || kind === OBJECTIVES.SCORE_FINAL) {
     if (params?.requiresCyberspace !== true) {
       throw new Error(
         `contract objective "${kind}" requires params.requiresCyberspace to be exactly true`
@@ -725,9 +727,16 @@ function validateCyberspaceObjective(
         `contract objective "${kind}" requires params.count to be a positive integer`
       );
     }
+    if (kind === OBJECTIVES.SCORE_FINAL) {
+      if (typeof params.doorId !== 'string' || params.doorId.length === 0) {
+        throw new TypeError(
+          `contract objective "${kind}" requires params.doorId to be a non-empty string`
+        );
+      }
+    }
   } else if (params?.requiresCyberspace !== undefined) {
     throw new Error(
-      `contract objective param "requiresCyberspace" is only valid on "${OBJECTIVES.DATA_NODE_SLICE}", got kind "${kind}"`
+      `contract objective param "requiresCyberspace" is only valid on Cyberspace objectives, got kind "${kind}"`
     );
   }
 }
@@ -778,7 +787,11 @@ export function assertLabelObjectiveRegistryInSync(): void {
     validateRenderedContract(contract);
   }
   for (const kind of Object.values(OBJECTIVES)) {
-    if (kind !== OBJECTIVES.REACH_EXIT && !coveredKinds.has(kind)) {
+    if (
+      kind !== OBJECTIVES.REACH_EXIT &&
+      kind !== OBJECTIVES.SCORE_FINAL &&
+      !coveredKinds.has(kind)
+    ) {
       throw new Error(`Curator: no contract recipe covers objective kind "${kind}"`);
     }
   }

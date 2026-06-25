@@ -62,10 +62,12 @@ test('Score completion summary uses post-settlement jobs, Rep, and Credits', () 
     ],
   });
   const decker = campaign.crew.find(member => member.archetype === 'Decker');
+  const partner = campaign.crew.find(member => member.archetype !== 'Decker');
   assert.ok(decker);
+  assert.ok(partner);
   const score = campaign.buildScoreContract();
   score.reward.repDelta = 7;
-  const run = campaign.deployCrewMember(decker.id, score);
+  const run = campaign.deployCrewMember(decker.id, score, partner.id);
   run.enterCombat();
 
   campaign.onJobEnd({
@@ -100,10 +102,22 @@ test('loss summaries preserve each terminal reason and final roster state', () =
   }
 });
 
+test('partial Score summary validates as partial', () => {
+  const record = validateCampaignSummary(
+    summary({ result: 'partial', endReason: 'score-partial' })
+  );
+  assert.equal(record.result, 'partial');
+  assert.equal(record.endReason, 'score-partial');
+});
+
 test('CampaignSummary validation rejects mismatched outcomes and malformed credit totals', () => {
   assert.throws(
     () => validateCampaignSummary(summary({ result: 'loss' })),
     /score-complete must have result win/
+  );
+  assert.throws(
+    () => validateCampaignSummary(summary({ result: 'win', endReason: 'score-partial' })),
+    /score-partial must have result partial/
   );
   assert.throws(
     () => validateCampaignSummary({ ...summary(), credits: -1 }),

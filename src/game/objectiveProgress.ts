@@ -173,6 +173,10 @@ export function objectiveProgress(
       if (!cyber || cyber.required <= 0) return null;
       return { label: 'NODES', current: cyber.sliced, total: cyber.required };
     }
+    case OBJECTIVES.SCORE_FINAL: {
+      if (!cyber || cyber.required <= 0) return null;
+      return { label: 'CORE', current: cyber.sliced, total: cyber.required };
+    }
     default:
       return null;
   }

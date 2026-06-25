@@ -18,6 +18,7 @@ import {
   type InteractResult,
 } from '../entities/Interactable.js';
 import { AP_COST, DATA_NODE_GLYPH, type ContractDifficulty } from '../constants.js';
+import { EVENT } from '../events.js';
 import type { Entity } from '../Entity.js';
 import type { World } from '../World.js';
 
@@ -81,7 +82,7 @@ export class DataNode extends Interactable {
     return this.sliceProgress >= this.sliceDifficulty;
   }
 
-  override interact(_world: World, actor: Entity): InteractResult {
+  override interact(world: World, actor: Entity): InteractResult {
     if (this.sliced) {
       return { ok: false, reason: 'already-sliced', message: `${this.label}: already sliced.` };
     }
@@ -102,6 +103,7 @@ export class DataNode extends Interactable {
     if (this.sliced) {
       this.secured = true;
       this.armed = false;
+      world.events?.emit(EVENT.DATA_NODE_SLICED, { node: this, actor });
       return { ok: true, message: `${this.label} sliced.` };
     }
     return {

@@ -21,6 +21,7 @@ export type CampaignEndReason =
   | 'crew-wipe'
   | 'clock-expired'
   | 'decker-flatlined-score'
+  | 'score-partial'
   | 'score-complete';
 
 /**

@@ -45,7 +45,7 @@ A new **player archetype** recruited mid-campaign (late Act 1 / start of Act 2),
 | P3.M2 — The Decker archetype | ✅ Done |
 | P3.M3 — Cyberspace grid + ICE | ✅ Done (full ICE roster: Probe, Spark, Guardian) |
 | P3.M4 — Simstim flip (dual-deploy) | ✅ Done |
-| P3.M5 — The Score (climactic mission) | 🔲 Planned |
+| P3.M5 — The Score (climactic mission) | ✅ Done |
 | P3.M6 — Chronicle (campaign narrative memory) | 🟡 End-summary foundation shipped |
 
 **Phase 3** is complete when:
@@ -214,7 +214,7 @@ Neural degradation is deferred until Cyberspace is fun enough to deserve a jack-
 2. **Minimal voluntary jack-out pulled forward** from P3.M4.6 so the layer is playable end-to-end solo before the simstim flip exists. M4.6 then only adds forced jack-out + dual-deploy cleanup.
 3. **Avatar death = flatline** — ICE destroying the avatar kills the Decker through the existing DEATH/flatline paths. Genre-honest (black ICE kills), zero new death machinery.
 4. **Named cyber stats ship now with real effects:** RAM = avatar HP pool, intrusion strength = slice progress per interact, ICE resistance = `damageReduction` (existing min-1 mitigation in `Combat.ts`). Persisted and validated in both crew persistence paths.
-5. **The Score is always a cyber run** (2026-06-11): `buildScoreContract` emits `DATA_NODE_SLICE` with `{requiresCyberspace: true, count: 1}` — for now; revisit if a meat-only Score variant is ever wanted. Deploy goes through the living-Decker gate; objective shape locked in the P3.M1.7 tests.
+5. **The Score is always a cyber run** (2026-06-11, superseded by P3.M5): `buildScoreContract` now emits `SCORE_FINAL` with `{requiresCyberspace: true, count: 1, doorId: 'score-door-0'}`. Deploy goes through the living-Decker gate and, for the finale only, requires a living non-Decker meat partner at the model layer.
 
 TDD throughout; malformed persisted state throws (no silent fallbacks).
 
@@ -309,7 +309,7 @@ Placement is collision-safe (`pickFreeRingTile` consumes one rng draw then scans
 
 ---
 
-### P3.M4 — Simstim flip (dual-deploy) 🟡
+### P3.M4 — Simstim flip (dual-deploy) ✅
 
 **Depends on:** P3.M2 (Decker), P3.M3 (Cyberspace grid). This is the integration milestone.
 
@@ -384,30 +384,36 @@ Placement is collision-safe (`pickFreeRingTile` consumes one rng draw then scans
 
 ---
 
-### P3.M5 — The Score (climactic mission) 🔲
+### P3.M5 — The Score (climactic mission) ✅
 
 **Depends on:** P3.M1 (arc structure), P3.M4 (simstim flip), P2.5.M7 (location persistence for the target site).
 
 **Goal:** The **climactic dual-layer mission** that the entire campaign builds toward. The Score is a contract at the designated target site, requiring both Meatspace breach and Cyberspace penetration to complete.
 
+**Status (2026-06-20):** Complete for the M5 scope. The finale ships as one linked Cyberspace core node and one locked Meatspace route/payload pair, with independent operative extraction and terminal win/partial/loss campaign outcomes. The schema remains open for future multiple node/lock pairs, but M5 deliberately ships exactly one pair.
+
 **Scope:**
 
-- **Score contract:** A special contract type (or recipe) that is only available in Act 3 when the player chooses to attempt it. Not randomly rolled — player-initiated from the Hub.
+- **Score contract:** A special `score-final` objective emitted by `Campaign.buildScoreContract()` only when Act 3 Score gates pass. It is not randomly rolled — player-initiated from the Hub — and it uses the persisted Score target site's dimensions, breach deltas, seen tiles, and site memory.
 - **Dual objectives:** The Score has objectives in **both** layers:
-  - **Meatspace:** Breach the target site (using P2.5.M7 pre-made breaches + new ones), reach the objective room, protect the Decker's body, extract.
-  - **Cyberspace:** Penetrate the target's digital defenses (ICE gauntlet), disable core security (opens physical locks/routes for the Meatspace operator), extract the target data/asset.
-  - Both must be satisfied for a clean completion. Partial completion (one layer only) = partial payout or narrative consequence (TBD).
+  - **Meatspace:** Reach the locked Score route, enter the objective room after the core unlock, secure the Score payload, protect the Decker's body, and extract both deployed operatives.
+  - **Cyberspace:** Jack in, slice the single Score core data node, and jack out or continue coordinating the Meatspace finish.
+  - Both layer objectives plus both deployed operatives extracting alive are required for clean completion. Confirmed early/one-layer extraction is terminal partial completion, not a retry path.
 - **Site knowledge payoff:** The target site uses P2.5.M7's persistent geometry. Every prior visit's breaches, mapped rooms, and learned patrol routes carry over. The player who cased the site thoroughly has a significant advantage.
 - **Escalated difficulty:** The Score is harder than any normal contract — more hostiles, tighter turn budget, more ICE, higher stakes. Failure = campaign loss (crew wipe or objective irrecoverably failed).
-- **Narrative climax:** The Score's briefing, objective copy, and completion text reflect the campaign's arc. The chronicle (P3.M6) records the outcome as the campaign's defining moment.
+- **Independent extraction:** Score runs persist `extractedOperativeIds`. A deployed Meatspace operative who reaches the exit after objectives are complete is marked extracted and removed from active control/targeting; the run continues until the remaining required operative also extracts. Either the meat partner or the Decker body can leave first. Early exit before full objectives uses the existing confirmation path; confirmed extraction ends the campaign as partial.
+- **Terminal outcomes:** Full Score extraction sets `score-complete`, marks the campaign as a win, and awards the full `1,000 Cr` Score payoff. Confirmed partial extraction sets `score-partial`, marks the campaign result as `partial`, and awards no full Score payoff. Decker flatline during the Score remains `decker-flatlined-score`; crew wipe remains terminal loss.
+- **Narrative climax:** The Score's briefing, objective copy, and completion/partial/failure text reflect the campaign's arc. The chronicle (P3.M6) records the outcome as the campaign's defining moment.
+
+**P3.M5 implementation note (2026-06-20):** `OBJECTIVES.SCORE_FINAL` is validated separately from normal `data-node-slice` contracts and requires `requiresCyberspace: true`, a positive `count`, and a stable linked `doorId`. `DataNode` emits `EVENT.DATA_NODE_SLICED`; Score runs listen for that event and unlock the linked Meatspace door once the core node is sliced. Score objective satisfaction is a conjunction of cyber core progress and secured payload state; extraction is a separate requirement handled by `Run.#extractScoreOperative`. Snapshot/restore persists the extracted operative ids plus off-grid extracted operative records so mid-finale saves can restore a partner-first or body-first extraction state without resurrecting the extracted crew onto the grid. `Campaign.onJobEnd` maps incomplete Score exits to `score-partial`, skips the normal abort Rep penalty, and ends the campaign without the Score reward; `buildCampaignSummary` now reports `win | partial | loss`, and `<game-over>` renders distinct compromised-Score copy.
 
 **Acceptance:**
 
-- Score contract available only in Act 3, player-initiated.
-- Dual-layer objectives: Meatspace + Cyberspace both required.
-- Target site uses persistent geometry from prior visits (P2.5.M7 mutations present).
-- Completion = campaign win; failure = campaign loss.
-- Golden-path test: full Score run from deployment through dual-layer completion to extraction.
+- ✅ Score contract available only in Act 3, player-initiated, and gated by living Decker + living non-Decker partner.
+- ✅ Dual-layer objectives: Meatspace payload + Cyberspace core both required for clean completion.
+- ✅ Target site uses persistent geometry from prior visits (P2.5.M7 dimensions, breach deltas, and seen tiles present).
+- ✅ Completion = campaign win with Score reward; confirmed partial = terminal partial result with no full reward; Decker flatline / crew wipe remain campaign loss.
+- ✅ Golden-path and persistence tests cover full Score deployment, linked door unlock, partner-first extraction, mid-Score restore, early partial extraction, campaign partial settlement, and summary/game-over validation.
 
 ---
 

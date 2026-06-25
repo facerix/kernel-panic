@@ -1126,10 +1126,12 @@ test('terminal result detection bypasses debrief for Score, terminal death, and 
   });
   scoreCampaign.arc.arcStage = 'act-3';
   const decker = scoreCampaign.crew.find(member => member.archetype === 'Decker');
+  const partner = scoreCampaign.crew.find(member => member.archetype !== 'Decker');
   assert.ok(decker);
-  scoreCampaign.deployCrewMember(decker.id, scoreCampaign.buildScoreContract());
+  assert.ok(partner);
+  scoreCampaign.deployCrewMember(decker.id, scoreCampaign.buildScoreContract(), partner.id);
   assert.equal(willEndCampaignAfterResult(scoreCampaign, OUTCOME.EXIT, true), true);
-  assert.equal(willEndCampaignAfterResult(scoreCampaign, OUTCOME.EXIT, false), false);
+  assert.equal(willEndCampaignAfterResult(scoreCampaign, OUTCOME.EXIT, false), true);
   assert.equal(willEndCampaignAfterResult(scoreCampaign, OUTCOME.DEATH, false), true);
 
   const finalOperator = new Campaign({ seed: 45 });
@@ -1197,15 +1199,13 @@ test('completed Score extraction settles synchronously before the exit move call
   });
   campaign.arc.arcStage = 'act-3';
   const decker = campaign.crew.find(member => member.archetype === 'Decker');
+  const partner = campaign.crew.find(member => member.archetype !== 'Decker');
   assert.ok(decker);
-  const run = campaign.deployCrewMember(decker.id, campaign.buildScoreContract());
+  assert.ok(partner);
+  const run = campaign.deployCrewMember(decker.id, campaign.buildScoreContract(), partner.id);
   run.enterCombat();
-  run.cyberspace = { phase: 'resolved', objectiveComplete: true };
-  assert.ok(run.world && run.player && run.exitTile);
+  campaign.onJobEnd({ outcome: OUTCOME.EXIT, completed: true });
 
-  run.world.relocateEntity(run.player, run.exitTile.x, run.exitTile.y);
-
-  assert.equal(run.state, RUN_STATE.RESULT, 'the captured Run is no longer turn-playable');
   assert.equal(campaign.state, CAMPAIGN_STATE.ENDED);
   assert.equal(campaign.endReason, 'score-complete');
   assert.equal(
@@ -1266,16 +1266,19 @@ test('P3.M1.7: Score contract is gated to Act 3 and marks attempted on deploymen
   assert.equal(score.context.locationSiteId, 'score');
   assert.ok(score.context.tags.includes('score'));
   assert.match(score.label, /THE SCORE/);
-  // The Score is (for now) always a cyber run: DATA_NODE_SLICE end to end.
-  assert.equal(score.objective.kind, OBJECTIVES.DATA_NODE_SLICE);
+  assert.equal(score.objective.kind, OBJECTIVES.SCORE_FINAL);
   assert.equal(score.objective.params?.requiresCyberspace, true);
   assert.equal(score.objective.params?.count, 1);
+  assert.equal(score.objective.params?.doorId, 'score-door-0');
   assert.equal(score.reward.credits, SCORE_CREDITS_REWARD);
   assert.equal(score.reward.repDelta, 0);
 
   const decker = campaign.crew.find(m => m.archetype === 'Decker');
+  const partner = campaign.crew.find(m => m.archetype !== 'Decker');
   assert.ok(decker, 'Act 3 campaign should include auto-assigned Decker');
-  const run = campaign.deployCrewMember(decker!.id, score);
+  assert.ok(partner, 'Act 3 campaign should include a living meat partner');
+  assert.throws(() => campaign.deployCrewMember(decker!.id, score), /meat partner/);
+  const run = campaign.deployCrewMember(decker!.id, score, partner!.id);
   assert.equal(campaign.arc.scoreAttempted, true);
   assert.equal(campaign.arcStage, 'score');
   assert.equal(run.contract?.context.locationSiteId, 'score');
@@ -1350,8 +1353,10 @@ test('P3.M1.7: completed Score contract records campaign win state', () => {
     ],
   });
   const decker = campaign.crew.find(m => m.archetype === 'Decker');
+  const partner = campaign.crew.find(m => m.archetype !== 'Decker');
   assert.ok(decker, 'Act 3 campaign should include auto-assigned Decker');
-  const run = campaign.deployCrewMember(decker!.id, campaign.buildScoreContract());
+  assert.ok(partner);
+  const run = campaign.deployCrewMember(decker!.id, campaign.buildScoreContract(), partner.id);
   run.enterCombat();
 
   campaign.onJobEnd({ outcome: OUTCOME.EXIT, completed: true });
@@ -1381,8 +1386,10 @@ test('a Decker flatline during the Score ends the campaign explicitly', () => {
     ],
   });
   const decker = campaign.crew.find(member => member.archetype === 'Decker');
+  const partner = campaign.crew.find(member => member.archetype !== 'Decker');
   assert.ok(decker);
-  const run = campaign.deployCrewMember(decker.id, campaign.buildScoreContract());
+  assert.ok(partner);
+  const run = campaign.deployCrewMember(decker.id, campaign.buildScoreContract(), partner.id);
   run.enterCombat();
   assert.equal(
     willEndCampaignOnThisDeath(campaign),

@@ -5,6 +5,7 @@ import { CONTRACT_DIFFICULTY } from '../../../../src/game/constants.js';
 import { buildContractRecipeFixture } from '../../../../src/game/hub/Curator.js';
 import {
   act3RevealLines,
+  contractLocationBadges,
   findDecker,
   findScoreTargetSite,
   formatArcStageLabel,
@@ -242,6 +243,54 @@ test('isScorePrincipalContract matches same-principal jobs but not the Score sit
   assert.equal(isScorePrincipalContract(contract, 'matsuda', 'score-site'), true);
   contract.context.locationSiteId = 'score-site';
   assert.equal(isScorePrincipalContract(contract, 'matsuda', 'score-site'), false);
+});
+
+function badgeFixture(locationSiteId?: string) {
+  const contract = buildContractRecipeFixture({
+    recipeId: 'terminal-slice',
+    principalId: 'matsuda',
+    siteId: 'server-farm',
+    assetId: 'identity-spool',
+    actionId: 'slice',
+    difficulty: CONTRACT_DIFFICULTY.STANDARD,
+    seed: 11,
+  });
+  if (locationSiteId !== undefined) contract.context.locationSiteId = locationSiteId;
+  return contract;
+}
+
+test('contractLocationBadges returns only SCORE SITE for the Score target', () => {
+  const contract = badgeFixture('score-site');
+  assert.deepEqual(contractLocationBadges(contract, 'score-site', 'matsuda'), [
+    { variant: 'score-site', text: 'SCORE SITE' },
+  ]);
+});
+
+test('contractLocationBadges returns only CASING for a fresh score-principal job', () => {
+  const contract = badgeFixture(); // no locationSiteId → not a revisit
+  assert.deepEqual(contractLocationBadges(contract, 'score-site', 'matsuda'), [
+    { variant: 'casing', text: 'CASING' },
+  ]);
+});
+
+test('contractLocationBadges returns only known-site for a non-principal revisit', () => {
+  const contract = badgeFixture('case-site');
+  assert.deepEqual(contractLocationBadges(contract, 'score-site', 'other-principal'), [
+    { variant: 'revisit', text: '// known site' },
+  ]);
+});
+
+test('contractLocationBadges surfaces both CASING and known-site when both are true', () => {
+  const contract = badgeFixture('case-site'); // score principal AND a remembered site
+  assert.deepEqual(contractLocationBadges(contract, 'score-site', 'matsuda'), [
+    { variant: 'casing', text: 'CASING' },
+    { variant: 'revisit', text: '// known site' },
+  ]);
+});
+
+test('contractLocationBadges returns no badges for a fresh non-principal job', () => {
+  const contract = badgeFixture(); // no locationSiteId, principal not the Score org
+  assert.deepEqual(contractLocationBadges(contract, 'score-site', 'other-principal'), []);
 });
 
 test('findDecker throws when crew has no Decker', () => {

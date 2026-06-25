@@ -207,6 +207,7 @@ function hexSeed(seed: number): string {
 
 function reasonCopy(summary: CampaignSummary): string {
   if (summary.result === 'win') return 'The Score is complete.';
+  if (summary.result === 'partial') return 'The Score is compromised.';
   if (summary.endReason === 'clock-expired') return 'The Score window closed.';
   if (summary.endReason === 'decker-flatlined-score') {
     return 'The Decker flatlined during the Score.';
@@ -218,11 +219,14 @@ function detailCopy(summary: CampaignSummary): string {
   if (summary.result === 'win') {
     return 'Target data secured. The crew beat the window and closed the campaign on their terms.';
   }
+  if (summary.result === 'partial') {
+    return 'Someone made it out, but the finale broke before the crew could clear the target cleanly.';
+  }
   if (summary.endReason === 'clock-expired') {
     return 'Corp security caught up. The contract is cold and this campaign is over.';
   }
   if (summary.endReason === 'decker-flatlined-score') {
-    return 'The intrusion channel is gone. Until dual-deploy exists, nobody can finish the Score.';
+    return 'The intrusion channel is gone. Nobody can finish the Score.';
   }
   return 'Every crew slot on the roster is flatlined. Their campaign ends here.';
 }
