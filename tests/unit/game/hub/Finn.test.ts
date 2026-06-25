@@ -3,7 +3,14 @@ import assert from 'node:assert/strict';
 
 import { FACTION, SHOP_COST } from '../../../../src/game/constants.js';
 import { Finn } from '../../../../src/game/hub/Finn.js';
-import { ITEM_ID, ITEM_SCOPE, getShopCatalog, getItemById } from '../../../../src/game/items.js';
+import {
+  ITEM_ID,
+  ITEM_SCOPE,
+  getShopCatalog,
+  getItemById,
+  SCOREABLE_ITEMS,
+  SCOREABLE_ITEM_IDS,
+} from '../../../../src/game/items.js';
 import { buildHub } from '../../../../src/game/hub/SafeSpace.js';
 
 // ---------------------------------------------------------------------------
@@ -59,6 +66,57 @@ test('Finn.catalog folds in unlocked scoreable blueprints from the meta-store', 
   assert.ok(ids.includes(ITEM_ID.MONOBLADE));
   // Still-locked scoreable stays hidden.
   assert.ok(!ids.includes(ITEM_ID.TARGETING_CHIP));
+});
+
+// ---------------------------------------------------------------------------
+// P3.M6.6 — Hub surface: the shop renders only purchasable items, no locked
+// placeholders. The render component (`<finn-shop>`) draws strictly from the
+// catalog it is handed, so the invariant lives at the `Finn.catalog` boundary:
+// no locked scoreable may ever appear there, whatever the meta-store holds.
+// ---------------------------------------------------------------------------
+
+test('Finn.catalog surfaces no locked scoreable across any meta-store state', () => {
+  const f = new Finn();
+  const allIds = SCOREABLE_ITEMS.map(i => i.id);
+  // A representative sweep: empty, one unlock, all unlocked, ghost ids, and
+  // duplicates — the shop must never carry a *locked* scoreable in any of them.
+  const metaStates: string[][] = [
+    [],
+    [ITEM_ID.MONOBLADE],
+    allIds,
+    ['ghost-blueprint', 'retired-mk1'],
+    [ITEM_ID.MONOBLADE, ITEM_ID.MONOBLADE, ITEM_ID.ARMOUR_PLATING],
+  ];
+  for (const unlocked of metaStates) {
+    const unlockedSet = new Set(unlocked);
+    const stockedIds = new Set(f.catalog(unlocked).map(i => i.id));
+    for (const item of SCOREABLE_ITEMS) {
+      const isUnlocked = unlockedSet.has(item.id);
+      assert.equal(
+        stockedIds.has(item.id),
+        isUnlocked,
+        `scoreable "${item.id}" stocked=${stockedIds.has(item.id)} but unlocked=${isUnlocked} ` +
+          `for meta-store [${unlocked.join(', ')}]`
+      );
+    }
+  }
+});
+
+test('Finn.catalog always carries the full default stock, no placeholder rows', () => {
+  const f = new Finn();
+  // Whatever the meta-store, every row Finn surfaces is a real, purchasable item
+  // (a default item or an unlocked scoreable) — never a locked stand-in.
+  for (const unlocked of [[], [ITEM_ID.MONOBLADE], SCOREABLE_ITEMS.map(i => i.id)]) {
+    const unlockedSet = new Set(unlocked);
+    const rows = f.catalog(unlocked);
+    for (const row of rows) {
+      const isDefault = !SCOREABLE_ITEM_IDS.has(row.id);
+      assert.ok(
+        isDefault || unlockedSet.has(row.id),
+        `row "${row.id}" is neither a default item nor an unlocked scoreable`
+      );
+    }
+  }
 });
 
 // ---------------------------------------------------------------------------

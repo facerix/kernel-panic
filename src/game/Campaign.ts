@@ -102,7 +102,8 @@ const SCORE_PAYLOAD_SALT = 0x5c07e;
  * Draws from {@link SCOREABLE_ITEMS} minus the meta-crew's already-stolen ids;
  * a retired/forward-version id in `acquiredIds` simply isn't in the pool, so it
  * is never rolled. Returns `null` when the pool is exhausted (every blueprint
- * stolen) — the abstract-payload Score is M6.5's job.
+ * stolen) — at which point the Score falls back to an abstract credit payload
+ * via {@link pickAbstractScorePayload} (P3.M6.5).
  */
 function pickScorePayload(seed: number, acquiredIds: readonly string[]): Item | null {
   const acquired = new Set(acquiredIds);
@@ -110,6 +111,65 @@ function pickScorePayload(seed: number, acquiredIds: readonly string[]): Item | 
   if (pool.length === 0) return null;
   const rng = new Rng(((seed >>> 0) ^ SCORE_PAYLOAD_SALT) >>> 0);
   return pool[Math.floor(rng.next() * pool.length)] ?? null;
+}
+
+/**
+ * An abstract Score target (P3.M6.5). When every scoreable blueprint has been
+ * stolen, the heist has nothing new to reverse-engineer — so the crew goes for
+ * the principal's liquid assets instead. Each category frames the same
+ * campaign-ending credit payday with a distinct fiction; it carries no item id,
+ * so a completed abstract Score writes nothing to the meta-store.
+ */
+export type AbstractScoreTarget = { id: string; label: string; flavor: string };
+
+export const ABSTRACT_SCORE_TARGETS: readonly AbstractScoreTarget[] = Object.freeze([
+  {
+    id: 'liquid-reserves',
+    label: 'liquid reserves',
+    flavor:
+      "Their R&D vaults are picked clean — nothing left worth reverse-engineering. So this run, you go for the money.",
+  },
+  {
+    id: 'bearer-bonds',
+    label: 'bearer-bond cache',
+    flavor:
+      "No prototypes left to lift; this time it's a strongbox of untraceable bearer bonds.",
+  },
+  {
+    id: 'slush-fund',
+    label: 'off-books slush fund',
+    flavor: "You've stolen every blueprint they had. Now you're draining the off-books slush fund.",
+  },
+  {
+    id: 'cold-wallet',
+    label: 'crypto cold-wallet keys',
+    flavor:
+      'The labs hold nothing new — so the take is the cold-wallet keys to their crypto reserves.',
+  },
+  {
+    id: 'payroll-skim',
+    label: 'payroll clearing account',
+    flavor:
+      'Nothing left to reverse-engineer. You settle for siphoning the payroll clearing account dry.',
+  },
+]);
+
+/** Salt mixed into the Score seed for the abstract draw, independent of the blueprint roll. */
+const ABSTRACT_SCORE_PAYLOAD_SALT = 0xab57a;
+
+/**
+ * Deterministically pick the abstract credit payload for an exhausted-pool
+ * Score. Seeded from the target seed (XORed with its own salt) so the category
+ * is stable per campaign yet independent of both the map roll and the blueprint
+ * draw. Always returns a target — the set is non-empty by construction.
+ */
+function pickAbstractScorePayload(seed: number): AbstractScoreTarget {
+  const rng = new Rng(((seed >>> 0) ^ ABSTRACT_SCORE_PAYLOAD_SALT) >>> 0);
+  const target = ABSTRACT_SCORE_TARGETS[Math.floor(rng.next() * ABSTRACT_SCORE_TARGETS.length)];
+  if (!target) {
+    throw new Error('pickAbstractScorePayload: abstract target set is empty');
+  }
+  return target;
 }
 
 /** Read the embedded heist payload id from a completed Score contract (or `null`). */
@@ -761,8 +821,10 @@ export class Campaign {
    * unacquired scoreable blueprint (drawn deterministically from the seed minus
    * the meta-crew's already-stolen ids), and the briefing frames the site around
    * that prototype. The chosen id rides along in `objective.params.scoreItemId`
-   * so the completion path can unlock it. An exhausted pool yields the generic
-   * framing with no payload id (abstract credit payloads are M6.5).
+   * so the completion path can unlock it. An exhausted pool (every blueprint
+   * stolen) draws an abstract credit payload instead (P3.M6.5): the briefing is
+   * framed from {@link ABSTRACT_SCORE_TARGETS} but carries no `scoreItemId`, so a
+   * clean completion writes nothing to the meta-store.
    *
    * @param unlockedScoreableIds — acquired blueprint ids from the meta-store
    *   (`DataStore.unlockedScoreableItems`); these are excluded from the draw.
@@ -792,10 +854,12 @@ export class Campaign {
       .replace(/\s+-\s+Score target$/i, '')
       .trim();
     const payload = pickScorePayload(seed, unlockedScoreableIds);
+    const abstract = payload ? null : pickAbstractScorePayload(seed);
     const briefing = payload
       ? `${payload.flavor} Their prototype is held at ${siteLabel}. Breach the facility, ` +
         `secure the ${payload.label}, and extract with the crew alive.`
-      : `Hit ${siteLabel} and extract with the crew alive.`;
+      : `${abstract!.flavor} The ${abstract!.label} sits in ${siteLabel}. Breach the facility, ` +
+        `clean it out, and extract with the crew alive.`;
     return {
       seed,
       mapWidth: target.mapWidth,

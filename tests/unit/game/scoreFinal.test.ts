@@ -1,7 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { Campaign, CAMPAIGN_STATE, SCORE_CREDITS_REWARD } from '../../../src/game/Campaign.js';
+import {
+  Campaign,
+  CAMPAIGN_STATE,
+  SCORE_CREDITS_REWARD,
+  ABSTRACT_SCORE_TARGETS,
+} from '../../../src/game/Campaign.js';
 import { OUTCOME, RUN_STATE, Run } from '../../../src/game/Run.js';
 import { DataNode } from '../../../src/game/cyber/DataNode.js';
 import { CyberspaceLayer } from '../../../src/game/cyber/CyberspaceLayer.js';
@@ -304,13 +309,66 @@ test('buildScoreContract never rolls a retired/foreign id passed as acquired', (
   assert.ok(SCOREABLE_ITEM_IDS.has(withGhost as string));
 });
 
-test('buildScoreContract on an exhausted pool drops the payload id (abstract target is M6.5)', () => {
+// ---------------------------------------------------------------------------
+// P3.M6.5 — Exhausted pool draws an abstract credit payload
+// ---------------------------------------------------------------------------
+
+test('buildScoreContract on an exhausted pool drops the blueprint id and frames an abstract target', () => {
   const campaign = scoreReadyCampaign();
   const allAcquired = SCOREABLE_ITEMS.map(i => i.id);
   const contract = campaign.buildScoreContract(allAcquired);
+  // No blueprint id — a clean completion must not write the meta-store.
   assert.equal(contract.objective.params!.scoreItemId, undefined);
-  // Generic framing, no specific prototype named.
-  assert.ok(contract.objective.briefing.length > 0);
+  // Briefing is framed from exactly one abstract category.
+  const named = ABSTRACT_SCORE_TARGETS.filter(t => contract.objective.briefing.includes(t.label));
+  assert.equal(named.length, 1, 'briefing names exactly one abstract target');
+});
+
+test('abstract Score category selection is deterministic for a campaign', () => {
+  const campaign = scoreReadyCampaign();
+  const allAcquired = SCOREABLE_ITEMS.map(i => i.id);
+  const a = campaign.buildScoreContract(allAcquired).objective.briefing;
+  const b = campaign.buildScoreContract(allAcquired).objective.briefing;
+  assert.equal(a, b, 'same seed + exhausted pool → same abstract briefing');
+});
+
+test('different Score seeds can draw different abstract categories', () => {
+  // Sweep seeds; the picker must reach more than one category across the set.
+  const labels = new Set<string>();
+  for (let seed = 1; seed <= 40; seed++) {
+    const campaign = new Campaign({
+      seed,
+      rep: 65,
+      completedJobs: 9,
+      siteRoster: [
+        scoreSite({ seed: String(seed) }),
+        scoreSite({ id: 'case-1', tier: 'roster', scoreTarget: false, seed: `${seed}01` }),
+        scoreSite({ id: 'case-2', tier: 'roster', scoreTarget: false, seed: `${seed}02` }),
+      ],
+    });
+    const briefing = campaign.buildScoreContract(SCOREABLE_ITEMS.map(i => i.id)).objective.briefing;
+    for (const t of ABSTRACT_SCORE_TARGETS) {
+      if (briefing.includes(t.label)) labels.add(t.id);
+    }
+  }
+  assert.ok(labels.size > 1, 'abstract draw is not pinned to a single category');
+});
+
+test('a clean abstract Score settles the arc but writes no meta-store unlock', () => {
+  const campaign = scoreReadyCampaign();
+  const allAcquired = SCOREABLE_ITEMS.map(i => i.id);
+  const decker = campaign.crew.find(member => member.archetype === 'Decker')!;
+  const partner = campaign.crew.find(member => member.archetype !== 'Decker')!;
+  const beforeCredits = campaign.credits;
+  campaign.deployCrewMember(decker.id, campaign.buildScoreContract(allAcquired), partner.id).enterCombat();
+
+  campaign.onJobEnd({ outcome: OUTCOME.EXIT, completed: true });
+  // Arc reaches its climax exactly as a blueprint Score would.
+  assert.equal(campaign.endReason, 'score-complete');
+  assert.equal(campaign.state, CAMPAIGN_STATE.ENDED);
+  assert.equal(campaign.credits, beforeCredits + SCORE_CREDITS_REWARD);
+  // …but there is no blueprint to unlock.
+  assert.equal(campaign.scoreUnlockedItemId, null);
 });
 
 test('clean Score completion records the stolen blueprint for the meta-store', () => {

@@ -46,7 +46,7 @@ A new **player archetype** recruited mid-campaign (late Act 1 / start of Act 2),
 | P3.M3 — Cyberspace grid + ICE | ✅ Done (full ICE roster: Probe, Spark, Guardian) |
 | P3.M4 — Simstim flip (dual-deploy) | ✅ Done |
 | P3.M5 — The Score (climactic mission) | ✅ Done |
-| P3.M6 — Stolen Blueprints (shop rework + meta-progression) | 🟡 Meta-store + catalog split + shop rework + Score target rework shipped (M6.1–M6.4) |
+| P3.M6 — Stolen Blueprints (shop rework + meta-progression) | ✅ Meta-store, catalog split, shop rework, Score target rework, abstract targets, and hub surface shipped (M6.1–M6.6) |
 | P3.M7 — Chronicle (campaign narrative memory) | 🟡 End-summary foundation shipped |
 
 **Phase 3** is complete when:
@@ -452,8 +452,8 @@ Placement is collision-safe (`pickFreeRingTile` consumes one rng draw then scans
 | **P3.M6.2 Item catalog split** | ✅ | Define `DEFAULT_ITEMS` and `SCOREABLE_ITEMS` catalogs; retire `minRepTier` as shop gate; add at least 5 net-new scoreable items (fully wired gear) | catalog validation, no duplicate IDs, all items have required fields, `minRepTier` not read by shop |
 | **P3.M6.3 Shop rework** | ✅ | Shop stocks `DEFAULT_ITEMS + unlockedScoreableItems`; no rep gate; locked scoreable items not rendered | shop shows only default items when meta-store is empty; adds unlocked scoreable items as they accrue; rep change has no effect on stock |
 | **P3.M6.4 Score target rework** | ✅ | `buildScoreContract()` draws from unacquired `SCOREABLE_ITEMS`; briefing copy reflects item; completion writes meta-store | available targets exclude acquired; retired items not rolled; store updated on complete |
-| **P3.M6.5 Abstract targets** | 🔲 | Exhausted-pool Score draws RNG credit payload from category set; seeded flavor; arc gates pass with empty scoreable pool | category selection determinism, arc unaffected, no meta-store write |
-| **P3.M6.6 Hub surface** | 🔲 | Shop renders only purchasable items; no locked placeholders | shop never renders a locked scoreable item regardless of meta-store state |
+| **P3.M6.5 Abstract targets** | ✅ | Exhausted-pool Score draws RNG credit payload from category set; seeded flavor; arc gates pass with empty scoreable pool | category selection determinism, arc unaffected, no meta-store write |
+| **P3.M6.6 Hub surface** | ✅ | Shop renders only purchasable items; no locked placeholders | shop never renders a locked scoreable item regardless of meta-store state |
 
 **P3.M6.1 implementation note:** The meta-progression store lands as a new
 `DataStore` key, `unlockedScoreableItems: string[]` (item IDs, acquisition order,
@@ -568,6 +568,41 @@ schema tolerates the new optional field (and future ones); the reward is validat
 self-contained and round-trips through clone. Abstract / exhausted-pool Scores carry no
 `scoreReward` and keep the generic "Score payload" pickup.
 
+**P3.M6.5 implementation note:** When `pickScorePayload` returns `null` (every
+scoreable blueprint already stolen), `buildScoreContract` now draws an abstract
+credit payload via `pickAbstractScorePayload(seed)` instead of the old flat
+generic line. The pick is seeded from the **Score target site seed** XORed with
+its own salt (`ABSTRACT_SCORE_PAYLOAD_SALT`, distinct from `SCORE_PAYLOAD_SALT`),
+so the category is deterministic per campaign and independent of both the map
+roll and the (empty) blueprint draw. `ABSTRACT_SCORE_TARGETS` is a frozen set of
+`{ id, label, flavor }` categories (liquid reserves, bearer bonds, slush fund,
+cold-wallet keys, payroll skim) — "you've stolen everything worth stealing; now
+you're just taking their money." The abstract briefing is framed from the chosen
+category's `flavor` + `label`. Crucially the contract carries **no
+`scoreItemId`**, so a clean abstract Score settles the arc (`score-complete`,
+`SCORE_CREDITS_REWARD` paid) exactly like a blueprint Score but
+`scoreUnlockedItemId` stays `null` and the terminal-settlement meta-store write
+is a no-op. The Score payload pickup keeps its generic "Score payload" label with
+no flavor (the M6.4 Run-side fallback already handles a missing id). Arc gating
+never read the scoreable pool, so "arc unaffected with an empty pool" is
+structural — the new test exercises it end-to-end (build → deploy → complete)
+for regression cover.
+
+**P3.M6.6 implementation note:** The substantive hub-surface change — stock is
+`DEFAULT_ITEMS + unlocked scoreable` with locked blueprints filtered out — landed
+in M6.3's `getShopCatalog`, the single filtering chokepoint. `<finn-shop>` renders
+strictly the catalog handed to `setCatalog` (grouped by scope; unaffordable rows
+are disabled, never locked), and `presentFinnShop` is the only caller — it always
+feeds `Finn.catalog(dataStore.unlockedScoreableItems)`. So there was **no new
+production code** for M6.6; the milestone is the hub-surface regression cover the
+acceptance names. The guard is a meta-store **state sweep** at the `Finn.catalog`
+boundary (empty / one unlock / all unlocked / ghost ids / duplicates) asserting a
+scoreable is stocked iff unlocked and never as a locked placeholder, plus a
+companion check that every surfaced row is a real purchasable item (default or
+unlocked scoreable). `<finn-shop>` renders only the catalog handed to
+`setCatalog`, so the boundary filter is the invariant's single seam. The deferred
+`ACQUISITIONS: N / M` counter remains an M7 Chronicle concern. **M6 complete.**
+
 **Recorded design decisions:**
 
 - **Why `minRepTier` is retired as a shop gate:** Rep-gated access was mechanical — the best gear was reachable by grinding rep without doing anything interesting. Two explicit catalogs make availability rules legible in the data rather than computed from a tier comparison at runtime.
@@ -593,7 +628,7 @@ self-contained and round-trips through clone. Abstract / exhausted-pool Scores c
 
 **Scope:**
 
-- **Active campaign chronicle:** Entries for each run (jobs taken, outcomes, objectives completed/failed, major Rep deltas, crew changes, Decker recruitment, Score prep milestones) stored **in the campaign save**.
+- **Active campaign chronicle:** Entries for each run (jobs taken, outcomes, objectives completed/failed, major Rep deltas, crew changes, Decker recruitment, Score prep milestones, Score target blueprint / credits stolen when all items are unlocked) stored **in the campaign save**.
 - **Arc-aware entries:** Chronicle entries reflect the campaign's narrative arc — Act 1 entries read as "getting established"; Act 2 entries reference the Score target; Act 3 entries build tension toward the climax.
 - **Presentation:** Surfaced from a new Hub entry point (not the existing crew terminal: it remains focused on crew stats, inventory, and recruiting).
 - **Campaign end summary:** On win (Score completed) or loss (flatline / clock expired), roll up a **summary record** into a **persistent history** list (localStorage / DataStore — same durability pattern as runs/prefs). High-scores-style: scannable list with campaign stats, arc outcome, run count, crew roster at end.
