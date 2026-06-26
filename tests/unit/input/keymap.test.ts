@@ -183,6 +183,12 @@ test('IDLE + i emits inventory intent (M4)', () => {
   assert.equal(r.nextMode, MODE.IDLE);
 });
 
+test('IDLE + j emits explicit jack-out intent', () => {
+  const r = dispatch('j', MODE.IDLE);
+  assert.deepStrictEqual(r.intent, { type: 'jack-out' });
+  assert.equal(r.nextMode, MODE.IDLE);
+});
+
 test('IDLE + l enters LOOK with no intent yet', () => {
   const r = dispatch('l', MODE.IDLE);
   assert.equal(r.intent, null);

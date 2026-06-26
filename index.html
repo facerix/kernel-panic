@@ -46,13 +46,23 @@
     </header>
     <main class="game-shell u-fill-width u-flex u-flex-column">
       <div class="game-stage">
-        <canvas
-          id="game-canvas"
-          width="640"
-          height="400"
-          tabindex="0"
-          aria-label="Kernel Panic game view"
-        ></canvas>
+        <div class="game-canvas-wrap">
+          <canvas
+            id="game-canvas"
+            width="640"
+            height="400"
+            tabindex="0"
+            aria-label="Kernel Panic game view"
+          ></canvas>
+          <canvas
+            id="pip-canvas"
+            width="160"
+            height="100"
+            hidden
+            aria-hidden="true"
+            aria-label="Meatspace CCTV"
+          ></canvas>
+        </div>
         <aside class="game-log collapsed">
           <h3>Log</h3>
           <pre id="log" aria-live="polite"></pre>
@@ -60,6 +70,7 @@
         <contract-select id="contract-select"></contract-select>
         <run-briefing id="briefing"></run-briefing>
         <crash-dump id="crash"></crash-dump>
+        <game-over id="game-over"></game-over>
         <fault-screen id="fault-screen"></fault-screen>
         <system-start id="system-start"></system-start>
         <curator-briefing id="curator-briefing"></curator-briefing>
@@ -75,6 +86,7 @@
     <finn-shop id="finn-shop"></finn-shop>
     <clinic-modal id="clinic-modal"></clinic-modal>
     <item-inventory id="item-inventory"></item-inventory>
+    <chronicle-archive id="chronicle-archive"></chronicle-archive>
     <key-help id="key-help"></key-help>
     <touch-pad id="touch-pad"></touch-pad>
     <update-notification></update-notification>

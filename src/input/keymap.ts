@@ -10,8 +10,9 @@
  * the next directional press resolves into. Thrown consumables enter the same
  * aim mode programmatically (`aimKind: 'use-item'`). Wait / pass turn is `.`
  * in IDLE (`end-turn` intent). Interact (Curator, Terminal, …) is Space in IDLE;
- * `i` opens inventory. `Q` emits `quit-campaign` in IDLE only — the shell
- * confirms, deletes the save, and starts a new campaign (not routed through
+ * `i` opens inventory; `j` requests explicit jack-out while linked to
+ * Cyberspace. `Q` emits `quit-campaign` in IDLE only — the shell confirms,
+ * deletes the save, and starts a new campaign (not routed through
  * `applyIntent`).
  *
  * The archetype-specific perks — Merc's Vault, Razor's Slide, Tech's Deploy
@@ -114,8 +115,18 @@ function dispatchIdle(key: string): DispatchResult {
       // presents `<item-inventory>` and handles `use-item` events. In the Hub
       // this is a no-op (Finn's shop uses Space-interact).
       return { intent: { type: 'inventory' }, nextMode: MODE.IDLE, aimKind: null };
+    case 'j':
+      // Explicit jack-out — shell gates it to active Cyberspace and confirms
+      // neural shock before calling Run.requestJackOut().
+      return { intent: { type: 'jack-out' }, nextMode: MODE.IDLE, aimKind: null };
     case 'l':
       return stayLook();
+    case 'Tab':
+      // P3.M4.3: simstim flip — swap active control between the Meatspace
+      // operator and the Decker's Cyberspace avatar (or, post-jack-out, the
+      // two meat operators). The keymap stays dumb; the shell decides whether
+      // a flip is currently possible and flashes a deny otherwise.
+      return { intent: { type: 'flip' }, nextMode: MODE.IDLE, aimKind: null };
     case 'Escape':
       return { intent: { type: 'cancel' }, nextMode: MODE.IDLE, aimKind: null };
     case 'f':

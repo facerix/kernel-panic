@@ -14,7 +14,8 @@ export const MAP_KEY_UNIVERSAL: readonly MapKeyRow[] = Object.freeze([
 export const MAP_KEY_HUB: readonly MapKeyRow[] = Object.freeze([
   { glyph: 'C', label: 'Curator — contracts & rumors' },
   { glyph: '¥', label: "Finn's shop" },
-  { glyph: '⧰', label: 'Clinic (Patch)' },
+  { glyph: '⧰', label: "Patch's clinic" },
+  { glyph: '£', label: 'ledger - chronicle of all runs' },
   { glyph: '‡', label: 'crew terminal' },
 ]);
 

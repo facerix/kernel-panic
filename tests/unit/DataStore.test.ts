@@ -1,0 +1,122 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+
+import { CAMPAIGN_HISTORY_CAP, type CampaignSummary } from '../../src/game/campaignSummary.js';
+
+const STORAGE_KEY = 'kp:data';
+
+class MemoryStorage {
+  #values = new Map<string, string>();
+
+  getItem(key: string): string | null {
+    return this.#values.get(key) ?? null;
+  }
+
+  setItem(key: string, value: string): void {
+    this.#values.set(key, value);
+  }
+}
+
+function summary(index: number): CampaignSummary {
+  return {
+    campaignId: `campaign-${index}`,
+    completedAt: '2026-06-14T19:30:00.000Z',
+    result: 'win',
+    endReason: 'score-complete',
+    seed: index,
+    completedJobs: index,
+    rep: 50,
+    credits: index * 100,
+    crewRoster: [{ callsign: 'Phreak', archetype: 'Decker', flatlined: false }],
+  };
+}
+
+test('DataStore migrates legacy data and archives idempotent capped campaign history', async () => {
+  const localStorage = new MemoryStorage();
+  (globalThis as unknown as { window: { localStorage: MemoryStorage } }).window = { localStorage };
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ prefs: {}, runs: [], campaign: null }));
+  const { default: dataStore } = await import('../../src/DataStore.js');
+
+  await dataStore.init();
+  assert.deepEqual(dataStore.campaignHistory, []);
+
+  const original = summary(0);
+  const first = dataStore.archiveCampaign(original);
+  const duplicate = dataStore.archiveCampaign({
+    ...original,
+    completedAt: '2026-06-15T19:30:00.000Z',
+    completedJobs: 999,
+  });
+  assert.deepEqual(duplicate, first, 'the first archived record remains canonical');
+
+  for (let index = 1; index <= CAMPAIGN_HISTORY_CAP + 5; index++) {
+    dataStore.archiveCampaign(summary(index));
+  }
+  assert.equal(dataStore.campaignHistory.length, CAMPAIGN_HISTORY_CAP);
+  assert.equal(dataStore.campaignHistory[0].campaignId, `campaign-${CAMPAIGN_HISTORY_CAP + 5}`);
+  assert.equal(
+    dataStore.campaignHistory.some(entry => entry.campaignId === original.campaignId),
+    false
+  );
+
+  const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}') as {
+    campaignHistory?: CampaignSummary[];
+  };
+  assert.equal(stored.campaignHistory?.length, CAMPAIGN_HISTORY_CAP);
+});
+
+function installStorage(seed: object): MemoryStorage {
+  const localStorage = new MemoryStorage();
+  (globalThis as unknown as { window: { localStorage: MemoryStorage } }).window = { localStorage };
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(seed));
+  return localStorage;
+}
+
+test('DataStore normalizes an absent scoreable store to an empty list', async () => {
+  installStorage({ prefs: {}, runs: [], campaign: null });
+  const { default: dataStore } = await import('../../src/DataStore.js');
+  await dataStore.init();
+  assert.deepEqual(dataStore.unlockedScoreableItems, []);
+});
+
+test('DataStore archives scoreable items idempotently and persists them', async () => {
+  const localStorage = installStorage({ prefs: {}, runs: [], campaign: null });
+  const { default: dataStore } = await import('../../src/DataStore.js');
+  await dataStore.init();
+
+  let events = 0;
+  const onChange = (evt: Event) => {
+    if ((evt as CustomEvent).detail.key === 'unlockedScoreableItems') events++;
+  };
+  dataStore.addEventListener('change', onChange);
+
+  const first = dataStore.archiveScoreableItem('proto-exoframe');
+  assert.equal(first.added, true);
+  const second = dataStore.archiveScoreableItem('mil-spec-optics');
+  assert.equal(second.added, true);
+  assert.deepEqual(dataStore.unlockedScoreableItems, ['proto-exoframe', 'mil-spec-optics']);
+  assert.equal(events, 2, 'each new unlock emits one change event');
+
+  // Duplicate archival is a silent no-op: no event, no growth, no save churn.
+  const duplicate = dataStore.archiveScoreableItem('proto-exoframe');
+  assert.equal(duplicate.added, false);
+  assert.deepEqual(dataStore.unlockedScoreableItems, ['proto-exoframe', 'mil-spec-optics']);
+  assert.equal(events, 2, 'a duplicate archival emits no change event');
+  dataStore.removeEventListener('change', onChange);
+
+  const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}') as {
+    unlockedScoreableItems?: string[];
+  };
+  assert.deepEqual(stored.unlockedScoreableItems, ['proto-exoframe', 'mil-spec-optics']);
+
+  // The getter hands back a defensive copy — callers can't mutate the store.
+  const snapshot = dataStore.unlockedScoreableItems;
+  snapshot.push('tampered');
+  assert.deepEqual(dataStore.unlockedScoreableItems, ['proto-exoframe', 'mil-spec-optics']);
+});
+
+test('DataStore throws on a structurally corrupt scoreable store rather than resetting', async () => {
+  installStorage({ prefs: {}, runs: [], campaign: null, unlockedScoreableItems: [1] });
+  const { default: dataStore } = await import('../../src/DataStore.js');
+  await assert.rejects(() => dataStore.init(), TypeError);
+});

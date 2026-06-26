@@ -66,6 +66,14 @@ export type PatrolSnapshot = {
   lastKnownTarget: GridPoint | null;
   patrolWaypoints: GridPoint[];
   patrolIndex: number;
+  /**
+   * Decker drone-override state (P3.M2). Present only while a hostile is
+   * hijacked: `overrideTurnsRemaining > 0` and `factionBeforeOverride` records
+   * the allegiance to restore. Omitted (and defaulted to the not-overridden
+   * state on restore) for the overwhelming majority of hostiles.
+   */
+  overrideTurnsRemaining?: number;
+  factionBeforeOverride?: FactionId | null;
 };
 
 type NoiseEventPayload = {

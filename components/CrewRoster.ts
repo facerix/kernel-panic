@@ -11,6 +11,7 @@
  * Usage:
  *   rosterEl.setCrew(campaign.crew, {
  *     salvage: campaign.salvage,
+ *     campaignStatus: ['ACT 2: CASING | SCORE: Matsuda server farm', 'CLOCK: HEAT 1 / 4 JOBS LEFT'],
  *     availableRecruits: campaign.availableRecruits,
  *     recruitedThisVisit: campaign.recruitedThisVisit,
  *   });
@@ -114,6 +115,23 @@ const CSS = `
   color: var(--roster-dim);
   font-size: 0.9rem;
   letter-spacing: 0.08em;
+}
+
+.campaign-status {
+  margin: -0.35rem 0 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  text-align: center;
+  color: #ffd166;
+  font-size: 0.82rem;
+  letter-spacing: 0.08em;
+}
+
+.campaign-status__line {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .body {
@@ -308,6 +326,7 @@ class CrewRoster extends HTMLElement {
   #detailEl: HTMLElement | null = null;
   #titleEl: HTMLElement | null = null;
   #balanceEl: HTMLElement | null = null;
+  #campaignStatusEl: HTMLElement | null = null;
   #hintEl: HTMLElement | null = null;
   #panelEl: HTMLElement | null = null;
   #recruitSectionEl: HTMLElement | null = null;
@@ -329,6 +348,7 @@ class CrewRoster extends HTMLElement {
 
     this.#titleEl = h('h2', { className: 'title', textContent: '── CREW ROSTER ──' });
     this.#balanceEl = h('p', { className: 'balance' });
+    this.#campaignStatusEl = h('div', { className: 'campaign-status' });
 
     this.#listEl = document.createElement('crew-list') as CrewList;
     this.#listEl.addEventListener('select', evt =>
@@ -359,6 +379,7 @@ class CrewRoster extends HTMLElement {
     this.#panelEl = h('section', { className: 'panel' }, [
       this.#titleEl,
       this.#balanceEl,
+      this.#campaignStatusEl,
       body,
       this.#recruitSectionEl,
       this.#hintEl,
@@ -389,10 +410,12 @@ class CrewRoster extends HTMLElement {
     crew: CrewMember[],
     {
       salvage = emptySalvage(),
+      campaignStatus = '',
       availableRecruits = [] as CrewMember[],
       recruitedThisVisit = false,
     }: {
       salvage?: TypedSalvage;
+      campaignStatus?: string | readonly string[];
       availableRecruits?: CrewMember[];
       recruitedThisVisit?: boolean;
     } = {}
@@ -407,11 +430,23 @@ class CrewRoster extends HTMLElement {
     // Show typed breakdown + total
     const total = totalSalvage(this.#salvage);
     this.#balanceEl!.textContent = `SALVAGE ${total} · ${formatSalvageCompact(this.#salvage)}`;
+    this.#renderCampaignStatus(campaignStatus);
     this.#recruitFocused = false;
     this.#selectedRecruitIndex = -1;
     // Crew list handles its own rendering; selection triggers detail update.
     this.#listEl!.setCrew(crew);
     this.#renderRecruits();
+  }
+
+  #renderCampaignStatus(status: string | readonly string[]) {
+    const lines = typeof status === 'string' ? status.split('\n') : status;
+    const normalized = lines.map(line => line.trim()).filter(Boolean);
+    this.#campaignStatusEl!.replaceChildren(
+      ...normalized.map(line =>
+        h('span', { className: 'campaign-status__line', textContent: line })
+      )
+    );
+    this.#campaignStatusEl!.style.display = normalized.length > 0 ? '' : 'none';
   }
 
   show() {

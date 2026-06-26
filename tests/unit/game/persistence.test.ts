@@ -25,6 +25,9 @@ import {
 } from '../../../src/game/constants.js';
 import { makeSalvage, totalSalvage } from '../../../src/game/salvage.js';
 import { buildCrewMember } from '../../../src/game/archetypes/index.js';
+import { Decker } from '../../../src/game/archetypes/Decker.js';
+import { PatrolHostile } from '../../../src/game/ai/PatrolHostile.js';
+import { applyOverride } from '../../../src/game/droneOverride.js';
 import { Rng } from '../../../src/rng.js';
 import { testContractContext } from './contractTestUtils.js';
 
@@ -102,6 +105,43 @@ test('run snapshot → restore → snapshot is byte-for-byte stable', () => {
   const { run: restoredRun } = restore(recA);
   const recB = snapshot(restoredRun);
   assert.deepEqual(recB, recA, 'round-trip should reproduce the source record');
+});
+
+test('snapshot/restore round-trips a Decker deploy (P3.M2)', () => {
+  const run = freshCombatRun(0xc0ffee, 'decker');
+  assert.ok(run.player instanceof Decker, 'fixture should deploy a Decker');
+  const rec = snapshot(run);
+  const { run: restoredRun } = restore(rec);
+  assert.ok(restoredRun.player instanceof Decker, 'Decker should restore as a Decker');
+  assert.equal(restoredRun.player.callsign, run.player.callsign);
+  // Stable round-trip through a second snapshot.
+  assert.deepEqual(snapshot(restoredRun), rec);
+});
+
+test('snapshot/restore preserves a live drone-override (P3.M2)', () => {
+  const run = freshCombatRun(0xbadbeef, 'decker');
+  const drone = [...run.world.entities.values()].find(e => e instanceof PatrolHostile);
+  assert.ok(drone, 'fixture run should contain at least one patrol hostile');
+  const originalFaction = drone.faction;
+  applyOverride(drone, FACTION.PLAYER);
+
+  const rec = snapshot(run);
+  const { world: restoredWorld } = restore(rec);
+  const restoredDrone = [...restoredWorld.entities.values()].find(e => e.id === drone.id);
+  assert.ok(restoredDrone, 'overridden drone should survive the round-trip');
+  assert.equal(restoredDrone.faction, FACTION.PLAYER, 'flipped faction preserved');
+  assert.equal(restoredDrone.factionBeforeOverride, originalFaction, 'prior faction preserved');
+  assert.equal(restoredDrone.overrideTurnsRemaining, drone.overrideTurnsRemaining);
+  assert.equal(restoredDrone.isOverridden, true);
+});
+
+test('a never-overridden drone snapshot omits override fields (no shape drift)', () => {
+  const run = freshCombatRun(0x1234, 'razor');
+  const rec = snapshot(run);
+  const droneRec = rec.entities.find(e => e.archetype === 'drone' || e.archetype === 'guard');
+  assert.ok(droneRec, 'expected a patrol hostile in the snapshot');
+  assert.equal(droneRec.extra.overrideTurnsRemaining, undefined);
+  assert.equal(droneRec.extra.factionBeforeOverride, undefined);
 });
 
 test('snapshot/restore round-trips a Tech with a placed turret (M1)', () => {
@@ -432,7 +472,7 @@ test('campaign snapshot/restore round-trips campaign scope', () => {
   // shape survives without scrap-only flattening).
   campaign.salvage = makeSalvage({ scrap: 3, chips: 2, bio: 1, data: 1 });
   campaign.credits = 90;
-  campaign.rep = 62;
+  campaign.rep = 49;
   campaign.meta = { someFlag: true };
   campaign.crew[1].flatlined = true;
   campaign.enterHub();
@@ -445,7 +485,7 @@ test('campaign snapshot/restore round-trips campaign scope', () => {
   assert.deepEqual(restored.salvage, makeSalvage({ scrap: 3, chips: 2, bio: 1, data: 1 }));
   assert.equal(totalSalvage(restored.salvage), 7);
   assert.equal(restored.credits, 90);
-  assert.equal(restored.rep, 62);
+  assert.equal(restored.rep, 49);
   assert.deepEqual(restored.meta, { someFlag: true });
   assert.equal(restored.crew[1].flatlined, true);
 });

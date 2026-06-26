@@ -42,6 +42,7 @@ import {
   SALVAGE_DROP_MIN,
   SALVAGE_DROP_MAX,
   ENEMY_ROLE,
+  JACK_OUT_SHOCK_DAMAGE,
   factionForPrincipalGroups,
 } from './constants.js';
 import { coordKey, explorationReachableKeys } from './mapConnectivity.js';
@@ -49,10 +50,12 @@ import { isValidBlockingPlacement, checkPlacementIntegrity } from './placement.j
 import { makeSalvage, type TypedSalvage } from './salvage.js';
 import { Entity, type LootableEntity } from './Entity.js';
 import { Hostile } from './Hostile.js';
+import { hasLineOfSight } from './LineOfSight.js';
 import { Crew } from './Crew.js';
 import { Merc } from './archetypes/Merc.js';
 import { Razor } from './archetypes/Razor.js';
 import { Tech } from './archetypes/Tech.js';
+import { Decker } from './archetypes/Decker.js';
 import { Turret } from './Turret.js';
 import { Skirmisher } from './ai/Skirmisher.js';
 import { Guard } from './ai/Guard.js';
@@ -77,21 +80,32 @@ import { RelayNode } from './entities/RelayNode.js';
 import { ConsumablePickup } from './entities/ConsumablePickup.js';
 import { EscortNpc } from './entities/EscortNpc.js';
 import { KeyCard } from './entities/KeyCard.js';
+import { JackInPoint } from './entities/JackInPoint.js';
+import { CyberspaceLayer } from './cyber/CyberspaceLayer.js';
+import { CyberAvatar } from './cyber/CyberAvatar.js';
+import { EntryPort } from './cyber/EntryPort.js';
+import { DataNode } from './cyber/DataNode.js';
+import { ProbeIce } from './cyber/ProbeIce.js';
+import { SparkIce } from './cyber/SparkIce.js';
+import { GuardianIce } from './cyber/GuardianIce.js';
 import { applyMutationDeltas } from './locations.js';
 import { BreachingCharge } from './entities/BreachingCharge.js';
-import { ITEM_ID, getItemById } from './items.js';
+import { ITEM_ID, getItemById, SCOREABLE_ITEMS } from './items.js';
 import { resetCorpTurnStatusCache } from './corpTurnStatusCopy.js';
 import {
   objectiveProgress as resolveObjectiveProgress,
+  dataNodeProgress,
   reconObjectiveProgress,
   sweepQuotaType,
   SWEEP_QUOTA,
 } from './objectiveProgress.js';
+import type { CyberNodeProgress } from './objectiveProgress.js';
 import { NeutralCivilian } from './entities/NeutralCivilian.js';
 import { VisionField } from './Vision.js';
 import {
   OBJECTIVES,
   cloneObjective,
+  contractRequiresCyberspace,
   isContractDifficulty,
   normalizeContractContext,
   normalizeObjective,
@@ -118,7 +132,12 @@ import type { SyncPadSnapshot } from './entities/SyncPad.js';
 import type { RelayNodeSnapshot } from './entities/RelayNode.js';
 import type { ConsumablePickupSnapshot } from './entities/ConsumablePickup.js';
 import type { EscortNpcSnapshot } from './entities/EscortNpc.js';
+import type { JackInPointSnapshot } from './entities/JackInPoint.js';
 import type { KeyCardSnapshot } from './entities/KeyCard.js';
+import type { CyberAvatarSnapshot } from './cyber/CyberAvatar.js';
+import type { EntryPortSnapshot } from './cyber/EntryPort.js';
+import type { DataNodeSnapshot } from './cyber/DataNode.js';
+import type { DeckerSnapshot } from './archetypes/Decker.js';
 import type { AlarmState } from './World.js';
 
 export const RUN_STATE = Object.freeze({
@@ -136,7 +155,7 @@ const KNOWN_OUTCOMES = new Set(Object.values(OUTCOME));
 
 export type RunState = (typeof RUN_STATE)[keyof typeof RUN_STATE];
 export type Outcome = (typeof OUTCOME)[keyof typeof OUTCOME];
-export type CrewArchetypeId = 'merc' | 'razor' | 'tech';
+export type CrewArchetypeId = 'merc' | 'razor' | 'tech' | 'decker';
 export type EntityArchetypeId =
   | CrewArchetypeId
   | 'turret'
@@ -162,6 +181,13 @@ export type EntityArchetypeId =
   | 'escort-npc'
   | 'keycard'
   | 'breaching-charge'
+  | 'jack-in-point'
+  | 'cyber-avatar'
+  | 'entry-port'
+  | 'data-node'
+  | 'probe-ice'
+  | 'spark-ice'
+  | 'guardian-ice'
   | 'entity';
 
 export type RunTelemetry = {
@@ -206,6 +232,11 @@ export const PATROL_ARCHETYPE_IDS = Object.freeze([
   'lookout',
   'sniper',
   'medic',
+  // P3.M3.5: Probe ICE shares the identical patrol state-machine block.
+  'probe-ice',
+  // P3.M3: Spark + Guardian ICE share the same patrol state-machine block.
+  'spark-ice',
+  'guardian-ice',
 ] as const);
 
 export type PatrolArchetypeId = (typeof PATROL_ARCHETYPE_IDS)[number];
@@ -268,17 +299,79 @@ export type RunSnapshot = {
   mapMemory?: MapMemorySnapshot;
   /** Pickup unification: removed objective pickups still count as secured. */
   objectiveProgress?: ObjectiveProgressSnapshot;
+  /** P3.M5: Score-only independent extraction latch. */
+  extractedOperativeIds?: string[];
+  /** P3.M5: off-grid crew records for extracted Score operatives. */
+  extractedOperatives?: RunEntitySnapshot[];
   /** Run-scoped key items / keycards without a siteId (P2.5.M6.2). Defaults to []. */
   keyItems?: KeyItemSnapshot[];
   /** Terrain/entity mutations recorded during the run (P2.5.M7.1). Defaults to []. */
   mutationDeltas?: TileDelta[];
+  /**
+   * P3.M4.1: the reserved meat partner for a dual-deploy. Present only when a
+   * Cyberspace contract was deployed with a partner (the player-chosen meat
+   * operator who spawns on jack-in). Serialized as an off-grid entity record
+   * with a throwaway (0,0) position — the partner's real cell is computed at
+   * jack-in (P3.M4.2). Absent on solo deploys.
+   */
+  partner?: RunEntitySnapshot;
+  /**
+   * P3.M4.2: which layer held input at save time (`'meat'` | `'cyber'`).
+   * Present only while jacked in (cyber phase `active`); absent ⇒ `'meat'`.
+   */
+  activeLayer?: 'meat' | 'cyber';
+  /**
+   * P3.M3: Cyberspace layer state. Present exactly when the contract requires
+   * Cyberspace (`contractRequiresCyberspace`) — a mismatch in either direction
+   * is corrupt and throws on restore.
+   */
+  cyberspace?: RunCyberspaceSnapshot;
 };
+
+/**
+ * P3.M3: serialized Cyberspace layer state.
+ *
+ *   - `dormant` — cyber contract, not yet jacked in. No payload; the layer
+ *     spawns fresh (and deterministically) on jack-in.
+ *   - `active` — the live layer: its grid, entities (avatar, exit port, and
+ *     later data nodes + ICE), alarm cadence, and fog memory. All fields are
+ *     required together; a partial block is corrupt and throws on restore.
+ *   - `resolved` — jacked out; only the objective latch survives.
+ */
+export type RunCyberspaceSnapshot =
+  | { phase: 'dormant' }
+  | {
+      phase: 'active';
+      grid: { w: number; h: number; tiles: number[] };
+      entities: RunEntitySnapshot[];
+      entryTile: GridPoint;
+      alarm: AlarmState;
+      mapMemory: MapMemorySnapshot;
+    }
+  | { phase: 'resolved'; objectiveComplete: boolean };
+
+/**
+ * P3.M3: live Cyberspace state machine on the Run. `null` ⇔ the contract has
+ * no Cyberspace component. Transitions: dormant → active (`jackIn`) →
+ * resolved (`jackOut` / P3.M4 forced jack-out). Resolved is a latch — the
+ * link is burned; re-entry is refused.
+ */
+export type CyberspaceState =
+  | { phase: 'dormant' }
+  | { phase: 'active'; layer: CyberspaceLayer }
+  | { phase: 'resolved'; objectiveComplete: boolean };
 
 /** Serializable run-scoped key item (P2.5.M6.2). */
 type KeyItemSnapshot = {
   id: string;
   label: string;
   doorId: string;
+};
+
+export type JackOutRequest = {
+  reason: 'exit-port' | 'explicit-key';
+  objectiveComplete: boolean;
+  shockDamage: number;
 };
 
 export type RunResult = {
@@ -289,6 +382,8 @@ export type RunResult = {
 export type RunOptions = {
   id?: string;
   crewMember?: unknown;
+  /** P3.M4.1: the meat partner for a dual-deploy Cyberspace contract. */
+  partnerMember?: unknown;
   seed?: unknown;
   onPersist?: unknown;
   onResult?: unknown;
@@ -297,6 +392,21 @@ export type RunOptions = {
    *  to finalise the abort extraction, or do nothing to let the player
    *  stay on the exit tile and keep playing. */
   onAbortRequested?: unknown;
+  /** P3.M3/M4: called when jack-out needs confirmation: either incomplete
+   *  objective through the exit port, or the explicit jack-out key's neural
+   *  shock. The shell should show a confirmation prompt; call
+   *  `run.confirmJackOut()` to finalize, or do nothing to keep the layer
+   *  live. No callback registered → jack out immediately (tests/harness),
+   *  matching the `onAbortRequested` posture. */
+  onJackOutRequested?: unknown;
+  /** Shell presentation — fired after jack-in completes. */
+  onJackInPresent?: unknown;
+  /** Shell presentation — fired after jack-out finalizes. */
+  onJackOutPresent?: unknown;
+  /** P3.M4.4 shell presentation — fired when the meat partner flatlines on the
+   *  field (the corp can kill it off-screen while the player is in Cyberspace),
+   *  so the shell can surface an unconditional "operator down" alert. */
+  onPartnerDown?: unknown;
   /** Terrain mutations from a prior visit to this location (P2.5.M7.2), replayed
    *  onto the freshly-built map in `enterCombat`. Empty/omitted for a first visit. */
   priorMutationDeltas?: unknown;
@@ -321,9 +431,21 @@ type EntityMovedPayload = {
   to: GridPoint;
 };
 
+type TurnEndedPayload = {
+  previous: FactionId;
+  next: FactionId;
+  turn: number;
+};
+
 export class Run {
   id: string;
   crewMember: Crew;
+  /**
+   * P3.M4.1: the meat operator reserved alongside the Decker on a dual-deploy
+   * Cyberspace contract. `null` on solo deploys (no partner, or non-cyber).
+   * Reserved at deploy; spawned onto the meat grid at jack-in (P3.M4.2).
+   */
+  partnerMember: Crew | null;
   archetype: CrewArchetypeId;
   seed: number;
   rng: Rng;
@@ -331,14 +453,39 @@ export class Run {
   world: World | null;
   queue: TurnQueue | null;
   bus: EventBus | null;
+  /**
+   * The Decker (the deployed primary) on a cyber contract — and, once jacked
+   * in, the immobile Meatspace **body** at the port. On non-cyber runs this is
+   * simply the deployed operator. Body-targeting feedback and the forced
+   * jack-out (P3.M4.6) read `player` as the body; the *controllable* meat crew
+   * is `meatActor` (they diverge only after a dual-deploy jack-in).
+   */
   player: Crew | null;
+  /**
+   * P3.M4.2: the controllable Meatspace crew. Equals `player` until a
+   * dual-deploy jack-in spawns the partner, after which it points at the
+   * partner (the body freezes). The simstim flip (P3.M4.3) swaps `activeLayer`,
+   * not this — `meatActor` is always "who moves in Meatspace".
+   */
+  meatActor: Crew | null;
+  /**
+   * P3.M4.2/M4.3: which layer currently receives player input. Only meaningful
+   * while the cyber layer is active; `'meat'` everywhere else. On a dual-deploy
+   * jack-in control stays in Meatspace (`'meat'`) until the first flip; a solo
+   * Decker jack-in goes straight to `'cyber'` (no meat operator to hold).
+   */
+  activeLayer: 'meat' | 'cyber';
   contract: Contract | null;
   exitTile: GridPoint | null;
+  /** P3.M3: Cyberspace state machine; `null` ⇔ no Cyberspace component. */
+  cyberspace: CyberspaceState | null;
   telemetry: RunTelemetry;
   objectiveTimer: ObjectiveTimerSnapshot;
   mapSeen: Set<string>;
   /** Run-scoped key items / keycards without a siteId (P2.5.M6.2). Lost on run end. */
   keyItems: KeyItem[];
+  /** P3.M5: Score-only independent extraction latch. Empty on normal runs. */
+  extractedOperativeIds: Set<string>;
   /** Prior-visit terrain mutations replayed in `enterCombat` (P2.5.M7.2). */
   priorMutationDeltas: TileDelta[];
   /** Prior-visit exploration memory restored into shell fog on jack-in (P2.5.M7.2). */
@@ -348,15 +495,28 @@ export class Run {
   onPersist: ((record: RunSnapshot) => void) | null;
   onResult: ((result: RunResult) => void) | null;
   onAbortRequested: (() => void) | null;
+  onJackOutRequested: ((request: JackOutRequest) => void) | null;
+  /** Shell presentation hook — fired synchronously after jack-in completes. */
+  onJackInPresent: (() => void) | null;
+  /** Shell presentation hook — fired after jack-out finalizes. */
+  onJackOutPresent: (() => void) | null;
+  /** P3.M4.4 shell presentation hook — fired with the partner when it flatlines. */
+  onPartnerDown: ((partner: Crew) => void) | null;
+  #pendingJackOut: JackOutRequest | null;
   _busUnsubs: (() => void)[];
 
   constructor({
     id,
     crewMember,
+    partnerMember,
     seed,
     onPersist,
     onResult,
     onAbortRequested,
+    onJackOutRequested,
+    onJackInPresent,
+    onJackOutPresent,
+    onPartnerDown,
     priorMutationDeltas,
     priorKeyItems,
     priorSeenKeys,
@@ -370,6 +530,7 @@ export class Run {
     if (crewMember.flatlined) {
       throw new Error(`Run: cannot deploy flatlined crew member "${crewMember.id}"`);
     }
+    const partner = normalizePartnerMember(partnerMember, crewMember);
     if (onPersist !== undefined && typeof onPersist !== 'function') {
       throw new TypeError('Run: onPersist must be a function');
     }
@@ -378,6 +539,18 @@ export class Run {
     }
     if (onAbortRequested !== undefined && typeof onAbortRequested !== 'function') {
       throw new TypeError('Run: onAbortRequested must be a function');
+    }
+    if (onJackOutRequested !== undefined && typeof onJackOutRequested !== 'function') {
+      throw new TypeError('Run: onJackOutRequested must be a function');
+    }
+    if (onJackInPresent !== undefined && typeof onJackInPresent !== 'function') {
+      throw new TypeError('Run: onJackInPresent must be a function');
+    }
+    if (onJackOutPresent !== undefined && typeof onJackOutPresent !== 'function') {
+      throw new TypeError('Run: onJackOutPresent must be a function');
+    }
+    if (onPartnerDown !== undefined && typeof onPartnerDown !== 'function') {
+      throw new TypeError('Run: onPartnerDown must be a function');
     }
     if (priorMutationDeltas !== undefined && !Array.isArray(priorMutationDeltas)) {
       throw new TypeError('Run: priorMutationDeltas must be an array when supplied');
@@ -391,6 +564,7 @@ export class Run {
 
     this.id = id ?? makeRunId(seed);
     this.crewMember = crewMember;
+    this.partnerMember = partner;
     this.archetype = archetypeOfCrew(crewMember);
     this.seed = seed >>> 0;
     this.rng = new Rng(this.seed);
@@ -399,12 +573,16 @@ export class Run {
     this.queue = null;
     this.bus = null;
     this.player = null;
+    this.meatActor = null;
+    this.activeLayer = 'meat';
     this.contract = null;
     this.exitTile = null;
+    this.cyberspace = null;
     this.telemetry = freshTelemetry(this.archetype, this.seed);
     this.objectiveTimer = freshObjectiveTimer();
     this.mapSeen = new Set();
     this.keyItems = [];
+    this.extractedOperativeIds = new Set();
     // Deltas are validated structurally on application (`applyMutationDeltas`)
     // and on campaign restore (`normalizeLocationSite`); store a shallow copy
     // so external mutation can't reach into the run.
@@ -416,6 +594,12 @@ export class Run {
     this.onPersist = (onPersist as ((record: RunSnapshot) => void) | undefined) ?? null;
     this.onResult = (onResult as ((result: RunResult) => void) | undefined) ?? null;
     this.onAbortRequested = (onAbortRequested as (() => void) | undefined) ?? null;
+    this.onJackOutRequested =
+      (onJackOutRequested as ((request: JackOutRequest) => void) | undefined) ?? null;
+    this.onJackInPresent = (onJackInPresent as (() => void) | undefined) ?? null;
+    this.onJackOutPresent = (onJackOutPresent as (() => void) | undefined) ?? null;
+    this.onPartnerDown = (onPartnerDown as ((partner: Crew) => void) | undefined) ?? null;
+    this.#pendingJackOut = null;
 
     /** @type {Array<() => void>} active bus subscriptions */
     this._busUnsubs = [];
@@ -427,6 +611,15 @@ export class Run {
       throw new Error(`Run.enterBriefing: illegal transition from ${this.state}`);
     }
     this.contract = normalizeContractForRun(contract);
+    // P3.M3: latch the Cyberspace state machine off the validated contract.
+    const cyber = contractRequiresCyberspace(this.contract);
+    this.cyberspace = cyber ? { phase: 'dormant' } : null;
+    // P3.M4.1: a meat partner only rides along on a Cyberspace dual-deploy.
+    // (The Decker spawns it at jack-in.) A partner on a non-cyber run is a
+    // wiring bug — crash rather than carry a reservation that never spawns.
+    if (!cyber && this.partnerMember) {
+      throw new Error('Run.enterBriefing: a meat partner requires a Cyberspace contract');
+    }
     this.objectiveTimer = freshObjectiveTimer();
     this.mapSeen.clear();
     this.state = RUN_STATE.BRIEFING;
@@ -467,14 +660,40 @@ export class Run {
       applyMutationDeltas(this.world.grid, this.priorMutationDeltas);
     }
     this.player = this.#makePlayer(map.spawns.player);
+    // P3.M4.2: pre-jack-in the deployed operator is the sole controllable meat
+    // crew; the partner (if any) is reserved off-grid until jack-in.
+    this.meatActor = this.player;
+    this.activeLayer = 'meat';
     this.world.addEntity(this.player);
+    let scoreDoorPlaced = false;
     for (let i = 0; i < map.doors.length; i++) {
       const a = map.doors[i]!;
       // A door breached on a prior visit left its cell as RUBBLE (via the
       // companion tile delta). Skip re-placing the door so the breach persists.
       if (this.world.grid.tileAt(a.x, a.y) === TILE.RUBBLE) continue;
+      const doorId =
+        this.contract.objective.kind === OBJECTIVES.SCORE_FINAL && !scoreDoorPlaced
+          ? scoreDoorId(this.contract)
+          : `door-${i}`;
+      this.world.addEntity(new Door({ id: `door-entity-${i}`, doorId, x: a.x, y: a.y }));
+      if (doorId === scoreDoorIdOrNull(this.contract)) scoreDoorPlaced = true;
+    }
+    if (this.contract.objective.kind === OBJECTIVES.SCORE_FINAL && !scoreDoorPlaced) {
+      const fallback = map.dynamicDoors.find(
+        anchor =>
+          this.world!.grid.isPassable(anchor.door.x, anchor.door.y) &&
+          !this.world!.liveEntityAt(anchor.door.x, anchor.door.y)
+      );
+      if (!fallback) {
+        throw new Error('Run.enterCombat: Score contract has no legal locked-route door anchor');
+      }
       this.world.addEntity(
-        new Door({ id: `door-entity-${i}`, doorId: `door-${i}`, x: a.x, y: a.y })
+        new Door({
+          id: 'door-entity-score',
+          doorId: scoreDoorId(this.contract),
+          x: fallback.door.x,
+          y: fallback.door.y,
+        })
       );
     }
     // Phase 2.9: one hostile faction per run, derived from the contract
@@ -728,8 +947,29 @@ export class Run {
       objectiveTimer: { ...this.objectiveTimer },
       mapMemory: { seen: this.mapSeenKeys() },
       objectiveProgress: { securedPickups: world.securedPickupIds() },
+      ...(this.extractedOperativeIds.size > 0
+        ? {
+            extractedOperativeIds: [...this.extractedOperativeIds].sort(),
+            extractedOperatives: [this.crewMember, this.partnerMember]
+              .filter((crew): crew is Crew => !!crew && this.extractedOperativeIds.has(crew.id))
+              .map(crew => ({ ...snapshotEntity(crew), x: 0, y: 0 })),
+          }
+        : {}),
       keyItems: this.keyItems.map(k => ({ id: k.id, label: k.label, doorId: k.doorId })),
       mutationDeltas: world.mutationDeltas.map(delta => ({ ...delta })),
+      // P3.M4.1/M4.2: the reserved meat partner. While the cyber layer is still
+      // dormant the partner is off-grid, so it serializes as an entity record
+      // with a (0,0) placeholder cell. Once jacked in (active/resolved) the
+      // partner is a live grid entity captured in `entities`, so the off-grid
+      // record is omitted to avoid a duplicate.
+      ...(this.partnerMember && this.cyberspace?.phase === 'dormant'
+        ? { partner: { ...snapshotEntity(this.partnerMember), x: 0, y: 0 } }
+        : {}),
+      // P3.M4.2: which layer holds input. Only meaningful while jacked in;
+      // captured so a mid-flip save restores to the same side.
+      ...(this.cyberspace?.phase === 'active' ? { activeLayer: this.activeLayer } : {}),
+      // P3.M3: present exactly when the contract has a Cyberspace component.
+      ...(this.cyberspace ? { cyberspace: snapshotCyberspace(this.cyberspace) } : {}),
     };
   }
 
@@ -740,6 +980,426 @@ export class Run {
    */
   get mutationDeltas(): TileDelta[] {
     return this.world?.mutationDeltas ?? [];
+  }
+
+  // ------------------------------------------------------------------
+  // P3.M3.3 — Cyberspace layer bridge
+  // ------------------------------------------------------------------
+
+  /** True while the Decker is jacked in and the cyber layer is live. */
+  get cyberActive(): boolean {
+    return this.cyberspace?.phase === 'active';
+  }
+
+  /** True while a cyber layer is live *and* the active layer is Cyberspace. */
+  get cyberInputActive(): boolean {
+    return this.cyberspace?.phase === 'active' && this.activeLayer === 'cyber';
+  }
+
+  /**
+   * The world the shell should render/drive. Honors the simstim flip
+   * (`activeLayer`): Cyberspace only while jacked in *and* flipped to cyber;
+   * Meatspace otherwise (including the post-jack-in pre-first-flip window).
+   */
+  get activeWorld(): World | null {
+    return this.cyberInputActive && this.cyberspace?.phase === 'active'
+      ? this.cyberspace.layer.world
+      : this.world;
+  }
+
+  /**
+   * The actor the shell should control: the cyber avatar while flipped to the
+   * grid, else the controllable Meatspace crew (`meatActor`, which is the
+   * partner after a dual-deploy jack-in, the Decker otherwise).
+   */
+  get activeActor(): Crew | CyberAvatar | null {
+    if (this.cyberInputActive && this.cyberspace?.phase === 'active') {
+      return this.cyberspace.layer.avatar;
+    }
+    return this.meatActor ?? this.player;
+  }
+
+  /**
+   * P3.M4.2: the Decker's immobile Meatspace body while jacked in (`null`
+   * otherwise). It is the deployed Decker (`player`) frozen at the port.
+   */
+  get deckerBody(): Crew | null {
+    return this.cyberspace?.phase === 'active' && this.player instanceof Decker
+      ? this.player
+      : null;
+  }
+
+  /**
+   * P3.M4.4: true when a dual-deploy meat partner was fielded and has flatlined
+   * on the grid. The run does not end on partner death (the Decker fights on),
+   * but `Campaign.onJobEnd` flatlines the partner for good once the run wraps.
+   */
+  get partnerDown(): boolean {
+    return !!this.partnerMember && !this.partnerMember.alive;
+  }
+
+  /**
+   * P3.M4.3: is there a second operator to flip control to right now?
+   *   - Jacked in: flip between the controllable meat operator and the cyber
+   *     avatar — but only when the meat side is actually controllable (a
+   *     dual-deploy partner, not just the frozen solo body).
+   *   - Post jack-out: flip between the two live meat operators (Decker ↔
+   *     partner) sharing the meat grid.
+   */
+  canFlip(): boolean {
+    if (this.state !== RUN_STATE.COMBAT) return false;
+    if (this.cyberspace?.phase === 'active') {
+      return !!this.meatActor && this.meatActor.alive && !this.meatActor.frozen;
+    }
+    return this.#aliveMeatAlternate() !== null;
+  }
+
+  /**
+   * P3.M4.3: the simstim flip — swap which operator receives player input.
+   * Free action. Throws if there is nothing to flip to (the shell gates on
+   * {@link canFlip} first, so reaching here illegally is a wiring bug).
+   */
+  flip(): void {
+    if (!this.canFlip()) {
+      throw new Error('Run.flip: no second operator to flip to');
+    }
+    if (this.cyberspace?.phase === 'active') {
+      this.activeLayer = this.activeLayer === 'cyber' ? 'meat' : 'cyber';
+      return;
+    }
+    const alternate = this.#aliveMeatAlternate();
+    if (alternate) this.meatActor = alternate;
+  }
+
+  /**
+   * P3.M4.4: the operator {@link flip} would hand control to right now — the
+   * other layer's operator while jacked (avatar ↔ partner), else the other
+   * live meat operator. `null` when there is nothing to flip to. Used to reason
+   * about the *crew's* remaining AP, not just the active actor's.
+   */
+  #flipAlternate(): Crew | CyberAvatar | null {
+    if (!this.canFlip()) return null;
+    if (this.cyberspace?.phase === 'active') {
+      return this.activeLayer === 'cyber' ? this.meatActor : this.cyberspace.layer.avatar;
+    }
+    return this.#aliveMeatAlternate();
+  }
+
+  /**
+   * P3.M4.4: independent AP pools, decoupled turn-end. The mutual turn is over
+   * only when *every controllable* operator is spent — the active actor at 0 AP
+   * and no flip alternate with AP left. A single-deploy/solo operator (no
+   * alternate) ends at 0 as before; the frozen Decker body is never the active
+   * actor nor a flip alternate, so its full pool can't keep the turn alive.
+   */
+  endOfTurnReady(): boolean {
+    const active = this.activeActor;
+    if (!active || active.ap > 0) return false;
+    const alternate = this.#flipAlternate();
+    return !alternate || alternate.ap === 0;
+  }
+
+  /**
+   * P3.M4.4: resolve the active operator running out of AP. The shell calls
+   * this wherever it used to auto-end on exhaustion:
+   *   - `'continue'` — the active operator still has AP; nothing to do.
+   *   - `'end'`      — the whole crew is spent; the shell drives the corp/ICE
+   *                    hostile phases (which refresh every pool exactly once).
+   *   - `'auto-flip'`— the active operator is spent but another still has AP;
+   *                    control has been handed to it (no turn end, no refresh).
+   * The flip is safe here: a spent active actor that is not {@link endOfTurnReady}
+   * guarantees a live alternate with AP to flip to.
+   */
+  concludeActiveOperatorTurn(): 'continue' | 'auto-flip' | 'end' {
+    const active = this.activeActor;
+    if (!active || active.ap > 0) return 'continue';
+    if (this.endOfTurnReady()) return 'end';
+    this.flip();
+    return 'auto-flip';
+  }
+
+  /**
+   * P3.M4.4: resolve a Wait (`.`). The caller has already forfeited the active
+   * operator's remaining AP; Wait is an explicit "pass *this* operator, switch
+   * to the other," so — unlike running dry through actions — it **always** hands
+   * control to the other operator when one exists, regardless of whether that
+   * operator still has AP. Ending is orthogonal: the mutual turn ends when the
+   * whole crew is spent.
+   *   - `'flip'`         — control handed off; the other operator can still act.
+   *   - `'flip-and-end'` — control handed off *and* the crew is spent, so the
+   *                        shell also drives the hostile phases (next turn opens
+   *                        on the operator we flipped to).
+   *   - `'end'`          — solo / single-deploy (nobody to flip to); just end.
+   */
+  passActiveOperatorTurn(): 'flip' | 'flip-and-end' | 'end' {
+    if (!this.#flipAlternate()) return 'end';
+    this.flip();
+    return this.endOfTurnReady() ? 'flip-and-end' : 'flip';
+  }
+
+  /**
+   * P3.M4.4: the meat partner just flatlined. Repair the active-operator state
+   * so the player is never left driving a corpse, then alert the shell. If the
+   * dead partner was the meat operator, hand meat control back to the Decker
+   * (`player`); while still jacked in, the body is frozen and can't act, so also
+   * force the view to Cyberspace (the avatar is the only live operator). The
+   * shell hook surfaces the alert even when the kill happened off-screen.
+   */
+  #onPartnerFlatlined(partner: Crew): void {
+    if (this.meatActor === partner) {
+      this.meatActor = this.player;
+      if (this.cyberspace?.phase === 'active') {
+        this.activeLayer = 'cyber';
+      }
+    }
+    this.onPartnerDown?.(partner);
+  }
+
+  /**
+   * The *other* live meat operator on the grid (Decker ↔ partner), distinct
+   * from the current `meatActor`. `null` when there is no second one — pre-jack
+   * solo runs, or after a partner flatline. Used only outside an active
+   * jack-in (where the flip is meat↔cyber instead).
+   */
+  #aliveMeatAlternate(): Crew | null {
+    const current = this.meatActor;
+    for (const crew of [this.player, this.partnerMember]) {
+      if (crew && crew !== current && crew.alive && this.world?.entities.has(crew.id)) {
+        return crew;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Dormant → active: spawn the Cyberspace layer. Driven by the meat-bus
+   * `EVENT.JACK_IN` emission from a `JackInPoint` link. The layer derives
+   * from the *contract* seed, so the layout is independent of the jack-in
+   * turn. Every precondition violation throws — a JACK_IN emission outside a
+   * dormant cyber run is corrupt state, not a recoverable refusal.
+   */
+  jackIn(point: JackInPoint): void {
+    if (this.state !== RUN_STATE.COMBAT) {
+      throw new Error(`Run.jackIn: illegal from state ${this.state} (COMBAT only)`);
+    }
+    if (!this.contract) {
+      throw new Error('Run.jackIn: COMBAT state without a contract');
+    }
+    if (!this.cyberspace) {
+      throw new Error('Run.jackIn: contract has no Cyberspace component');
+    }
+    if (this.cyberspace.phase !== 'dormant') {
+      throw new Error(`Run.jackIn: illegal from cyberspace phase "${this.cyberspace.phase}"`);
+    }
+    if (!(point instanceof JackInPoint) || !point.linked) {
+      throw new Error('Run.jackIn: requires a linked jack-in point');
+    }
+    if (!(this.player instanceof Decker)) {
+      throw new Error('Run.jackIn: only a Decker can enter the grid');
+    }
+    const decker = this.player;
+    const layer = CyberspaceLayer.build({
+      contractSeed: this.contract.seed,
+      difficulty: this.contract.difficulty,
+      decker,
+      nodeCount: objectiveCount(this.contract),
+    });
+    this.cyberspace = { phase: 'active', layer };
+    this.#wireCyberLayerListeners(layer);
+    // P3.M4.2: the Decker's body is now "a vegetable" at the port — freeze it
+    // (immobile, still targetable). If a meat partner was reserved, spawn it
+    // onto the grid and hand it control; the player stays in Meatspace until
+    // the first flip (P3.M4.3). A solo jack-in has no meat operator to hold, so
+    // control drops straight to the grid.
+    if (!this.world) {
+      throw new Error('Run.jackIn: COMBAT state without a meat world');
+    }
+    decker.frozen = true;
+    if (this.partnerMember) {
+      const spawn = this.#partnerSpawnTile(this.world, decker);
+      this.#initCombatant(this.partnerMember, spawn);
+      this.world.addEntity(this.partnerMember);
+      this.meatActor = this.partnerMember;
+      this.activeLayer = 'meat';
+    } else {
+      this.meatActor = decker;
+      this.activeLayer = 'cyber';
+    }
+    // The latch transition must never be lost — autosave explicitly.
+    if (this.onPersist) {
+      this.onPersist(this.snapshot());
+    }
+    this.onJackInPresent?.();
+  }
+
+  /**
+   * Active → resolved: the avatar routed out through the exit port (cyber-bus
+   * `EVENT.JACK_OUT`). Latches the objective outcome and tears the layer
+   * down; the link is burned — re-entry is refused. P3.M4.6 adds the forced
+   * variant (body under fire).
+   */
+  jackOut(): void {
+    this.#requestJackOut({ reason: 'exit-port', shockDamage: 0 });
+  }
+
+  /**
+   * P3.M4 explicit jack-out key: drop the link from anywhere in an active
+   * jack-in. Unlike the exit port, this always asks for confirmation when the
+   * shell is wired because it applies neural shock to the Decker's body.
+   */
+  requestJackOut(): void {
+    this.#requestJackOut({ reason: 'explicit-key', shockDamage: JACK_OUT_SHOCK_DAMAGE });
+  }
+
+  #requestJackOut({
+    reason,
+    shockDamage,
+  }: {
+    reason: JackOutRequest['reason'];
+    shockDamage: number;
+  }): void {
+    if (this.state !== RUN_STATE.COMBAT) {
+      throw new Error(`Run.jackOut: illegal from state ${this.state} (COMBAT only)`);
+    }
+    if (this.cyberspace?.phase !== 'active') {
+      throw new Error(
+        `Run.jackOut: illegal from cyberspace phase "${this.cyberspace?.phase ?? 'none'}"`
+      );
+    }
+    if (!this.contract) {
+      throw new Error('Run.jackOut: COMBAT state without a contract');
+    }
+    const layer = this.cyberspace.layer;
+    // P3.M3.4: the latch is the sliced-node tally at the moment the link
+    // drops. Jacking out early leaves the objective permanently unsatisfiable
+    // — extraction then routes through the existing abort-confirm flow.
+    const objectiveComplete = this.#cyberObjectiveComplete(layer);
+    const request: JackOutRequest = { reason, objectiveComplete, shockDamage };
+    // S7.5/P3.M4: incomplete jack-out is irreversible; explicit-key jack-out
+    // additionally hurts the body. Defer to shell confirmation when wired. No
+    // callback → resolve immediately, the `onAbortRequested` posture.
+    if ((!objectiveComplete || shockDamage > 0) && this.onJackOutRequested) {
+      this.#pendingJackOut = request;
+      this.onJackOutRequested(request);
+      return;
+    }
+    this.#finalizeJackOut(layer, objectiveComplete, shockDamage);
+  }
+
+  /**
+   * S7.5: finalize a deferred early jack-out after the shell confirms.
+   * Unlike `confirmAbort` (where walking off the exit tile legitimately
+   * voids the request), nothing can legally change between request and
+   * confirm — the modal blocks turn flow — so an illegal state here is a
+   * wiring bug and throws rather than silently no-oping.
+   */
+  confirmJackOut(): void {
+    const request = this.#pendingJackOut;
+    if (!request || this.state !== RUN_STATE.COMBAT || this.cyberspace?.phase !== 'active') {
+      throw new Error(
+        `Run.confirmJackOut: no jack-out pending (state ${this.state}, phase ${
+          this.cyberspace?.phase ?? 'none'
+        })`
+      );
+    }
+    if (!this.contract) {
+      throw new Error('Run.confirmJackOut: COMBAT state without a contract');
+    }
+    const layer = this.cyberspace.layer;
+    this.#pendingJackOut = null;
+    // Recompute rather than latch `false` blindly — honest if a future flow
+    // ever confirms after progress changed.
+    this.#finalizeJackOut(layer, this.#cyberObjectiveComplete(layer), request.shockDamage);
+  }
+
+  #cyberObjectiveComplete(layer: CyberspaceLayer): boolean {
+    if (!this.contract) {
+      throw new Error('Run.#cyberObjectiveComplete: COMBAT state without a contract');
+    }
+    const { sliced } = dataNodeProgress(layer.world);
+    const complete = sliced >= objectiveCount(this.contract);
+    if (complete) this.#syncScoreDoorUnlock();
+    return complete;
+  }
+
+  #syncScoreDoorUnlock(): void {
+    if (!this.contract || this.contract.objective.kind !== OBJECTIVES.SCORE_FINAL) return;
+    if (!this.world) return;
+    const cyber = this.#cyberNodeProgress();
+    if (!cyber || cyber.sliced < cyber.required) return;
+    const door = assertDoorExists(this.world, scoreDoorId(this.contract));
+    if (!door.locked) return;
+    door.unlock();
+    this.world.events?.emit(EVENT.DOOR_UNLOCKED, { door, source: 'score-core' });
+  }
+
+  /**
+   * P3.M4.6: while jacked in, the Decker's meat body cannot flatline from
+   * Meatspace damage. A hit that drives it to the danger floor ejects the Decker,
+   * clamps the body alive at 1 HP, burns the link, and latches the cyber
+   * objective at its current progress. Unlike voluntary early jack-out, this is
+   * not a choice, so it bypasses the confirmation hook.
+   */
+  #forceJackOutFromBodyDamage(layer: CyberspaceLayer): void {
+    if (!(this.player instanceof Decker)) {
+      throw new Error('Run.#forceJackOutFromBodyDamage: jacked body is not a Decker');
+    }
+    this.#pendingJackOut = null;
+    this.player.hp = 1;
+    this.player.alive = true;
+    this.#finalizeJackOut(layer, this.#cyberObjectiveComplete(layer), 0);
+  }
+
+  /** Active → resolved: teardown, latch, LINK BURNED, autosave. */
+  #finalizeJackOut(layer: CyberspaceLayer, objectiveComplete: boolean, shockDamage: number): void {
+    this.#pendingJackOut = null;
+    layer.teardown();
+    this.cyberspace = { phase: 'resolved', objectiveComplete };
+    // P3.M4.2: the Decker is back in its body — unfreeze it, return control to
+    // Meatspace, and make the body the active operator. The partner (if any)
+    // remains on the grid as a second meat crew; the meat↔meat flip that lets
+    // the player switch between them lands with P3.M4.3.
+    if (this.player) {
+      this.player.frozen = false;
+      this.meatActor = this.player;
+    }
+    this.activeLayer = 'meat';
+    // S5: the link is burned — re-jack-in refused for the rest of the run.
+    this.#meatJackInPoint().burn();
+    this.#applyJackOutShock(shockDamage);
+    if (this.state !== RUN_STATE.COMBAT) return;
+    if (this.onPersist) {
+      this.onPersist(this.snapshot());
+    }
+    this.onJackOutPresent?.();
+  }
+
+  #applyJackOutShock(shockDamage: number): void {
+    if (shockDamage === 0) return;
+    if (!Number.isInteger(shockDamage) || shockDamage < 0) {
+      throw new RangeError(`Run.#applyJackOutShock: invalid shockDamage ${shockDamage}`);
+    }
+    if (!this.player) {
+      throw new Error('Run.#applyJackOutShock: COMBAT state without a player');
+    }
+    const applied = this.player.damage(shockDamage);
+    this.telemetry.lastDamageSource = 'neural-shock';
+    this.telemetry.lastAttacker = null;
+    this.telemetry.hpAtDamage = this.player.hp;
+    if (!this.player.alive) {
+      this.telemetry.hpAtDeath = 0;
+      this.telemetry.cause = `neural-shock(${applied})`;
+      this.enterResult({ outcome: OUTCOME.DEATH });
+    }
+  }
+  #meatJackInPoint(): JackInPoint {
+    if (!this.world) {
+      throw new Error('Run.#meatJackInPoint: no live world');
+    }
+    for (const entity of this.world.entities.values()) {
+      if (entity instanceof JackInPoint) return entity;
+    }
+    throw new Error('Run.#meatJackInPoint: cyber contract has no jack-in point in the world');
   }
 
   /**
@@ -839,7 +1499,36 @@ export class Run {
 
   objectiveProgress() {
     if (!this.contract) return null;
-    return resolveObjectiveProgress(this.contract, this.world, this.mapSeen);
+    return resolveObjectiveProgress(
+      this.contract,
+      this.world,
+      this.mapSeen,
+      this.#cyberNodeProgress() ?? null
+    );
+  }
+
+  /**
+   * P3.M3.4: the data-node tally per cyberspace phase — live count while the
+   * layer is active, the latch once resolved, zero while dormant. `undefined`
+   * for contracts without a Cyberspace component.
+   */
+  #cyberNodeProgress(): CyberNodeProgress | undefined {
+    if (!this.contract || !this.cyberspace) return undefined;
+    if (
+      this.contract.objective.kind !== OBJECTIVES.DATA_NODE_SLICE &&
+      this.contract.objective.kind !== OBJECTIVES.SCORE_FINAL
+    ) {
+      return undefined;
+    }
+    const required = objectiveCount(this.contract);
+    switch (this.cyberspace.phase) {
+      case 'dormant':
+        return { sliced: 0, required };
+      case 'active':
+        return { sliced: dataNodeProgress(this.cyberspace.layer.world).sliced, required };
+      case 'resolved':
+        return { sliced: this.cyberspace.objectiveComplete ? required : 0, required };
+    }
   }
 
   /**
@@ -854,12 +1543,18 @@ export class Run {
     this.#unwireCombatListeners();
     const bus = this.bus;
     this._busUnsubs.push(
-      bus.on(EVENT.TURN_ENDED, () => this.#onTurnEnded()),
+      bus.on(EVENT.TURN_ENDED, payload => this.#onTurnEnded(payload as TurnEndedPayload)),
       bus.on(EVENT.ENTITY_DAMAGED, payload =>
         this.#onEntityDamaged(payload as EntityDamagedPayload)
       ),
-      bus.on(EVENT.ENTITY_MOVED, payload => this.#onEntityMoved(payload as EntityMovedPayload))
+      bus.on(EVENT.ENTITY_MOVED, payload => this.#onEntityMoved(payload as EntityMovedPayload)),
+      // P3.M3.3: a Decker linking a JackInPoint opens the cyber layer.
+      bus.on(EVENT.JACK_IN, payload => this.jackIn((payload as { point: JackInPoint }).point))
     );
+    // Restored mid-jack-in: re-wire the cyber-layer listeners on the same seam.
+    if (this.cyberspace?.phase === 'active') {
+      this.#wireCyberLayerListeners(this.cyberspace.layer);
+    }
   }
 
   // ------------------------------------------------------------------
@@ -867,19 +1562,73 @@ export class Run {
   // ------------------------------------------------------------------
 
   #makePlayer(spawn: GridPoint): Crew {
-    this.crewMember.x = spawn.x;
-    this.crewMember.y = spawn.y;
-    this.crewMember.maxAp = 4;
-    this.crewMember.ap = this.crewMember.maxAp;
-    // HP persists across jobs — no reset. Armour Plating (via Finn) is
-    // the only Hub-side HP recovery. Stims are combat-only.
-    this.crewMember.alive = true;
-    this.crewMember.stealthed = false;
-    this.crewMember.initInventory();
-    if (this.crewMember instanceof Tech) {
-      this.crewMember.turretReady = true;
+    return this.#initCombatant(this.crewMember, spawn);
+  }
+
+  /**
+   * Prep a crew member for the Meatspace grid — spawn position, full AP, combat
+   * inventory. HP persists across jobs (no reset; Armour Plating via Finn is the
+   * only Hub-side HP recovery, stims are combat-only). Shared by the deployed
+   * operator (`#makePlayer`) and the dual-deploy partner spawned at jack-in.
+   */
+  #initCombatant(crew: Crew, spawn: GridPoint): Crew {
+    crew.x = spawn.x;
+    crew.y = spawn.y;
+    crew.maxAp = 4;
+    crew.ap = crew.maxAp;
+    crew.alive = true;
+    crew.stealthed = false;
+    crew.frozen = false;
+    crew.initInventory();
+    if (crew instanceof Tech) {
+      crew.turretReady = true;
     }
-    return this.crewMember;
+    return crew;
+  }
+
+  /**
+   * P3.M4.2: choose a deterministic, *safe* Meatspace cell to drop the
+   * dual-deploy partner into at jack-in — "a random cell, not directly in
+   * danger, behind cover" (resolved decision). Candidates are free, unoccupied
+   * floor tiles off the body's tile; we prefer tiles no live hostile can see
+   * (geometry LOS) and that sit against cover (a wall neighbour). Falls back
+   * through safe → any-free so a hostile-saturated map still spawns the
+   * partner; an utterly full grid is corrupt and throws.
+   */
+  #partnerSpawnTile(world: World, body: Entity): GridPoint {
+    const grid = world.grid;
+    const hostiles = [...world.entities.values()].filter(
+      e => e.alive && e.faction !== FACTION.PLAYER && e.faction !== FACTION.NEUTRAL
+    );
+    const seen = (tx: number, ty: number): boolean =>
+      hostiles.some(h => hasLineOfSight(grid, h.x, h.y, tx, ty));
+    const hasCover = (tx: number, ty: number): boolean =>
+      !grid.isPassable(tx, ty - 1) ||
+      !grid.isPassable(tx, ty + 1) ||
+      !grid.isPassable(tx - 1, ty) ||
+      !grid.isPassable(tx + 1, ty);
+
+    const free: GridPoint[] = [];
+    const safe: GridPoint[] = [];
+    const safeCover: GridPoint[] = [];
+    // Stable iteration (row-major) keeps the candidate order deterministic.
+    for (let y = 0; y < grid.height; y++) {
+      for (let x = 0; x < grid.width; x++) {
+        if (x === body.x && y === body.y) continue;
+        if (!grid.isPassable(x, y)) continue;
+        if (world.entityAt(x, y)) continue;
+        const tile = { x, y };
+        free.push(tile);
+        if (seen(x, y)) continue;
+        safe.push(tile);
+        if (hasCover(x, y)) safeCover.push(tile);
+      }
+    }
+    const pool = safeCover.length ? safeCover : safe.length ? safe : free;
+    if (pool.length === 0) {
+      throw new Error('Run.#partnerSpawnTile: no free Meatspace cell to spawn the partner');
+    }
+    return pool[this.rng.intRange(0, pool.length)]!;
   }
 
   #unwireCombatListeners(): void {
@@ -887,15 +1636,70 @@ export class Run {
     this._busUnsubs = [];
   }
 
-  #onTurnEnded(): void {
+  #onTurnEnded(payload: TurnEndedPayload): void {
     if (this.state !== RUN_STATE.COMBAT) return;
     if (!this.queue) {
       throw new Error('Run.#onTurnEnded: COMBAT state without a TurnQueue');
     }
+    if (!payload || typeof payload.next !== 'string') {
+      throw new Error('Run.#onTurnEnded: TURN_ENDED payload missing the incoming faction');
+    }
     this.telemetry.turn = this.queue.turnNumber;
+    // P3.M3.3: both worlds tick on the single meat queue — refresh the
+    // incoming faction's AP on the cyber grid (and its alarm on round
+    // advance) before the autosave below captures the post-state.
+    if (this.cyberspace?.phase === 'active') {
+      this.cyberspace.layer.onTurnEnded(payload.next);
+    }
     this.#refreshObjectiveTimerState();
     if (!this.onPersist) return;
     this.onPersist(this.snapshot());
+  }
+
+  /**
+   * P3.M3.3: cyber-bus listeners, wired on jack-in and re-wired through
+   * `_reattachCombatListeners` after a mid-jack-in restore. Unsubs join
+   * `_busUnsubs`, so `enterResult`/re-wiring clears them with the meat set.
+   */
+  #wireCyberLayerListeners(layer: CyberspaceLayer): void {
+    this._busUnsubs.push(
+      layer.bus.on(EVENT.ENTITY_DAMAGED, payload =>
+        this.#onCyberEntityDamaged(payload as EntityDamagedPayload)
+      ),
+      layer.bus.on(EVENT.DATA_NODE_SLICED, () => this.#syncScoreDoorUnlock()),
+      layer.bus.on(EVENT.JACK_OUT, () => this.jackOut())
+    );
+  }
+
+  /**
+   * The cyber twin of {@link #onEntityDamaged}. Avatar death is real death
+   * (scope decision #3): black ICE burning the last RAM routes through the
+   * existing DEATH path, and `Campaign.onJobEnd` flatlines the Decker.
+   */
+  #onCyberEntityDamaged({ attacker, target, damage, killed, source }: EntityDamagedPayload): void {
+    if (this.state !== RUN_STATE.COMBAT) return;
+    if (this.cyberspace?.phase !== 'active') return;
+    const layer = this.cyberspace.layer;
+    if (damage <= 0 && !killed) return;
+    if (target === layer.avatar) {
+      this.telemetry.lastDamageSource = source ?? null;
+      this.telemetry.lastAttacker = attacker?.id ?? null;
+      this.telemetry.hpAtDamage = layer.avatar.hp;
+      if (killed) {
+        this.telemetry.hpAtDeath = 0;
+        this.telemetry.cause = `${attacker?.id ?? 'unknown'}::${source ?? 'unknown'}(${damage})`;
+        this.enterResult({ outcome: OUTCOME.DEATH });
+      }
+      return;
+    }
+    if (attacker === layer.avatar && killed) {
+      this.telemetry.kills = (this.telemetry.kills ?? 0) + 1;
+    }
+    // Unbind dead ICE patrols immediately (P3.M3.5 spawns them) — mirror of
+    // the meat-side PatrolHostile unbind.
+    if (killed && target instanceof PatrolHostile) {
+      target.unbind();
+    }
   }
 
   #onEntityDamaged({ attacker, target, damage, killed, source }: EntityDamagedPayload): void {
@@ -908,11 +1712,23 @@ export class Run {
       this.telemetry.lastDamageSource = source ?? null;
       this.telemetry.lastAttacker = attacker?.id ?? null;
       this.telemetry.hpAtDamage = this.player.hp;
+      if (this.cyberspace?.phase === 'active' && this.player.hp <= 1) {
+        this.#forceJackOutFromBodyDamage(this.cyberspace.layer);
+        return;
+      }
       if (killed) {
         this.telemetry.hpAtDeath = 0;
         this.telemetry.cause = `${attacker?.id ?? 'unknown'}::${source ?? 'unknown'}(${damage})`;
         this.enterResult({ outcome: OUTCOME.DEATH });
       }
+      return;
+    }
+    // P3.M4.4: the meat partner flatlining is *not* run-ending — the Decker
+    // fights on (jacked in, or post jack-out). But it loses the player a meat
+    // operator, so repair control state and alert the shell unconditionally
+    // (the kill can land off-screen while the player is in Cyberspace).
+    if (killed && this.partnerMember && target === this.partnerMember) {
+      this.#onPartnerFlatlined(this.partnerMember);
       return;
     }
     if (attacker === this.player && killed) {
@@ -975,10 +1791,10 @@ export class Run {
   #onEntityMoved({ entity, to }: EntityMovedPayload): void {
     if (this.state !== RUN_STATE.COMBAT) return;
     if (!this.exitTile) return;
-    if (entity === this.player) {
+    if (entity === this.player || entity === this.partnerMember) {
       this.#recordCurrentPlayerVision();
       if (to.x === this.exitTile.x && to.y === this.exitTile.y) {
-        this.#tryExtractFromExit();
+        this.#tryExtractFromExit(entity as Crew);
       }
       return;
     }
@@ -991,7 +1807,7 @@ export class Run {
     }
   }
 
-  #tryExtractFromExit(): void {
+  #tryExtractFromExit(actor: Crew = this.player as Crew): void {
     if (!this.contract) {
       throw new Error('Run.#tryExtractFromExit: exit reached without an active contract');
     }
@@ -1010,6 +1826,10 @@ export class Run {
         return;
       }
     }
+    if (this.contract.objective.kind === OBJECTIVES.SCORE_FINAL && objectiveComplete) {
+      this.#extractScoreOperative(actor);
+      return;
+    }
     this.telemetry.cause = objectiveComplete
       ? 'exit-reached'
       : objectiveExpired
@@ -1018,10 +1838,82 @@ export class Run {
     this.enterResult({
       outcome: OUTCOME.EXIT,
       telemetry: {
-        objectiveComplete,
+        objectiveComplete:
+          this.contract.objective.kind === OBJECTIVES.SCORE_FINAL ? false : objectiveComplete,
         objectiveExpired,
       },
     });
+  }
+
+  #extractScoreOperative(actor: Crew): void {
+    if (!this.contract || this.contract.objective.kind !== OBJECTIVES.SCORE_FINAL) {
+      throw new Error('Run.#extractScoreOperative: active contract is not the Score');
+    }
+    if (!this.world) {
+      throw new Error('Run.#extractScoreOperative: no live world');
+    }
+    if (this.extractedOperativeIds.has(actor.id)) return;
+    this.extractedOperativeIds.add(actor.id);
+    this.world.removeEntity(actor.id);
+    if (this.meatActor === actor) {
+      this.meatActor = this.#nextScoreMeatActor();
+      if (this.cyberspace?.phase === 'active') {
+        this.activeLayer = 'cyber';
+      }
+    }
+    if (this.player === actor && this.cyberspace?.phase === 'active') {
+      throw new Error('Run.#extractScoreOperative: cannot extract a jacked-in Decker body');
+    }
+    const required = this.#scoreOperativeIds();
+    if (
+      [this.crewMember, this.partnerMember].some(
+        crew => crew && required.includes(crew.id) && !crew.alive
+      )
+    ) {
+      this.telemetry.cause = 'score-partial';
+      this.enterResult({
+        outcome: OUTCOME.EXIT,
+        telemetry: {
+          objectiveComplete: false,
+          objectiveExpired: false,
+        },
+      });
+      return;
+    }
+    const allExtracted = required.every(id => this.extractedOperativeIds.has(id));
+    if (!allExtracted) {
+      if (this.onPersist) this.onPersist(this.snapshot());
+      return;
+    }
+    this.telemetry.cause = 'score-extracted';
+    this.enterResult({
+      outcome: OUTCOME.EXIT,
+      telemetry: {
+        objectiveComplete: true,
+        objectiveExpired: false,
+      },
+    });
+  }
+
+  #nextScoreMeatActor(): Crew | null {
+    for (const crew of [this.player, this.partnerMember]) {
+      if (
+        crew &&
+        crew.alive &&
+        this.world?.entities.has(crew.id) &&
+        !this.extractedOperativeIds.has(crew.id)
+      ) {
+        return crew;
+      }
+    }
+    return null;
+  }
+
+  #scoreOperativeIds(): string[] {
+    if (!this.partnerMember) {
+      throw new Error('Run.#scoreOperativeIds: Score run requires a meat partner');
+    }
+    return [this.crewMember.id, this.partnerMember.id];
   }
 
   /**
@@ -1075,7 +1967,10 @@ export class Run {
     const linkedDoorId = objectiveDoorId(this.contract);
     if (linkedDoorId) {
       assertDoorExists(this.world, linkedDoorId);
-      if (this.contract.objective.kind !== OBJECTIVES.TERMINAL_SLICE) {
+      if (
+        this.contract.objective.kind !== OBJECTIVES.TERMINAL_SLICE &&
+        this.contract.objective.kind !== OBJECTIVES.SCORE_FINAL
+      ) {
         const revisitSiteId = this.contract.context.locationSiteId;
         const priorKey =
           revisitSiteId &&
@@ -1150,6 +2045,46 @@ export class Run {
           label: this.contract.objective.title,
           raisesAlarm: true,
           unlocksId: linkedDoorId,
+        })
+      );
+    }
+    if (this.contract.objective.kind === OBJECTIVES.DATA_NODE_SLICE) {
+      // P3.M3.2: the Meatspace door into Cyberspace. One port per contract;
+      // the data nodes themselves live on the cyber grid (P3.M3.3+).
+      const anchor = findInteractableAnchor(this.world, this.player, this.exitTile, this.rng);
+      this.world.addEntity(
+        new JackInPoint({
+          id: 'jack-in-0',
+          x: anchor.x,
+          y: anchor.y,
+        })
+      );
+    }
+    if (this.contract.objective.kind === OBJECTIVES.SCORE_FINAL) {
+      const doorId = scoreDoorId(this.contract);
+      const jackAnchor = findInteractableAnchor(this.world, this.player, this.exitTile, this.rng);
+      this.world.addEntity(
+        new JackInPoint({
+          id: 'jack-in-0',
+          x: jackAnchor.x,
+          y: jackAnchor.y,
+        })
+      );
+      const payloadAnchor = findBehindDoorAnchor(
+        this.world,
+        this.player,
+        this.exitTile,
+        doorId,
+        this.rng
+      );
+      const payloadDesc = scorePayloadDescriptor(this.contract);
+      this.world.addEntity(
+        new Pickup({
+          id: scorePayloadId(this.contract),
+          x: payloadAnchor.x,
+          y: payloadAnchor.y,
+          label: payloadDesc.label,
+          detail: payloadDesc.detail,
         })
       );
     }
@@ -1405,7 +2340,9 @@ export class Run {
     const satisfied = isObjectiveSatisfied(this.contract, this.world, timing, {
       mapSeen: this.mapSeen,
       reconSeen: this.mapSeen,
+      cyber: this.#cyberNodeProgress(),
     });
+    this.#syncScoreDoorUnlock();
     const limit = turnLimitForContract(this.contract);
     if (limit === null || !this.queue) return satisfied;
 
@@ -1461,6 +2398,8 @@ export type ObjectiveTiming = {
 export type ObjectiveState = {
   mapSeen?: ReadonlySet<string> | readonly string[];
   reconSeen?: ReadonlySet<string> | readonly string[];
+  /** P3.M3.4: data-node tally for `data-node-slice` contracts. */
+  cyber?: CyberNodeProgress;
 };
 
 export function isObjectiveSatisfied(
@@ -1507,6 +2446,16 @@ function isObjectiveFamilySatisfied(
       return isReconSatisfied(world, objectiveState);
     case OBJECTIVES.ESCORT_EXTRACT:
       return isEscortExtractSatisfied(world);
+    case OBJECTIVES.DATA_NODE_SLICE: {
+      // P3.M3.4: `Run` threads the per-phase node tally through
+      // `ObjectiveState.cyber` (live count / resolved latch / dormant zero).
+      // Without it — e.g. a bare `isObjectiveSatisfied` call — the objective
+      // is honestly unsatisfiable and extraction stays gated.
+      const cyber = objectiveState?.cyber;
+      return !!cyber && cyber.required > 0 && cyber.sliced >= cyber.required;
+    }
+    case OBJECTIVES.SCORE_FINAL:
+      return isScoreFinalSatisfied(contract, world, objectiveState);
     default: {
       const exhaustive: never = kind;
       throw new Error(`Run.isObjectiveSatisfied: unknown objective kind "${exhaustive}"`);
@@ -1527,6 +2476,41 @@ function objectiveDoorId(contract: Contract): string | null {
     throw new TypeError('Run: objective params.doorId must be a non-empty string when set');
   }
   return doorId;
+}
+
+function scoreDoorId(contract: Contract): string {
+  if (contract.objective.kind !== OBJECTIVES.SCORE_FINAL) {
+    throw new Error('Run: scoreDoorId requires a score-final contract');
+  }
+  const doorId = objectiveDoorId(contract);
+  if (!doorId) {
+    throw new Error('Run: score-final objective is missing a linked door id');
+  }
+  return doorId;
+}
+
+function scoreDoorIdOrNull(contract: Contract): string | null {
+  return contract.objective.kind === OBJECTIVES.SCORE_FINAL ? scoreDoorId(contract) : null;
+}
+
+function scorePayloadId(contract: Contract): string {
+  const doorId = scoreDoorId(contract);
+  return `score-payload-${doorId}`;
+}
+
+/**
+ * Label + flavor for the Score payload pickup (P3.M6.4). When the contract names
+ * a specific stolen blueprint (`objective.params.scoreItemId`), the grab reads as
+ * that item with its heist flavor; an exhausted-pool / abstract Score falls back
+ * to the generic label with no flavor beat.
+ */
+function scorePayloadDescriptor(contract: Contract): { label: string; detail?: string } {
+  const itemId = contract.objective.params?.scoreItemId;
+  if (typeof itemId === 'string') {
+    const item = SCOREABLE_ITEMS.find(i => i.id === itemId);
+    if (item) return { label: item.label, detail: item.flavor };
+  }
+  return { label: 'Score payload' };
 }
 
 export type UnlockMethod = 'terminal' | 'keycard';
@@ -1602,12 +2586,19 @@ function exitTileInWorld(world: World): GridPoint | null {
 
 /** Shared patrol state-machine slice (Skirmisher, Guard, Bruiser, …). */
 function patrolSnapshotExtra(e: PatrolHostile): PatrolSnapshot {
-  return {
+  const snap: PatrolSnapshot = {
     state: e.state,
     lastKnownTarget: e.lastKnownTarget ? { x: e.lastKnownTarget.x, y: e.lastKnownTarget.y } : null,
     patrolWaypoints: e.patrolWaypoints.map(wp => ({ x: wp.x, y: wp.y })),
     patrolIndex: e.patrolIndex,
   };
+  // Only serialise override fields while the hijack is live — keeps the common
+  // (never-overridden) snapshot identical to its pre-P3 shape.
+  if (e.isOverridden) {
+    snap.overrideTurnsRemaining = e.overrideTurnsRemaining;
+    snap.factionBeforeOverride = e.factionBeforeOverride;
+  }
+  return snap;
 }
 
 /** Shared crew slice (Merc, Razor, Tech). Inventory/Gear are JSON-safe at runtime. */
@@ -1634,6 +2625,17 @@ const SNAPSHOT_EXTRACTORS: Partial<Record<EntityArchetypeId, (e: Entity) => Enti
   {
     merc: e => crewSnapshotExtra(e as Crew) as unknown as EntitySnapshotExtra,
     razor: e => crewSnapshotExtra(e as Crew) as unknown as EntitySnapshotExtra,
+    decker: e => {
+      const d = e as Decker;
+      return {
+        ...crewSnapshotExtra(d),
+        // P3.M3.3: named cyber stats ride the run-entity path too, so a
+        // mid-job save can't lose a stat upgrade.
+        ram: d.ram,
+        intrusionStrength: d.intrusionStrength,
+        iceResistance: d.iceResistance,
+      } satisfies DeckerSnapshot as unknown as EntitySnapshotExtra;
+    },
     tech: e =>
       ({
         ...crewSnapshotExtra(e as Crew),
@@ -1683,7 +2685,13 @@ const SNAPSHOT_EXTRACTORS: Partial<Record<EntityArchetypeId, (e: Entity) => Enti
     },
     pickup: e => {
       const p = e as Pickup;
-      return { label: p.label, secured: p.secured, armed: p.armed } satisfies PickupSnapshot;
+      // Only serialize `detail` when present, keeping ordinary pickups byte-stable.
+      return {
+        label: p.label,
+        secured: p.secured,
+        armed: p.armed,
+        ...(p.detail !== undefined ? { detail: p.detail } : {}),
+      } satisfies PickupSnapshot;
     },
     contact: e => {
       const c = e as Contact;
@@ -1724,7 +2732,61 @@ const SNAPSHOT_EXTRACTORS: Partial<Record<EntityArchetypeId, (e: Entity) => Enti
         siteId: k.siteId ?? null,
       } satisfies KeyCardSnapshot;
     },
+    'jack-in-point': e => {
+      const p = e as JackInPoint;
+      return { label: p.label, linked: p.linked, burned: p.burned } satisfies JackInPointSnapshot;
+    },
+    'cyber-avatar': e => {
+      const a = e as CyberAvatar;
+      return {
+        intrusionStrength: a.intrusionStrength,
+        callsign: a.callsign,
+      } satisfies CyberAvatarSnapshot;
+    },
+    'entry-port': e => {
+      return { label: (e as EntryPort).label } satisfies EntryPortSnapshot;
+    },
+    'data-node': e => {
+      const n = e as DataNode;
+      return {
+        label: n.label,
+        sliceDifficulty: n.sliceDifficulty,
+        sliceProgress: n.sliceProgress,
+      } satisfies DataNodeSnapshot;
+    },
+    'probe-ice': e => patrolSnapshotExtra(e as PatrolHostile),
+    'spark-ice': e => patrolSnapshotExtra(e as PatrolHostile),
+    'guardian-ice': e => patrolSnapshotExtra(e as PatrolHostile),
   };
+
+/**
+ * P3.M3: serialize the Cyberspace state machine. Dormant carries no payload;
+ * active serializes the live layer (grid + entities + alarm + fog memory)
+ * with the same entity codec as the meat world; resolved keeps only its
+ * objective latch.
+ */
+function snapshotCyberspace(state: CyberspaceState): RunCyberspaceSnapshot {
+  if (state.phase === 'dormant') return { phase: 'dormant' };
+  if (state.phase === 'active') {
+    const layer = state.layer;
+    return {
+      phase: 'active',
+      grid: {
+        w: layer.world.grid.width,
+        h: layer.world.grid.height,
+        tiles: Array.from(layer.world.grid.tiles),
+      },
+      entities: Array.from(layer.world.entities.values()).map(snapshotEntity),
+      entryTile: { ...layer.entryTile },
+      alarm: layer.world.snapshotAlarm(),
+      mapMemory: { seen: layer.mapSeenKeys() },
+    };
+  }
+  if (state.phase === 'resolved') {
+    return { phase: 'resolved', objectiveComplete: state.objectiveComplete };
+  }
+  throw new Error(`Run.snapshot: unknown cyberspace phase "${(state as { phase: string }).phase}"`);
+}
 
 function snapshotEntity(entity: Entity): RunEntitySnapshot {
   const archetype = archetypeOf(entity);
@@ -1757,6 +2819,7 @@ function archetypeOf(entity: Entity): EntityArchetypeId {
   if (entity instanceof Merc) return 'merc';
   if (entity instanceof Razor) return 'razor';
   if (entity instanceof Tech) return 'tech';
+  if (entity instanceof Decker) return 'decker';
   if (entity instanceof Turret) return 'turret';
   if (entity instanceof Bruiser) return 'bruiser';
   if (entity instanceof Juggernaut) return 'juggernaut';
@@ -1779,6 +2842,13 @@ function archetypeOf(entity: Entity): EntityArchetypeId {
   if (entity instanceof ConsumablePickup) return 'consumable-pickup';
   if (entity instanceof EscortNpc) return 'escort-npc';
   if (entity instanceof KeyCard) return 'keycard';
+  if (entity instanceof JackInPoint) return 'jack-in-point';
+  if (entity instanceof CyberAvatar) return 'cyber-avatar';
+  if (entity instanceof EntryPort) return 'entry-port';
+  if (entity instanceof DataNode) return 'data-node';
+  if (entity instanceof ProbeIce) return 'probe-ice';
+  if (entity instanceof SparkIce) return 'spark-ice';
+  if (entity instanceof GuardianIce) return 'guardian-ice';
   if (entity instanceof BreachingCharge) return 'breaching-charge';
   if (entity instanceof Entity) return 'entity';
   throw new Error(`archetypeOf: cannot classify entity ${(entity as Entity | undefined)?.id}`);
@@ -1802,6 +2872,20 @@ function isRetrieveSatisfied(contract: Contract, world?: World | null): boolean 
     if (entity instanceof Pickup && entity.secured) secured.add(entity.id);
   }
   return secured.size >= required;
+}
+
+function isScoreFinalSatisfied(
+  contract: Contract,
+  world?: World | null,
+  objectiveState: ObjectiveState = {}
+): boolean {
+  if (!world) return false;
+  const cyber = objectiveState.cyber;
+  if (!cyber || cyber.required <= 0 || cyber.sliced < cyber.required) return false;
+  const payloadId = scorePayloadId(contract);
+  if (world.securedPickupIds().includes(payloadId)) return true;
+  const payload = world.entities.get(payloadId);
+  return payload instanceof Pickup && payload.secured;
 }
 
 function isHandoffSatisfied(contract: Contract, world?: World | null): boolean {
@@ -2259,9 +3343,33 @@ function archetypeOfCrew(entity: Entity): CrewArchetypeId {
   if (entity instanceof Merc) return 'merc';
   if (entity instanceof Razor) return 'razor';
   if (entity instanceof Tech) return 'tech';
+  if (entity instanceof Decker) return 'decker';
   throw new Error(
     `archetypeOfCrew: cannot classify crew member ${(entity as Entity | undefined)?.id}`
   );
+}
+
+/**
+ * P3.M4.1: validate a dual-deploy meat partner. Returns the partner (or `null`
+ * when none supplied). Contract-dependent require/forbid lives in
+ * `enterBriefing` — this only enforces the partner's intrinsic shape so a
+ * malformed reservation crashes at construction rather than at jack-in.
+ */
+function normalizePartnerMember(partnerMember: unknown, primary: Crew): Crew | null {
+  if (partnerMember === undefined || partnerMember === null) return null;
+  if (!(partnerMember instanceof Crew)) {
+    throw new TypeError('Run: partnerMember must be a Crew member when supplied');
+  }
+  if (partnerMember instanceof Decker) {
+    throw new Error('Run: the meat partner cannot be a Decker (the Decker jacks in)');
+  }
+  if (partnerMember.flatlined) {
+    throw new Error(`Run: cannot deploy flatlined partner "${partnerMember.id}"`);
+  }
+  if (partnerMember.id === primary.id) {
+    throw new Error('Run: partner must differ from the deployed operator');
+  }
+  return partnerMember;
 }
 
 function freshTelemetry(archetype: CrewArchetypeId, seed: number): RunTelemetry {

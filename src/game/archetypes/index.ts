@@ -22,22 +22,30 @@
 import { Merc, CALLSIGNS as MERC_CALLSIGNS } from './Merc.js';
 import { Razor, CALLSIGNS as RAZOR_CALLSIGNS } from './Razor.js';
 import { Tech, CALLSIGNS as TECH_CALLSIGNS } from './Tech.js';
+import { Decker, CALLSIGNS as DECKER_CALLSIGNS } from './Decker.js';
 import type { Rng } from '../../rng.js';
 import type { FactionId } from '../constants.js';
 import type { CrewInit } from '../Crew.js';
 
-export type Archetype = Merc | Razor | Tech;
+export type Archetype = Merc | Razor | Tech | Decker;
 
 /**
  * Display order is also the starter crew order in `Campaign.buildCrew`.
  * Merc first so new players hit the simpler ranged archetype on first load;
  * Tech last since its gadget loop is the most involved kit to learn.
+ *
+ * The **Decker is deliberately absent** (P3.M2): it is a mid-campaign narrative
+ * recruit, never a starter pick or selector option. Its metadata still lives in
+ * `ARCHETYPES`/`BUILDERS` so `buildCrewMember('decker', …)` and snapshot
+ * round-trips work — it just isn't offered through the normal selection paths.
  */
 export const ARCHETYPE_IDS = Object.freeze(['merc', 'razor', 'tech']);
 
 /**
  * Weighted archetype pool for recruitment. 40% Merc, 40% Razor, 20% Tech.
  * Expressed as a flat array so `rng.pick()` gives the correct distribution.
+ * The Decker is **not** in this pool — normal random recruitment must never
+ * roll one; it joins only through the Act-2 narrative beat (P3.M2 / P3.M1).
  */
 export const RECRUIT_ARCHETYPE_POOL = Object.freeze(['merc', 'merc', 'razor', 'razor', 'tech']);
 
@@ -73,6 +81,14 @@ export const ARCHETYPES = Object.freeze({
     perkName: 'DEPLOY',
     perkLabel: 'Techs can DEPLOY: place a turret that will fire on enemies',
   }),
+  decker: Object.freeze({
+    id: 'decker',
+    name: 'DECKER',
+    blurb: 'Console cowboy. Hijacks corp drones; jacks into Cyberspace.',
+    perks: Object.freeze(['override']),
+    perkName: 'OVERRIDE',
+    perkLabel: 'Deckers can OVERRIDE: hijack a corp drone to fight for you',
+  }),
 });
 
 export type ArchetypeInfo = (typeof ARCHETYPES)[keyof typeof ARCHETYPES];
@@ -81,6 +97,7 @@ const BUILDERS = Object.freeze({
   merc: Merc,
   razor: Razor,
   tech: Tech,
+  decker: Decker,
 });
 
 /**
@@ -93,6 +110,7 @@ export const CALLSIGNS_BY_ARCHETYPE = Object.freeze({
   merc: MERC_CALLSIGNS,
   razor: RAZOR_CALLSIGNS,
   tech: TECH_CALLSIGNS,
+  decker: DECKER_CALLSIGNS,
 });
 
 export function isArchetypeId(value: string) {

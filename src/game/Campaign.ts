@@ -3,7 +3,14 @@ import { World } from './World.js';
 import { TurnQueue } from './TurnQueue.js';
 import { EventBus } from './events.js';
 import { Entity } from './Entity.js';
-import { FACTION, REP, RECRUIT, SALVAGE_SELL_RATE, CLINIC_COST_PER_HP } from './constants.js';
+import {
+  CONTRACT_DIFFICULTY,
+  FACTION,
+  REP,
+  RECRUIT,
+  SALVAGE_SELL_RATE,
+  CLINIC_COST_PER_HP,
+} from './constants.js';
 import {
   SALVAGE_TYPES,
   addSalvage,
@@ -14,10 +21,12 @@ import {
   type TypedSalvage,
 } from './salvage.js';
 import { buildCrewMember, RECRUIT_ARCHETYPE_POOL } from './archetypes/index.js';
-import { Curator } from './hub/Curator.js';
+import { CONTRACT_LEXICON, Curator, contractRequiresCyberspace } from './hub/Curator.js';
+import { OBJECTIVES } from './hub/Curator.js';
 import { Terminal } from './hub/Terminal.js';
 import { Finn } from './hub/Finn.js';
 import { Clinic } from './hub/Clinic.js';
+import { ArchiveTerminal } from './hub/ArchiveTerminal.js';
 import {
   applyFirstHubReveal,
   normalizeHubReveals,
@@ -27,7 +36,14 @@ import {
   type HubReveals,
 } from './hub/hubReveals.js';
 import { buildHub } from './hub/SafeSpace.js';
-import { getItemById, ITEM_SCOPE, metaKeyFor } from './items.js';
+import {
+  getItemById,
+  ITEM_SCOPE,
+  metaKeyFor,
+  SCOREABLE_ITEMS,
+  SCOREABLE_ITEM_IDS,
+  type Item,
+} from './items.js';
 import { OUTCOME, Run } from './Run.js';
 import {
   generateSiteId,
@@ -35,13 +51,138 @@ import {
   mergeSiteSeenKeys as mergeSeen,
   normalizeLocationSite,
 } from './locations.js';
+import { resolveMapDimensions } from './procgen/mapDimensions.js';
+import {
+  normalizeCampaignChronicle,
+  normalizePendingChronicleRun,
+  type CampaignChronicleEntry,
+  type PendingChronicleRun,
+} from './chronicle.js';
 import type { Contract } from './hub/Curator.js';
 import type { Crew } from './Crew.js';
-import type { GridPoint, KeyItem, LocationSite, TileDelta } from '../types.js';
+import type {
+  CampaignArcStage,
+  CampaignEndReason,
+  GridPoint,
+  KeyItem,
+  LocationSite,
+  LocationToken,
+  TileDelta,
+} from '../types.js';
 import type { RunResult, Outcome } from './Run.js';
 
 /** Max remembered combat locations (P2.5.M7.2). One slot is reserved for Phase 3's score target. */
 export const SITE_ROSTER_CAP = 6;
+/** Minimum Rep to leave Act 1 — proven-operator bar (65). Recruitment opens earlier at KNOWN (50). */
+export const ARC_ACT_2_MIN_REP = 65;
+export const ARC_ACT_2_MIN_COMPLETED_JOBS = 4;
+export const ARC_ACT_3_MIN_COMPLETED_JOBS = 9;
+/** Minimum *living* crew size before the Score's final-prep stage unlocks. Starter 2 + Decker = 3, so 4 requires at least one additional recruit who hasn't flatlined. */
+export const ARC_ACT_3_MIN_CREW_ALIVE = 4;
+/** Visited sites sharing the Score target's principal required for Act 3. Includes the target itself. */
+export const ARC_ACT_3_MIN_PRINCIPAL_SITES_VISITED = 3;
+/** Act-2/3 deploys taken before corp heat starts (successful or not). */
+export const CLOCK_ACT2_GRACE_JOBS = 3;
+/** Deploys after grace before the Score window closes (Act 3 only). */
+export const CLOCK_HEAT_WINDOW_JOBS = 5;
+/** Total act-2/3 deploys allowed before clock loss (`grace + window`). */
+export const CLOCK_ACT2_DEADLINE_JOBS = CLOCK_ACT2_GRACE_JOBS + CLOCK_HEAT_WINDOW_JOBS;
+/** Act 3 deploy budget guaranteed when final prep unlocks — room for prep + THE SCORE. */
+export const CLOCK_ACT3_MIN_JOBS_REMAINING = 3;
+
+/** Clock expiry applies only during Act 3 final prep; Act 2 casing can run past the old deadline. */
+export function clockDeadlineApplies(arcStage: CampaignArcStage): boolean {
+  return arcStage === 'act-3';
+}
+/** Campaign-ending payday for completing THE SCORE. */
+export const SCORE_CREDITS_REWARD = 5_000;
+const SYNTHETIC_SCORE_TARGET_DIFFICULTY = CONTRACT_DIFFICULTY.CRITICAL;
+/**
+ * Salt mixed into the Score target seed when picking the heist payload (P3.M6.4),
+ * so blueprint selection is deterministic per campaign but independent of the
+ * map-generation roll that shares the same seed.
+ */
+const SCORE_PAYLOAD_SALT = 0x5c07e;
+
+/**
+ * Deterministically pick the unacquired scoreable blueprint this Score targets.
+ * Draws from {@link SCOREABLE_ITEMS} minus the meta-crew's already-stolen ids;
+ * a retired/forward-version id in `acquiredIds` simply isn't in the pool, so it
+ * is never rolled. Returns `null` when the pool is exhausted (every blueprint
+ * stolen) — at which point the Score falls back to an abstract credit payload
+ * via {@link pickAbstractScorePayload} (P3.M6.5).
+ */
+function pickScorePayload(seed: number, acquiredIds: readonly string[]): Item | null {
+  const acquired = new Set(acquiredIds);
+  const pool = SCOREABLE_ITEMS.filter(item => !acquired.has(item.id));
+  if (pool.length === 0) return null;
+  const rng = new Rng(((seed >>> 0) ^ SCORE_PAYLOAD_SALT) >>> 0);
+  return pool[Math.floor(rng.next() * pool.length)] ?? null;
+}
+
+/**
+ * An abstract Score target (P3.M6.5). When every scoreable blueprint has been
+ * stolen, the heist has nothing new to reverse-engineer — so the crew goes for
+ * the principal's liquid assets instead. Each category frames the same
+ * campaign-ending credit payday with a distinct fiction; it carries no item id,
+ * so a completed abstract Score writes nothing to the meta-store.
+ */
+export type AbstractScoreTarget = { id: string; label: string; flavor: string };
+
+export const ABSTRACT_SCORE_TARGETS: readonly AbstractScoreTarget[] = Object.freeze([
+  {
+    id: 'liquid-reserves',
+    label: 'liquid reserves',
+    flavor:
+      'Their R&D vaults are picked clean — nothing left worth reverse-engineering. So this run, you go for the money.',
+  },
+  {
+    id: 'bearer-bonds',
+    label: 'bearer-bond cache',
+    flavor: "No prototypes left to lift; this time it's a strongbox of untraceable bearer bonds.",
+  },
+  {
+    id: 'slush-fund',
+    label: 'off-books slush fund',
+    flavor: "You've stolen every blueprint they had. Now you're draining the off-books slush fund.",
+  },
+  {
+    id: 'cold-wallet',
+    label: 'crypto cold-wallet keys',
+    flavor:
+      'The labs hold nothing new — so the take is the cold-wallet keys to their crypto reserves.',
+  },
+  {
+    id: 'payroll-skim',
+    label: 'payroll clearing account',
+    flavor:
+      'Nothing left to reverse-engineer. You settle for siphoning the payroll clearing account dry.',
+  },
+]);
+
+/** Salt mixed into the Score seed for the abstract draw, independent of the blueprint roll. */
+const ABSTRACT_SCORE_PAYLOAD_SALT = 0xab57a;
+
+/**
+ * Deterministically pick the abstract credit payload for an exhausted-pool
+ * Score. Seeded from the target seed (XORed with its own salt) so the category
+ * is stable per campaign yet independent of both the map roll and the blueprint
+ * draw. Always returns a target — the set is non-empty by construction.
+ */
+function pickAbstractScorePayload(seed: number): AbstractScoreTarget {
+  const rng = new Rng(((seed >>> 0) ^ ABSTRACT_SCORE_PAYLOAD_SALT) >>> 0);
+  const target = ABSTRACT_SCORE_TARGETS[Math.floor(rng.next() * ABSTRACT_SCORE_TARGETS.length)];
+  if (!target) {
+    throw new Error('pickAbstractScorePayload: abstract target set is empty');
+  }
+  return target;
+}
+
+/** Read the embedded heist payload id from a completed Score contract (or `null`). */
+function scorePayloadItemId(contract: Contract | null): string | null {
+  const raw = contract?.objective?.params?.scoreItemId;
+  return typeof raw === 'string' && SCOREABLE_ITEM_IDS.has(raw) ? raw : null;
+}
 
 export const CAMPAIGN_STATE = Object.freeze({
   HUB: 'HUB',
@@ -57,6 +198,28 @@ export type CampaignState = (typeof CAMPAIGN_STATE)[keyof typeof CAMPAIGN_STATE]
 // type is a plain Record so they don't cause a type error on restore.
 export type CampaignMeta = Record<string, unknown>;
 
+export type CampaignArc = {
+  arcStage: CampaignArcStage;
+  deckerRecruited: boolean;
+  scoreRevealed: boolean;
+  clockStarted: boolean;
+  scoreAttempted: boolean;
+  scoreCompleted: boolean;
+};
+
+const CAMPAIGN_ARC_STAGES: readonly CampaignArcStage[] = ['act-1', 'act-2', 'act-3', 'score'];
+
+export function defaultCampaignArc(): CampaignArc {
+  return {
+    arcStage: 'act-1',
+    deckerRecruited: false,
+    scoreRevealed: false,
+    clockStarted: false,
+    scoreAttempted: false,
+    scoreCompleted: false,
+  };
+}
+
 export type CampaignOptions = {
   id?: string;
   seed?: unknown;
@@ -65,23 +228,29 @@ export type CampaignOptions = {
   credits?: unknown;
   rep?: unknown;
   meta?: unknown;
+  arc?: unknown;
   hubReveals?: unknown;
   completedJobs?: unknown;
+  /** Act-2/3 job deploys that drive the Clock (not completedJobs). */
+  clockJobsTaken?: unknown;
   keyItems?: unknown;
   siteRoster?: unknown;
+  chronicle?: unknown;
+  pendingChronicleRun?: unknown;
   onPersist?: unknown;
   onResult?: unknown;
 };
 
 type CampaignLike = {
   crew: { flatlined: boolean }[];
+  activeRun?: { contract: Contract | null } | null;
+  arc?: Pick<CampaignArc, 'scoreRevealed' | 'scoreAttempted' | 'arcStage'>;
+  clockJobsTaken?: number;
 };
 
 /**
- * True when exactly one crew member is not yet `flatlined` — the operator
- * currently on a job. A `DEATH` outcome on `Campaign.onJobEnd` would flatline
- * them and set `Campaign.state` to `ENDED`. The shell uses this to swap the
- * debrief overlay before `onJobEnd` runs.
+ * True when a `DEATH` outcome is campaign-terminal: either the last living
+ * operator is gone, or the Decker flatlines during the Score.
  *
  * @param {{ crew: { flatlined: boolean }[] }} campaign
  */
@@ -89,7 +258,39 @@ export function willEndCampaignOnThisDeath(campaign: CampaignLike): boolean {
   if (!campaign || typeof campaign !== 'object' || !Array.isArray(campaign.crew)) {
     throw new TypeError('willEndCampaignOnThisDeath requires a Campaign-like object with crew[]');
   }
-  return campaign.crew.filter(member => !member.flatlined).length === 1;
+  return (
+    campaign.crew.filter(member => !member.flatlined).length === 1 ||
+    (campaign.activeRun?.contract !== null &&
+      campaign.activeRun?.contract !== undefined &&
+      isScoreContract(campaign.activeRun.contract))
+  );
+}
+
+/**
+ * True when settling this job result will transition the campaign to ENDED.
+ * The shell uses this before showing a debrief so terminal outcomes can bypass
+ * `<crash-dump>` and proceed directly to the Chronicle summary.
+ */
+export function willEndCampaignAfterResult(
+  campaign: CampaignLike,
+  outcome: Outcome,
+  completed: boolean
+): boolean {
+  if (outcome !== OUTCOME.DEATH && outcome !== OUTCOME.EXIT) {
+    throw new Error(`willEndCampaignAfterResult: unknown outcome "${outcome}"`);
+  }
+  if (typeof completed !== 'boolean') {
+    throw new TypeError('willEndCampaignAfterResult: completed must be boolean');
+  }
+  if (outcome === OUTCOME.DEATH && willEndCampaignOnThisDeath(campaign)) return true;
+  const contract = campaign.activeRun?.contract;
+  if (outcome === OUTCOME.EXIT && contract && isScoreContract(contract)) return true;
+  return Boolean(
+    campaign.arc?.scoreRevealed &&
+    clockDeadlineApplies(campaign.arc.arcStage) &&
+    (campaign.clockJobsTaken ?? 0) >= CLOCK_ACT2_DEADLINE_JOBS &&
+    !campaign.arc.scoreAttempted
+  );
 }
 
 export function buildCrew(rng: Rng): Crew[] {
@@ -116,9 +317,12 @@ export class Campaign {
   credits: number;
   rep: number;
   meta: CampaignMeta;
+  arc: CampaignArc;
   state: CampaignState;
   activeRun: Run | null;
   deployedMemberId: string | null;
+  /** P3.M4.1: the reserved meat partner on a dual-deploy. `null` on solo runs. */
+  deployedPartnerId: string | null;
   availableRecruits: Crew[];
   recruitedThisVisit: boolean;
   pendingRecruitReward: boolean;
@@ -133,14 +337,21 @@ export class Campaign {
   curator: Curator | null;
   finn: Finn | null;
   terminal: Terminal | null;
+  archiveTerminal: ArchiveTerminal | null;
   clinic: Clinic | null;
   healedThisVisit: Set<string>;
   hubReveals: HubReveals;
   completedJobs: number;
+  /** Deploys taken during Act 2 / Act 3 casing prep — drives Clock heat and deadline. */
+  clockJobsTaken: number;
   /** Persistent key-item inventory (P2.5.M6.2) — keycards survive across runs. */
   keyItems: KeyItem[];
   /** Remembered combat locations / site roster (P2.5.M7.2), max `SITE_ROSTER_CAP`. */
   siteRoster: LocationSite[];
+  /** P3.M7: persisted campaign narrative memory, newest entry appended in order. */
+  chronicle: CampaignChronicleEntry[];
+  /** Mid-run baseline used to write the final chronicle entry on settlement. */
+  pendingChronicleRun: PendingChronicleRun | null;
   /** Set by the latest `enterHub` when a reveal message fired; shell reads and clears. */
   lastHubReveal: HubRevealMessage | null;
   exitTile: GridPoint | null;
@@ -153,10 +364,14 @@ export class Campaign {
     credits = 0,
     rep = REP.START,
     meta = {},
+    arc,
     hubReveals,
     completedJobs = 0,
+    clockJobsTaken = 0,
     keyItems,
     siteRoster,
+    chronicle,
+    pendingChronicleRun,
     onPersist,
     onResult,
   }: CampaignOptions = {}) {
@@ -190,6 +405,14 @@ export class Campaign {
         `Campaign completedJobs must be a non-negative integer, got ${completedJobs}`
       );
     }
+    if (
+      clockJobsTaken !== undefined &&
+      (!Number.isInteger(clockJobsTaken) || (clockJobsTaken as number) < 0)
+    ) {
+      throw new RangeError(
+        `Campaign clockJobsTaken must be a non-negative integer, got ${clockJobsTaken}`
+      );
+    }
     if (onPersist !== undefined && typeof onPersist !== 'function') {
       throw new TypeError('Campaign: onPersist must be a function');
     }
@@ -205,13 +428,18 @@ export class Campaign {
     this.credits = credits;
     this.rep = rep;
     this.meta = { ...(meta as CampaignMeta) };
+    this.arc = normalizeCampaignArc(arc);
     this.hubReveals = normalizeHubReveals(hubReveals, 'Campaign hubReveals');
     this.completedJobs = (completedJobs as number) ?? 0;
+    this.clockJobsTaken = (clockJobsTaken as number) ?? 0;
     this.keyItems = normalizeKeyItems(keyItems);
     this.siteRoster = normalizeSiteRoster(siteRoster);
+    this.chronicle = normalizeCampaignChronicle(chronicle);
+    this.pendingChronicleRun = normalizePendingChronicleRun(pendingChronicleRun);
     this.state = CAMPAIGN_STATE.HUB;
     this.activeRun = null;
     this.deployedMemberId = null;
+    this.deployedPartnerId = null;
     this.availableRecruits = [];
     this.recruitedThisVisit = false;
     this.pendingRecruitReward = false;
@@ -227,6 +455,7 @@ export class Campaign {
     this.curator = null;
     this.finn = null;
     this.terminal = null;
+    this.archiveTerminal = null;
     this.clinic = null;
     this.healedThisVisit = new Set();
     this.lastHubReveal = null;
@@ -240,9 +469,56 @@ export class Campaign {
     }
   }
 
+  get arcStage(): CampaignArcStage {
+    return this.arc.arcStage;
+  }
+
+  get clockHeat(): number {
+    if (!this.arc.clockStarted) return 0;
+    return Math.max(0, this.clockJobsTaken - CLOCK_ACT2_GRACE_JOBS);
+  }
+
+  /**
+   * P3.M3.1: whether the roster carries a non-flatlined Decker. Gates
+   * Cyberspace-capable contract generation (`Curator` reads this through the
+   * `ContractCampaign` surface) and is the precondition for jack-in.
+   */
+  get hasLivingDecker(): boolean {
+    return this.crew.some(member => member.archetype === 'Decker' && !member.flatlined);
+  }
+
+  get hasLivingScorePartner(): boolean {
+    return this.crew.some(member => member.archetype !== 'Decker' && !member.flatlined);
+  }
+
+  get scoreDeadlineJobsRemaining(): number {
+    return Math.max(0, CLOCK_ACT2_DEADLINE_JOBS - this.clockJobsTaken);
+  }
+
+  /** Set when `state === ENDED`; null while the campaign is still live. */
+  get endReason(): CampaignEndReason | null {
+    if (this.state !== CAMPAIGN_STATE.ENDED) return null;
+    if (this.arc.scoreCompleted) return 'score-complete';
+    if (this.meta.scorePartial === true) return 'score-partial';
+    if (this.arc.scoreAttempted && this.arc.arcStage === 'score') {
+      return 'decker-flatlined-score';
+    }
+    if (this.#clockExpired()) {
+      return 'clock-expired';
+    }
+    return 'crew-wipe';
+  }
+
   enterHub(): void {
     if (this.state !== CAMPAIGN_STATE.HUB && this.state !== CAMPAIGN_STATE.COMBAT) {
       throw new Error(`Campaign.enterHub: illegal transition from ${this.state}`);
+    }
+    this.#advanceArcTransitions();
+    if (this.arc.scoreCompleted || this.#clockExpired()) {
+      this.state = CAMPAIGN_STATE.ENDED;
+      this.#tearDownHubWorld();
+      this.#persist();
+      return;
     }
     this.recruitedThisVisit = false;
     this.healedThisVisit = new Set();
@@ -268,6 +544,11 @@ export class Campaign {
       x: hub.terminalSpawn.x,
       y: hub.terminalSpawn.y,
     });
+    this.archiveTerminal = new ArchiveTerminal({
+      id: 'archive-terminal',
+      x: hub.archiveTerminalSpawn.x,
+      y: hub.archiveTerminalSpawn.y,
+    });
     this.lastHubReveal = applyFirstHubReveal(this);
     if (shouldSpawnFinn(this.hubReveals)) {
       this.finn = new Finn({
@@ -290,6 +571,7 @@ export class Campaign {
     this.world.addEntity(this.player);
     this.world.addEntity(this.curator);
     this.world.addEntity(this.terminal);
+    this.world.addEntity(this.archiveTerminal);
     if (this.finn) this.world.addEntity(this.finn);
     if (this.clinic) this.world.addEntity(this.clinic);
     this.queue = new TurnQueue([FACTION.PLAYER, FACTION.CORP]);
@@ -309,13 +591,19 @@ export class Campaign {
   backfillRecruitsIfEligible(): void {
     if (this.state !== CAMPAIGN_STATE.HUB) return;
     if (this.recruitedThisVisit) return;
-    if (this.rep < REP.RECRUIT_THRESHOLD && !this.pendingRecruitReward) return;
+    if (
+      this.rep < REP.RECRUIT_THRESHOLD &&
+      !this.pendingRecruitReward &&
+      !this.#needsReplacementDecker()
+    ) {
+      return;
+    }
     if (this.availableRecruits.length > 0) return;
     this.availableRecruits = this.generateRecruits();
     this.#persist();
   }
 
-  deployCrewMember(memberId: string, contract: Contract): Run {
+  deployCrewMember(memberId: string, contract: Contract, partnerId?: string | null): Run {
     if (this.state !== CAMPAIGN_STATE.HUB) {
       throw new Error(`Campaign.deployCrewMember: illegal from ${this.state}`);
     }
@@ -326,11 +614,57 @@ export class Campaign {
     if (member.flatlined) {
       throw new Error(`Campaign.deployCrewMember: ${member.callsign ?? member.id} is flatlined`);
     }
+    const cyber = contractRequiresCyberspace(contract);
+    // P3.M3.1: a Cyberspace contract is unwinnable without the one operator who
+    // can jack in — fail loudly at the Hub boundary instead of starting it.
+    if (cyber && member.archetype !== 'Decker') {
+      throw new Error(
+        `Campaign.deployCrewMember: contract "${contract.label}" requires a living Decker to jack in`
+      );
+    }
+    if (isScoreContract(contract) && !partnerId) {
+      throw new Error('Campaign.deployCrewMember: THE SCORE requires a living meat partner');
+    }
+    // P3.M4.1: a dual-deploy rides a meat partner alongside the Decker. The
+    // partner is optional at this layer (the briefing requires one for normal
+    // play, but a solo Decker cyber run stays legal); when supplied it must be
+    // a distinct, living, non-Decker operator. A partner on a non-cyber
+    // contract is a wiring bug.
+    const partner = partnerId ? this.getCrewMember(partnerId) : null;
+    if (partnerId) {
+      if (!cyber) {
+        throw new Error('Campaign.deployCrewMember: a meat partner requires a Cyberspace contract');
+      }
+      if (!partner) {
+        throw new Error(`Campaign.deployCrewMember: unknown partner "${partnerId}"`);
+      }
+      if (partner.flatlined) {
+        throw new Error(
+          `Campaign.deployCrewMember: partner ${partner.callsign ?? partner.id} is flatlined`
+        );
+      }
+      if (partner.archetype === 'Decker') {
+        throw new Error('Campaign.deployCrewMember: the meat partner cannot be a Decker');
+      }
+      if (partner.id === member.id) {
+        throw new Error(
+          'Campaign.deployCrewMember: partner must differ from the deployed operator'
+        );
+      }
+    }
+    if (isScoreContract(contract)) {
+      this.#beginScoreAttempt(contract);
+    } else if (this.arc.arcStage === 'act-2' || this.arc.arcStage === 'act-3') {
+      this.clockJobsTaken += 1;
+    }
     const deployedContract = this.#contractWithRememberedDimensions(contract);
+    this.pendingChronicleRun = this.#buildPendingChronicleRun(deployedContract);
     this.#tearDownHubWorld();
     this.deployedMemberId = member.id;
+    this.deployedPartnerId = partner?.id ?? null;
     this.activeRun = new Run({
       crewMember: member,
+      partnerMember: partner ?? undefined,
       seed: deployedContract.seed,
       // Replay prior-visit terrain mutations on revisits ([] for first visits).
       priorMutationDeltas: this.priorDeltasForContract(deployedContract),
@@ -387,6 +721,30 @@ export class Campaign {
       throw new TypeError(`Campaign.onJobEnd: completed must be boolean`);
     }
 
+    // Capture the contract before settlement clears `activeRun` — the completed
+    // Score's payload id (P3.M6.4) is read from it after the run is torn down.
+    const activeContract = this.activeRun.contract;
+    const completedScoreRun =
+      activeContract !== null &&
+      isScoreContract(activeContract) &&
+      outcome === OUTCOME.EXIT &&
+      completed;
+    const partialScoreRun =
+      activeContract !== null &&
+      isScoreContract(activeContract) &&
+      outcome === OUTCOME.EXIT &&
+      !completed;
+    const failedScoreRun =
+      activeContract !== null && isScoreContract(activeContract) && outcome === OUTCOME.DEATH;
+    const chroniclePending = this.pendingChronicleRun;
+
+    // P3.M4.4: a meat partner that flatlined on the field is gone for good —
+    // independent of the Decker's outcome. The Decker may have extracted clean
+    // while the partner died covering the body; flatline the partner either way.
+    if (this.deployedPartnerId && this.activeRun.partnerDown) {
+      this.flatlineMember(this.deployedPartnerId);
+    }
+
     if (outcome === OUTCOME.DEATH) {
       this.flatlineMember(this.deployedMemberId);
     } else {
@@ -394,14 +752,14 @@ export class Campaign {
       // returning to the Hub — breach holes survive even on an aborted exit.
       this.#mergeRunDeltasIntoRoster(this.activeRun);
       this.#mergeRunSeenIntoRoster(this.activeRun);
-      this.completedJobs += 1;
       if (completed) {
+        this.completedJobs += 1;
         addSalvage(this.salvage, extracted);
         const reward = this.activeRun.contract?.reward;
         this.credits += reward?.credits ?? 0;
         if (reward) this.adjustRep(reward.repDelta);
         if (reward?.recruit) this.pendingRecruitReward = true;
-      } else {
+      } else if (!partialScoreRun) {
         // Abort extraction: objective abandoned — rep penalty, no rewards.
         this.adjustRep(REP.ABORT_PENALTY);
       }
@@ -409,13 +767,43 @@ export class Campaign {
     // Clear job-scoped salvage (extracted or forfeited on death).
     // Consumables persist in the crew member's inventory until used —
     // they're a permanent part of the loadout, not job-scoped.
-    const member = this.getCrewMember(this.deployedMemberId);
-    if (member?.inventory) {
-      member.inventory.salvage = emptySalvage();
+    // P3.M4.1: a dual-deploy commits the meat partner too — clear its
+    // job-scoped salvage on the same boundary as the primary operator.
+    for (const id of [this.deployedMemberId, this.deployedPartnerId]) {
+      const crew = id ? this.getCrewMember(id) : null;
+      if (crew?.inventory) {
+        crew.inventory.salvage = emptySalvage();
+      }
     }
 
     this.activeRun = null;
     this.deployedMemberId = null;
+    this.deployedPartnerId = null;
+    this.pendingChronicleRun = null;
+
+    if (chroniclePending) {
+      this.#appendChronicleJobEntry(chroniclePending, {
+        outcome,
+        completed,
+        activeContract,
+      });
+    }
+
+    if (failedScoreRun) {
+      this.state = CAMPAIGN_STATE.ENDED;
+      this.#tearDownHubWorld();
+      this.#persist();
+      return;
+    }
+
+    if (partialScoreRun) {
+      this.meta.scorePartial = true;
+      this.arc.arcStage = 'score';
+      this.state = CAMPAIGN_STATE.ENDED;
+      this.#tearDownHubWorld();
+      this.#persist();
+      return;
+    }
 
     if (this.crew.every(member => member.flatlined)) {
       this.state = CAMPAIGN_STATE.ENDED;
@@ -424,8 +812,125 @@ export class Campaign {
       return;
     }
 
+    if (completedScoreRun) {
+      this.arc.scoreCompleted = true;
+      this.arc.arcStage = 'score';
+      // P3.M6.4: record the stolen blueprint so settlement writes it to the
+      // cross-campaign meta-store. Persisted on `meta` (alongside `scorePartial`)
+      // so a refresh after completion still surfaces the unlock to the shell —
+      // the actual `DataStore.archiveScoreableItem` write is idempotent.
+      const payloadId = scorePayloadItemId(activeContract);
+      if (payloadId) this.meta.scoreUnlockedItemId = payloadId;
+      this.state = CAMPAIGN_STATE.ENDED;
+      this.#tearDownHubWorld();
+      this.#persist();
+      return;
+    }
+
     this.state = CAMPAIGN_STATE.HUB;
     this.enterHub();
+  }
+
+  /**
+   * The scoreable blueprint id stolen by a completed Score, or `null` if the
+   * Score isn't complete / drew an abstract payload (P3.M6.4). Read by the shell
+   * on terminal settlement to write the cross-campaign meta-store. Returns a
+   * known scoreable id only — a stale/foreign meta value is treated as absent.
+   */
+  get scoreUnlockedItemId(): string | null {
+    const raw = this.meta.scoreUnlockedItemId;
+    return typeof raw === 'string' && SCOREABLE_ITEM_IDS.has(raw) ? raw : null;
+  }
+
+  canAttemptScore(): boolean {
+    if (this.state !== CAMPAIGN_STATE.HUB) return false;
+    if (this.arc.arcStage !== 'act-3') return false;
+    if (this.arc.scoreAttempted || this.arc.scoreCompleted) return false;
+    if (!this.hasLivingDecker) return false;
+    if (!this.hasLivingScorePartner) return false;
+    return this.#scoreTargetSiteOrNull() !== null;
+  }
+
+  /**
+   * Build the climactic Score contract. P3.M6.4: the heist targets a specific
+   * unacquired scoreable blueprint (drawn deterministically from the seed minus
+   * the meta-crew's already-stolen ids), and the briefing frames the site around
+   * that prototype. The chosen id rides along in `objective.params.scoreItemId`
+   * so the completion path can unlock it. An exhausted pool (every blueprint
+   * stolen) draws an abstract credit payload instead (P3.M6.5): the briefing is
+   * framed from {@link ABSTRACT_SCORE_TARGETS} but carries no `scoreItemId`, so a
+   * clean completion writes nothing to the meta-store.
+   *
+   * @param unlockedScoreableIds — acquired blueprint ids from the meta-store
+   *   (`DataStore.unlockedScoreableItems`); these are excluded from the draw.
+   */
+  buildScoreContract(unlockedScoreableIds: readonly string[] = []): Contract {
+    if (!this.canAttemptScore()) {
+      throw new Error('Campaign.buildScoreContract: Score is not available');
+    }
+    const target = this.#scoreTargetSiteOrNull();
+    if (!target) {
+      throw new Error('Campaign.buildScoreContract: no Score target designated');
+    }
+    if (!target.principal) {
+      throw new Error('Campaign.buildScoreContract: Score target is missing principal identity');
+    }
+    const seed = Number(target.seed);
+    if (!Number.isInteger(seed) || seed < 0) {
+      throw new Error(`Campaign.buildScoreContract: Score target seed "${target.seed}" is invalid`);
+    }
+    const principal = locationContextToken(target.principal);
+    const site = target.site ? locationContextToken(target.site) : undefined;
+    const heatThreat = Math.min(6, 4 + this.clockHeat);
+    const objectiveKind = OBJECTIVES.SCORE_FINAL;
+    const doorId = 'score-door-0';
+    const siteLabel = target.label
+      .replace(/^\/\//, '')
+      .replace(/\s+-\s+Score target$/i, '')
+      .trim();
+    const payload = pickScorePayload(seed, unlockedScoreableIds);
+    const abstract = payload ? null : pickAbstractScorePayload(seed);
+    const briefing = payload
+      ? `${payload.flavor} Their prototype is held at ${siteLabel}. Breach the facility, ` +
+        `secure the ${payload.label}, and extract with the crew alive.`
+      : `${abstract!.flavor} The ${abstract!.label} sits in ${siteLabel}. Breach the facility, ` +
+        `clean it out, and extract with the crew alive.`;
+    return {
+      seed,
+      mapWidth: target.mapWidth,
+      mapHeight: target.mapHeight,
+      objective: {
+        kind: objectiveKind,
+        title: 'The Score',
+        briefing,
+        params: {
+          requiresCyberspace: true,
+          count: 1,
+          doorId,
+          ...(payload ? { scoreItemId: payload.id } : {}),
+        },
+      },
+      difficulty: CONTRACT_DIFFICULTY.CRITICAL,
+      threatCount: heatThreat,
+      label: `${target.label.replace(/\s+-\s+Score target$/i, '')} - THE SCORE`,
+      context: {
+        recipeId: 'score-final',
+        principal,
+        ...(site ? { site } : {}),
+        asset: { id: 'score-target', label: 'Score target', groups: ['score'] },
+        action: { id: 'score-run', label: 'run', groups: ['score'] },
+        tags: [
+          'score',
+          'meatspace',
+          'cyberspace',
+          `objective:${objectiveKind}`,
+          `principal:${principal.id}`,
+        ],
+        arcStage: 'score',
+        locationSiteId: target.id,
+      },
+      reward: { credits: SCORE_CREDITS_REWARD, repDelta: 0 },
+    };
   }
 
   flatlineMember(memberId: string): void {
@@ -523,6 +1028,14 @@ export class Campaign {
    * Returns an empty array when Rep is below the recruitment threshold.
    */
   generateRecruits(): Crew[] {
+    if (this.#needsReplacementDecker()) {
+      const replacement = buildCrewMember('decker', { x: 0, y: 0 }, this.rng, {
+        id: `recruit-decker-${this.rng.intRange(0, 0xffff).toString(16)}`,
+        excludeCallsigns: this.allUsedCallsigns(),
+      });
+      this.rewardRecruitIds.add(replacement.id);
+      return [replacement];
+    }
     const rewardRecruit = this.pendingRecruitReward;
     if (this.rep < REP.RECRUIT_THRESHOLD && !rewardRecruit) return [];
     const count =
@@ -568,6 +1081,14 @@ export class Campaign {
     this.rewardRecruitIds.delete(recruit.id);
     this.crew.push(recruit);
     this.recruitedThisVisit = true;
+    this.#appendChronicleMilestone(
+      this.arc.arcStage,
+      `RECRUITED — ${recruit.callsign ?? recruit.id}`,
+      `${recruit.callsign ?? recruit.id} joined the crew as ${recruit.archetype}.`,
+      [
+        `Crew size ${this.crew.filter(member => !member.flatlined).length} living / ${this.crew.length} total`,
+      ]
+    );
     this.#persist();
   }
 
@@ -618,6 +1139,14 @@ export class Campaign {
     }
     this.crew.push(...selected);
     this.initialCandidates = [];
+    this.#appendChronicleMilestone(
+      'act-1',
+      'CREW ASSEMBLED',
+      `The first operators are in place: ${selected
+        .map(member => member.callsign ?? member.id)
+        .join(', ')}.`,
+      [`Starter crew ${selected.length} operators`, 'Street-level contracts are now live.']
+    );
   }
 
   /**
@@ -938,6 +1467,398 @@ export class Campaign {
     return this.crew.find(member => member.id === memberId) ?? null;
   }
 
+  #appendChronicleMilestone(
+    stage: CampaignArcStage,
+    title: string,
+    summary: string,
+    detailLines: string[]
+  ): void {
+    this.chronicle.push({
+      id: `chronicle-${this.chronicle.length}`,
+      sequence: this.chronicle.length,
+      kind: 'milestone',
+      stage,
+      title,
+      summary,
+      detailLines: [...detailLines],
+    });
+  }
+
+  #buildPendingChronicleRun(contract: Contract): PendingChronicleRun {
+    const scoreTarget = this.#scoreTargetSiteOrNull();
+    const scoreTargetName = scoreTarget ? this.#scoreTargetDisplayName(scoreTarget) : null;
+    const principalLabel = contract.context.principal?.label?.trim() || null;
+    const isScore = contract.context.recipeId === 'score-final';
+    const isCasing =
+      !isScore &&
+      !!scoreTarget?.principal?.id &&
+      contract.context.principal?.id === scoreTarget.principal.id &&
+      contract.context.locationSiteId !== scoreTarget.id;
+    return {
+      sequence: this.chronicle.length,
+      stage: this.arc.arcStage,
+      contractLabel: contract.label,
+      objectiveTitle: contract.objective.title,
+      scoreTargetName,
+      principalLabel,
+      isScore,
+      isCasing,
+      repBefore: this.rep,
+      creditsBefore: this.credits,
+      completedJobsBefore: this.completedJobs,
+      flatlinedCrewIdsBefore: this.crew.filter(member => member.flatlined).map(member => member.id),
+    };
+  }
+
+  #appendChronicleJobEntry(
+    pending: PendingChronicleRun,
+    opts: { outcome: Outcome; completed: boolean; activeContract: Contract | null }
+  ): void {
+    const crewLosses = this.crew
+      .filter(member => member.flatlined && !pending.flatlinedCrewIdsBefore.includes(member.id))
+      .map(member => member.callsign ?? member.id);
+    const repDelta = this.rep - pending.repBefore;
+    const creditsDelta = this.credits - pending.creditsBefore;
+    const completedJobsDelta = this.completedJobs - pending.completedJobsBefore;
+    const title = this.#chronicleJobTitle(pending, opts);
+    const summary = this.#chronicleJobSummary(pending, opts, crewLosses);
+    const detailLines = [
+      `Objective: ${pending.objectiveTitle}`,
+      `Outcome: ${this.#chronicleOutcomeLabel(pending, opts)}`,
+      `Rep ${repDelta >= 0 ? '+' : ''}${repDelta} | Credits ${creditsDelta >= 0 ? '+' : ''}${creditsDelta}`,
+      `Completed jobs ${pending.completedJobsBefore} -> ${this.completedJobs}`,
+    ];
+    if (crewLosses.length > 0) {
+      detailLines.push(`Losses: ${crewLosses.join(', ')}`);
+    }
+    const rewardLine = this.#scoreRewardDetail(opts.activeContract);
+    if (rewardLine) {
+      detailLines.push(rewardLine);
+    }
+    if (pending.isCasing && pending.principalLabel) {
+      detailLines.push(`Casing principal: ${pending.principalLabel}`);
+    }
+    if (pending.scoreTargetName) {
+      detailLines.push(`Score target: ${pending.scoreTargetName}`);
+    }
+    if (completedJobsDelta < 0) {
+      throw new Error('Campaign chronicle: completedJobs regressed during settlement');
+    }
+    this.chronicle.push({
+      id: `chronicle-${pending.sequence}`,
+      sequence: pending.sequence,
+      kind: 'job',
+      stage: pending.stage,
+      title,
+      summary,
+      detailLines,
+    });
+  }
+
+  #chronicleJobTitle(
+    pending: PendingChronicleRun,
+    opts: { outcome: Outcome; completed: boolean; activeContract: Contract | null }
+  ): string {
+    if (pending.isScore) {
+      if (opts.outcome === OUTCOME.DEATH) return 'THE SCORE — FLATLINED';
+      if (opts.completed) return 'THE SCORE — COMPLETE';
+      return 'THE SCORE — PARTIAL';
+    }
+    if (pending.isCasing && pending.principalLabel) {
+      return `CASING — ${pending.principalLabel.toUpperCase()}`;
+    }
+    if (pending.stage === 'act-1') return 'STREET JOB';
+    if (pending.stage === 'act-3') return 'FINAL PREP';
+    return 'RUN LOGGED';
+  }
+
+  #chronicleJobSummary(
+    pending: PendingChronicleRun,
+    opts: { outcome: Outcome; completed: boolean; activeContract: Contract | null },
+    crewLosses: string[]
+  ): string {
+    if (pending.isScore) {
+      if (opts.outcome === OUTCOME.DEATH) {
+        return `The push on ${pending.scoreTargetName ?? pending.contractLabel} flatlined the Decker and ended the campaign.`;
+      }
+      if (opts.completed) {
+        const reward = this.#scoreRewardSummary(opts.activeContract);
+        return reward
+          ? `The crew cracked ${pending.scoreTargetName ?? pending.contractLabel} and stole ${reward}.`
+          : `The crew cracked ${pending.scoreTargetName ?? pending.contractLabel} and walked with the payday.`;
+      }
+      return `The crew reached ${pending.scoreTargetName ?? pending.contractLabel} but extracted without the payload.`;
+    }
+    if (opts.outcome === OUTCOME.DEATH) {
+      return `${pending.contractLabel} went bad and the deployed operator never came home.`;
+    }
+    if (!opts.completed) {
+      return `${pending.contractLabel} was aborted before the objective was secured.`;
+    }
+    if (pending.stage === 'act-1') {
+      return `${pending.contractLabel} kept the crew fed and moving through the street-level grind.`;
+    }
+    if (pending.isCasing) {
+      return `${pending.contractLabel} gave the crew another read on ${pending.principalLabel ?? 'the target org'} before the big push.`;
+    }
+    if (pending.stage === 'act-3') {
+      return `${pending.contractLabel} tightened the final prep window before THE SCORE.`;
+    }
+    if (crewLosses.length > 0) {
+      return `${pending.contractLabel} was won, but the crew paid for it in blood.`;
+    }
+    return `${pending.contractLabel} landed clean.`;
+  }
+
+  #chronicleOutcomeLabel(
+    pending: PendingChronicleRun,
+    opts: { outcome: Outcome; completed: boolean }
+  ): string {
+    if (pending.isScore) {
+      if (opts.outcome === OUTCOME.DEATH) return 'campaign loss';
+      return opts.completed ? 'score complete' : 'score partial';
+    }
+    if (opts.outcome === OUTCOME.DEATH) return 'operator flatlined';
+    return opts.completed ? 'objective complete' : 'objective aborted';
+  }
+
+  #scoreRewardSummary(contract: Contract | null): string | null {
+    const payloadId = scorePayloadItemId(contract);
+    if (payloadId) {
+      const payload = SCOREABLE_ITEMS.find(item => item.id === payloadId);
+      if (payload) return payload.label;
+    }
+    return null;
+  }
+
+  #scoreRewardDetail(contract: Contract | null): string | null {
+    const reward = this.#scoreRewardSummary(contract);
+    if (reward) return `Acquired blueprint: ${reward}`;
+    if (contract?.context.recipeId === 'score-final' && this.arc.scoreCompleted) {
+      return 'Acquired payout: abstract credit cache';
+    }
+    return null;
+  }
+
+  #scoreTargetDisplayName(site: LocationSite): string {
+    const principal = site.principal?.label?.trim() ?? '';
+    const place = site.site?.label?.trim() ?? '';
+    if (principal && place) return `${principal} ${place}`;
+    return principal || place || site.label.replace(/^\/\//, '').replace(/\/\/$/, '').trim();
+  }
+
+  #advanceArcTransitions(): void {
+    if (this.crew.some(member => member.archetype === 'Decker')) {
+      this.arc.deckerRecruited = true;
+    }
+
+    if (this.arc.arcStage === 'act-1' && this.#qualifiesForAct2()) {
+      this.arc.arcStage = 'act-2';
+      this.arc.scoreRevealed = true;
+    }
+
+    // Invariant: once the Score is revealed, the Curator's Decker is on the
+    // crew. Holds for fresh act-2 transitions and for restores/constructs that
+    // land in a revealed state with a crew that's missing the operative.
+    if (this.arc.scoreRevealed) {
+      this.#assignDecker();
+      this.#ensureScoreTargetDesignated();
+    }
+
+    if (
+      this.arc.arcStage === 'act-2' &&
+      !this.chronicle.some(entry => entry.title === 'STAGE 2 — SCORE REVEALED')
+    ) {
+      const target = this.#scoreTargetSiteOrNull();
+      const decker = this.crew.find(member => member.archetype === 'Decker');
+      this.#appendChronicleMilestone(
+        'act-2',
+        'STAGE 2 — SCORE REVEALED',
+        `The Curator named ${target ? this.#scoreTargetDisplayName(target) : 'the Score'} and assigned ${decker?.callsign ?? 'a Decker'} to open it.`,
+        [
+          `Score target: ${target ? this.#scoreTargetDisplayName(target) : 'unknown'}`,
+          `Decker assigned: ${decker?.callsign ?? 'unknown'}`,
+        ]
+      );
+    }
+
+    if (this.arc.arcStage === 'act-2' && this.#qualifiesForAct3()) {
+      this.arc.arcStage = 'act-3';
+      this.#ensureAct3ScoreWindow();
+      this.#appendChronicleMilestone(
+        'act-3',
+        'STAGE 3 — FINAL PREP',
+        'The crew has enough casing, enough survivors, and a narrow window to attempt THE SCORE.',
+        [
+          `Living crew: ${this.crew.filter(member => !member.flatlined).length}`,
+          `Clock budget remaining: ${this.scoreDeadlineJobsRemaining}`,
+        ]
+      );
+    }
+
+    if (this.arc.scoreRevealed && this.clockJobsTaken >= CLOCK_ACT2_GRACE_JOBS) {
+      const wasStarted = this.arc.clockStarted;
+      this.arc.clockStarted = true;
+      if (!wasStarted) {
+        this.#appendChronicleMilestone(
+          this.arc.arcStage,
+          'CLOCK IS LIVE',
+          'The operational window is now burning down. Every deploy adds heat.',
+          [`Clock heat ${this.clockHeat}`, `Jobs left ${this.scoreDeadlineJobsRemaining}`]
+        );
+      }
+    }
+  }
+
+  #qualifiesForAct2(): boolean {
+    return this.rep >= ARC_ACT_2_MIN_REP && this.completedJobs >= ARC_ACT_2_MIN_COMPLETED_JOBS;
+  }
+
+  #qualifiesForAct3(): boolean {
+    if (this.completedJobs < ARC_ACT_3_MIN_COMPLETED_JOBS) return false;
+    const livingCrew = this.crew.filter(m => !m.flatlined).length;
+    if (livingCrew < ARC_ACT_3_MIN_CREW_ALIVE) return false;
+
+    const scoreTarget = this.siteRoster.find(site => site.scoreTarget);
+    if (!scoreTarget?.principal?.id) return false;
+
+    const principalId = scoreTarget.principal.id;
+    const visitedPrincipalSites = this.siteRoster.filter(
+      site => site.principal?.id === principalId && site.lastVisitedJob > 0
+    ).length;
+    return visitedPrincipalSites >= ARC_ACT_3_MIN_PRINCIPAL_SITES_VISITED;
+  }
+
+  /**
+   * Assign a Decker to the crew as part of the Act 2 narrative beat. The Curator
+   * "finds" a Decker for the player — no choice modal, just a named operative.
+   * Callsign is deduped against existing crew. Idempotent: skips if a Decker is
+   * already on the roster (e.g. from a restored save that already transitioned).
+   */
+  #assignDecker(): void {
+    // Guard on the actual roster, not the `deckerRecruited` flag: a restored
+    // save (or a constructed campaign) can carry the flag while the crew lacks
+    // the operative, and the Score reveal requires a real Decker present.
+    if (this.crew.some(member => member.archetype === 'Decker')) return;
+
+    const decker = buildCrewMember('decker', { x: 0, y: 0 }, this.rng, {
+      id: `crew-decker-${this.rng.intRange(0, 0xffff).toString(16)}`,
+      excludeCallsigns: this.allUsedCallsigns(),
+    });
+    this.crew.push(decker);
+    this.arc.deckerRecruited = true;
+  }
+
+  /** A pre-Score flatline opens one free Terminal lead instead of dead-ending the campaign. */
+  #needsReplacementDecker(): boolean {
+    return this.arc.scoreRevealed && !this.arc.scoreAttempted && !this.hasLivingDecker;
+  }
+
+  #ensureScoreTargetDesignated(): void {
+    const scoreTargets = this.siteRoster.filter(site => site.scoreTarget);
+    if (scoreTargets.length > 1) {
+      throw new Error('Campaign arc: multiple Score targets in site roster');
+    }
+    const scoreTierNonTargets = this.siteRoster.filter(
+      site => site.tier === 'score' && !site.scoreTarget
+    );
+    if (scoreTierNonTargets.length > 0) {
+      throw new Error('Campaign arc: score-tier roster site missing scoreTarget');
+    }
+    if (scoreTargets.length === 1) {
+      scoreTargets[0]!.tier = 'score';
+      return;
+    }
+
+    const target = this.#synthesizeScoreTarget();
+    target.scoreTarget = true;
+    target.tier = 'score';
+  }
+
+  #scoreTargetSiteOrNull(): LocationSite | null {
+    const scoreTargets = this.siteRoster.filter(site => site.scoreTarget);
+    if (scoreTargets.length > 1) {
+      throw new Error('Campaign arc: multiple Score targets in site roster');
+    }
+    if (this.siteRoster.some(site => site.tier === 'score' && !site.scoreTarget)) {
+      throw new Error('Campaign arc: score-tier roster site missing scoreTarget');
+    }
+    return scoreTargets[0] ?? null;
+  }
+
+  #beginScoreAttempt(contract: Contract): void {
+    if (this.arc.arcStage !== 'act-3') {
+      throw new Error('Campaign.deployCrewMember: Score can only be attempted from Act 3');
+    }
+    if (this.arc.scoreAttempted) {
+      throw new Error('Campaign.deployCrewMember: Score has already been attempted');
+    }
+    if (this.arc.scoreCompleted) {
+      throw new Error('Campaign.deployCrewMember: Score is already complete');
+    }
+    if (contract.objective.kind !== OBJECTIVES.SCORE_FINAL) {
+      throw new Error('Campaign.deployCrewMember: Score contract must use score-final objective');
+    }
+    const target = this.#scoreTargetSiteOrNull();
+    if (!target || contract.context.locationSiteId !== target.id) {
+      throw new Error('Campaign.deployCrewMember: Score contract does not target the Score site');
+    }
+    this.arc.scoreAttempted = true;
+    this.arc.arcStage = 'score';
+  }
+
+  #clockExpired(): boolean {
+    return (
+      this.arc.scoreRevealed &&
+      clockDeadlineApplies(this.arc.arcStage) &&
+      this.clockJobsTaken >= CLOCK_ACT2_DEADLINE_JOBS &&
+      !this.arc.scoreAttempted &&
+      !this.arc.scoreCompleted
+    );
+  }
+
+  /** Guarantee deploy headroom once THE SCORE can appear — casing failures must not stillborn Act 3. */
+  #ensureAct3ScoreWindow(): void {
+    const maxTaken = CLOCK_ACT2_DEADLINE_JOBS - CLOCK_ACT3_MIN_JOBS_REMAINING;
+    if (this.clockJobsTaken > maxTaken) {
+      this.clockJobsTaken = maxTaken;
+    }
+  }
+
+  #synthesizeScoreTarget(): LocationSite {
+    const seed = this.rng.intRange(0, 0x7fffffff);
+    const principal = this.rng.pick(
+      CONTRACT_LEXICON.principals.filter(token => token.groups.includes('corp'))
+    );
+    const site = this.rng.pick(
+      CONTRACT_LEXICON.sites.filter(token =>
+        token.groups.some(group =>
+          ['corp', 'data', 'security', 'infrastructure', 'hidden'].includes(group)
+        )
+      )
+    );
+    const dimensions = resolveMapDimensions({
+      seed,
+      difficulty: SYNTHETIC_SCORE_TARGET_DIFFICULTY,
+    });
+    const target = normalizeLocationSite({
+      id: `score-${generateSiteId(seed)}`,
+      seed: String(seed),
+      mapWidth: dimensions.width,
+      mapHeight: dimensions.height,
+      label: `// ${principal.label} ${site.label} - Score target`,
+      tier: 'score',
+      scoreTarget: true,
+      mutationDeltas: [],
+      seenKeys: [],
+      lastVisitedJob: 0,
+      principal: locationTokenFromLexicon(principal),
+      site: locationTokenFromLexicon(site),
+    });
+    this.siteRoster.push(target);
+    return target;
+  }
+
   #persist(): void {
     this.onPersist?.(this);
   }
@@ -956,6 +1877,7 @@ export class Campaign {
     this.curator = null;
     this.finn = null;
     this.terminal = null;
+    this.archiveTerminal = null;
     this.clinic = null;
     this.exitTile = null;
   }
@@ -1005,6 +1927,63 @@ function normalizeSiteRoster(raw: unknown): LocationSite[] {
     throw new TypeError('Campaign: siteRoster must be an array when supplied');
   }
   return raw.map(entry => normalizeLocationSite(entry));
+}
+
+export function isCampaignArcStage(value: unknown): value is CampaignArcStage {
+  return typeof value === 'string' && CAMPAIGN_ARC_STAGES.includes(value as CampaignArcStage);
+}
+
+export function normalizeCampaignArc(raw: unknown, context = 'Campaign arc'): CampaignArc {
+  if (raw === undefined) return defaultCampaignArc();
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new TypeError(`${context} must be an object when supplied`);
+  }
+
+  const candidate = raw as Partial<Record<keyof CampaignArc, unknown>>;
+  if (!isCampaignArcStage(candidate.arcStage)) {
+    throw new Error(`${context}.arcStage "${candidate.arcStage}" is not known`);
+  }
+
+  const readBooleanArcFlag = (flag: keyof Omit<CampaignArc, 'arcStage'>): boolean => {
+    const value = candidate[flag];
+    if (typeof value !== 'boolean') {
+      throw new TypeError(`${context}.${flag} must be boolean`);
+    }
+    return value;
+  };
+
+  return {
+    arcStage: candidate.arcStage,
+    deckerRecruited: readBooleanArcFlag('deckerRecruited'),
+    scoreRevealed: readBooleanArcFlag('scoreRevealed'),
+    clockStarted: readBooleanArcFlag('clockStarted'),
+    scoreAttempted: readBooleanArcFlag('scoreAttempted'),
+    scoreCompleted: readBooleanArcFlag('scoreCompleted'),
+  };
+}
+
+function locationTokenFromLexicon(token: {
+  id: string;
+  label: string;
+  groups: readonly string[];
+}): LocationToken {
+  return {
+    id: token.id,
+    label: token.label,
+    groups: [...token.groups],
+  };
+}
+
+function locationContextToken(token: LocationToken) {
+  return {
+    id: token.id,
+    label: token.label,
+    groups: [...token.groups],
+  };
+}
+
+function isScoreContract(contract: Contract): boolean {
+  return contract.context.tags.includes('score') && contract.context.recipeId === 'score-final';
 }
 
 function makeCampaignId(seed: number): string {

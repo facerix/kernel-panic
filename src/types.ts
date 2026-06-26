@@ -13,6 +13,17 @@
 /** Integer tile on the tactical grid. */
 export type GridPoint = { x: number; y: number };
 
+/** Phase 3 campaign arc stage, shared by Campaign saves and Curator contract context. */
+export type CampaignArcStage = 'act-1' | 'act-2' | 'act-3' | 'score';
+
+/** Why a campaign reached `ENDED` — drives terminal debrief copy in the shell. */
+export type CampaignEndReason =
+  | 'crew-wipe'
+  | 'clock-expired'
+  | 'decker-flatlined-score'
+  | 'score-partial'
+  | 'score-complete';
+
 /**
  * A JSON-safe value. The persistence layer's opaque entity property bag
  * (`EntitySnapshotExtra`) is keyed to this so anything stashed in a snapshot
@@ -138,6 +149,13 @@ export type JuggernautTurnStep =
 /** Flanker SLIDE — a silent two-tile reposition that vanishes from player view. */
 export type FlankerTurnStep = { type: 'slide'; to: GridPoint };
 
+/**
+ * Probe ICE trace flare (P3.M3.5) — yielded the moment a probe's acquisition
+ * actually raises the cyber alarm (the raise self-gates while already ALERT),
+ * dragging every listening probe onto the avatar.
+ */
+export type ProbeIceTurnStep = { type: 'trace-alarm'; target: string };
+
 /** NeutralCivilian aftermath steps — yielded during the player aftermath phase. */
 export type NeutralCivilianTurnStep =
   | { type: 'neutral-idle' }
@@ -158,6 +176,7 @@ export type TurnActionStep =
   | SniperTurnStep
   | JuggernautTurnStep
   | FlankerTurnStep
+  | ProbeIceTurnStep
   | NeutralCivilianTurnStep;
 
 /**
@@ -203,8 +222,7 @@ export type LocationToken = { id: string; label: string; groups: string[] };
  * (objective/asset/action) is rolled fresh. `label` is the name from the most
  * recent generation.
  *
- * `tier` / `scoreTarget` reserve one slot for Phase 3's "Score target" site;
- * `scoreTarget` is always false until Phase 3.
+ * `tier` / `scoreTarget` reserve one slot for Phase 3's "Score target" site.
  */
 export type LocationSite = {
   /** Stable, seed-derived id — the roster key. */
@@ -219,7 +237,7 @@ export type LocationSite = {
   label: string;
   /** Roster tier — `'score'` is reserved for Phase 3 and never evicted. */
   tier: 'score' | 'roster';
-  /** Phase 3 hook — always false until Phase 3. */
+  /** Phase 3 hook — true for the single campaign Score target. */
   scoreTarget: boolean;
   /** Accumulated terrain mutations replayed on revisit. */
   mutationDeltas: TileDelta[];
@@ -237,15 +255,11 @@ export type LocationSite = {
 };
 
 export type Telemetry = {
-  outcome: 'death' | 'exit' | 'campaign-over';
-  campaignTerminal?: boolean;
-  crewRoster?: { callsign: string; archetype: string; flatlined: boolean }[];
-  /** Typed-salvage wallet snapshot at the moment the run/campaign ends. */
-  salvage?: import('./game/salvage.js').TypedSalvage;
+  outcome: 'death' | 'exit';
   archetype?: string;
   turn?: number;
   kills?: number;
-  cause?: string;
+  cause?: string | null;
   seed?: number;
   hpAtDeath?: number | null;
   hpAtDamage?: number | null;

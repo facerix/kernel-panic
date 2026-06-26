@@ -16,6 +16,8 @@ import { makeSalvage, totalSalvage } from '../../../src/game/salvage.js';
 import { Merc } from '../../../src/game/archetypes/Merc.js';
 import { Razor } from '../../../src/game/archetypes/Razor.js';
 import { Tech } from '../../../src/game/archetypes/Tech.js';
+import { CyberAvatar } from '../../../src/game/cyber/CyberAvatar.js';
+import { ProbeIce } from '../../../src/game/cyber/ProbeIce.js';
 import { Turret } from '../../../src/game/Turret.js';
 import { Skirmisher } from '../../../src/game/ai/Skirmisher.js';
 import { ConsumablePickup } from '../../../src/game/entities/ConsumablePickup.js';
@@ -67,6 +69,7 @@ function buildCtx({ archetype = 'merc', placeDrone = true } = {}) {
     resetInputModes: 0,
     interact: 0,
     inventory: 0,
+    jackOut: 0,
     reachedExit: 0,
     corpseSalvaged: 0,
     securedInteract: 0,
@@ -98,6 +101,9 @@ function buildCtx({ archetype = 'merc', placeDrone = true } = {}) {
           break;
         case PLAYER_ACTIONS.INVENTORY:
           calls.inventory++;
+          break;
+        case PLAYER_ACTIONS.JACK_OUT:
+          calls.jackOut++;
           break;
         default:
           throw new Error(`Unknown player action: ${actionName}`);
@@ -238,6 +244,38 @@ test('move onto an objective pickup secures it without routing to interact', () 
   assert.equal(player.ap, beforeAp - 1, 'only MOVE AP spent');
   assert.equal(calls.interact, 0, 'walk-onto must not fire the interact shell handler');
   assert.ok(log.some(l => l.includes('secures Sublevel cache')));
+});
+
+test('securing a pickup with flavor detail logs the flavor as a second beat', () => {
+  const { ctx, log, world } = buildCtx({ placeDrone: false });
+  world.addEntity(
+    new Pickup({
+      id: 'pickup-0',
+      x: 2,
+      y: 3,
+      label: 'Monoblade',
+      detail: 'A monomolecular blade schematic — an edge that never dulls.',
+    })
+  );
+
+  applyIntent({ type: 'move', dx: 0, dy: 1 }, ctx);
+
+  assert.ok(log.some(l => l.includes('secures Monoblade')));
+  assert.ok(
+    log.some(l => l.includes('A monomolecular blade schematic')),
+    'flavor detail surfaced on secure'
+  );
+});
+
+test('securing a pickup without detail logs only the secure beat', () => {
+  const { ctx, log, world } = buildCtx({ placeDrone: false });
+  world.addEntity(new Pickup({ id: 'pickup-0', x: 2, y: 3, label: 'Plain cache' }));
+
+  applyIntent({ type: 'move', dx: 0, dy: 1 }, ctx);
+
+  const beats = log.filter(l => l.startsWith('> '));
+  assert.equal(beats.length, 1, 'no flavor beat without detail');
+  assert.ok(beats[0]!.includes('secures Plain cache'));
 });
 
 test('move onto a consumable pickup adds it to inventory and removes the pickup', () => {
@@ -412,6 +450,76 @@ test('special intent routes to Slide on a Razor (moves 2 tiles, engages stealth)
   assert.equal(player.stealthed, true);
 });
 
+test('special intent routes CyberAvatar Override against Probe ICE', () => {
+  const grid = new Grid(8, 5);
+  const bus = new EventBus();
+  const world = new World(grid, { events: bus });
+  const avatar = new CyberAvatar({
+    id: 'cyber-avatar-0',
+    x: 1,
+    y: 2,
+    ram: 8,
+    intrusionStrength: 2,
+    iceResistance: 1,
+  });
+  const probe = new ProbeIce({ id: 'probe-ice-0', x: 3, y: 2 });
+  world.addEntity(avatar);
+  world.addEntity(probe);
+  probe.bindToBus(bus);
+  const log: string[] = [];
+  const ctx = {
+    world,
+    player: avatar,
+    queue: new TurnQueue([FACTION.PLAYER, FACTION.CORP]),
+    rng: { next: () => 0 },
+    log: (line: string) => log.push(line),
+    advanceTurn: () => {},
+    resetInputModes: () => {},
+    onPlayerAction: () => {},
+  };
+
+  applyIntent({ type: 'special', dx: 1, dy: 0 }, ctx);
+
+  assert.equal(probe.faction, FACTION.PLAYER);
+  assert.equal(avatar.ap, avatar.maxAp - AP_COST.OVERRIDE);
+  assert.ok(log.some(line => line.includes('OVERRIDES Probe')));
+});
+
+test('CyberAvatar Override acquires an off-axis Probe in the aimed direction', () => {
+  const grid = new Grid(8, 6);
+  const bus = new EventBus();
+  const world = new World(grid, { events: bus });
+  const avatar = new CyberAvatar({
+    id: 'cyber-avatar-0',
+    x: 1,
+    y: 2,
+    ram: 8,
+    intrusionStrength: 2,
+    iceResistance: 1,
+  });
+  const probe = new ProbeIce({ id: 'probe-ice-0', x: 4, y: 3 });
+  world.addEntity(avatar);
+  world.addEntity(probe);
+  probe.bindToBus(bus);
+  const log: string[] = [];
+  const ctx = {
+    world,
+    player: avatar,
+    queue: new TurnQueue([FACTION.PLAYER, FACTION.CORP]),
+    rng: { next: () => 0 },
+    log: (line: string) => log.push(line),
+    advanceTurn: () => {},
+    resetInputModes: () => {},
+    onPlayerAction: () => {},
+  };
+
+  applyIntent({ type: 'special', dx: 1, dy: 0 }, ctx);
+
+  assert.equal(probe.faction, FACTION.PLAYER);
+  assert.equal(avatar.ap, avatar.maxAp - AP_COST.OVERRIDE);
+  assert.ok(log.some(line => line.includes('OVERRIDES Probe')));
+});
+
 test('end-turn drains AP to 0, logs wait, and invokes advanceTurn once', () => {
   const { ctx, player, calls, log } = buildCtx();
   applyIntent({ type: 'end-turn' }, ctx);
@@ -421,6 +529,21 @@ test('end-turn drains AP to 0, logs wait, and invokes advanceTurn once', () => {
     log.some(l => l.includes('waits')),
     'combat log should mention waiting'
   );
+});
+
+test('P3.M4.4: end-turn routes through passTurn when wired (Wait passes this operator)', () => {
+  // Dual-deploy: Wait forfeits the active operator's AP but defers the
+  // flip/end decision to the shell's pass handler, so the *other* operator
+  // takes over instead of having its turn dumped.
+  const { ctx, player, calls } = buildCtx();
+  let passed = 0;
+  ctx.passTurn = () => {
+    passed++;
+  };
+  applyIntent({ type: 'end-turn' }, ctx);
+  assert.equal(player.ap, 0, 'this operator forfeits its remaining AP');
+  assert.equal(passed, 1, 'Wait drives the pass/flip path');
+  assert.equal(calls.advanceTurn, 0, 'no hard end while passTurn is wired');
 });
 
 test('cancel calls resetInputModes and does not mutate state', () => {
@@ -471,6 +594,18 @@ test('interact intent crashes when ctx.onPlayerAction is missing (no silent no-o
   const { ctx } = buildCtx();
   delete ctx.onPlayerAction;
   assert.throws(() => applyIntent({ type: 'interact' }, ctx), /onPlayerAction is missing/);
+});
+
+test('jack-out intent fires the shell-supplied onPlayerAction callback once', () => {
+  const { ctx, calls } = buildCtx();
+  applyIntent({ type: 'jack-out' }, ctx);
+  assert.equal(calls.jackOut, 1);
+});
+
+test('jack-out intent crashes when ctx.onPlayerAction is missing (no silent no-op)', () => {
+  const { ctx } = buildCtx();
+  delete ctx.onPlayerAction;
+  assert.throws(() => applyIntent({ type: 'jack-out' }, ctx), /onPlayerAction is missing/);
 });
 
 test('use-item intent forwards a validated aim direction to the shell', () => {

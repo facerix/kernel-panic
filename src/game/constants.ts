@@ -44,6 +44,18 @@ export const DENY_TARGET_GLYPH = '◆';
 export const SYNC_PAD_GLYPH = '§';
 export const ESCORT_NPC_GLYPH = 'A';
 export const KEYCARD_GLYPH = 'κ';
+/** P3.M3.2: the Meatspace door into Cyberspace. */
+export const JACK_IN_GLYPH = 'Ω';
+/** P3.M3.3: the Cyberspace door back into Meatspace. */
+export const ENTRY_PORT_GLYPH = '▼';
+/** P3.M3.4: the slice target on the cyber grid (`◆` is DenyTarget's). */
+export const DATA_NODE_GLYPH = '◈';
+/** P3.M3.5: Probe ICE — the patrol/detector of the cyber grid. */
+export const PROBE_ICE_GLYPH = '¶';
+/** P3.M3: Spark ICE — the fast, fragile swarm attacker. */
+export const SPARK_ICE_GLYPH = '×';
+/** P3.M3: Guardian ICE — the heavy guard parked on critical data nodes. */
+export const GUARDIAN_ICE_GLYPH = 'Ψ';
 
 /** Numeric tile id — one of the `TILE` values. */
 export type TileId = (typeof TILE)[keyof typeof TILE];
@@ -75,7 +87,51 @@ export const AP_COST = Object.freeze({
   VAULT: 2, // Merc — hop a cover tile while firing
   SLIDE: 2, // Razor — 2-tile reposition with stealth bonus
   DEPLOY: 2, // Tech — place a turret on an adjacent tile
+  OVERRIDE: 2, // Decker — hijack a corp drone's allegiance
 });
+
+/**
+ * Decker drone-override parameters (P3.M2). The Decker's signature Meatspace
+ * ability flips a corp drone to the player's side for a few turns by reusing
+ * the existing drone AI with a faction swap (the AI targets by faction, so a
+ * flipped drone fights its former allies for free).
+ *
+ *   - `OVERRIDE_RANGE` — reach for the intrusion, matched to baseline SIGHT so
+ *     the Decker must have a clean LOS lane like a ranged shot.
+ *   - `OVERRIDE_DURATION` — turns the drone stays player-aligned before its
+ *     firmware reasserts control and it reverts to its original faction.
+ *   - `OVERRIDE_SUCCESS_CHANCE` — probability the intrusion takes. A failed
+ *     attempt still burns AP and trips the facility alarm.
+ */
+export const OVERRIDE_RANGE = 5;
+export const OVERRIDE_DURATION = 3;
+export const OVERRIDE_SUCCESS_CHANCE = 0.6;
+
+/**
+ * Decker cyber stats (P3.M3.3). Named stats with real effects from day one
+ * (scope decision #4):
+ *   - `DECKER_BASE_RAM` — the avatar's HP pool on the cyber grid. ICE damage
+ *     burns RAM; zero RAM = flatline (avatar death is real death).
+ *   - `DECKER_BASE_INTRUSION` — slice progress added per data-node interact
+ *     (P3.M3.4 consumes it).
+ *   - `DECKER_BASE_ICE_RESISTANCE` — the avatar's `damageReduction`; the
+ *     existing min-1 mitigation in `Combat.ts` applies unchanged.
+ * Per-Decker overrides validate in the `Decker` ctor (crash on bad data).
+ */
+export const DECKER_BASE_RAM = 8;
+export const DECKER_BASE_INTRUSION = 2;
+export const DECKER_BASE_ICE_RESISTANCE = 1;
+
+/**
+ * Cyberspace avatar tuning (P3.M3.3). The avatar keeps the player AP budget
+ * (4) and fights at the Merc's hit chance — the grid is the Decker's home
+ * turf. `Combat.resolveRanged` capability-sniffs `baseHitChance`, so the
+ * non-Crew avatar plugs into combat with zero combat-code changes.
+ */
+export const CYBER_AVATAR_MAX_AP = 4;
+export const CYBER_AVATAR_HIT_CHANCE = 0.8;
+/** P3.M4: explicit jack-out drops the link hard enough to hurt the body. */
+export const JACK_OUT_SHOCK_DAMAGE = 3;
 
 /**
  * Tech turret parameters. The turret is a placed grid entity (peer of
@@ -305,6 +361,37 @@ export const TARGETING_BONUS = 0.1;
 export const DODGE_BONUS = 0.1;
 
 /**
+ * Net-new scoreable gear tuning (P3.M6.2). Each fills a stat channel that
+ * existing shop gear never touched — the reward fiction is a stolen prototype,
+ * not a bigger number on an existing chip (premium variants were rejected:
+ * random unlock order and no equip limit make "bigger X" incoherent). Caps
+ * mirror the {@link RANGED_DAMAGE_BONUS} pattern (bonus equals cap → a second
+ * purchase is a harmless no-op).
+ *
+ *   - **Monoblade** (`MELEE_DAMAGE_BONUS`) — the Razor's signature attack had no
+ *     gear path. +1 melee damage, applied via {@link Crew.meleeAttackDamage}.
+ *   - **Subdermal Plating** (`ARMOR_BONUS`) — flat `damageReduction` (min-1 floor
+ *     in `Combat.applyDamageReduction`); the channel existed but no crew gear set it.
+ *   - **Reflex Booster** (`AP_BONUS`) — +1 `maxAp`, the master action resource.
+ *     Capped hard at 1: two extra AP would warp the turn economy.
+ *   - **Phase Shield** (`SHIELD_REGEN`) — re-grants `shieldHp` at the start of each
+ *     crew turn via {@link Crew.refreshAp}. Free and uncontested (unlike the
+ *     Medic's AP-costed {@link MEDIC_SHIELD_HP}), so kept to +1.
+ *   - **Regen Mesh** (`HP_REGEN`) — heals real HP each turn via the same refresh
+ *     hook; slow in-combat sustain distinct from the shield's resettable buffer.
+ */
+export const MELEE_DAMAGE_BONUS = 1;
+export const MELEE_MAX_DAMAGE_BONUS = 1;
+export const ARMOR_BONUS = 1;
+export const MAX_ARMOR_BONUS = 1;
+export const AP_BONUS = 1;
+export const MAX_AP_BONUS = 1;
+export const SHIELD_REGEN = 1;
+export const MAX_SHIELD_REGEN = 1;
+export const HP_REGEN = 1;
+export const MAX_HP_REGEN = 1;
+
+/**
  * Legacy flat salvage-to-Cred rate. Retained for backward-compat references
  * (e.g. TRUSTED tier rewardFloorBump calculation). New sell paths use the
  * per-type `SALVAGE_SELL_RATE` instead.
@@ -335,6 +422,14 @@ export const SHOP_COST = Object.freeze({
   TARGETING_CHIP: 80,
   REFLEX_WEAVE: 80,
   BALLISTICS_COIL: 80,
+  // Net-new scoreable gear (P3.M6.2) — priced above baseline KNOWN gear; the
+  // reward is the unlock, the Cred cost is the install. Reflex Booster (+1 AP)
+  // is the priciest, matching its outsized impact on the turn economy.
+  MONOBLADE: 90,
+  SUBDERMAL_PLATING: 100,
+  REFLEX_BOOSTER: 150,
+  PHASE_SHIELD: 110,
+  REGEN_MESH: 120,
 });
 
 /** Patch clinic — Creds per HP restored (partial heal not offered). */
@@ -486,8 +581,8 @@ export const REP = Object.freeze({
   /** Rep thresholds for NeutralCivilian behaviour. */
   NEUTRAL_IDLE_THRESHOLD: 70,
   NEUTRAL_FLEE_THRESHOLD: 30,
-  /** Rep threshold for recruitment. */
-  RECRUIT_THRESHOLD: 65,
+  /** Rep threshold for recruitment — matches KNOWN tier floor (50). */
+  RECRUIT_THRESHOLD: 50,
   /** Rep adjustments. */
   CLEAN_COMPLETION_BONUS: 10,
   CIVILIAN_KILL_PENALTY: -20,

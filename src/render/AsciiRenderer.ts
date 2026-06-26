@@ -97,15 +97,25 @@ const HUD_GLOW = '#6ae8c8';
 const TRUNCATION_MARK = '...';
 const HUD_OBJECTIVE_DONE = '#7dff9d';
 const HUD_OBJECTIVE_TODO = '#ff7a66';
-const HUD_IDENTITY = '#6ae8c8';
-const HUD_HP_EMPTY = '#2a4a42';
-const HUD_HP_FILLED = '#6ae8c8';
-const HUD_AP_SPENT = '#ff7a66';
-const HUD_AP_AVAILABLE = '#6ae8c8';
+const HUD_HP_EMPTY = HUD_GLOW;
+const HUD_HP_FILLED = HUD_GLOW;
+const HUD_AP_SPENT = HUD_GLOW;
+const HUD_AP_AVAILABLE = HUD_GLOW;
 const HUD_TURN_PLAYER = '#b8f5e2';
 const HUD_TURN_CORP = '#ff7a66';
 /** Reserve top-right chrome so the objective row does not sit under identity/vitals. */
 const OBJECTIVE_RIGHT_GUTTER = 200;
+
+const HUD_MEAT_PALETTE = Object.freeze({
+  color: '#9ff3da',
+  glowColor: '#6ae8c8',
+  accentColor: 'rgba(0, 217, 165, 0.5)',
+});
+const HUD_CYBER_PALETTE = Object.freeze({
+  color: '#ff8ad8',
+  glowColor: '#ff5cc6',
+  accentColor: 'rgba(255, 92, 198, 0.5)',
+});
 
 export class AsciiRenderer {
   canvas: HTMLCanvasElement;
@@ -168,8 +178,8 @@ export class AsciiRenderer {
   /**
    * Render a world centred on `followTarget` (any object with x, y), unless
    * `options.camera` is set — then that rectangle (world tile coords) is drawn
-   * in full, which sizes the visible tile count (use for whole-map debug views).
-   * Pass `options.vision` (a `VisionField`) for fog-of-war fading.
+   * in full (used by the P3.M3.7 meatspace CCTV overlay with a second renderer
+   * instance). Pass `options.vision` (a `VisionField`) for fog-of-war fading.
    */
   draw(world: World, followTarget: Entity, options: DrawOptions = {}) {
     this.#syncViewport();
@@ -180,7 +190,7 @@ export class AsciiRenderer {
     this.lastCamera = camera;
     this.#paintActiveFlashes();
     // Painted last so persistent chrome is never occluded by glyphs/flashes.
-    this.#drawLocationLabel(locationLabel);
+    this.#drawLocationLabel(locationLabel, combatHud?.cyber ?? false);
     this.#drawCombatHud(combatHud);
     this.#drawHudRows(hudRows);
   }
@@ -256,9 +266,15 @@ export class AsciiRenderer {
    * keeps it legible over map glyphs; a thin accent underline ties it to the
    * terminal aesthetic. No-op when no label is supplied.
    */
-  #drawLocationLabel(label?: string) {
+  #drawLocationLabel(label?: string, cyber?: boolean) {
     if (!label) return;
-    this.#drawHudRow({ text: label, anchor: 'top-left', uppercase: true });
+    const palette = cyber ? HUD_CYBER_PALETTE : HUD_MEAT_PALETTE;
+    this.#drawHudRow({
+      text: label,
+      anchor: 'top-left',
+      uppercase: true,
+      ...palette,
+    });
   }
 
   #drawHudRows(rows?: readonly HudRow[]) {
@@ -271,6 +287,7 @@ export class AsciiRenderer {
   #drawCombatHud(hud?: CombatHudSummaryInput | null) {
     if (!hud) return;
     const objective = formatObjectiveHud(hud.objective);
+    const palette = hud.cyber ? HUD_CYBER_PALETTE : HUD_MEAT_PALETTE;
     if (objective) {
       this.#drawHudRow({
         text: objective,
@@ -280,28 +297,30 @@ export class AsciiRenderer {
         glowColor: hud.objective?.done ? HUD_OBJECTIVE_DONE : HUD_OBJECTIVE_TODO,
         maxWidth: Math.max(0, this.canvas.width - OBJECTIVE_RIGHT_GUTTER),
         preserveObjectiveTags: true,
+        accentColor: palette.accentColor,
       });
     }
     this.#drawHudRow({
       text: formatIdentityHud(hud.identity),
       anchor: 'top-right',
       row: 0,
-      color: HUD_IDENTITY,
-      glowColor: HUD_IDENTITY,
+      ...palette,
     });
     const hpText = formatHpSegments(hud.hp);
     this.#drawHudRow({
       text: hpText,
       anchor: 'top-right',
       row: 1,
-      segments: hpSegments(hpText),
+      segments: hpSegments(hpText, palette),
+      ...palette,
     });
     const apText = formatApPips(hud.ap);
     this.#drawHudRow({
       text: apText,
       anchor: 'top-right',
       row: 2,
-      segments: apSegments(apText),
+      segments: apSegments(apText, palette),
+      ...palette,
     });
     const turnLabel = formatTurnLabel(hud.turn);
     const isCorpTurn = hud.turn.currentFaction !== FACTION.PLAYER;
@@ -440,37 +459,45 @@ export class AsciiRenderer {
   }
 }
 
-function hpSegments(text: string): HudTextSegment[] {
+function hpSegments(
+  text: string,
+  palette?: { color: string; glowColor: string }
+): HudTextSegment[] {
+  const { color, glowColor } = palette ?? { color: HUD_TEXT, glowColor: HUD_GLOW };
   const prefix = 'HP ';
   const glyphs = text.startsWith(prefix) ? text.slice(prefix.length) : text;
   const segments: HudTextSegment[] = text.startsWith(prefix)
-    ? [{ text: prefix, color: HUD_TEXT, glowColor: HUD_GLOW }]
+    ? [{ text: prefix, color, glowColor }]
     : [];
   for (const char of glyphs) {
     if (char === COMBAT_HUD_GLYPHS.HP_EMPTY) {
-      segments.push({ text: char, color: HUD_HP_EMPTY });
+      segments.push({ text: char, color: glowColor ?? HUD_HP_EMPTY });
     } else if (char === COMBAT_HUD_GLYPHS.HP_FILLED) {
-      segments.push({ text: char, color: HUD_HP_FILLED });
+      segments.push({ text: char, color: glowColor ?? HUD_HP_FILLED });
     } else {
-      segments.push({ text: char, color: HUD_TEXT, glowColor: HUD_GLOW });
+      segments.push({ text: char, color, glowColor });
     }
   }
   return segments;
 }
 
-function apSegments(text: string): HudTextSegment[] {
+function apSegments(
+  text: string,
+  palette?: { color: string; glowColor: string }
+): HudTextSegment[] {
   const prefix = 'AP ';
   const glyphs = text.startsWith(prefix) ? text.slice(prefix.length) : text;
+  const { color, glowColor } = palette ?? { color: HUD_TEXT, glowColor: HUD_GLOW };
   const segments: HudTextSegment[] = text.startsWith(prefix)
-    ? [{ text: prefix, color: HUD_TEXT, glowColor: HUD_GLOW }]
+    ? [{ text: prefix, color, glowColor }]
     : [];
   for (const char of glyphs) {
     if (char === COMBAT_HUD_GLYPHS.AP_SPENT) {
-      segments.push({ text: char, color: HUD_AP_SPENT });
+      segments.push({ text: char, color: glowColor ?? HUD_AP_SPENT });
     } else if (char === COMBAT_HUD_GLYPHS.AP_AVAILABLE) {
-      segments.push({ text: char, color: HUD_AP_AVAILABLE });
+      segments.push({ text: char, color: glowColor ?? HUD_AP_AVAILABLE });
     } else {
-      segments.push({ text: char, color: HUD_TEXT, glowColor: HUD_GLOW });
+      segments.push({ text: char, color, glowColor });
     }
   }
   return segments;

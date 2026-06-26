@@ -75,6 +75,20 @@ export const HELP_ROWS = Object.freeze([
     scope: 'both',
     group: 'action',
   },
+  {
+    // P3.M4.3 simstim flip — swap control between the Meatspace operator and
+    // the Decker's Cyberspace avatar (only on a dual-deploy jack-in).
+    keys: Object.freeze(['Tab']),
+    label: 'Flip — switch Meatspace / Cyberspace control',
+    scope: 'combat',
+    group: 'action',
+  },
+  {
+    keys: Object.freeze(['j']),
+    label: 'Jack out — confirm neural shock',
+    scope: 'combat',
+    group: 'action',
+  },
   // --- system -----------------------------------------------------------
   {
     keys: Object.freeze(['.']),

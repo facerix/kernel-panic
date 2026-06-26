@@ -287,10 +287,75 @@ main {
   max-width: min(960px, max(320px, calc((100dvh - 13.25rem) * 1.6)), 100%);
 }
 
-.game-stage > #game-canvas {
+.game-canvas-wrap {
+  position: relative;
   flex: 1 1 80%;
-  border-radius: 1rem 0.5rem 0.5rem 2rem;
+  min-width: 0;
+
+  & > #game-canvas {
+    border-radius: 1rem 0.5rem 0.5rem 2rem;
+    corner-shape: bevel;
+
+    &.cyber {
+      border-color: rgba(255, 92, 198, 0.5);
+      box-shadow: 0 0 12px rgba(255, 92, 198, 0.18);
+    }
+  }
+}
+
+/* P3.M3.7 / P3.M4.5: PIP of the inactive layer while jacked in — meat CCTV by
+   default, cyber-tinted (`.pip-cyber`) when the grid is the inactive feed.
+   Anchored to the main canvas, not the stage. */
+.game-canvas-wrap > #pip-canvas {
+  position: absolute;
+  right: 0.35rem;
+  bottom: 0.35rem;
+  z-index: 2;
+  pointer-events: none;
+  border: 1px solid rgba(0, 217, 165, 0.45);
+  border-radius: 0.35rem 0.35rem 0.35rem 0.75rem;
   corner-shape: bevel;
+  box-shadow: 0 0 12px rgba(0, 217, 165, 0.15);
+  opacity: 0.92;
+  image-rendering: pixelated;
+}
+
+/* Cyber feed (viewing meat) — magenta to match `// GRID //`. */
+.game-canvas-wrap > #pip-canvas.pip-cyber {
+  border-color: rgba(255, 92, 198, 0.5);
+  box-shadow: 0 0 12px rgba(255, 92, 198, 0.18);
+}
+
+.game-canvas-wrap > #pip-canvas[hidden] {
+  display: none;
+}
+
+.game-canvas-wrap > #pip-canvas.pip-hit {
+  animation: pip-hit-pulse 0.45s ease-out;
+}
+
+@keyframes pip-hit-pulse {
+  0% {
+    border-color: #ff7a66;
+    box-shadow: 0 0 16px rgba(255, 122, 102, 0.55);
+  }
+  100% {
+    border-color: rgba(0, 217, 165, 0.45);
+    box-shadow: 0 0 12px rgba(0, 217, 165, 0.15);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game-canvas-wrap > #pip-canvas.pip-hit {
+    animation: none;
+    border-color: #ff7a66;
+  }
+}
+
+@media (max-width: 360px) {
+  .game-canvas-wrap > #pip-canvas {
+    display: none !important;
+  }
 }
 
 .game-stage > .game-log {
@@ -354,6 +419,7 @@ main {
 
 .game-stage > run-briefing,
 .game-stage > crash-dump,
+.game-stage > game-over,
 .game-stage > fault-screen,
 .game-stage > system-start,
 .game-stage > curator-briefing {

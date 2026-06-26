@@ -8,6 +8,7 @@
 
 import { REP } from '../constants.js';
 import { totalSalvage } from '../salvage.js';
+import { clockRevealLines, act3RevealLines, scoreRevealLines } from './arcSurface.js';
 import type { Campaign } from '../Campaign.js';
 
 export type HubReveals = {
@@ -17,9 +18,22 @@ export type HubReveals = {
   /** Rep-gated recruitment channel on the terminal. */
   terminalRecruitmentExplained?: boolean;
   clinicIntroduced?: boolean;
+  /** Curator has presented the Phase 3 Score target reveal. */
+  scoreBriefingPresented?: boolean;
+  /** Curator has explained Clock heat and the Score window deadline. */
+  clockBriefingPresented?: boolean;
+  /** Curator has presented Act 3 final prep and THE SCORE availability. */
+  act3BriefingPresented?: boolean;
 };
 
-export type HubRevealId = 'finn' | 'terminal' | 'terminal-recruit' | 'clinic';
+export type HubRevealId =
+  | 'finn'
+  | 'terminal'
+  | 'terminal-recruit'
+  | 'clinic'
+  | 'score-reveal'
+  | 'clock-reveal'
+  | 'act-3-reveal';
 
 export type HubRevealMessage = {
   id: HubRevealId;
@@ -34,8 +48,22 @@ type HubRevealDefinition = {
   flag: HubRevealFlag;
   title: string;
   qualifies: (campaign: Campaign) => boolean;
-  lines: readonly string[];
+  lines: readonly string[] | ((campaign: Campaign) => readonly string[]);
 };
+
+/** Reveal flags committed when the shell dismisses the Curator briefing, not when queued. */
+const HUB_REVEAL_DEFER_FLAG_COMMIT = new Set<HubRevealId>([
+  'score-reveal',
+  'clock-reveal',
+  'act-3-reveal',
+]);
+
+/** Arc beats checked before lower-priority Hub intros; order within this list matters. */
+const PRIORITY_HUB_REVEALS: readonly HubRevealId[] = [
+  'score-reveal',
+  'clock-reveal',
+  'act-3-reveal',
+];
 
 const HUB_REVEAL_DEFINITIONS: readonly HubRevealDefinition[] = [
   {
@@ -49,6 +77,37 @@ const HUB_REVEAL_DEFINITIONS: readonly HubRevealDefinition[] = [
       "CURATOR: Terminal's online — crew readout.",
       'CURATOR: [Space] at the ‡ glyph to review operatives, gear, and salvage.',
     ],
+  },
+  {
+    id: 'score-reveal',
+    flag: 'scoreBriefingPresented',
+    title: '── THE SCORE / THE DECKER ──',
+    qualifies(campaign) {
+      return campaign.arc.scoreRevealed;
+    },
+    lines: scoreRevealLines,
+  },
+  {
+    id: 'clock-reveal',
+    flag: 'clockBriefingPresented',
+    title: '── THE CLOCK ──',
+    qualifies(campaign) {
+      return (
+        campaign.arc.clockStarted &&
+        !!campaign.hubReveals.scoreBriefingPresented &&
+        !campaign.hubReveals.clockBriefingPresented
+      );
+    },
+    lines: clockRevealLines,
+  },
+  {
+    id: 'act-3-reveal',
+    flag: 'act3BriefingPresented',
+    title: '── FINAL PREP / THE SCORE ──',
+    qualifies(campaign) {
+      return !!campaign.hubReveals.scoreBriefingPresented && campaign.canAttemptScore();
+    },
+    lines: act3RevealLines,
   },
   {
     id: 'finn',
@@ -106,6 +165,9 @@ export function normalizeHubReveals(raw: unknown, context = 'hubReveals'): HubRe
     'terminalExplained',
     'terminalRecruitmentExplained',
     'clinicIntroduced',
+    'scoreBriefingPresented',
+    'clockBriefingPresented',
+    'act3BriefingPresented',
   ] as const) {
     if (record[key] === undefined) continue;
     if (typeof record[key] !== 'boolean') {
@@ -132,7 +194,7 @@ export function migrateLegacyHubReveals(
   if (record.terminalExplained === true && !('terminalRecruitmentExplained' in record)) {
     const rep = context.rep ?? REP.START;
     const pending = context.pendingRecruitReward ?? false;
-    // Pre-split saves only set terminalExplained when recruitment unlocked (Rep ≥ 65).
+    // Pre-split saves only set terminalExplained when recruitment unlocked (Rep ≥ 50).
     if (rep >= REP.RECRUIT_THRESHOLD || pending) {
       return { ...record, terminalRecruitmentExplained: true };
     }
@@ -148,6 +210,9 @@ export function snapshotHubReveals(reveals: HubReveals): HubReveals {
   if (reveals.finnIntroduced) out.finnIntroduced = true;
   if (reveals.terminalExplained) out.terminalExplained = true;
   if (reveals.clinicIntroduced) out.clinicIntroduced = true;
+  if (reveals.scoreBriefingPresented) out.scoreBriefingPresented = true;
+  if (reveals.clockBriefingPresented) out.clockBriefingPresented = true;
+  if (reveals.act3BriefingPresented) out.act3BriefingPresented = true;
   return out;
 }
 
@@ -167,16 +232,49 @@ export function isTerminalRecruitmentUnlocked(reveals: HubReveals): boolean {
   return !!reveals.terminalRecruitmentExplained;
 }
 
+function buildHubRevealMessage(
+  def: HubRevealDefinition,
+  campaign: Campaign,
+  commitFlag: boolean
+): HubRevealMessage {
+  if (commitFlag) {
+    campaign.hubReveals[def.flag] = true;
+  }
+  const lines = typeof def.lines === 'function' ? def.lines(campaign) : def.lines;
+  return { id: def.id, title: def.title, lines };
+}
+
+export function hubRevealCommitsOnDismiss(id: HubRevealId): boolean {
+  return HUB_REVEAL_DEFER_FLAG_COMMIT.has(id);
+}
+
+/** Persist a Hub reveal flag after the player dismisses its Curator briefing. */
+export function commitHubReveal(campaign: Campaign, id: HubRevealId): void {
+  const def = HUB_REVEAL_DEFINITIONS.find(entry => entry.id === id);
+  if (!def) {
+    throw new Error(`hubReveals: unknown reveal id "${id}"`);
+  }
+  campaign.hubReveals[def.flag] = true;
+}
+
 /**
  * Evaluate reveal triggers in definition order. Sets the first qualifying
  * unseen flag on `campaign.hubReveals` and returns its message. Does not persist.
+ * Score and Clock reveals are checked first so arc beats are not crowded out by
+ * lower-priority intros on the same visit. Their briefing flags commit on dismiss.
  */
 export function applyFirstHubReveal(campaign: Campaign): HubRevealMessage | null {
+  for (const id of PRIORITY_HUB_REVEALS) {
+    const def = HUB_REVEAL_DEFINITIONS.find(entry => entry.id === id);
+    if (!def || campaign.hubReveals[def.flag] || !def.qualifies(campaign)) continue;
+    return buildHubRevealMessage(def, campaign, !HUB_REVEAL_DEFER_FLAG_COMMIT.has(def.id));
+  }
+
   for (const def of HUB_REVEAL_DEFINITIONS) {
+    if (PRIORITY_HUB_REVEALS.includes(def.id)) continue;
     if (campaign.hubReveals[def.flag]) continue;
     if (!def.qualifies(campaign)) continue;
-    campaign.hubReveals[def.flag] = true;
-    return { id: def.id, title: def.title, lines: def.lines };
+    return buildHubRevealMessage(def, campaign, true);
   }
   return null;
 }

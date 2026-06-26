@@ -14,6 +14,13 @@ import {
   DODGE_BONUS,
   RANGED_DAMAGE_BONUS,
   DEFAULT_HP,
+  DEFAULT_AP,
+  MELEE_DAMAGE_BONUS,
+  ARMOR_BONUS,
+  AP_BONUS,
+  SHIELD_REGEN,
+  HP_REGEN,
+  HEAVY_MELEE_DAMAGE,
 } from '../../../src/game/constants.js';
 import { Merc } from '../../../src/game/archetypes/Merc.js';
 import { Skirmisher } from '../../../src/game/ai/Skirmisher.js';
@@ -76,6 +83,139 @@ test('applyGear(BALLISTICS_COIL) sets rangedDamageBonus', () => {
   const crew = new Merc({ id: 'merc', x: 0, y: 0 });
   crew.applyGear(ITEM_ID.BALLISTICS_COIL);
   assert.equal(crew.gear.rangedDamageBonus, RANGED_DAMAGE_BONUS);
+});
+
+// ---------------------------------------------------------------------------
+// P3.M6.2 net-new scoreable gear — Crew.applyGear
+// ---------------------------------------------------------------------------
+
+test('applyGear(MONOBLADE) raises meleeAttackDamage by the bonus, capped', () => {
+  const razor = new Razor({ id: 'razor', x: 0, y: 0, callsign: 'Cipher' });
+  const base = razor.meleeAttackDamage();
+  razor.applyGear(ITEM_ID.MONOBLADE);
+  assert.equal(razor.gear.meleeDamageBonus, MELEE_DAMAGE_BONUS);
+  assert.equal(razor.meleeAttackDamage(), base + MELEE_DAMAGE_BONUS);
+  // Capped: a second install is a harmless no-op (mirrors Ballistics Coil).
+  razor.applyGear(ITEM_ID.MONOBLADE);
+  assert.equal(razor.gear.meleeDamageBonus, razor.maxMeleeDamageBonus);
+  assert.equal(razor.meleeAttackDamage(), base + razor.maxMeleeDamageBonus);
+});
+
+test('resolveMelee applies the Monoblade bonus through meleeAttackDamage', () => {
+  const grid = new Grid(12, 6, TILE.FLOOR);
+  const bus = new EventBus();
+  const world = new World(grid, { events: bus });
+  const attacker = new Razor({ id: 'razor', x: 2, y: 2, callsign: 'Cipher', maxAp: 4 });
+  attacker.applyGear(ITEM_ID.MONOBLADE);
+  const target = new Skirmisher({ id: 'drone', x: 3, y: 2 });
+  world.addEntity(attacker);
+  world.addEntity(target);
+  const rng = new Rng(42);
+  // Force a clean hit (no dodge) so we read the unmitigated swing.
+  const result = resolveMelee(world, attacker, target, rng, { dodgeChance: 0 });
+  assert.equal(result.hit, true);
+  assert.equal(result.damage, HEAVY_MELEE_DAMAGE + MELEE_DAMAGE_BONUS);
+  assert.equal(result.damage, attacker.meleeAttackDamage());
+});
+
+test('applyGear(SUBDERMAL_PLATING) raises damageReduction, capped', () => {
+  const merc = new Merc({ id: 'merc', x: 0, y: 0 });
+  assert.equal(merc.damageReduction, 0);
+  merc.applyGear(ITEM_ID.SUBDERMAL_PLATING);
+  assert.equal(merc.gear.armorBonus, ARMOR_BONUS);
+  assert.equal(merc.damageReduction, ARMOR_BONUS);
+  // Capped at one effective unit — a second install changes nothing.
+  merc.applyGear(ITEM_ID.SUBDERMAL_PLATING);
+  assert.equal(merc.damageReduction, merc.maxArmorBonus);
+  assert.equal(merc.gear.armorBonus, merc.maxArmorBonus);
+});
+
+test('subdermal plating mitigates incoming melee damage with a min-1 floor', () => {
+  const grid = new Grid(12, 6, TILE.FLOOR);
+  const bus = new EventBus();
+  const world = new World(grid, { events: bus });
+  const attacker = new Entity({ id: 'corp', x: 2, y: 2, faction: FACTION.CORP, glyph: 'd' });
+  const target = new Merc({ id: 'merc', x: 3, y: 2 });
+  target.applyGear(ITEM_ID.SUBDERMAL_PLATING);
+  world.addEntity(attacker);
+  world.addEntity(target);
+  const hpBefore = target.hp;
+  const rng = new Rng(42);
+  // Generic corp melee is MELEE_DAMAGE (2); armour 1 → 1 applied.
+  const result = resolveMelee(world, attacker, target, rng, { dodgeChance: 0, damage: 2 });
+  assert.equal(result.hit, true);
+  assert.equal(result.damage, 1);
+  assert.equal(target.hp, hpBefore - 1);
+});
+
+test('applyGear(REFLEX_BOOSTER) grants +AP immediately, capped at one', () => {
+  const merc = new Merc({ id: 'merc', x: 0, y: 0, maxAp: DEFAULT_AP });
+  const apBefore = merc.ap;
+  merc.applyGear(ITEM_ID.REFLEX_BOOSTER);
+  assert.equal(merc.maxAp, DEFAULT_AP + AP_BONUS);
+  assert.equal(merc.ap, apBefore + AP_BONUS, 'extra AP is usable the same turn');
+  assert.equal(merc.gear.apBonus, AP_BONUS);
+  // One per operator — a second install is a no-op, no runaway AP.
+  merc.applyGear(ITEM_ID.REFLEX_BOOSTER);
+  assert.equal(merc.maxAp, DEFAULT_AP + merc.maxApBonus);
+  assert.equal(merc.gear.apBonus, merc.maxApBonus);
+});
+
+test('applyGear(PHASE_SHIELD) sets shieldRegen; refreshAp re-grants the shield each turn', () => {
+  const merc = new Merc({ id: 'merc', x: 0, y: 0, maxAp: 4 });
+  merc.applyGear(ITEM_ID.PHASE_SHIELD);
+  assert.equal(merc.gear.shieldRegen, SHIELD_REGEN);
+  // Capped — a second install is a no-op.
+  merc.applyGear(ITEM_ID.PHASE_SHIELD);
+  assert.equal(merc.gear.shieldRegen, merc.maxShieldRegen);
+
+  // refreshAp tops the buffer back to the regen value every turn.
+  assert.equal(merc.shieldHp, 0);
+  merc.refreshAp();
+  assert.equal(merc.shieldHp, SHIELD_REGEN);
+  // Spend the buffer, then a fresh turn restores it (not accumulates).
+  merc.damage(SHIELD_REGEN);
+  assert.equal(merc.shieldHp, 0);
+  merc.refreshAp();
+  assert.equal(merc.shieldHp, SHIELD_REGEN);
+});
+
+test('phase shield buffer absorbs damage before HP', () => {
+  const merc = new Merc({ id: 'merc', x: 0, y: 0, maxAp: 4 });
+  merc.applyGear(ITEM_ID.PHASE_SHIELD);
+  merc.refreshAp();
+  const hpBefore = merc.hp;
+  merc.damage(SHIELD_REGEN); // fully soaked by the shield
+  assert.equal(merc.hp, hpBefore);
+  assert.equal(merc.shieldHp, 0);
+});
+
+test('applyGear(REGEN_MESH) sets hpRegen; refreshAp heals each turn up to maxHp', () => {
+  const merc = new Merc({ id: 'merc', x: 0, y: 0, maxAp: 4 });
+  merc.applyGear(ITEM_ID.REGEN_MESH);
+  assert.equal(merc.gear.hpRegen, HP_REGEN);
+  // Capped — second install is a no-op.
+  merc.applyGear(ITEM_ID.REGEN_MESH);
+  assert.equal(merc.gear.hpRegen, merc.maxHpRegen);
+
+  merc.hp = 1; // wounded
+  merc.refreshAp();
+  assert.equal(merc.hp, 1 + HP_REGEN);
+  // Does not exceed maxHp.
+  merc.hp = merc.maxHp;
+  merc.refreshAp();
+  assert.equal(merc.hp, merc.maxHp);
+});
+
+test('a dead crew member regenerates nothing on refreshAp', () => {
+  const merc = new Merc({ id: 'merc', x: 0, y: 0, maxAp: 4 });
+  merc.applyGear(ITEM_ID.PHASE_SHIELD);
+  merc.applyGear(ITEM_ID.REGEN_MESH);
+  merc.damage(merc.hp); // flatline the body
+  assert.equal(merc.alive, false);
+  merc.refreshAp(); // must not throw on a corpse (heal/addShield would)
+  assert.equal(merc.shieldHp, 0);
+  assert.equal(merc.hp, 0);
 });
 
 // ---------------------------------------------------------------------------

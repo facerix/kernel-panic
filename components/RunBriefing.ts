@@ -20,9 +20,10 @@
 import { h } from '/src/domUtils.js';
 import CrewList from '/components/CrewList.js';
 import { encounterHostileCount } from '/src/game/encounters.js';
-import { cloneObjective } from '/src/game/hub/Curator.js';
+import { cloneObjective, contractRequiresCyberspace } from '/src/game/hub/Curator.js';
 import type { Crew as CrewMember } from '/src/game/Crew.js';
 import type { Contract } from '/src/game/hub/Curator.js';
+import type { CrewRowGate } from '/components/CrewList.js';
 
 type BriefingCells = {
   target: HTMLElement;
@@ -195,6 +196,9 @@ function threatCopy(count: number) {
 }
 
 function rewardCopy(contract: Partial<Contract>) {
+  if (contract.context?.tags.includes('score') && contract.context.recipeId === 'score-final') {
+    return contract.reward ? `Cr +${contract.reward.credits} / Campaign finale` : 'Campaign finale';
+  }
   const reward = contract.reward;
   if (!reward) return '?';
   const recruit = reward.recruit ? ' + recruit lead' : '';
@@ -203,6 +207,7 @@ function rewardCopy(contract: Partial<Contract>) {
 
 class RunBriefing extends HTMLElement {
   #contract: Contract | null = null;
+  #crew: CrewMember[] = [];
   #selectedMember: CrewMember | null = null;
   #ready = false;
   #cells: BriefingCells | null = null;
@@ -251,7 +256,7 @@ class RunBriefing extends HTMLElement {
     this.#listEl?.addEventListener('select', evt => {
       this.#selectedMember = (evt as CustomEvent<{ member: CrewMember }>).detail.member;
       if (this.#jackInBtn) {
-        this.#jackInBtn.disabled = !this.#selectedMember || this.#selectedMember.flatlined;
+        this.#jackInBtn.disabled = !this.#deployable(this.#selectedMember);
       }
     });
 
@@ -306,6 +311,9 @@ class RunBriefing extends HTMLElement {
     }
     this.#contract = cloneContract(contract);
     if (this.#ready) this.#renderContract();
+    // The deployment gate depends on the contract (P3.M3.1) — re-render any
+    // already-set crew so row gating cannot go stale on contract swap.
+    if (this.#crew.length > 0) this.#syncCrewList();
   }
 
   /**
@@ -316,9 +324,46 @@ class RunBriefing extends HTMLElement {
     if (!Array.isArray(crew)) {
       throw new TypeError('<run-briefing>.setCrew requires an array');
     }
+    this.#crew = crew;
+    this.#syncCrewList();
+  }
+
+  /**
+   * P3.M4.1: a Cyberspace dual-deploy auto-includes the Decker (the jack-in
+   * operator) and asks the player to pick the *meat partner* who rides along.
+   * The Decker row renders locked (CYBER OP); living non-Deckers are the
+   * selectable partners.
+   *
+   * Solo fallback (P3.M3 behaviour): if no living non-Decker is available, the
+   * dual-deploy is impossible — only the Decker can deploy, so other rows show
+   * NEEDS DECKER and the run goes in solo.
+   */
+  #cyberPartnerMode(): boolean {
+    return (
+      !!this.#contract &&
+      contractRequiresCyberspace(this.#contract) &&
+      this.#crew.some(member => member.archetype !== 'Decker' && !member.flatlined)
+    );
+  }
+
+  #rowGate(): CrewRowGate | null {
+    if (!this.#contract || !contractRequiresCyberspace(this.#contract)) return null;
+    if (this.#cyberPartnerMode()) {
+      return member => (member.archetype === 'Decker' ? 'CYBER OP' : null);
+    }
+    return member => (member.archetype === 'Decker' ? null : 'NEEDS DECKER');
+  }
+
+  #deployable(member: CrewMember | null): boolean {
+    if (!member || member.flatlined) return false;
+    const gate = this.#rowGate();
+    return gate ? gate(member) === null : true;
+  }
+
+  #syncCrewList() {
     this.#selectedMember = null;
     if (this.#jackInBtn) this.#jackInBtn.disabled = true;
-    this.#listEl?.setCrew(crew);
+    this.#listEl?.setCrew(this.#crew, this.#rowGate());
   }
 
   show() {
@@ -379,10 +424,22 @@ class RunBriefing extends HTMLElement {
   }
 
   #commit() {
-    if (!this.#contract || !this.#selectedMember || this.#selectedMember.flatlined) return;
+    const selected = this.#selectedMember;
+    if (!this.#contract || !selected || !this.#deployable(selected)) return;
+    // P3.M4.1: in dual-deploy mode the selected row is the meat partner and the
+    // Decker auto-attaches as the jack-in operator; otherwise the selected row
+    // deploys solo (non-cyber, or cyber with no partner available).
+    let memberId = selected.id;
+    let partnerId: string | null = null;
+    if (this.#cyberPartnerMode()) {
+      const decker = this.#crew.find(member => member.archetype === 'Decker' && !member.flatlined);
+      if (!decker) return; // cyber board invariant: a living Decker exists
+      memberId = decker.id;
+      partnerId = selected.id;
+    }
     this.dispatchEvent(
       new CustomEvent('deploy', {
-        detail: { memberId: this.#selectedMember.id, contract: cloneContract(this.#contract) },
+        detail: { memberId, partnerId, contract: cloneContract(this.#contract) },
       })
     );
   }

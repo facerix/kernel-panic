@@ -19,7 +19,7 @@ import { detonateBreachingCharge } from '../../../src/game/breachBlast.js';
 import { runPlayerAftermathSteps } from '../../../src/game/combatTurnPipeline.js';
 import { EVENT } from '../../../src/game/events.js';
 import { EventBus } from '../../../src/game/events.js';
-import { BREACH_BLAST_DAMAGE, REP, TILE } from '../../../src/game/constants.js';
+import { BREACH_BLAST_DAMAGE, TILE } from '../../../src/game/constants.js';
 import { Rng } from '../../../src/rng.js';
 import { testContractContext } from './contractTestUtils.js';
 import type { Contract } from '../../../src/game/hub/Curator.js';
@@ -348,10 +348,9 @@ test('armed breaching charge round-trips through run snapshots', () => {
   assert.equal(charges.length, 1);
 });
 
-test('breaching charge appears in Finn catalog at UNKNOWN tier and is aimed', () => {
-  const item = getShopCatalog(REP.START).find(entry => entry.id === ITEM_ID.BREACHING_CHARGE);
+test('breaching charge is default Finn stock and is aimed', () => {
+  const item = getShopCatalog().find(entry => entry.id === ITEM_ID.BREACHING_CHARGE);
 
   assert.ok(item);
-  assert.equal(item.needsAim, true);
-  assert.equal(item.minRepTier, 'UNKNOWN');
+  assert.equal(item?.needsAim, true);
 });

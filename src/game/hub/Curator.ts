@@ -22,7 +22,7 @@ import { resolveMapDimensions } from '../procgen/mapDimensions.js';
 import type { Rng } from '../../rng.js';
 import type { EntityInit } from '../Entity.js';
 import type { ContractDifficulty } from '../constants.js';
-import type { LocationSite, LocationToken } from '../../types.js';
+import type { CampaignArcStage, LocationSite, LocationToken } from '../../types.js';
 
 export const OBJECTIVES = Object.freeze({
   REACH_EXIT: 'reach-exit',
@@ -34,6 +34,10 @@ export const OBJECTIVES = Object.freeze({
   DUAL_SITE: 'dual-site',
   RECON: 'recon',
   ESCORT_EXTRACT: 'escort-extract',
+  /** P3.M3: slice a data node in Cyberspace — requires a living Decker to jack in. */
+  DATA_NODE_SLICE: 'data-node-slice',
+  /** P3.M5: THE SCORE finale — linked Cyberspace core, Meatspace door, payload. */
+  SCORE_FINAL: 'score-final',
 });
 
 const KNOWN_OBJECTIVE_KINDS = new Set(Object.values(OBJECTIVES));
@@ -45,8 +49,6 @@ export type ContractObjective = {
   briefing: string;
   params?: ObjectiveParams;
 };
-
-export type ContractArcStage = 'act-1' | 'act-2' | 'act-3' | 'score';
 
 export type ContractContextToken = {
   id: string;
@@ -62,7 +64,7 @@ export type ContractContext = {
   asset: ContractContextToken;
   action: ContractContextToken;
   tags: string[];
-  arcStage?: ContractArcStage;
+  arcStage?: CampaignArcStage;
   /**
    * References a `LocationSite.id` in the campaign roster when the Curator
    * targets a remembered site for a revisit (P2.5.M7.2). Distinct from the
@@ -73,7 +75,9 @@ export type ContractContext = {
 };
 
 type ContractRecipeContext = {
-  arcStage?: ContractArcStage;
+  arcStage?: CampaignArcStage;
+  /** P3.M3.1: whether the campaign roster carries a non-flatlined Decker. */
+  hasLivingDecker?: boolean;
 };
 
 type ContractToken = {
@@ -110,6 +114,12 @@ type ContractRecipe = {
   title: (tokens: ContractRecipeTokens) => string;
   briefing: (tokens: ContractRecipeTokens) => string;
   params: (tokens: ContractRecipeTokens) => ObjectiveParams | undefined;
+  /**
+   * P3.M3.1: campaign-state gate. When present, the recipe only enters the
+   * generation pool if this returns `true` for the board's recipe context.
+   * Absent means always available (the pre-P3.M3 pool is unchanged).
+   */
+  availableWhen?: (context: ContractRecipeContext) => boolean;
 };
 
 const REACH_EXIT_OBJECTIVE: ContractObjective = Object.freeze({
@@ -389,6 +399,27 @@ export const CONTRACT_RECIPES: readonly ContractRecipe[] = Object.freeze([
       contact: asset.contact ?? asset.label,
     }),
   },
+  {
+    // P3.M3.1: the first Cyberspace-capable contract family. Only enters the
+    // pool in Act 2+ with a living Decker on the roster — the jack-in port and
+    // the digital layer are meaningless without one. Params stay minimal:
+    // `requiresCyberspace` is the layer flag, `count` the data nodes to slice.
+    id: 'cyber-data-spike',
+    objectiveKind: OBJECTIVES.DATA_NODE_SLICE,
+    tags: Object.freeze(['cyberspace', 'digital', 'slice']),
+    principalGroups: Object.freeze(['corp']),
+    siteGroups: Object.freeze(['corp', 'data', 'security', 'infrastructure']),
+    siteStateGroups: Object.freeze(['normal', 'security']),
+    assetGroups: Object.freeze(['terminal']),
+    actionGroups: Object.freeze(['terminal']),
+    title: ({ asset }) => `Spike ${noun(asset)}`,
+    briefing: ({ principal, site, asset }) =>
+      `Find the jack-in port at ${possessive(principal.label)} ${sitePhrase({ site })}, breach the grid, slice the ${asset.label} node, then extract.`,
+    params: () => ({ requiresCyberspace: true, count: 1 }),
+    availableWhen: context =>
+      (context.arcStage === 'act-2' || context.arcStage === 'act-3') &&
+      context.hasLivingDecker === true,
+  },
 ]);
 
 const CURATOR_GLYPH = 'C';
@@ -489,9 +520,12 @@ type ContractCampaign =
   | {
       rep?: number;
       meta?: Record<string, unknown>;
-      arcStage?: ContractArcStage | null;
+      arcStage?: CampaignArcStage | null;
+      clockHeat?: number;
       /** Remembered combat locations the Curator may steer revisits toward (P2.5.M7.2). */
       siteRoster?: LocationSite[];
+      /** P3.M3.1: gates Cyberspace-capable recipes (`availableWhen`). */
+      hasLivingDecker?: boolean;
     }
   | null
   | undefined;
@@ -542,6 +576,11 @@ export class Curator extends Entity {
     const revisitedSiteIds = new Set<string>();
     const context = contractRecipeContext(campaign);
     const roster = campaign?.siteRoster ?? [];
+    const scoreTarget = scoreTargetForArcBoard(roster);
+    const revisitRoster = scoreTarget ? roster.filter(site => site.id !== scoreTarget.id) : roster;
+    const biasedSlots =
+      scoreTarget && scoreTarget.principal ? biasedBoardSlots(context.arcStage) : 0;
+    const heat = campaignClockHeat(campaign);
 
     for (let i = 0; i < CONTRACTS_PER_VISIT; i++) {
       const difficulty = rng.pick([...pool]);
@@ -555,9 +594,14 @@ export class Curator extends Entity {
       // unchanged (no extra rng draws) and pre-P2.5.M7.2 determinism holds.
       let revisitSite: LocationSite | undefined;
       let built: RenderedContract | undefined;
+      let builtFreshBias = false;
       let seed: number;
-      if (roster.length > 0 && rng.chance(SITE_REVISIT_CHANCE)) {
-        const candidate = rng.pick(roster);
+      if (i < biasedSlots && scoreTarget) {
+        built = generatePrincipalBiasedContract(rng, labelsUsed, context, scoreTarget) ?? undefined;
+        builtFreshBias = !!built;
+      }
+      if (!built && revisitRoster.length > 0 && rng.chance(SITE_REVISIT_CHANCE)) {
+        const candidate = rng.pick(revisitRoster);
         // Pinnable only if it carries identity tokens and isn't already on this
         // board. Otherwise fall through to a fresh contract.
         if (candidate.principal && !revisitedSiteIds.has(candidate.id)) {
@@ -570,6 +614,8 @@ export class Curator extends Entity {
       }
       if (!built) {
         built = generateRecipeContract(rng, labelsUsed, context);
+        seed = rng.intRange(0, 0x7fffffff);
+      } else if (builtFreshBias) {
         seed = rng.intRange(0, 0x7fffffff);
       } else {
         seed = siteSeedToContractSeed(revisitSite!);
@@ -590,7 +636,7 @@ export class Curator extends Entity {
         mapHeight: dimensions.height,
         objective: applyDoorRoutingToObjective(built.objective, difficulty),
         difficulty,
-        threatCount: spec.threatCount,
+        threatCount: applyHeatToThreat(spec.threatCount, difficulty, heat),
         label: built.label,
         context: revisitSite ? { ...built.context, locationSiteId: revisitSite.id } : built.context,
         reward,
@@ -656,7 +702,53 @@ export function normalizeObjective(value: unknown): ContractObjective {
   if (candidate.params !== undefined) {
     validateObjectiveParams(candidate.params);
   }
+  validateCyberspaceObjective(candidate.kind, candidate.params);
   return cloneObjective(candidate as ContractObjective);
+}
+
+/**
+ * P3.M3.1: cross-field rules for the Cyberspace layer flag. `data-node-slice`
+ * must carry `requiresCyberspace: true` plus a positive integer `count`; no
+ * other kind may carry the flag. Validated at generation, at
+ * `Run.enterBriefing`, and on snapshot restore (all call `normalizeObjective`).
+ */
+function validateCyberspaceObjective(
+  kind: ObjectiveKind,
+  params: ObjectiveParams | undefined
+): void {
+  if (kind === OBJECTIVES.DATA_NODE_SLICE || kind === OBJECTIVES.SCORE_FINAL) {
+    if (params?.requiresCyberspace !== true) {
+      throw new Error(
+        `contract objective "${kind}" requires params.requiresCyberspace to be exactly true`
+      );
+    }
+    if (!Number.isInteger(params.count) || (params.count as number) < 1) {
+      throw new RangeError(
+        `contract objective "${kind}" requires params.count to be a positive integer`
+      );
+    }
+    if (kind === OBJECTIVES.SCORE_FINAL) {
+      if (typeof params.doorId !== 'string' || params.doorId.length === 0) {
+        throw new TypeError(
+          `contract objective "${kind}" requires params.doorId to be a non-empty string`
+        );
+      }
+    }
+  } else if (params?.requiresCyberspace !== undefined) {
+    throw new Error(
+      `contract objective param "requiresCyberspace" is only valid on Cyberspace objectives, got kind "${kind}"`
+    );
+  }
+}
+
+/**
+ * P3.M3.1: single source of truth for "this contract has a Cyberspace
+ * component". The params flag is validated against the objective kind by
+ * `normalizeObjective`, so any contract that survived validation answers
+ * consistently.
+ */
+export function contractRequiresCyberspace(contract: Pick<Contract, 'objective'>): boolean {
+  return contract.objective.params?.requiresCyberspace === true;
 }
 
 /**
@@ -695,7 +787,11 @@ export function assertLabelObjectiveRegistryInSync(): void {
     validateRenderedContract(contract);
   }
   for (const kind of Object.values(OBJECTIVES)) {
-    if (kind !== OBJECTIVES.REACH_EXIT && !coveredKinds.has(kind)) {
+    if (
+      kind !== OBJECTIVES.REACH_EXIT &&
+      kind !== OBJECTIVES.SCORE_FINAL &&
+      !coveredKinds.has(kind)
+    ) {
       throw new Error(`Curator: no contract recipe covers objective kind "${kind}"`);
     }
   }
@@ -754,7 +850,7 @@ export function buildContractRecipeFixture({
   actionId: string;
   difficulty: ContractDifficulty;
   seed: number;
-  arcStage?: ContractArcStage;
+  arcStage?: CampaignArcStage;
 }): Contract {
   if (!isContractDifficulty(difficulty)) {
     throw new Error(`Curator fixture: unknown difficulty "${difficulty}"`);
@@ -892,10 +988,27 @@ function contractRecipeContext(campaign: ContractCampaign): ContractRecipeContex
   if (arcStage !== undefined && !isArcStage(arcStage)) {
     throw new Error(`Curator.generateContracts: unknown arcStage "${arcStage}"`);
   }
-  return arcStage ? { arcStage } : {};
+  const hasLivingDecker = campaign?.hasLivingDecker;
+  if (hasLivingDecker !== undefined && typeof hasLivingDecker !== 'boolean') {
+    throw new TypeError('Curator.generateContracts: hasLivingDecker must be a boolean when set');
+  }
+  return {
+    ...(arcStage ? { arcStage } : {}),
+    ...(hasLivingDecker !== undefined ? { hasLivingDecker } : {}),
+  };
 }
 
-function isArcStage(value: unknown): value is ContractArcStage {
+/**
+ * P3.M3.1: recipes with an `availableWhen` gate only enter the pool when the
+ * campaign context satisfies it. Recipes without the gate are always eligible,
+ * so the filtered pool is identical to the historic pool whenever no gated
+ * recipe qualifies — seeded generation for pre-P3.M3 saves is unchanged.
+ */
+function recipeIsAvailable(recipe: ContractRecipe, context: ContractRecipeContext): boolean {
+  return recipe.availableWhen ? recipe.availableWhen(context) === true : true;
+}
+
+function isArcStage(value: unknown): value is CampaignArcStage {
   return value === 'act-1' || value === 'act-2' || value === 'act-3' || value === 'score';
 }
 
@@ -933,8 +1046,9 @@ function generateRecipeContract(
   labelsUsed: Set<string>,
   context: ContractRecipeContext
 ): RenderedContract {
+  const availableRecipes = CONTRACT_RECIPES.filter(recipe => recipeIsAvailable(recipe, context));
   for (let i = 0; i < MAX_UNIQUE_CONTRACT_ATTEMPTS; i++) {
-    const recipe = rng.pick(CONTRACT_RECIPES);
+    const recipe = rng.pick(availableRecipes);
     const tokens = {
       principal: pickCompatibleToken(
         rng,
@@ -992,6 +1106,7 @@ function generateRevisitContract(
   // Recipes the pinned identity can satisfy: principal groups must intersect,
   // and any site-using recipe needs a remembered site compatible with it.
   const candidates = CONTRACT_RECIPES.filter(recipe => {
+    if (!recipeIsAvailable(recipe, context)) return false;
     if (!groupsIntersect(principal.groups, recipe.principalGroups)) return false;
     if (recipe.siteGroups) {
       return !!siteToken && groupsIntersect(siteToken.groups, recipe.siteGroups);
@@ -1025,6 +1140,58 @@ function generateRevisitContract(
   return null;
 }
 
+function generatePrincipalBiasedContract(
+  rng: Rng,
+  labelsUsed: Set<string>,
+  context: ContractRecipeContext,
+  scoreTarget: LocationSite
+): RenderedContract | null {
+  if (!scoreTarget.principal) return null;
+  const principal = lexiconTokenFrom(scoreTarget.principal);
+  const avoidedSiteId = scoreTarget.site?.id;
+  const candidates = CONTRACT_RECIPES.filter(
+    recipe =>
+      recipeIsAvailable(recipe, context) &&
+      groupsIntersect(principal.groups, recipe.principalGroups)
+  );
+  if (candidates.length === 0) return null;
+
+  for (let i = 0; i < MAX_UNIQUE_CONTRACT_ATTEMPTS; i++) {
+    const recipe = rng.pick(candidates);
+    const site = recipe.siteGroups
+      ? pickCompatibleTokenAvoiding(
+          rng,
+          CONTRACT_LEXICON.sites,
+          recipe.siteGroups,
+          avoidedSiteId,
+          recipe.id
+        )
+      : undefined;
+    const siteState = recipe.siteStateGroups
+      ? pickCompatibleToken(rng, CONTRACT_LEXICON.siteStates, recipe.siteStateGroups, recipe.id)
+      : undefined;
+    const asset = pickCompatibleToken(rng, CONTRACT_LEXICON.assets, recipe.assetGroups, recipe.id);
+    const action = pickCompatibleToken(
+      rng,
+      CONTRACT_LEXICON.actions,
+      recipe.actionGroups,
+      recipe.id
+    );
+    const tokens = {
+      principal,
+      ...(site ? { site } : {}),
+      ...(siteState ? { siteState } : {}),
+      asset,
+      action,
+    };
+    const contract = buildContractFromRecipe(recipe, tokens, context);
+    if (labelsUsed.has(contract.label)) continue;
+    labelsUsed.add(contract.label);
+    return contract;
+  }
+  return null;
+}
+
 /**
  * Contract label: `// <principal> <site> - <state?> <asset> <action>`.
  * Site is omitted when the recipe has no site token; transient site state
@@ -1048,6 +1215,61 @@ function lexiconTokenFrom(token: LocationToken): ContractToken {
 
 function groupsIntersect(groups: readonly string[], allowed: readonly string[]): boolean {
   return groups.some(group => allowed.includes(group));
+}
+
+function pickCompatibleTokenAvoiding(
+  rng: Rng,
+  tokens: readonly ContractToken[],
+  groups: readonly string[],
+  avoidId: string | undefined,
+  recipeId: string
+): ContractToken {
+  const compatible = tokens.filter(tokenValue => groupsIntersect(tokenValue.groups, groups));
+  if (compatible.length === 0) {
+    throw new Error(`Curator: recipe "${recipeId}" has no compatible token`);
+  }
+  const filtered =
+    avoidId && compatible.length > 1
+      ? compatible.filter(tokenValue => tokenValue.id !== avoidId)
+      : compatible;
+  return rng.pick(filtered.length > 0 ? filtered : compatible);
+}
+
+function scoreTargetForArcBoard(roster: readonly LocationSite[]): LocationSite | null {
+  const targets = roster.filter(site => site.scoreTarget);
+  if (targets.length > 1) {
+    throw new Error('Curator.generateContracts: multiple Score targets in site roster');
+  }
+  return targets[0] ?? null;
+}
+
+function biasedBoardSlots(arcStage: CampaignArcStage | undefined): number {
+  if (arcStage === 'act-2') return 1;
+  if (arcStage === 'act-3') return 2;
+  return 0;
+}
+
+function campaignClockHeat(campaign: ContractCampaign): number {
+  const heat = campaign?.clockHeat ?? 0;
+  if (!Number.isFinite(heat) || heat < 0) {
+    throw new RangeError(`Curator.generateContracts: clockHeat must be a non-negative number`);
+  }
+  return Math.floor(heat);
+}
+
+function applyHeatToThreat(
+  baseThreat: number,
+  difficulty: ContractDifficulty,
+  heat: number
+): number {
+  if (heat === 0) return baseThreat;
+  const cap =
+    difficulty === CONTRACT_DIFFICULTY.STANDARD
+      ? 3
+      : difficulty === CONTRACT_DIFFICULTY.ELEVATED
+        ? 5
+        : 6;
+  return Math.min(cap, baseThreat + heat);
 }
 
 function buildContractFromRecipe(

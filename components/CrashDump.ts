@@ -1,10 +1,8 @@
 /**
- * <crash-dump> — DOM overlay shown while `Run.state === RESULT`, when
- * `Campaign.state === ENDED` (restore), or for the terminal job death that
- * wipes the crew. Renders the run's telemetry as a faux kernel-panic stack
- * trace (on DEATH) or a clean "JACK OUT" debrief (on EXIT). Campaign wipe uses
- * `outcome: 'campaign-over'` or `campaignTerminal: true` on a death payload.
- * Same component, different copy — keeps the shell's overlay count down.
+ * <crash-dump> — per-job debrief overlay shown while `Run.state === RESULT`.
+ * Renders run telemetry as a faux kernel-panic stack trace (DEATH setback) or a
+ * clean "JACK OUT" debrief (EXIT). All terminal campaign outcomes use sibling
+ * `<game-over>` and never pass through this per-job screen.
  *
  *   *** KERNEL PANIC ***
  *   fault:  unhandled_exception_in_meatspace
@@ -19,8 +17,8 @@
  *
  * Usage:
  *   const dump = document.querySelector('crash-dump');
- *   dump.addEventListener('new-run', () => { dataStore.deleteCampaign(); startFreshCampaign(); });
- *   dump.setTelemetry({ outcome, archetype, turn, kills, cause, seed, hpAtDeath });
+ *   dump.addEventListener('new-run', () => onJobEndContinue());
+ *   dump.setTelemetry({ outcome, archetype, turn, kills, cause, seed });
  *   dump.show();
  *
  * Visual verification via the shell — same rule as <touch-pad> / <run-briefing>.
@@ -28,8 +26,6 @@
 
 import { h } from '/src/domUtils.js';
 import type { Telemetry } from '/src/types.js';
-
-type CrewMemberStub = { callsign: string; archetype: string; flatlined: boolean };
 
 const CSS = `
 :host {
@@ -52,8 +48,7 @@ const CSS = `
   justify-content: center;
 }
 
-:host([outcome="death"]),
-:host([outcome="campaign-over"]) {
+:host([outcome="death"]) {
   --crash-accent: var(--crash-warn);
   --crash-border: var(--crash-warn);
 }
@@ -164,10 +159,6 @@ function exitTitle() {
   return '*** JACK OUT ***';
 }
 
-function campaignOverTitle() {
-  return '*** CAMPAIGN TERMINATED ***';
-}
-
 function deathFault() {
   return ['fault:  unhandled_exception_in_meatspace', 'addr:   0x00000@meatspace', 'trace:'].join(
     '\n'
@@ -178,46 +169,12 @@ function exitFault() {
   return ['status: exfil_successful', 'addr:   0x00000@meatspace', 'trace:'].join('\n');
 }
 
-function campaignOverFault() {
-  return [
-    'fault:  collective_operator_pool_exhausted',
-    'addr:   0x00000@campaign_layer',
-    'trace:',
-  ].join('\n');
-}
-
-function campaignTerminalFault() {
-  return [
-    'notice: final_operator_channel_lost — no surviving crew',
-    'fault:  unhandled_exception_in_meatspace',
-    'addr:   0x00000@meatspace',
-    'trace:',
-  ].join('\n');
-}
-
-function buildCampaignOverTraceLines(crewRoster: CrewMemberStub[]) {
-  return crewRoster.map((op, i) => {
-    const idx = (i + 1).toString(16).padStart(2, '0');
-    const tag = op.flatlined ? '<flatlined>' : '';
-    return {
-      text: `  0x${idx}  roster::${op.callsign} (${op.archetype})`,
-      tag,
-    };
-  });
-}
-
 function buildTraceLines(telemetry: Telemetry) {
-  if (telemetry.outcome === 'campaign-over') {
-    return buildCampaignOverTraceLines(telemetry.crewRoster ?? []);
-  }
-
   const archetype = telemetry.archetype ?? 'entity';
   const lastSource = telemetry.lastDamageSource ?? 'unknown';
   const attacker = telemetry.lastAttacker ?? 'unknown';
   const killed = telemetry.outcome === 'death';
 
-  // Format: "  0xNN  module::function(arg)            <killed>"
-  // We pack synthetic stack frames so the panic reads like a real backtrace.
   const lines = [];
   if (telemetry.outcome === 'death') {
     lines.push({
@@ -233,7 +190,6 @@ function buildTraceLines(telemetry: Telemetry) {
       tag: '',
     });
   } else {
-    // EXIT: walk the player off the exit tile. Friendlier trace.
     lines.push({ text: `  0x01  ${archetype}::reach_exit()`, tag: '<ok>' });
     lines.push({ text: `  0x02  world::move_entity(${archetype})`, tag: '' });
     if (Number.isInteger(telemetry.kills) && Number(telemetry.kills) > 0) {
@@ -301,36 +257,13 @@ class CrashDump extends HTMLElement {
     if (this.#telemetry) this.#render();
   }
 
-  /**
-   * @param {{
-   *   outcome: 'death' | 'exit' | 'campaign-over',
-   *   campaignTerminal?: boolean,
-   *   crewRoster?: { callsign: string, archetype: string, flatlined: boolean }[],
-   *   salvage?: number,
-   *   archetype?: string,
-   *   turn?: number,
-   *   kills?: number,
-   *   cause?: string,
-   *   seed?: number,
-   *   hpAtDeath?: number | null,
-   *   hpAtDamage?: number | null,
-   *   lastDamageSource?: string | null,
-   *   lastAttacker?: string | null,
-   * }} telemetry
-   */
   setTelemetry(telemetry: Telemetry) {
     if (!telemetry || typeof telemetry !== 'object') {
       throw new TypeError('<crash-dump>.setTelemetry requires a telemetry object');
     }
-    const { outcome, campaignTerminal } = telemetry;
-    if (outcome !== 'death' && outcome !== 'exit' && outcome !== 'campaign-over') {
+    const { outcome } = telemetry;
+    if (outcome !== 'death' && outcome !== 'exit') {
       throw new Error(`<crash-dump>: unknown outcome "${outcome}"`);
-    }
-    if (campaignTerminal && outcome !== 'death') {
-      throw new Error('<crash-dump>: campaignTerminal is only valid with outcome "death"');
-    }
-    if (outcome === 'campaign-over' && !Array.isArray(telemetry.crewRoster)) {
-      throw new TypeError('<crash-dump>: campaign-over requires crewRoster array');
     }
     this.#telemetry = { ...telemetry };
     this.setAttribute('outcome', outcome);
@@ -355,14 +288,9 @@ class CrashDump extends HTMLElement {
   #render() {
     if (!this.#els || !this.#telemetry) return;
     const t = this.#telemetry;
-    const isCampaignOver = t.outcome === 'campaign-over';
     const isDeath = t.outcome === 'death';
-    const isCampaignTerminalDeath = isDeath && t.campaignTerminal;
 
-    if (isCampaignOver || isCampaignTerminalDeath) {
-      this.#els.title.textContent = campaignOverTitle();
-      this.#els.fault.textContent = isCampaignOver ? campaignOverFault() : campaignTerminalFault();
-    } else if (isDeath) {
+    if (isDeath) {
       this.#els.title.textContent = deathTitle();
       this.#els.fault.textContent = deathFault();
     } else {
@@ -370,11 +298,6 @@ class CrashDump extends HTMLElement {
       this.#els.fault.textContent = exitFault();
     }
 
-    const newRunLabel =
-      isCampaignOver || isCampaignTerminalDeath ? '[ NEW CAMPAIGN ]' : '[ RETURN TO HUB ]';
-    this.#els.newRunBtn.textContent = newRunLabel;
-
-    // Build trace with `<killed>` highlight.
     const lines = buildTraceLines(t);
     this.#els.trace.replaceChildren();
     lines.forEach((line, i) => {
@@ -393,18 +316,10 @@ class CrashDump extends HTMLElement {
     });
 
     this.#els.seedDd.textContent = hexSeed(t.seed ?? 0);
-    if (isCampaignOver) {
-      this.#els.turnDd.textContent = '—';
-      this.#els.killsDd.textContent = '—';
-      this.#els.causeDd.textContent =
-        Number.isInteger(t.salvage) && Number(t.salvage) >= 0
-          ? `pool salvage ${t.salvage} (lost with run)`
-          : 'no-surviving-crew';
-    } else {
-      this.#els.turnDd.textContent = Number.isInteger(t.turn) ? String(t.turn) : '?';
-      this.#els.killsDd.textContent = Number.isInteger(t.kills) ? String(t.kills) : '0';
-      this.#els.causeDd.textContent = t.cause ?? (isDeath ? 'unknown' : 'exit-reached');
-    }
+    this.#els.turnDd.textContent = Number.isInteger(t.turn) ? String(t.turn) : '?';
+    this.#els.killsDd.textContent = Number.isInteger(t.kills) ? String(t.kills) : '0';
+    this.#els.causeDd.textContent = t.cause ?? (isDeath ? 'unknown' : 'exit-reached');
+    this.#els.newRunBtn.textContent = '[ RETURN TO HUB ]';
   }
 
   #emit(eventName: string, detail: Record<string, unknown> = {}) {

@@ -21,6 +21,7 @@ test('TOUCHPAD_ACTIONS includes gameplay actions (perks unified as `special`)', 
     'fire',
     'interact',
     'inventory',
+    'jack-out',
     'look',
     'special',
   ]);
@@ -44,6 +45,7 @@ test('syntheticKeyFor resolves actions to keymap keys', () => {
   assert.equal(syntheticKeyFor('cancel'), 'Escape');
   assert.equal(syntheticKeyFor('interact'), ' ');
   assert.equal(syntheticKeyFor('inventory'), 'i');
+  assert.equal(syntheticKeyFor('jack-out'), 'j');
   assert.equal(syntheticKeyFor('look'), 'l');
 });
 
@@ -132,6 +134,12 @@ test('IDLE + look button enters LOOK mode', () => {
   const r = dispatchTouchAction('look', MODE.IDLE);
   assert.equal(r.intent, null);
   assert.equal(r.nextMode, MODE.LOOK);
+});
+
+test('IDLE + jack-out button emits jack-out intent', () => {
+  const r = dispatchTouchAction('jack-out', MODE.IDLE);
+  assert.deepEqual(r.intent, { type: 'jack-out' });
+  assert.equal(r.nextMode, MODE.IDLE);
 });
 
 test('LOOK + direction emits a look-move intent', () => {

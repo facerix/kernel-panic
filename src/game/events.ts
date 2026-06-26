@@ -33,6 +33,12 @@ export const EVENT = Object.freeze({
   HAZARD_DAMAGE: 'hazard:damage',
   OBJECTIVE_TIMER_EXPIRED: 'objective:timer-expired',
   DOOR_UNLOCKED: 'door:unlocked',
+  /** P3.M5: a Cyberspace data node crossed its slice threshold. */
+  DATA_NODE_SLICED: 'cyber:data-node-sliced',
+  /** P3.M3.2: a Decker linked a jack-in point. Payload `{ point, actor }`. */
+  JACK_IN: 'cyber:jack-in',
+  /** P3.M3: the Decker left the grid (voluntary or forced). */
+  JACK_OUT: 'cyber:jack-out',
 });
 
 const KNOWN_TYPES = new Set<string>(Object.values(EVENT));

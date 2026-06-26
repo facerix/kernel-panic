@@ -266,6 +266,8 @@ test('draw() paints combat HUD HP and AP glyphs with per-state colors', () => {
   const canvas = makeCanvas();
   const r = new AsciiRenderer(canvas, { now: () => 0 });
   const { world, player } = makeWorld();
+  const GLOW_COLOR = '#6ae8c8';
+  const CORP_COLOR = '#ff7a66';
 
   r.draw(world, player, {
     combatHud: {
@@ -282,9 +284,9 @@ test('draw() paints combat HUD HP and AP glyphs with per-state colors', () => {
   assert.deepEqual(
     hpGlyphs.map(c => [c.char, c.fillStyle]),
     [
-      ['□', '#2a4a42'],
-      ['□', '#2a4a42'],
-      ['■', '#6ae8c8'],
+      ['□', GLOW_COLOR],
+      ['□', GLOW_COLOR],
+      ['■', GLOW_COLOR],
     ]
   );
 
@@ -292,15 +294,15 @@ test('draw() paints combat HUD HP and AP glyphs with per-state colors', () => {
   assert.deepEqual(
     apGlyphs.map(c => [c.char, c.fillStyle]),
     [
-      ['○', '#ff7a66'],
-      ['○', '#ff7a66'],
-      ['●', '#6ae8c8'],
-      ['●', '#6ae8c8'],
+      ['○', GLOW_COLOR],
+      ['○', GLOW_COLOR],
+      ['●', GLOW_COLOR],
+      ['●', GLOW_COLOR],
     ]
   );
 
   const corpTurn = textOps.find(c => c.char === 'HOSTILES ACTIVE');
-  assert.equal(corpTurn?.fillStyle, '#ff7a66');
+  assert.equal(corpTurn?.fillStyle, CORP_COLOR);
 });
 
 test('draw() omits combat HUD rows when combatHud is null', () => {
@@ -316,6 +318,21 @@ test('draw() omits combat HUD rows when combatHud is null', () => {
       ['OBJ ', 'HP ', 'TURN', 'HOSTILES'].some(prefix => String(c.char).startsWith(prefix))
     );
   assert.equal(hudText.length, 0);
+});
+
+test('draw() with an explicit camera offsets the map relative to followTarget', () => {
+  const canvas = makeCanvas();
+  const r = new AsciiRenderer(canvas, { now: () => 0, cellSize: 10 });
+  const { world, player } = makeWorld();
+
+  r.draw(world, player, {
+    camera: { x: player.x - 2, y: player.y - 2, width: 6, height: 4 },
+  });
+  const playerGlyph = canvas._drawCalls.find(c => c.op === 'text' && c.char === '@');
+  assert.ok(playerGlyph);
+  // Player is at world (16,10); camera top-left (14,8) → screen cell (2,2) → px center 25,25.
+  assert.equal(playerGlyph.px, 25);
+  assert.equal(playerGlyph.py, 25);
 });
 
 test('flashes outside the camera are silently skipped (but stay registered)', () => {

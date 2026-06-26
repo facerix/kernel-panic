@@ -19,7 +19,16 @@ type CrewSummary = {
   hp: number;
   maxHp: number;
   flatlined: boolean;
+  /** P3.M3.1: non-null when a contract gate disables this row (e.g. 'NEEDS DECKER'). */
+  gatedReason: string | null;
 };
+
+/**
+ * P3.M3.1: optional per-row deployment gate. Return a short uppercase tag
+ * (e.g. 'NEEDS DECKER') to disable the row with that flag, or null to leave
+ * the row deployable.
+ */
+export type CrewRowGate = (member: CrewMember) => string | null;
 
 const CSS = `
 :host {
@@ -127,10 +136,14 @@ class CrewList extends HTMLElement {
 
   /**
    * @param {Array} crew — array of crew member objects (or snapshots).
+   * @param rowGate — optional P3.M3.1 deployment gate; see {@link CrewRowGate}.
    */
-  setCrew(crew: CrewMember[]) {
+  setCrew(crew: CrewMember[], rowGate: CrewRowGate | null = null) {
     if (!Array.isArray(crew)) {
       throw new TypeError('<crew-list>.setCrew requires an array');
+    }
+    if (rowGate !== null && typeof rowGate !== 'function') {
+      throw new TypeError('<crew-list>.setCrew rowGate must be a function when set');
     }
     this.#crew = crew.map(member => ({
       id: member.id,
@@ -139,10 +152,11 @@ class CrewList extends HTMLElement {
       hp: member.hp,
       maxHp: member.maxHp,
       flatlined: !!member.flatlined,
+      gatedReason: rowGate ? rowGate(member) : null,
     }));
     this.#selectedIndex = Math.max(
       0,
-      this.#crew.findIndex(member => !member.flatlined)
+      this.#crew.findIndex(member => isSelectable(member))
     );
     if (this.#ready) this.#render();
     // Emit initial selection so the parent can populate the detail pane.
@@ -175,9 +189,9 @@ class CrewList extends HTMLElement {
 
     for (let i = 0; i < this.#crew.length; i++) {
       const member = this.#crew[i];
-      // Only flatlined members are disabled; living rows stay focusable for
-      // keyboard navigation and click-to-select.
-      const disabled = member.flatlined;
+      // Flatlined members and contract-gated rows (P3.M3.1) are disabled;
+      // living deployable rows stay focusable for keyboard nav and click.
+      const disabled = !isSelectable(member);
       const row = h('button', {
         type: 'button',
         className: 'row',
@@ -191,7 +205,7 @@ class CrewList extends HTMLElement {
         h('span', { className: 'name', textContent: member.callsign }),
         h('span', {
           className: 'flag',
-          textContent: member.flatlined ? 'FLATLINED' : '',
+          textContent: member.flatlined ? 'FLATLINED' : (member.gatedReason ?? ''),
         }),
         h('span', {
           className: 'meta',
@@ -223,7 +237,7 @@ class CrewList extends HTMLElement {
     let next = this.#selectedIndex;
     for (let i = 0; i < this.#crew.length; i++) {
       next = (next + delta + this.#crew.length) % this.#crew.length;
-      if (!this.#crew[next].flatlined) break;
+      if (isSelectable(this.#crew[next])) break;
     }
     this.#selectedIndex = next;
     this.#syncCurrent();
@@ -233,7 +247,7 @@ class CrewList extends HTMLElement {
 
   #onRowClick(index: number) {
     const member = this.#crew[index];
-    if (!member || member.flatlined) return;
+    if (!member || !isSelectable(member)) return;
     // Update selection to clicked row.
     this.#selectedIndex = index;
     this.#syncCurrent();
@@ -252,6 +266,10 @@ class CrewList extends HTMLElement {
       this.#buttons[i].setAttribute('aria-current', i === this.#selectedIndex ? 'true' : 'false');
     }
   }
+}
+
+function isSelectable(member: CrewSummary): boolean {
+  return !member.flatlined && member.gatedReason === null;
 }
 
 customElements.define('crew-list', CrewList);

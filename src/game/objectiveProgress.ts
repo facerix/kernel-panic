@@ -7,6 +7,7 @@ import { Hostile } from './Hostile.js';
 import { CorpTurret } from './entities/CorpTurret.js';
 import { RelayNode } from './entities/RelayNode.js';
 import { EscortNpc } from './entities/EscortNpc.js';
+import { DataNode } from './cyber/DataNode.js';
 import { OBJECTIVES } from './hub/Curator.js';
 import { coordKey, explorationReachableKeys } from './mapConnectivity.js';
 import type { Contract } from './hub/Curator.js';
@@ -28,6 +29,16 @@ export type ReconProgress = {
 export type SweepProgress = {
   cleared: number;
   total: number;
+};
+
+/**
+ * P3.M3.4: data-node tally for the `data-node-slice` objective. `Run` derives
+ * it per cyberspace phase (live count while active, the latch once resolved)
+ * and threads it into both satisfaction and the HUD chip.
+ */
+export type CyberNodeProgress = {
+  sliced: number;
+  required: number;
 };
 
 export const SWEEP_QUOTA = Object.freeze({
@@ -120,14 +131,32 @@ export function reconObjectiveProgress(
   return { mapped, required: eligible.size };
 }
 
+/** Count sliced vs. total data nodes in a (cyber) world. */
+export function dataNodeProgress(world: World | null | undefined): {
+  sliced: number;
+  total: number;
+} {
+  if (!world) return { sliced: 0, total: 0 };
+  let sliced = 0;
+  let total = 0;
+  for (const entity of world.entities.values()) {
+    if (!(entity instanceof DataNode)) continue;
+    total++;
+    if (entity.sliced) sliced++;
+  }
+  return { sliced, total };
+}
+
 /**
- * Progress tally for objectives that expose a fractional meter (recon, sweep).
- * Returns `null` when the contract kind has no meter or `total` is zero.
+ * Progress tally for objectives that expose a fractional meter (recon, sweep,
+ * data-node slice). Returns `null` when the contract kind has no meter or
+ * `total` is zero.
  */
 export function objectiveProgress(
   contract: Contract,
   world: World | null | undefined,
-  mapSeen: ReadonlySet<string> | readonly string[] = []
+  mapSeen: ReadonlySet<string> | readonly string[] = [],
+  cyber: CyberNodeProgress | null = null
 ): ObjectiveProgress | null {
   switch (contract.objective.kind) {
     case OBJECTIVES.RECON: {
@@ -139,6 +168,14 @@ export function objectiveProgress(
       const { cleared, total } = sweepObjectiveProgress(contract, world);
       if (total <= 0) return null;
       return { label: 'SWEEP', current: cleared, total };
+    }
+    case OBJECTIVES.DATA_NODE_SLICE: {
+      if (!cyber || cyber.required <= 0) return null;
+      return { label: 'NODES', current: cyber.sliced, total: cyber.required };
+    }
+    case OBJECTIVES.SCORE_FINAL: {
+      if (!cyber || cyber.required <= 0) return null;
+      return { label: 'CORE', current: cyber.sliced, total: cyber.required };
     }
     default:
       return null;

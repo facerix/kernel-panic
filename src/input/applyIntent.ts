@@ -6,8 +6,8 @@
  *
  * The intent shape is the closed enum the keymap / touch layer and other
  * callers may produce:
- *   { type: 'move' | 'special' | 'melee' | 'fire' | 'interact' | 'end-turn'
- *         | 'cancel', dx?, dy? }
+ *   { type: 'move' | 'special' | 'melee' | 'fire' | 'interact' | 'jack-out'
+ *         | 'end-turn' | 'cancel', dx?, dy? }
  *
  * `move` into an occupied tile is resolved in `doMove`: a corp (or any
  * non-allied, non-neutral) neighbour is a bump-melee; same-faction or neutral
@@ -18,11 +18,13 @@
  * automation can commit a melee strike without synthesizing a walk intent.
  *
  * The archetype-specific perks (Merc's Vault, Razor's Slide, Tech's Deploy
- * Turret) collapse into a single `special` intent at the keymap layer. The
- * `doSpecial` dispatcher below routes it to the right verb based on which
- * methods the active player class exposes — `canVault` → vault, `canSlide` →
- * slide, `canDeploy` → deploy. This keeps the input surface symmetric across
- * archetypes (one key, one touch button) and stays out of the player's way:
+ * Turret, Decker's Override) collapse into a single `special` intent at the
+ * keymap layer. The `doSpecial` dispatcher below routes it to the right verb
+ * based on which methods the active player class exposes — `canVault` → vault,
+ * `canSlide` → slide, `canDeploy` → deploy, `canOverride` → override (the
+ * Decker resolves the nearest visible drone in the aimed eight-way sector).
+ * This keeps the input surface symmetric across archetypes (one key, one touch
+ * button) and stays out of the player's way:
  * the keymap doesn't need to know which class is in play, and the intent
  * dispatcher doesn't need an explicit archetype switch.
  *
@@ -39,7 +41,13 @@
  * harness assumption.
  */
 
-import { FACTION, SIGHT_RANGE, VAULT_DAMAGE, NOISE_RADIUS } from '../game/constants.js';
+import {
+  FACTION,
+  SIGHT_RANGE,
+  VAULT_DAMAGE,
+  NOISE_RADIUS,
+  OVERRIDE_RANGE,
+} from '../game/constants.js';
 import { totalSalvage, formatSalvageCompact } from '../game/salvage.js';
 import { canFireRanged, resolveRanged, canMelee, resolveMelee } from '../game/Combat.js';
 import { isConcealedFromPlayer } from '../game/playerPerception.js';
@@ -50,14 +58,18 @@ import { Door } from '../game/entities/Door.js';
 import { DenyTarget } from '../game/entities/DenyTarget.js';
 import { EVENT } from '../game/events.js';
 import { TILE } from '../game/constants.js';
+import { Hostile } from '../game/Hostile.js';
 import type { KeyItem } from '../types.js';
 import type { Archetype } from '../game/archetypes/index.js';
+import type { CyberAvatar } from '../game/cyber/CyberAvatar.js';
+import type { Entity } from '../game/Entity.js';
 import type { World } from '../game/World.js';
 import type { TurnQueue } from '../game/TurnQueue.js';
 import type { Rng } from '../rng.js';
 import type { Tech } from '../game/archetypes/Tech.js';
 import type { Merc } from '../game/archetypes/Merc.js';
 import type { Razor } from '../game/archetypes/Razor.js';
+import type { Decker } from '../game/archetypes/Decker.js';
 
 export type Intent = {
   type: string;
@@ -67,11 +79,33 @@ export type Intent = {
 
 export type ApplyIntentContext = {
   world: World;
-  player: Archetype;
+  /**
+   * P3.M3.6: the acting body — a crew archetype in Meatspace, the
+   * `CyberAvatar` on the grid. The avatar exposes Override but no inventory
+   * capabilities, so loot and consumables retain their refusal paths.
+   */
+  player: Archetype | CyberAvatar;
   queue: TurnQueue;
   rng: Rng;
   log: (line: string) => void;
   advanceTurn: () => void;
+  /**
+   * P3.M4.4: resolve the active operator hitting 0 AP. With independent
+   * dual-deploy AP pools, exhausting one operator must not end the mutual turn
+   * while another still has AP — the shell auto-flips control instead, and only
+   * ends (driving the hostile phases) once the whole crew is spent. Optional:
+   * contexts that don't supply it fall back to the single-operator `advanceTurn`
+   * (correct for solo/single-deploy, where there is nothing to flip to).
+   */
+  concludeTurn?: () => void;
+  /**
+   * P3.M4.4: resolve a Wait (`.`). Distinct from `concludeTurn`: Wait always
+   * hands control to the other operator when one exists (a consistent
+   * pass/switch gesture), ending the mutual turn additionally when the crew is
+   * spent. Optional: without it (solo/single-deploy harness) Wait hard-ends via
+   * `advanceTurn`.
+   */
+  passTurn?: () => void;
   resetInputModes: () => void;
   onPlayerAction: (actionName: string) => void;
   /**
@@ -120,6 +154,7 @@ const KNOWN_INTENT_TYPES = new Set([
   'fire',
   'interact',
   'inventory',
+  'jack-out',
   'use-item',
   'end-turn',
   'cancel',
@@ -133,13 +168,15 @@ export const PLAYER_ACTIONS = Object.freeze({
   REACHED_EXIT: 'movedToExit',
   INVENTORY: 'inventory',
   INTERACT: 'interact',
+  JACK_OUT: 'jack-out',
 });
 
 function gateOnApExhausted(ctx: ApplyIntentContext) {
-  const { player, advanceTurn } = ctx;
-  if (player.ap === 0) {
-    advanceTurn();
-  }
+  const { player, advanceTurn, concludeTurn } = ctx;
+  if (player.ap !== 0) return;
+  // P3.M4.4: defer the end-vs-auto-flip decision to the shell when wired;
+  // otherwise fall back to a hard end (single-operator semantics).
+  (concludeTurn ?? advanceTurn)();
 }
 
 function finishBumpInteract(
@@ -183,13 +220,20 @@ export function applyIntent(intent: Intent, ctx: ApplyIntentContext) {
       return doInteract(ctx);
     case 'inventory':
       return doInventory(ctx);
+    case 'jack-out':
+      return doJackOut(ctx);
     case 'use-item':
       return doUseItem(intent, ctx);
     case 'end-turn': {
+      // P3.M4.4: Wait passes *this* operator — forfeit its remaining AP, then
+      // hand control to the other operator if it can still act (auto-flip via
+      // `concludeTurn`), ending the mutual turn only once the whole crew is
+      // spent. Without a `concludeTurn` (solo/single-deploy harness) this is a
+      // hard end, same as before.
       const apBefore = player.ap;
       log(`> ${entityLabel(player)} waits (drops ${apBefore} AP).`);
       player.ap = 0;
-      advanceTurn();
+      (ctx.passTurn ?? advanceTurn)();
       return;
     }
     case 'cancel':
@@ -280,11 +324,17 @@ function collectTileLoot(ctx: ApplyIntentContext) {
   const { world, player, log } = ctx;
   const objectivePickup = player.alive ? world.objectivePickupAt(player.x, player.y) : null;
   if (objectivePickup) {
+    const flavor = objectivePickup.detail;
     objectivePickup.secureWalkOnto(world);
     log(`> ${entityLabel(player)} secures ${objectivePickup.label}.`);
+    // P3.M6.4: a Score blueprint carries a flavor beat — surface what was stolen.
+    if (flavor) log(`> ${flavor}`);
   }
-  const consumablePickup = player.alive ? world.consumablePickupAt(player.x, player.y) : null;
-  if (consumablePickup) {
+  // Capability sniff (P3.M3.6): the CyberAvatar carries no gear — pickups
+  // stay on the tile for whoever has pockets.
+  const consumablePickup =
+    'addConsumable' in player && player.alive ? world.consumablePickupAt(player.x, player.y) : null;
+  if (consumablePickup && 'addConsumable' in player) {
     player.addConsumable(consumablePickup.consumableId);
     world.removeEntity(consumablePickup.id);
     log(`> ${entityLabel(player)} picks up ${consumablePickup.label}.`);
@@ -304,8 +354,10 @@ function collectTileLoot(ctx: ApplyIntentContext) {
     log(`> ${entityLabel(player)} picks up ${keycard.label}.`);
   }
   const corpse =
-    player.inventory && player.alive ? world.lootableCorpseAt(player.x, player.y) : null;
-  if (corpse) {
+    'inventory' in player && player.inventory && player.alive
+      ? world.lootableCorpseAt(player.x, player.y)
+      : null;
+  if (corpse && 'inventory' in player) {
     const amount = totalSalvage(corpse.loot!.salvage);
     player.collectSalvage(world, corpse, { spendAp: false });
     ctx.onCorpseSalvaged?.(corpse);
@@ -347,7 +399,97 @@ function doSpecial(intent: Intent, ctx: ApplyIntentContext) {
   if (typeof (player as Razor).canSlide === 'function') {
     return doSlide(intent, ctx);
   }
+  if (typeof (player as Decker).canOverride === 'function') {
+    return doOverride(intent, ctx);
+  }
   log('> SPECIAL: this archetype has no perk action.');
+}
+
+/**
+ * Acquire a drone in the Decker's aimed eight-way sector and attempt the
+ * hijack. Range, LOS, and perception match the resolver and combat targeting;
+ * a failed roll trips the alarm, while an empty sector yields a legible deny.
+ */
+type OverrideActor = ApplyIntentContext['player'] & {
+  canOverride(world: World, target: Entity | null): ReturnType<Decker['canOverride']>;
+  overrideDrone(world: World, target: Entity, rng: Rng): ReturnType<Decker['overrideDrone']>;
+};
+
+function doOverride(intent: Intent, ctx: ApplyIntentContext) {
+  const { world, player, log } = ctx;
+  const decker = player as OverrideActor;
+  const playerLabel = entityLabel(player);
+  const target = pickOverrideTarget(ctx, intent.dx!, intent.dy!);
+  const check = decker.canOverride(world, target);
+  if (!check.ok) {
+    log(`> ${playerLabel} OVERRIDE DENIED: ${check.reason}`);
+    return;
+  }
+  const result = decker.overrideDrone(world, target!, ctx.rng);
+  const targetLabel = entityLabel(target!);
+  if (result.success) {
+    log(`> ${playerLabel} OVERRIDES ${targetLabel} — it fights for you! (${player.ap} AP left).`);
+  } else {
+    log(
+      `> ${playerLabel} OVERRIDE FAILED on ${targetLabel}` +
+        `${result.alarm ? ' — ALARM TRIPPED' : ''} (${player.ap} AP left).`
+    );
+  }
+  gateOnApExhausted(ctx);
+}
+
+/**
+ * Nearest live hostile in the aimed eight-way sector within `OVERRIDE_RANGE`
+ * and LOS. The 22.5-degree half-angle partitions arbitrary target offsets
+ * across the eight directions supplied by keyboard and touch controls, so a
+ * moving Probe does not need to be perfectly collinear with the avatar.
+ */
+function pickOverrideTarget(ctx: ApplyIntentContext, dx: number, dy: number) {
+  const { world, player } = ctx;
+  const blockers = world.blockerKeys();
+  let best: Hostile | null = null;
+  let bestDistanceSquared = Infinity;
+  let bestAlignment = -Infinity;
+
+  for (const entity of world.entities.values()) {
+    if (!(entity instanceof Hostile) || !entity.alive) continue;
+    const offsetX = entity.x - player.x;
+    const offsetY = entity.y - player.y;
+    if (!isInAimSector(dx, dy, offsetX, offsetY)) continue;
+    if (!withinRange(player.x, player.y, entity.x, entity.y, OVERRIDE_RANGE)) continue;
+    if (
+      !hasLineOfSight(world.grid, player.x, player.y, entity.x, entity.y, {
+        blockers,
+      })
+    ) {
+      continue;
+    }
+    if (isConcealedFromPlayer(entity, player, world)) continue;
+
+    const distanceSquared = offsetX * offsetX + offsetY * offsetY;
+    const alignment = offsetX * dx + offsetY * dy;
+    if (
+      distanceSquared < bestDistanceSquared ||
+      (distanceSquared === bestDistanceSquared && alignment > bestAlignment) ||
+      (distanceSquared === bestDistanceSquared &&
+        alignment === bestAlignment &&
+        best !== null &&
+        entity.id < best.id)
+    ) {
+      best = entity;
+      bestDistanceSquared = distanceSquared;
+      bestAlignment = alignment;
+    }
+  }
+  return best;
+}
+
+function isInAimSector(dx: number, dy: number, offsetX: number, offsetY: number): boolean {
+  const aimMagnitude = Math.hypot(dx, dy);
+  const targetMagnitude = Math.hypot(offsetX, offsetY);
+  if (aimMagnitude === 0 || targetMagnitude === 0) return false;
+  const cosine = (dx * offsetX + dy * offsetY) / (aimMagnitude * targetMagnitude);
+  return cosine >= Math.cos(Math.PI / 8) - Number.EPSILON;
 }
 
 function doDeploy(intent: Intent, ctx: ApplyIntentContext) {
@@ -370,7 +512,7 @@ function doDeploy(intent: Intent, ctx: ApplyIntentContext) {
       const turret = tech.improviseTurret(world, intent.dx!, intent.dy!);
       log(
         `> ${playerLabel} improvises ${entityLabel(turret)} at (${turret.x}, ${turret.y}) — ` +
-          `${player.inventory!.salvage.scrap} scrap left, ${player.ap} AP left.`
+          `${tech.inventory!.salvage.scrap} scrap left, ${player.ap} AP left.`
       );
       gateOnApExhausted(ctx);
       return;
@@ -514,6 +656,16 @@ function doInventory(ctx: ApplyIntentContext) {
     throw new Error('applyIntent: inventory intent received but ctx.onPlayerAction is missing');
   }
   ctx.onPlayerAction(PLAYER_ACTIONS.INVENTORY);
+}
+
+function doJackOut(ctx: ApplyIntentContext) {
+  // Explicit jack-out is a Run-level transition, not an active-world action:
+  // it can eject the Decker even while the player is controlling the meat
+  // partner. The shell owns the active-Cyberspace gate and confirmation copy.
+  if (typeof ctx.onPlayerAction !== 'function') {
+    throw new Error('applyIntent: jack-out intent received but ctx.onPlayerAction is missing');
+  }
+  ctx.onPlayerAction(PLAYER_ACTIONS.JACK_OUT);
 }
 
 /**

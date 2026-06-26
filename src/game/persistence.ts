@@ -47,6 +47,7 @@ import { Crew } from './Crew.js';
 import { Merc } from './archetypes/Merc.js';
 import { Razor } from './archetypes/Razor.js';
 import { Tech } from './archetypes/Tech.js';
+import { Decker } from './archetypes/Decker.js';
 import { Turret } from './Turret.js';
 import { Skirmisher, type SkirmisherProps } from './ai/Skirmisher.js';
 import { Guard, type GuardProps } from './ai/Guard.js';
@@ -70,11 +71,30 @@ import { RelayNode } from './entities/RelayNode.js';
 import { ConsumablePickup } from './entities/ConsumablePickup.js';
 import { EscortNpc } from './entities/EscortNpc.js';
 import { KeyCard } from './entities/KeyCard.js';
+import { JackInPoint } from './entities/JackInPoint.js';
+import { CyberspaceLayer } from './cyber/CyberspaceLayer.js';
+import { CyberAvatar } from './cyber/CyberAvatar.js';
+import { EntryPort } from './cyber/EntryPort.js';
 import { BreachingCharge } from './entities/BreachingCharge.js';
 import type { BreachingChargeInit } from './entities/BreachingCharge.js';
+import type { CyberAvatarInit, CyberAvatarSnapshot } from './cyber/CyberAvatar.js';
+import type { EntryPortInit, EntryPortSnapshot } from './cyber/EntryPort.js';
+import { DataNode } from './cyber/DataNode.js';
+import type { DataNodeInit, DataNodeSnapshot } from './cyber/DataNode.js';
+import { ProbeIce } from './cyber/ProbeIce.js';
+import type { ProbeIceProps } from './cyber/ProbeIce.js';
+import { SparkIce } from './cyber/SparkIce.js';
+import type { SparkIceProps } from './cyber/SparkIce.js';
+import { GuardianIce } from './cyber/GuardianIce.js';
+import type { GuardianIceProps } from './cyber/GuardianIce.js';
+import type { DeckerInit, DeckerSnapshot } from './archetypes/Decker.js';
 import { Run, RUN_STATE, PATROL_ARCHETYPE_IDS } from './Run.js';
-import { Campaign, CAMPAIGN_STATE } from './Campaign.js';
-import { normalizeContractContext, normalizeObjective } from './hub/Curator.js';
+import { Campaign, CAMPAIGN_STATE, normalizeCampaignArc } from './Campaign.js';
+import {
+  contractRequiresCyberspace,
+  normalizeContractContext,
+  normalizeObjective,
+} from './hub/Curator.js';
 import {
   migrateLegacyHubReveals,
   normalizeHubReveals,
@@ -96,7 +116,9 @@ import type { RelayNodeInit } from './entities/RelayNode.js';
 import type { ConsumablePickupInit } from './entities/ConsumablePickup.js';
 import type { EscortNpcInit } from './entities/EscortNpc.js';
 import type { KeyCardInit } from './entities/KeyCard.js';
+import type { JackInPointInit, JackInPointSnapshot } from './entities/JackInPoint.js';
 import type { EntityInit } from './Entity.js';
+import type { CampaignArc } from './Campaign.js';
 import type { FactionId } from './constants.js';
 import type {
   CrewArchetypeId,
@@ -110,6 +132,7 @@ import type {
   ObjectiveTimerSnapshot,
   MapMemorySnapshot,
   ObjectiveProgressSnapshot,
+  CyberspaceState,
 } from './Run.js';
 import type { CrewSnapshot } from './Crew.js';
 import type { TechSnapshot } from './archetypes/Tech.js';
@@ -131,6 +154,12 @@ import type { EntitySnapshotExtra } from '../types.js';
 import type { CampaignMeta, CampaignState } from './Campaign.js';
 import { normalizeLocationSite } from './locations.js';
 import { normalizeMapDimensions } from './procgen/mapDimensions.js';
+import {
+  normalizeCampaignChronicle,
+  normalizePendingChronicleRun,
+  type CampaignChronicleEntry,
+  type PendingChronicleRun,
+} from './chronicle.js';
 import type { KeyItem, LocationSite, TileDelta } from '../types.js';
 
 const ARCHETYPE_KEY = Symbol.for('kernel-panic.archetype');
@@ -160,7 +189,12 @@ type RestoreEntityProps = Partial<
     ConsumablePickupInit &
     EscortNpcInit &
     KeyCardInit &
-    BreachingChargeInit
+    BreachingChargeInit &
+    JackInPointInit &
+    CyberAvatarInit &
+    EntryPortInit &
+    DataNodeInit &
+    DeckerInit
 > & {
   id: string;
   x: number;
@@ -178,6 +212,7 @@ const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) =
     merc: (props: RestoreEntityProps) => new Merc(props as CrewInit),
     razor: (props: RestoreEntityProps) => new Razor(props as CrewInit),
     tech: (props: RestoreEntityProps) => new Tech(props as CrewInit),
+    decker: (props: RestoreEntityProps) => new Decker(props as DeckerInit),
     turret: (props: RestoreEntityProps) => new Turret(props as TurretInit),
     drone: (props: RestoreEntityProps) => new Skirmisher(props as SkirmisherProps),
     guard: (props: RestoreEntityProps) => new Guard(props as GuardProps),
@@ -202,6 +237,13 @@ const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) =
       new ConsumablePickup(props as ConsumablePickupInit),
     'escort-npc': (props: RestoreEntityProps) => new EscortNpc(props as EscortNpcInit),
     keycard: (props: RestoreEntityProps) => new KeyCard(props as KeyCardInit),
+    'jack-in-point': (props: RestoreEntityProps) => new JackInPoint(props as JackInPointInit),
+    'cyber-avatar': (props: RestoreEntityProps) => new CyberAvatar(props as CyberAvatarInit),
+    'entry-port': (props: RestoreEntityProps) => new EntryPort(props as EntryPortInit),
+    'data-node': (props: RestoreEntityProps) => new DataNode(props as DataNodeInit),
+    'probe-ice': (props: RestoreEntityProps) => new ProbeIce(props as ProbeIceProps),
+    'spark-ice': (props: RestoreEntityProps) => new SparkIce(props as SparkIceProps),
+    'guardian-ice': (props: RestoreEntityProps) => new GuardianIce(props as GuardianIceProps),
     'breaching-charge': (props: RestoreEntityProps) =>
       new BreachingCharge(props as BreachingChargeInit),
     // Generic fallback so a future `Entity` subclass (NPCs, items) doesn't break
@@ -337,6 +379,87 @@ function readTerminal(extra: EntitySnapshotExtra, id: string): TerminalSnapshot 
   };
 }
 
+function readJackInPoint(extra: EntitySnapshotExtra, id: string): JackInPointSnapshot {
+  if (hasNoState(extra)) {
+    throw new TypeError(`restore: jack-in point entity ${id} requires jack-in state`);
+  }
+  const p = extra as Partial<JackInPointSnapshot>;
+  const linked = requireBoolean(p.linked, `restore: jack-in point ${id} linked must be boolean`);
+  // S5 added the burn latch; absent on pre-S5 records → unburned (legacy
+  // normalization). Present-but-malformed, or burned without linked, throws.
+  const burned =
+    p.burned === undefined
+      ? false
+      : requireBoolean(p.burned, `restore: jack-in point ${id} burned must be boolean`);
+  if (burned && !linked) {
+    throw new Error(`restore: jack-in point ${id} is burned but not linked — corrupt state`);
+  }
+  return {
+    label: requireString(p.label, `restore: jack-in point ${id} label must be a non-empty string`),
+    linked,
+    burned,
+  };
+}
+
+function readDataNode(extra: EntitySnapshotExtra, id: string): DataNodeSnapshot {
+  if (hasNoState(extra)) {
+    throw new TypeError(`restore: data node entity ${id} requires slice state`);
+  }
+  const n = extra as Partial<DataNodeSnapshot>;
+  if (!Number.isInteger(n.sliceDifficulty) || (n.sliceDifficulty as number) <= 0) {
+    throw new TypeError(`restore: data node ${id} sliceDifficulty must be a positive integer`);
+  }
+  if (!Number.isInteger(n.sliceProgress) || (n.sliceProgress as number) < 0) {
+    throw new TypeError(`restore: data node ${id} sliceProgress must be a non-negative integer`);
+  }
+  return {
+    label: requireString(n.label, `restore: data node ${id} label must be a non-empty string`),
+    sliceDifficulty: n.sliceDifficulty as number,
+    sliceProgress: n.sliceProgress as number,
+  };
+}
+
+function readCyberAvatar(extra: EntitySnapshotExtra, id: string): CyberAvatarSnapshot {
+  if (hasNoState(extra)) {
+    throw new TypeError(`restore: cyber avatar entity ${id} requires avatar state`);
+  }
+  const a = extra as Partial<CyberAvatarSnapshot>;
+  if (!Number.isInteger(a.intrusionStrength) || (a.intrusionStrength as number) <= 0) {
+    throw new TypeError(`restore: cyber avatar ${id} intrusionStrength must be a positive integer`);
+  }
+  const callsign = a.callsign ?? null;
+  if (callsign !== null && (typeof callsign !== 'string' || callsign.length === 0)) {
+    throw new TypeError(`restore: cyber avatar ${id} callsign must be a non-empty string or null`);
+  }
+  return { intrusionStrength: a.intrusionStrength as number, callsign };
+}
+
+/**
+ * P3.M3.3: Decker named cyber stats from the run-entity `extra`. All three
+ * absent → pre-P3.M3.3 save, base stats apply (legacy normalization). Any
+ * present-but-malformed or half-populated set is corrupt and throws.
+ */
+function readDeckerCyberStats(extra: EntitySnapshotExtra, id: string): Partial<DeckerInit> {
+  const d = extra as Partial<DeckerSnapshot>;
+  if (d.ram === undefined && d.intrusionStrength === undefined && d.iceResistance === undefined) {
+    return {};
+  }
+  if (!Number.isInteger(d.ram) || (d.ram as number) <= 0) {
+    throw new TypeError(`restore: decker ${id} ram must be a positive integer`);
+  }
+  if (!Number.isInteger(d.intrusionStrength) || (d.intrusionStrength as number) <= 0) {
+    throw new TypeError(`restore: decker ${id} intrusionStrength must be a positive integer`);
+  }
+  if (!Number.isInteger(d.iceResistance) || (d.iceResistance as number) < 0) {
+    throw new TypeError(`restore: decker ${id} iceResistance must be a non-negative integer`);
+  }
+  return {
+    ram: d.ram as number,
+    intrusionStrength: d.intrusionStrength as number,
+    iceResistance: d.iceResistance as number,
+  };
+}
+
 function readDoor(extra: EntitySnapshotExtra, id: string): DoorSnapshot {
   if (hasNoState(extra)) throw new TypeError(`restore: door entity ${id} requires door state`);
   const d = extra as Partial<DoorSnapshot>;
@@ -353,6 +476,9 @@ function readPickup(extra: EntitySnapshotExtra, id: string): PickupSnapshot {
     label: requireString(p.label, `restore: pickup ${id} label must be a non-empty string`),
     secured: requireBoolean(p.secured, `restore: pickup ${id} secured must be boolean`),
     armed: requireBoolean(p.armed, `restore: pickup ${id} armed must be boolean`),
+    // P3.M6.4: optional flavor detail (Score blueprint). Absent on legacy saves
+    // and ordinary pickups; preserved when present.
+    ...(typeof p.detail === 'string' ? { detail: p.detail } : {}),
   };
 }
 
@@ -474,6 +600,46 @@ function restorePatrolState(
     }
     entity.patrolIndex = len > 0 ? idx : 0;
   }
+  restoreOverrideState(entity, patrol, rec);
+}
+
+/**
+ * Re-apply Decker drone-override bookkeeping (P3.M2). The two fields travel as
+ * a pair: a live hijack has a positive countdown *and* a recorded prior
+ * faction. Either one present without the other — or a countdown that isn't a
+ * positive integer, or a prior faction that isn't a known faction — is corrupt
+ * mid-override state and throws, rather than silently restoring a drone that
+ * can never revert.
+ */
+function restoreOverrideState(
+  entity: PatrolHostile,
+  patrol: Partial<PatrolSnapshot>,
+  rec: RunEntitySnapshot
+): void {
+  const hasTurns = patrol.overrideTurnsRemaining !== undefined;
+  const hasPrior =
+    patrol.factionBeforeOverride !== undefined && patrol.factionBeforeOverride !== null;
+  if (!hasTurns && !hasPrior) return;
+  if (hasTurns !== hasPrior) {
+    throw new Error(
+      `restore: ${rec.archetype} ${rec.id} override state is half-populated ` +
+        `(turns=${patrol.overrideTurnsRemaining}, prior=${patrol.factionBeforeOverride})`
+    );
+  }
+  const turns = patrol.overrideTurnsRemaining as number;
+  if (!Number.isInteger(turns) || turns <= 0) {
+    throw new RangeError(
+      `restore: ${rec.archetype} ${rec.id} overrideTurnsRemaining must be a positive integer, got ${turns}`
+    );
+  }
+  const prior = patrol.factionBeforeOverride as FactionId;
+  if (!KNOWN_FACTIONS.has(prior)) {
+    throw new Error(
+      `restore: ${rec.archetype} ${rec.id} factionBeforeOverride "${prior}" is not a known faction`
+    );
+  }
+  entity.overrideTurnsRemaining = turns;
+  entity.factionBeforeOverride = prior;
 }
 
 type RestoreEntry = {
@@ -484,6 +650,62 @@ type RestoreEntry = {
 };
 
 const ENTITY_RESTORE: Partial<Record<EntityArchetypeId, RestoreEntry>> = Object.freeze({
+  decker: {
+    // P3.M3.3: named cyber stats ride the crew extra. Absent on legacy saves
+    // (base stats apply); half-populated or malformed throws.
+    buildProps(extra, rec) {
+      return readDeckerCyberStats(extra, rec.id);
+    },
+    apply(entity, _extra, rec) {
+      if (!(entity instanceof Decker)) {
+        throw new Error(`restore: decker entity ${rec.id} did not restore as Decker`);
+      }
+    },
+  },
+  'cyber-avatar': {
+    buildProps(extra, rec) {
+      const a = readCyberAvatar(extra, rec.id);
+      // The HP pool rides the base entity record: maxHp IS the RAM pool,
+      // damageReduction IS the ICE resistance.
+      return {
+        ram: rec.maxHp,
+        iceResistance: rec.damageReduction ?? 0,
+        intrusionStrength: a.intrusionStrength,
+        callsign: a.callsign,
+      };
+    },
+    apply(entity, _extra, rec) {
+      if (!(entity instanceof CyberAvatar)) {
+        throw new Error(`restore: cyber avatar entity ${rec.id} did not restore as CyberAvatar`);
+      }
+    },
+  },
+  'entry-port': {
+    buildProps(extra, rec) {
+      const p = extra as Partial<EntryPortSnapshot>;
+      return {
+        label: requireString(
+          p.label,
+          `restore: entry port ${rec.id} label must be a non-empty string`
+        ),
+      };
+    },
+    apply(entity, _extra, rec) {
+      if (!(entity instanceof EntryPort)) {
+        throw new Error(`restore: entry port entity ${rec.id} did not restore as EntryPort`);
+      }
+    },
+  },
+  'data-node': {
+    buildProps(extra, rec) {
+      return readDataNode(extra, rec.id);
+    },
+    apply(entity, _extra, rec) {
+      if (!(entity instanceof DataNode)) {
+        throw new Error(`restore: data node entity ${rec.id} did not restore as DataNode`);
+      }
+    },
+  },
   tech: {
     // Re-apply the pre-built turret flag (default `true` from the Tech ctor when
     // a legacy record omits it — preserve that by only assigning when present).
@@ -539,6 +761,17 @@ const ENTITY_RESTORE: Partial<Record<EntityArchetypeId, RestoreEntry>> = Object.
       return { label: typeof r.label === 'string' && r.label.length > 0 ? r.label : 'Relay node' };
     },
   },
+  'jack-in-point': {
+    buildProps(extra, rec) {
+      const p = readJackInPoint(extra, rec.id);
+      return { label: p.label, linked: p.linked, burned: p.burned };
+    },
+    apply(entity, _extra, rec) {
+      if (!(entity instanceof JackInPoint)) {
+        throw new Error(`restore: jack-in point entity ${rec.id} did not restore as JackInPoint`);
+      }
+    },
+  },
   terminal: {
     buildProps(extra, rec) {
       const t = readTerminal(extra, rec.id);
@@ -576,7 +809,7 @@ const ENTITY_RESTORE: Partial<Record<EntityArchetypeId, RestoreEntry>> = Object.
   pickup: {
     buildProps(extra, rec) {
       const p = readPickup(extra, rec.id);
-      return { label: p.label, secured: p.secured, armed: p.armed };
+      return { label: p.label, secured: p.secured, armed: p.armed, detail: p.detail };
     },
     apply(entity, _extra, rec) {
       if (!(entity instanceof Pickup)) {
@@ -675,9 +908,21 @@ type CampaignCrewSnapshot = {
   maxHp: number;
   ap: number;
   maxAp: number;
+  /**
+   * P3.M6.2: live `damageReduction` (Subdermal Plating armour). Persisted like
+   * `maxHp`/`maxAp` — the live stat is the source of truth, `gear.armorBonus`
+   * only tracks it for cap-clamping. Absent on pre-M6.2 saves → restores to 0.
+   */
+  damageReduction?: number;
   alive: boolean;
   inventory: Inventory | null;
   gear: Gear | null;
+  /**
+   * P3.M3.3: Decker named cyber stats — written for deckers only. Absent on
+   * legacy saves (base stats apply); half-populated/malformed throws; present
+   * on a non-decker throws.
+   */
+  cyber?: { ram: number; intrusion: number; iceResistance: number };
 };
 
 type CampaignActiveRunSnapshot = {
@@ -685,6 +930,8 @@ type CampaignActiveRunSnapshot = {
   type: 'run';
   state: RunState;
   crewMemberId: string;
+  /** P3.M4.1: reserved meat partner id for a dual-deploy. Absent on solo runs. */
+  partnerMemberId?: string | null;
   archetype: CrewArchetypeId;
   seed: number;
   rng: { seed: number; state: number };
@@ -710,7 +957,11 @@ export type CampaignSnapshot = {
   credits?: number;
   rep: number;
   meta: CampaignMeta;
+  /** Phase 3 campaign arc state. Defaults to Act 1 for pre-P3 saves. */
+  arc?: CampaignArc;
   deployedMemberId: string | null;
+  /** P3.M4.1: reserved meat partner id for a dual-deploy. Defaults to null. */
+  deployedPartnerId?: string | null;
   activeRun: CampaignActiveRunSnapshot | null;
   /** Recruit candidates available this hub visit. Defaults to [] for pre-P2.M6 saves. */
   availableRecruits?: CampaignCrewSnapshot[];
@@ -724,12 +975,18 @@ export type CampaignSnapshot = {
   healedThisVisit?: string[];
   /** Progressive Hub introduction flags. Defaults to {} for pre-P2.5.M5.4 saves. */
   hubReveals?: HubRevealsSnapshot;
-  /** Count of jobs ended with EXIT (extract). Defaults to 0 for pre-P2.5.M5.4 saves. */
+  /** Count of completed jobs. Abort extractions do not increment this arc counter. */
   completedJobs?: number;
+  /** Act-2/3 deploys that drive Clock heat. Defaults to 0 for pre-P3.M1.5 saves. */
+  clockJobsTaken?: number;
   /** Persistent key-item inventory (keycards). Defaults to [] for pre-P2.5.M6.2 saves. */
   keyItems?: KeyItemSnapshot[];
   /** Remembered combat locations (site roster). Defaults to [] for pre-P2.5.M7.2 saves. */
   siteRoster?: LocationSite[];
+  /** P3.M7: active campaign chronicle entries. Defaults to [] on older saves. */
+  chronicle?: CampaignChronicleEntry[];
+  /** Mid-run chronicle baseline used to finish the current job entry on restore. */
+  pendingChronicleRun?: PendingChronicleRun | null;
 };
 
 /** Serializable key item (P2.5.M6.2). */
@@ -746,6 +1003,9 @@ export type HubRevealsSnapshot = {
   terminalExplained?: boolean;
   terminalRecruitmentExplained?: boolean;
   clinicIntroduced?: boolean;
+  scoreBriefingPresented?: boolean;
+  clockBriefingPresented?: boolean;
+  act3BriefingPresented?: boolean;
 };
 
 /**
@@ -775,7 +1035,9 @@ export function snapshotCampaign(campaign: Campaign): CampaignSnapshot {
     credits: campaign.credits,
     rep: campaign.rep,
     meta: { ...campaign.meta },
+    arc: { ...campaign.arc },
     deployedMemberId: campaign.deployedMemberId,
+    deployedPartnerId: campaign.deployedPartnerId,
     activeRun: campaign.activeRun ? snapshotActiveRun(campaign.activeRun) : null,
     availableRecruits: campaign.availableRecruits.map(snapshotCrewMember),
     recruitedThisVisit: campaign.recruitedThisVisit,
@@ -784,8 +1046,16 @@ export function snapshotCampaign(campaign: Campaign): CampaignSnapshot {
     healedThisVisit: [...campaign.healedThisVisit],
     hubReveals: snapshotHubReveals(campaign.hubReveals),
     completedJobs: campaign.completedJobs,
+    clockJobsTaken: campaign.clockJobsTaken,
     keyItems: campaign.keyItems.map(k => ({ ...k })),
     siteRoster: campaign.siteRoster.map(snapshotLocationSite),
+    chronicle: campaign.chronicle.map(entry => ({ ...entry, detailLines: [...entry.detailLines] })),
+    pendingChronicleRun: campaign.pendingChronicleRun
+      ? {
+          ...campaign.pendingChronicleRun,
+          flatlinedCrewIdsBefore: [...campaign.pendingChronicleRun.flatlinedCrewIdsBefore],
+        }
+      : null,
   };
 }
 
@@ -830,18 +1100,42 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
     grid.tiles[i] = record.grid.tiles[i] & 0xff;
   }
 
-  let player = null;
   const restoredEntities = record.entities.map(entityRec => restoreEntity(entityRec, grid));
-  for (const entity of restoredEntities) {
-    if (entity instanceof Crew && entity.faction === FACTION.PLAYER) {
-      if (player) {
-        throw new Error('restore: run snapshot has multiple player crew entities');
-      }
-      player = entity;
+  const extractedOperativeIds = normalizeExtractedOperativeIds(record.extractedOperativeIds);
+  const extractedOperatives = normalizeExtractedOperatives(record.extractedOperatives, grid);
+  const playerCrew = restoredEntities.filter(
+    (e): e is Crew => e instanceof Crew && e.faction === FACTION.PLAYER
+  );
+  // P3.M4.2: a dual-deploy jack-in puts two PLAYER crew on the meat grid — the
+  // frozen Decker body (the deployed primary) and the partner. Disambiguate by
+  // archetype: the Decker is the body, the non-Decker is the partner.
+  let player: Crew;
+  let gridPartner: Crew | null = null;
+  if (playerCrew.length === 1) {
+    const lone = playerCrew[0]!;
+    const extractedPrimary = extractedOperatives.find(
+      (e): e is Crew => e instanceof Decker && extractedOperativeIds.includes(e.id)
+    );
+    if (extractedPrimary && !(lone instanceof Decker)) {
+      player = extractedPrimary;
+      gridPartner = lone;
+    } else {
+      player = lone;
     }
-  }
-  if (!player) {
+  } else if (playerCrew.length === 2) {
+    const deckers = playerCrew.filter(e => e instanceof Decker);
+    const others = playerCrew.filter(e => !(e instanceof Decker));
+    if (deckers.length !== 1 || others.length !== 1) {
+      throw new Error(
+        'restore: a dual-deploy meat layer needs exactly one Decker body and one partner'
+      );
+    }
+    player = deckers[0]!;
+    gridPartner = others[0]!;
+  } else if (playerCrew.length === 0) {
     throw new Error('restore: run snapshot has no player crew entity');
+  } else {
+    throw new Error(`restore: run snapshot has ${playerCrew.length} player crew entities`);
   }
 
   const run = new Run({
@@ -854,6 +1148,60 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
   run.rng = new Rng(record.rng.seed);
   run.rng.setState(record.rng.state);
   run.contract = normalizeContract(record.contract);
+  const runIsCyber = run.contract !== null && contractRequiresCyberspace(run.contract);
+  run.cyberspace = restoreCyberspace(record, runIsCyber);
+  const cyberPhase = run.cyberspace?.phase ?? null;
+  // P3.M4.1/M4.2: resolve the meat partner. Pre-jack (dormant) it round-trips
+  // as an off-grid entity record; once jacked in it is a live grid entity
+  // (`gridPartner`). The two encodings are mutually exclusive.
+  if (record.partner) {
+    if (!runIsCyber) {
+      throw new Error('restore: run snapshot has a meat partner but no Cyberspace contract');
+    }
+    if (cyberPhase !== 'dormant') {
+      throw new Error(
+        'restore: off-grid partner record is only valid while the cyber layer is dormant'
+      );
+    }
+    if (gridPartner) {
+      throw new Error('restore: partner present both off-grid and on the meat grid');
+    }
+    const partner = restoreEntity(record.partner, grid);
+    if (!(partner instanceof Crew) || partner instanceof Decker) {
+      throw new Error('restore: run partner must be a non-Decker Crew member');
+    }
+    run.partnerMember = partner;
+  } else if (gridPartner) {
+    run.partnerMember = gridPartner;
+  } else {
+    const extractedPartner = extractedOperatives.find(
+      (e): e is Crew => e instanceof Crew && !(e instanceof Decker)
+    );
+    if (extractedPartner) run.partnerMember = extractedPartner;
+  }
+
+  // P3.M4.2: re-establish the simstim flip state. While jacked in the Decker
+  // body is frozen and control sits with `meatActor` (the partner when one was
+  // spawned) unless the save had flipped into Cyberspace.
+  if (cyberPhase === 'active') {
+    player.frozen = true;
+    // P3.M4.4: a *dead* partner can't be the meat operator — restoring it as
+    // `meatActor` strands the player driving a corpse with no flip target (the
+    // dead-partner-stuck save). While jacked in the body is frozen, so the only
+    // live operator is the avatar; default control to Cyberspace, mirroring the
+    // live repair in `Run.#onPartnerFlatlined`. A living partner restores
+    // normally, honoring the saved view.
+    const liveMeatPartner = gridPartner?.alive ? gridPartner : null;
+    run.meatActor = liveMeatPartner ?? player;
+    run.activeLayer = liveMeatPartner && record.activeLayer !== 'cyber' ? 'meat' : 'cyber';
+  } else {
+    run.meatActor = !extractedOperativeIds.includes(player.id)
+      ? player
+      : gridPartner && !extractedOperativeIds.includes(gridPartner.id)
+        ? gridPartner
+        : null;
+    run.activeLayer = 'meat';
+  }
   run.exitTile = record.exitTile ? { ...record.exitTile } : null;
   run.telemetry = { ...record.telemetry };
   run.objectiveTimer = normalizeObjectiveTimer(record.objectiveTimer);
@@ -863,6 +1211,7 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
   run.world.restoreSecuredPickups(
     normalizeObjectiveProgress(record.objectiveProgress).securedPickups
   );
+  run.extractedOperativeIds = new Set(extractedOperativeIds);
   run.world.mutationDeltas = normalizeMutationDeltas(record.mutationDeltas, grid);
   if (record.alarm) {
     run.world.restoreAlarm(record.alarm);
@@ -897,9 +1246,13 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
     }
   }
   if (run.state === RUN_STATE.COMBAT && !run.player) {
-    throw new Error(
-      `restore: COMBAT snapshot has no player entity matching archetype "${run.archetype}"`
-    );
+    if (run.extractedOperativeIds.has(player.id)) {
+      run.player = player;
+    } else {
+      throw new Error(
+        `restore: COMBAT snapshot has no player entity matching archetype "${run.archetype}"`
+      );
+    }
   }
 
   if (run.state === RUN_STATE.COMBAT) {
@@ -907,6 +1260,184 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
   }
 
   return { run, world: run.world, queue: run.queue, rng: run.rng, player: run.player };
+}
+
+/**
+ * P3.M3: rebuild the Cyberspace state machine from its snapshot block.
+ *
+ * Invariant (both directions): a contract with a Cyberspace component
+ * (`contractRequiresCyberspace`) carries a `cyberspace` block, and only such
+ * contracts do. Any mismatch, unknown phase, payload smuggled onto the
+ * `dormant`/`resolved` phases, or a partial `active` block is tier-1 corrupt
+ * state and throws.
+ */
+function restoreCyberspace(
+  record: RunSnapshot,
+  requiresCyberspace: boolean
+): CyberspaceState | null {
+  const block = record.cyberspace;
+  if (!requiresCyberspace) {
+    if (block !== undefined && block !== null) {
+      throw new Error(
+        'restore: cyberspace block present on a contract without a Cyberspace component'
+      );
+    }
+    return null;
+  }
+  if (block === undefined || block === null) {
+    throw new Error('restore: Cyberspace contract snapshot is missing its cyberspace block');
+  }
+  if (typeof block !== 'object' || Array.isArray(block)) {
+    throw new TypeError('restore: cyberspace block must be an object');
+  }
+  const phase = (block as { phase?: unknown }).phase;
+  if (phase === 'dormant') {
+    assertCyberspaceBlockKeys(block, ['phase'], 'dormant');
+    return { phase: 'dormant' };
+  }
+  if (phase === 'resolved') {
+    assertCyberspaceBlockKeys(block, ['phase', 'objectiveComplete'], 'resolved');
+    const latch = (block as { objectiveComplete?: unknown }).objectiveComplete;
+    if (typeof latch !== 'boolean') {
+      throw new TypeError('restore: resolved cyberspace block requires boolean objectiveComplete');
+    }
+    return { phase: 'resolved', objectiveComplete: latch };
+  }
+  if (phase === 'active') {
+    assertCyberspaceBlockKeys(
+      block,
+      ['phase', 'grid', 'entities', 'entryTile', 'alarm', 'mapMemory'],
+      'active'
+    );
+    return {
+      phase: 'active',
+      layer: restoreCyberspaceLayer(
+        record,
+        block as Extract<NonNullable<RunSnapshot['cyberspace']>, { phase: 'active' }>
+      ),
+    };
+  }
+  throw new Error(`restore: unknown cyberspace phase "${String(phase)}"`);
+}
+
+/** Cross-phase payload smuggling (e.g. a grid on `resolved`) is corrupt — throw. */
+function assertCyberspaceBlockKeys(block: object, allowed: readonly string[], phase: string): void {
+  const rogue = Object.keys(block).filter(key => !allowed.includes(key));
+  if (rogue.length > 0) {
+    throw new Error(
+      `restore: ${phase} cyberspace block carries illegal payload [${rogue.join(', ')}]`
+    );
+  }
+}
+
+/**
+ * P3.M3.3: rebuild the live cyber layer. Every field of the `active` block is
+ * required; entities are bounds-checked against the *cyber* grid via the same
+ * `restoreEntity` codec as the meat world. Exactly one avatar and one exit
+ * port must exist (the avatar must be alive while the run is mid-COMBAT —
+ * avatar death transitions to RESULT before the snapshot is cut).
+ */
+function restoreCyberspaceLayer(
+  record: RunSnapshot,
+  block: Extract<NonNullable<RunSnapshot['cyberspace']>, { phase: 'active' }>
+): CyberspaceLayer {
+  const gridRec = block.grid;
+  if (!gridRec || !Number.isInteger(gridRec.w) || !Number.isInteger(gridRec.h)) {
+    throw new TypeError('restore: active cyberspace block requires a grid with integer w/h');
+  }
+  if (!Array.isArray(gridRec.tiles)) {
+    throw new TypeError('restore: active cyberspace block requires a grid tiles array');
+  }
+  const grid = new Grid(gridRec.w, gridRec.h);
+  if (gridRec.tiles.length !== grid.tiles.length) {
+    throw new Error(
+      `restore: cyberspace grid tile count mismatch — record ${gridRec.tiles.length}, ` +
+        `expected ${grid.tiles.length}`
+    );
+  }
+  for (let i = 0; i < gridRec.tiles.length; i++) {
+    const tile = gridRec.tiles[i];
+    // Cyber maps are FLOOR/WALL only by construction (`buildCyberMap`); any
+    // other tile id is corruption, not an old save.
+    if (tile !== TILE.FLOOR && tile !== TILE.WALL) {
+      throw new Error(`restore: cyberspace grid tile ${i} has non-cyber tile id ${tile}`);
+    }
+    grid.tiles[i] = tile;
+  }
+
+  const entryTile = block.entryTile;
+  if (!entryTile || !Number.isInteger(entryTile.x) || !Number.isInteger(entryTile.y)) {
+    throw new TypeError('restore: active cyberspace block requires an integer entryTile');
+  }
+  if (!grid.inBounds(entryTile.x, entryTile.y) || !grid.isPassable(entryTile.x, entryTile.y)) {
+    throw new RangeError(
+      `restore: cyberspace entryTile (${entryTile.x}, ${entryTile.y}) is not a passable cyber tile`
+    );
+  }
+
+  if (!Array.isArray(block.entities)) {
+    throw new TypeError('restore: active cyberspace block requires an entities array');
+  }
+  if (!block.alarm) {
+    throw new Error('restore: active cyberspace block requires alarm state');
+  }
+  if (!block.mapMemory || !Array.isArray(block.mapMemory.seen)) {
+    throw new TypeError('restore: active cyberspace block requires mapMemory with a seen array');
+  }
+
+  const bus = new EventBus();
+  const world = new World(grid, { events: bus });
+  world.restoreAlarm(block.alarm);
+
+  let avatar: CyberAvatar | null = null;
+  let port: EntryPort | null = null;
+  let dataNodes = 0;
+  for (const rec of block.entities) {
+    const entity = restoreEntity(rec, grid);
+    if (entity instanceof DataNode) dataNodes++;
+    if (entity instanceof CyberAvatar) {
+      if (avatar) {
+        throw new Error('restore: active cyberspace block has multiple cyber-avatar entities');
+      }
+      avatar = entity;
+    }
+    if (entity instanceof EntryPort) {
+      if (port) {
+        throw new Error('restore: active cyberspace block has multiple entry-port entities');
+      }
+      port = entity;
+    }
+    world.addEntity(entity);
+    if (entity instanceof PatrolHostile) {
+      entity.bindToBus(bus);
+    }
+  }
+  if (!avatar) {
+    throw new Error('restore: active cyberspace block has no cyber-avatar');
+  }
+  if (record.state === RUN_STATE.COMBAT && !avatar.alive) {
+    throw new Error('restore: COMBAT snapshot carries a dead cyber-avatar in an active layer');
+  }
+  if (!port) {
+    throw new Error('restore: active cyberspace block has no entry-port');
+  }
+  // P3.M3.4: nodes never despawn (sliced nodes stay in the world), so the
+  // entity count must equal the contract objective's count exactly.
+  const requiredNodes = (record.contract?.objective?.params as { count?: unknown } | undefined)
+    ?.count;
+  if (!Number.isInteger(requiredNodes) || (requiredNodes as number) <= 0) {
+    throw new TypeError('restore: cyber contract objective count must be a positive integer');
+  }
+  if (dataNodes !== requiredNodes) {
+    throw new Error(
+      `restore: active cyberspace block has ${dataNodes} data-node entities, ` +
+        `contract requires ${requiredNodes}`
+    );
+  }
+
+  const layer = new CyberspaceLayer({ bus, world, avatar, port, entryTile });
+  layer.recordSeen(block.mapMemory.seen);
+  return layer;
 }
 
 export function restoreCampaign(record: unknown, options: RestoreCampaignOptions = {}): Campaign {
@@ -920,6 +1451,7 @@ export function restoreCampaign(record: unknown, options: RestoreCampaignOptions
     credits: record.credits ?? 0,
     rep: record.rep,
     meta: record.meta,
+    arc: record.arc,
     hubReveals: normalizeHubReveals(
       migrateLegacyHubReveals(record.hubReveals, {
         rep: record.rep,
@@ -928,8 +1460,11 @@ export function restoreCampaign(record: unknown, options: RestoreCampaignOptions
       'restoreCampaign hubReveals'
     ),
     completedJobs: record.completedJobs ?? 0,
+    clockJobsTaken: record.clockJobsTaken ?? 0,
     keyItems: record.keyItems,
     siteRoster: record.siteRoster,
+    chronicle: record.chronicle,
+    pendingChronicleRun: record.pendingChronicleRun,
     onPersist: options.onPersist,
     onResult: options.onResult,
   });
@@ -951,7 +1486,13 @@ export function restoreCampaign(record: unknown, options: RestoreCampaignOptions
         `restoreCampaign: activeRun references unknown crew "${record.activeRun.crewMemberId}"`
       );
     }
-    campaign.activeRun = restoreActiveRun(record.activeRun, member, {
+    // P3.M4.1: resolve the reserved meat partner against the canonical crew.
+    const partnerId = record.activeRun.partnerMemberId ?? null;
+    const partner = partnerId ? campaign.getCrewMember(partnerId) : null;
+    if (partnerId && !partner) {
+      throw new Error(`restoreCampaign: activeRun references unknown partner "${partnerId}"`);
+    }
+    campaign.activeRun = restoreActiveRun(record.activeRun, member, partner, {
       onPersist: () => options.onPersist?.(campaign),
       onResult: options.onResult,
     });
@@ -971,6 +1512,7 @@ export function restoreCampaign(record: unknown, options: RestoreCampaignOptions
       );
     }
     campaign.deployedMemberId = member.id;
+    campaign.deployedPartnerId = partner?.id ?? null;
     campaign.state = CAMPAIGN_STATE.COMBAT;
     campaign.world = null;
     campaign.queue = null;
@@ -979,6 +1521,7 @@ export function restoreCampaign(record: unknown, options: RestoreCampaignOptions
     campaign.curator = null;
     campaign.finn = null;
     campaign.terminal = null;
+    campaign.archiveTerminal = null;
     campaign.clinic = null;
     campaign.exitTile = null;
   } else {
@@ -994,6 +1537,7 @@ export function restoreCampaign(record: unknown, options: RestoreCampaignOptions
     campaign.curator = null;
     campaign.finn = null;
     campaign.terminal = null;
+    campaign.archiveTerminal = null;
     campaign.clinic = null;
     campaign.exitTile = null;
   }
@@ -1163,7 +1707,7 @@ function validateRecord(record: unknown): asserts record is RunSnapshot {
   }
 }
 
-const KNOWN_ARCHETYPES_SET = new Set<CrewArchetypeId>(['merc', 'razor', 'tech']);
+const KNOWN_ARCHETYPES_SET = new Set<CrewArchetypeId>(['merc', 'razor', 'tech', 'decker']);
 
 /** Clamp gear bonuses to archetype caps after restore. */
 function repairGearForCrew(member: Crew) {
@@ -1180,6 +1724,29 @@ function repairGearForCrew(member: Crew) {
   if (rangedBonus > member.maxRangedDamageBonus) {
     gear.rangedDamageBonus = member.maxRangedDamageBonus;
   }
+  // P3.M6.2 scoreable channels. armorBonus/apBonus only track their live stats
+  // (damageReduction/maxAp, restored directly); clamp the tracking value so a
+  // tampered save can't carry an over-cap bonus forward.
+  const meleeBonus = gear.meleeDamageBonus ?? 0;
+  if (meleeBonus > member.maxMeleeDamageBonus) {
+    gear.meleeDamageBonus = member.maxMeleeDamageBonus;
+  }
+  const armorBonus = gear.armorBonus ?? 0;
+  if (armorBonus > member.maxArmorBonus) {
+    gear.armorBonus = member.maxArmorBonus;
+  }
+  const apBonus = gear.apBonus ?? 0;
+  if (apBonus > member.maxApBonus) {
+    gear.apBonus = member.maxApBonus;
+  }
+  const shieldRegen = gear.shieldRegen ?? 0;
+  if (shieldRegen > member.maxShieldRegen) {
+    gear.shieldRegen = member.maxShieldRegen;
+  }
+  const hpRegen = gear.hpRegen ?? 0;
+  if (hpRegen > member.maxHpRegen) {
+    gear.hpRegen = member.maxHpRegen;
+  }
 }
 
 function snapshotCrewMember(member: Crew): CampaignCrewSnapshot {
@@ -1193,9 +1760,54 @@ function snapshotCrewMember(member: Crew): CampaignCrewSnapshot {
     maxHp: member.maxHp,
     ap: member.ap,
     maxAp: member.maxAp,
+    damageReduction: member.damageReduction,
     alive: !!member.alive,
     inventory: member.inventory,
     gear: member.gear,
+    // P3.M3.3: Decker cyber stats persist through the campaign crew path too.
+    ...(member instanceof Decker
+      ? {
+          cyber: {
+            ram: member.ram,
+            intrusion: member.intrusionStrength,
+            iceResistance: member.iceResistance,
+          },
+        }
+      : {}),
+  };
+}
+
+/**
+ * P3.M3.3: validate + translate the campaign crew `cyber` block into Decker
+ * ctor props. Absent → `{}` (legacy save, base stats). Present on a
+ * non-decker, half-populated, or malformed → throw.
+ */
+function readCampaignCrewCyber(rec: CampaignCrewSnapshot): Partial<DeckerInit> {
+  const cyber = rec.cyber;
+  if (cyber === undefined || cyber === null) return {};
+  if (rec.archetype !== 'decker') {
+    throw new Error(`restoreCampaign: crew "${rec.id}" carries cyber stats but is not a decker`);
+  }
+  if (typeof cyber !== 'object' || Array.isArray(cyber)) {
+    throw new TypeError(`restoreCampaign: crew "${rec.id}" cyber block must be an object`);
+  }
+  if (!Number.isInteger(cyber.ram) || cyber.ram <= 0) {
+    throw new TypeError(`restoreCampaign: crew "${rec.id}" cyber.ram must be a positive integer`);
+  }
+  if (!Number.isInteger(cyber.intrusion) || cyber.intrusion <= 0) {
+    throw new TypeError(
+      `restoreCampaign: crew "${rec.id}" cyber.intrusion must be a positive integer`
+    );
+  }
+  if (!Number.isInteger(cyber.iceResistance) || cyber.iceResistance < 0) {
+    throw new TypeError(
+      `restoreCampaign: crew "${rec.id}" cyber.iceResistance must be a non-negative integer`
+    );
+  }
+  return {
+    ram: cyber.ram,
+    intrusionStrength: cyber.intrusion,
+    iceResistance: cyber.iceResistance,
   };
 }
 
@@ -1234,6 +1846,9 @@ function restoreCrewMember(rec: CampaignCrewSnapshot): Crew {
     gear: rec.gear ?? null,
     maxHp: rec.maxHp,
     maxAp: rec.maxAp,
+    damageReduction: rec.damageReduction ?? 0,
+    // P3.M3.3: Decker cyber stats (validated; throws on a non-decker record).
+    ...readCampaignCrewCyber(rec),
   });
   if (!(member instanceof Crew)) {
     throw new Error(`restoreCampaign: crew archetype "${rec.archetype}" did not restore as Crew`);
@@ -1257,6 +1872,7 @@ function snapshotActiveRun(run: Run): CampaignActiveRunSnapshot {
     type: 'run',
     state: run.state,
     crewMemberId: run.crewMember.id,
+    partnerMemberId: run.partnerMember?.id ?? null,
     archetype: run.archetype,
     seed: run.seed,
     rng: { seed: run.rng.seed, state: run.rng.state },
@@ -1272,16 +1888,40 @@ function snapshotActiveRun(run: Run): CampaignActiveRunSnapshot {
 function restoreActiveRun(
   record: CampaignActiveRunSnapshot,
   member: Crew,
+  partner: Crew | null,
   options: RestoreOptions
 ): Run {
   if (record.snapshot) {
     const restored = restore(record.snapshot, options).run;
     restored.crewMember = member;
+    restored.archetype = archetypeOfCrew(member);
+    if (restored.extractedOperativeIds.has(member.id)) {
+      restored.player = member;
+    }
+    // P3.M4.1/M4.4: re-bind the partner to the canonical roster object ONLY
+    // while it is still off-grid — a dormant reserve, the object a later jack-in
+    // spawns onto the meat grid. Once the partner is a *live grid entity*
+    // (jacked in, or jacked out), keep the entity `restore()` already wired:
+    // it's the meat operator the simstim flip controls, exactly as `run.player`
+    // stays the grid body for the primary. Rebinding it to the off-grid roster
+    // copy stranded the partner off the map — the flip drove a phantom while the
+    // on-grid copy sat frozen in place.
+    if (partner && !restored.world?.entities.has(partner.id)) {
+      restored.partnerMember = partner;
+    }
+    if (
+      partner &&
+      restored.meatActor?.id === partner.id &&
+      !restored.world?.entities.has(partner.id)
+    ) {
+      restored.meatActor = partner;
+    }
     return restored;
   }
   const run = new Run({
     id: record.id,
     crewMember: member,
+    partnerMember: partner ?? undefined,
     seed: record.seed,
     onPersist: options.onPersist,
     onResult: options.onResult,
@@ -1417,6 +2057,38 @@ function normalizeObjectiveProgress(progress: unknown): ObjectiveProgressSnapsho
     }
   }
   return { securedPickups: [...candidate.securedPickups] };
+}
+
+function normalizeExtractedOperativeIds(raw: unknown): string[] {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) {
+    throw new TypeError('restore: extractedOperativeIds must be an array when supplied');
+  }
+  const seen = new Set<string>();
+  for (const id of raw) {
+    if (typeof id !== 'string' || id.length === 0) {
+      throw new TypeError('restore: extractedOperativeIds entries must be non-empty strings');
+    }
+    if (seen.has(id)) {
+      throw new Error(`restore: duplicate extracted operative id "${id}"`);
+    }
+    seen.add(id);
+  }
+  return [...seen];
+}
+
+function normalizeExtractedOperatives(raw: unknown, grid: Grid): Crew[] {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) {
+    throw new TypeError('restore: extractedOperatives must be an array when supplied');
+  }
+  return raw.map((rec, index) => {
+    const entity = restoreEntity(rec as RunEntitySnapshot, grid);
+    if (!(entity instanceof Crew)) {
+      throw new TypeError(`restore: extractedOperatives[${index}] must be a crew entity`);
+    }
+    return entity;
+  });
 }
 
 /**
@@ -1574,6 +2246,9 @@ function validateCampaignRecord(record: unknown): asserts record is CampaignSnap
   ) {
     throw new TypeError('restoreCampaign: meta must be an object');
   }
+  if (candidate.arc !== undefined) {
+    normalizeCampaignArc(candidate.arc, 'restoreCampaign arc');
+  }
   if (candidate.state === CAMPAIGN_STATE.COMBAT && !candidate.activeRun) {
     throw new Error('restoreCampaign: COMBAT state requires activeRun');
   }
@@ -1598,6 +2273,11 @@ function validateCampaignRecord(record: unknown): asserts record is CampaignSnap
       throw new RangeError('restoreCampaign: completedJobs must be a non-negative integer');
     }
   }
+  if (candidate.clockJobsTaken !== undefined) {
+    if (!Number.isInteger(candidate.clockJobsTaken) || candidate.clockJobsTaken < 0) {
+      throw new RangeError('restoreCampaign: clockJobsTaken must be a non-negative integer');
+    }
+  }
   if (candidate.siteRoster !== undefined) {
     if (!Array.isArray(candidate.siteRoster)) {
       throw new TypeError('restoreCampaign: siteRoster must be an array when present');
@@ -1606,12 +2286,19 @@ function validateCampaignRecord(record: unknown): asserts record is CampaignSnap
     // than producing a bad map on a later revisit.
     candidate.siteRoster.forEach(entry => normalizeLocationSite(entry));
   }
+  if (candidate.chronicle !== undefined) {
+    normalizeCampaignChronicle(candidate.chronicle);
+  }
+  if (candidate.pendingChronicleRun !== undefined) {
+    normalizePendingChronicleRun(candidate.pendingChronicleRun);
+  }
 }
 
 function archetypeOfCrew(member: Crew): CrewArchetypeId {
   if (member instanceof Merc) return 'merc';
   if (member instanceof Razor) return 'razor';
   if (member instanceof Tech) return 'tech';
+  if (member instanceof Decker) return 'decker';
   throw new Error(`snapshotCampaign: cannot classify crew member ${member?.id}`);
 }
 

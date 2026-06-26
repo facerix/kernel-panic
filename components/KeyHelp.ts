@@ -486,7 +486,7 @@ class KeyHelp extends HTMLElement {
 
     const hubExtra = h('p', {
       textContent:
-        'In the hub, walk up to the Curator or the crew terminal (‡ glyph) and use Interact to hear rumors, pick contracts, or open the crew roster.',
+        'In the hub, walk up to the Curator, the crew terminal (‡ glyph), or the archive ledger (L glyph) and use Interact to hear rumors, open the crew roster, or review the Chronicle and campaign archive.',
     });
 
     const combatExtra = h('p', {
