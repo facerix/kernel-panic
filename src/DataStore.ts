@@ -6,10 +6,7 @@ import {
   normalizeCampaignHistory,
   type CampaignSummary,
 } from './game/campaignSummary.js';
-import {
-  archiveScoreableItem,
-  normalizeUnlockedScoreableItems,
-} from './game/scoreableUnlocks.js';
+import { archiveScoreableItem, normalizeUnlockedScoreableItems } from './game/scoreableUnlocks.js';
 
 const STORAGE_KEY = 'kp:data';
 let instance: DataStore | null = null;
@@ -80,7 +77,13 @@ class DataStore extends EventTarget {
       } catch (storageError) {
         console.warn('[DataStore] Failed to reset stored data.', storageError);
       }
-      return { prefs: {}, runs: [], campaign: null, campaignHistory: [], unlockedScoreableItems: [] };
+      return {
+        prefs: {},
+        runs: [],
+        campaign: null,
+        campaignHistory: [],
+        unlockedScoreableItems: [],
+      };
     }
     // The meta-progression store crashes loudly on structural corruption — a
     // silent reset would erase blueprints the meta-crew earned across campaigns

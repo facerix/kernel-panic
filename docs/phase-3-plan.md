@@ -620,7 +620,7 @@ unlocked scoreable). `<finn-shop>` renders only the catalog handed to
 
 ---
 
-### P3.M7 — Chronicle (campaign narrative memory) 🟡
+### P3.M7 — Chronicle (campaign narrative memory) ✅
 
 **Depends on:** P3.M1 (arc structure provides the narrative beats to chronicle). Can begin data collection earlier if arc state is available.
 
@@ -643,7 +643,7 @@ unlocked scoreable). `<finn-shop>` renders only the catalog handed to
 - Hub can open chronicle (active campaign) and history (past campaigns) without errors.
 - Tests for append + round-trip + cap/trim policy if the list is bounded.
 
-**P3.M7 implementation note:** The end-summary foundation is shipped. A validated `CampaignSummary` is built only after campaign settlement reaches `ENDED`, so the final completed-job increment, Credits (including the Score payoff), Rep, seed, and roster state are captured from the canonical final campaign. Salvage remains a campaign resource rather than a summary measure of value. `DataStore` keeps summaries newest-first, preserves the original record on duplicate archival, and trims history to 50 campaigns. Live completion and restored ended saves share the same idempotent archival path. `<game-over>` is now the single terminal campaign overlay with success and failure modes; terminal outcomes bypass the recoverable job-level `<crash-dump>` debrief. Active per-job chronicle entries, Terminal presentation, and history browsing remain follow-up work within P3.M6.
+**P3.M7 implementation note:** Shipped. The Chronicle now persists active-campaign entries in the campaign save, recording crew assembly, Decker recruitment, arc transitions, and job outcomes with stage-aware copy. The Hub exposes a dedicated `LOG` entry point that opens a Chronicle/archive modal rather than reusing the crew terminal. That surface shows the live campaign log, current arc status lines, archived `CampaignSummary` history, and an `ACQUISITIONS: N / M` meta-progression counter sourced from `unlockedScoreableItems`. The end-summary foundation remains the archival backend: a validated `CampaignSummary` is still built only after campaign settlement reaches `ENDED`, stored newest-first, deduplicated by campaign id, and trimmed to 50 history rows. Chronicle state round-trips through snapshot restore, including pending run context so job entries still settle correctly after reload.
 
 ---
 

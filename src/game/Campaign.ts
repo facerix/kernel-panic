@@ -26,6 +26,7 @@ import { OBJECTIVES } from './hub/Curator.js';
 import { Terminal } from './hub/Terminal.js';
 import { Finn } from './hub/Finn.js';
 import { Clinic } from './hub/Clinic.js';
+import { ArchiveTerminal } from './hub/ArchiveTerminal.js';
 import {
   applyFirstHubReveal,
   normalizeHubReveals,
@@ -51,6 +52,12 @@ import {
   normalizeLocationSite,
 } from './locations.js';
 import { resolveMapDimensions } from './procgen/mapDimensions.js';
+import {
+  normalizeCampaignChronicle,
+  normalizePendingChronicleRun,
+  type CampaignChronicleEntry,
+  type PendingChronicleRun,
+} from './chronicle.js';
 import type { Contract } from './hub/Curator.js';
 import type { Crew } from './Crew.js';
 import type {
@@ -127,13 +134,12 @@ export const ABSTRACT_SCORE_TARGETS: readonly AbstractScoreTarget[] = Object.fre
     id: 'liquid-reserves',
     label: 'liquid reserves',
     flavor:
-      "Their R&D vaults are picked clean — nothing left worth reverse-engineering. So this run, you go for the money.",
+      'Their R&D vaults are picked clean — nothing left worth reverse-engineering. So this run, you go for the money.',
   },
   {
     id: 'bearer-bonds',
     label: 'bearer-bond cache',
-    flavor:
-      "No prototypes left to lift; this time it's a strongbox of untraceable bearer bonds.",
+    flavor: "No prototypes left to lift; this time it's a strongbox of untraceable bearer bonds.",
   },
   {
     id: 'slush-fund',
@@ -229,6 +235,8 @@ export type CampaignOptions = {
   clockJobsTaken?: unknown;
   keyItems?: unknown;
   siteRoster?: unknown;
+  chronicle?: unknown;
+  pendingChronicleRun?: unknown;
   onPersist?: unknown;
   onResult?: unknown;
 };
@@ -329,6 +337,7 @@ export class Campaign {
   curator: Curator | null;
   finn: Finn | null;
   terminal: Terminal | null;
+  archiveTerminal: ArchiveTerminal | null;
   clinic: Clinic | null;
   healedThisVisit: Set<string>;
   hubReveals: HubReveals;
@@ -339,6 +348,10 @@ export class Campaign {
   keyItems: KeyItem[];
   /** Remembered combat locations / site roster (P2.5.M7.2), max `SITE_ROSTER_CAP`. */
   siteRoster: LocationSite[];
+  /** P3.M7: persisted campaign narrative memory, newest entry appended in order. */
+  chronicle: CampaignChronicleEntry[];
+  /** Mid-run baseline used to write the final chronicle entry on settlement. */
+  pendingChronicleRun: PendingChronicleRun | null;
   /** Set by the latest `enterHub` when a reveal message fired; shell reads and clears. */
   lastHubReveal: HubRevealMessage | null;
   exitTile: GridPoint | null;
@@ -357,6 +370,8 @@ export class Campaign {
     clockJobsTaken = 0,
     keyItems,
     siteRoster,
+    chronicle,
+    pendingChronicleRun,
     onPersist,
     onResult,
   }: CampaignOptions = {}) {
@@ -419,6 +434,8 @@ export class Campaign {
     this.clockJobsTaken = (clockJobsTaken as number) ?? 0;
     this.keyItems = normalizeKeyItems(keyItems);
     this.siteRoster = normalizeSiteRoster(siteRoster);
+    this.chronicle = normalizeCampaignChronicle(chronicle);
+    this.pendingChronicleRun = normalizePendingChronicleRun(pendingChronicleRun);
     this.state = CAMPAIGN_STATE.HUB;
     this.activeRun = null;
     this.deployedMemberId = null;
@@ -438,6 +455,7 @@ export class Campaign {
     this.curator = null;
     this.finn = null;
     this.terminal = null;
+    this.archiveTerminal = null;
     this.clinic = null;
     this.healedThisVisit = new Set();
     this.lastHubReveal = null;
@@ -526,6 +544,11 @@ export class Campaign {
       x: hub.terminalSpawn.x,
       y: hub.terminalSpawn.y,
     });
+    this.archiveTerminal = new ArchiveTerminal({
+      id: 'archive-terminal',
+      x: hub.archiveTerminalSpawn.x,
+      y: hub.archiveTerminalSpawn.y,
+    });
     this.lastHubReveal = applyFirstHubReveal(this);
     if (shouldSpawnFinn(this.hubReveals)) {
       this.finn = new Finn({
@@ -548,6 +571,7 @@ export class Campaign {
     this.world.addEntity(this.player);
     this.world.addEntity(this.curator);
     this.world.addEntity(this.terminal);
+    this.world.addEntity(this.archiveTerminal);
     if (this.finn) this.world.addEntity(this.finn);
     if (this.clinic) this.world.addEntity(this.clinic);
     this.queue = new TurnQueue([FACTION.PLAYER, FACTION.CORP]);
@@ -634,6 +658,7 @@ export class Campaign {
       this.clockJobsTaken += 1;
     }
     const deployedContract = this.#contractWithRememberedDimensions(contract);
+    this.pendingChronicleRun = this.#buildPendingChronicleRun(deployedContract);
     this.#tearDownHubWorld();
     this.deployedMemberId = member.id;
     this.deployedPartnerId = partner?.id ?? null;
@@ -711,6 +736,7 @@ export class Campaign {
       !completed;
     const failedScoreRun =
       activeContract !== null && isScoreContract(activeContract) && outcome === OUTCOME.DEATH;
+    const chroniclePending = this.pendingChronicleRun;
 
     // P3.M4.4: a meat partner that flatlined on the field is gone for good —
     // independent of the Decker's outcome. The Decker may have extracted clean
@@ -753,6 +779,15 @@ export class Campaign {
     this.activeRun = null;
     this.deployedMemberId = null;
     this.deployedPartnerId = null;
+    this.pendingChronicleRun = null;
+
+    if (chroniclePending) {
+      this.#appendChronicleJobEntry(chroniclePending, {
+        outcome,
+        completed,
+        activeContract,
+      });
+    }
 
     if (failedScoreRun) {
       this.state = CAMPAIGN_STATE.ENDED;
@@ -1046,6 +1081,14 @@ export class Campaign {
     this.rewardRecruitIds.delete(recruit.id);
     this.crew.push(recruit);
     this.recruitedThisVisit = true;
+    this.#appendChronicleMilestone(
+      this.arc.arcStage,
+      `RECRUITED — ${recruit.callsign ?? recruit.id}`,
+      `${recruit.callsign ?? recruit.id} joined the crew as ${recruit.archetype}.`,
+      [
+        `Crew size ${this.crew.filter(member => !member.flatlined).length} living / ${this.crew.length} total`,
+      ]
+    );
     this.#persist();
   }
 
@@ -1096,6 +1139,14 @@ export class Campaign {
     }
     this.crew.push(...selected);
     this.initialCandidates = [];
+    this.#appendChronicleMilestone(
+      'act-1',
+      'CREW ASSEMBLED',
+      `The first operators are in place: ${selected
+        .map(member => member.callsign ?? member.id)
+        .join(', ')}.`,
+      [`Starter crew ${selected.length} operators`, 'Street-level contracts are now live.']
+    );
   }
 
   /**
@@ -1416,6 +1467,186 @@ export class Campaign {
     return this.crew.find(member => member.id === memberId) ?? null;
   }
 
+  #appendChronicleMilestone(
+    stage: CampaignArcStage,
+    title: string,
+    summary: string,
+    detailLines: string[]
+  ): void {
+    this.chronicle.push({
+      id: `chronicle-${this.chronicle.length}`,
+      sequence: this.chronicle.length,
+      kind: 'milestone',
+      stage,
+      title,
+      summary,
+      detailLines: [...detailLines],
+    });
+  }
+
+  #buildPendingChronicleRun(contract: Contract): PendingChronicleRun {
+    const scoreTarget = this.#scoreTargetSiteOrNull();
+    const scoreTargetName = scoreTarget ? this.#scoreTargetDisplayName(scoreTarget) : null;
+    const principalLabel = contract.context.principal?.label?.trim() || null;
+    const isScore = contract.context.recipeId === 'score-final';
+    const isCasing =
+      !isScore &&
+      !!scoreTarget?.principal?.id &&
+      contract.context.principal?.id === scoreTarget.principal.id &&
+      contract.context.locationSiteId !== scoreTarget.id;
+    return {
+      sequence: this.chronicle.length,
+      stage: this.arc.arcStage,
+      contractLabel: contract.label,
+      objectiveTitle: contract.objective.title,
+      scoreTargetName,
+      principalLabel,
+      isScore,
+      isCasing,
+      repBefore: this.rep,
+      creditsBefore: this.credits,
+      completedJobsBefore: this.completedJobs,
+      flatlinedCrewIdsBefore: this.crew.filter(member => member.flatlined).map(member => member.id),
+    };
+  }
+
+  #appendChronicleJobEntry(
+    pending: PendingChronicleRun,
+    opts: { outcome: Outcome; completed: boolean; activeContract: Contract | null }
+  ): void {
+    const crewLosses = this.crew
+      .filter(member => member.flatlined && !pending.flatlinedCrewIdsBefore.includes(member.id))
+      .map(member => member.callsign ?? member.id);
+    const repDelta = this.rep - pending.repBefore;
+    const creditsDelta = this.credits - pending.creditsBefore;
+    const completedJobsDelta = this.completedJobs - pending.completedJobsBefore;
+    const title = this.#chronicleJobTitle(pending, opts);
+    const summary = this.#chronicleJobSummary(pending, opts, crewLosses);
+    const detailLines = [
+      `Objective: ${pending.objectiveTitle}`,
+      `Outcome: ${this.#chronicleOutcomeLabel(pending, opts)}`,
+      `Rep ${repDelta >= 0 ? '+' : ''}${repDelta} | Credits ${creditsDelta >= 0 ? '+' : ''}${creditsDelta}`,
+      `Completed jobs ${pending.completedJobsBefore} -> ${this.completedJobs}`,
+    ];
+    if (crewLosses.length > 0) {
+      detailLines.push(`Losses: ${crewLosses.join(', ')}`);
+    }
+    const rewardLine = this.#scoreRewardDetail(opts.activeContract);
+    if (rewardLine) {
+      detailLines.push(rewardLine);
+    }
+    if (pending.isCasing && pending.principalLabel) {
+      detailLines.push(`Casing principal: ${pending.principalLabel}`);
+    }
+    if (pending.scoreTargetName) {
+      detailLines.push(`Score target: ${pending.scoreTargetName}`);
+    }
+    if (completedJobsDelta < 0) {
+      throw new Error('Campaign chronicle: completedJobs regressed during settlement');
+    }
+    this.chronicle.push({
+      id: `chronicle-${pending.sequence}`,
+      sequence: pending.sequence,
+      kind: 'job',
+      stage: pending.stage,
+      title,
+      summary,
+      detailLines,
+    });
+  }
+
+  #chronicleJobTitle(
+    pending: PendingChronicleRun,
+    opts: { outcome: Outcome; completed: boolean; activeContract: Contract | null }
+  ): string {
+    if (pending.isScore) {
+      if (opts.outcome === OUTCOME.DEATH) return 'THE SCORE — FLATLINED';
+      if (opts.completed) return 'THE SCORE — COMPLETE';
+      return 'THE SCORE — PARTIAL';
+    }
+    if (pending.isCasing && pending.principalLabel) {
+      return `CASING — ${pending.principalLabel.toUpperCase()}`;
+    }
+    if (pending.stage === 'act-1') return 'STREET JOB';
+    if (pending.stage === 'act-3') return 'FINAL PREP';
+    return 'RUN LOGGED';
+  }
+
+  #chronicleJobSummary(
+    pending: PendingChronicleRun,
+    opts: { outcome: Outcome; completed: boolean; activeContract: Contract | null },
+    crewLosses: string[]
+  ): string {
+    if (pending.isScore) {
+      if (opts.outcome === OUTCOME.DEATH) {
+        return `The push on ${pending.scoreTargetName ?? pending.contractLabel} flatlined the Decker and ended the campaign.`;
+      }
+      if (opts.completed) {
+        const reward = this.#scoreRewardSummary(opts.activeContract);
+        return reward
+          ? `The crew cracked ${pending.scoreTargetName ?? pending.contractLabel} and stole ${reward}.`
+          : `The crew cracked ${pending.scoreTargetName ?? pending.contractLabel} and walked with the payday.`;
+      }
+      return `The crew reached ${pending.scoreTargetName ?? pending.contractLabel} but extracted without the payload.`;
+    }
+    if (opts.outcome === OUTCOME.DEATH) {
+      return `${pending.contractLabel} went bad and the deployed operator never came home.`;
+    }
+    if (!opts.completed) {
+      return `${pending.contractLabel} was aborted before the objective was secured.`;
+    }
+    if (pending.stage === 'act-1') {
+      return `${pending.contractLabel} kept the crew fed and moving through the street-level grind.`;
+    }
+    if (pending.isCasing) {
+      return `${pending.contractLabel} gave the crew another read on ${pending.principalLabel ?? 'the target org'} before the big push.`;
+    }
+    if (pending.stage === 'act-3') {
+      return `${pending.contractLabel} tightened the final prep window before THE SCORE.`;
+    }
+    if (crewLosses.length > 0) {
+      return `${pending.contractLabel} was won, but the crew paid for it in blood.`;
+    }
+    return `${pending.contractLabel} landed clean.`;
+  }
+
+  #chronicleOutcomeLabel(
+    pending: PendingChronicleRun,
+    opts: { outcome: Outcome; completed: boolean }
+  ): string {
+    if (pending.isScore) {
+      if (opts.outcome === OUTCOME.DEATH) return 'campaign loss';
+      return opts.completed ? 'score complete' : 'score partial';
+    }
+    if (opts.outcome === OUTCOME.DEATH) return 'operator flatlined';
+    return opts.completed ? 'objective complete' : 'objective aborted';
+  }
+
+  #scoreRewardSummary(contract: Contract | null): string | null {
+    const payloadId = scorePayloadItemId(contract);
+    if (payloadId) {
+      const payload = SCOREABLE_ITEMS.find(item => item.id === payloadId);
+      if (payload) return payload.label;
+    }
+    return null;
+  }
+
+  #scoreRewardDetail(contract: Contract | null): string | null {
+    const reward = this.#scoreRewardSummary(contract);
+    if (reward) return `Acquired blueprint: ${reward}`;
+    if (contract?.context.recipeId === 'score-final' && this.arc.scoreCompleted) {
+      return 'Acquired payout: abstract credit cache';
+    }
+    return null;
+  }
+
+  #scoreTargetDisplayName(site: LocationSite): string {
+    const principal = site.principal?.label?.trim() ?? '';
+    const place = site.site?.label?.trim() ?? '';
+    if (principal && place) return `${principal} ${place}`;
+    return principal || place || site.label.replace(/^\/\//, '').replace(/\/\/$/, '').trim();
+  }
+
   #advanceArcTransitions(): void {
     if (this.crew.some(member => member.archetype === 'Decker')) {
       this.arc.deckerRecruited = true;
@@ -1434,13 +1665,48 @@ export class Campaign {
       this.#ensureScoreTargetDesignated();
     }
 
+    if (
+      this.arc.arcStage === 'act-2' &&
+      !this.chronicle.some(entry => entry.title === 'STAGE 2 — SCORE REVEALED')
+    ) {
+      const target = this.#scoreTargetSiteOrNull();
+      const decker = this.crew.find(member => member.archetype === 'Decker');
+      this.#appendChronicleMilestone(
+        'act-2',
+        'STAGE 2 — SCORE REVEALED',
+        `The Curator named ${target ? this.#scoreTargetDisplayName(target) : 'the Score'} and assigned ${decker?.callsign ?? 'a Decker'} to open it.`,
+        [
+          `Score target: ${target ? this.#scoreTargetDisplayName(target) : 'unknown'}`,
+          `Decker assigned: ${decker?.callsign ?? 'unknown'}`,
+        ]
+      );
+    }
+
     if (this.arc.arcStage === 'act-2' && this.#qualifiesForAct3()) {
       this.arc.arcStage = 'act-3';
       this.#ensureAct3ScoreWindow();
+      this.#appendChronicleMilestone(
+        'act-3',
+        'STAGE 3 — FINAL PREP',
+        'The crew has enough casing, enough survivors, and a narrow window to attempt THE SCORE.',
+        [
+          `Living crew: ${this.crew.filter(member => !member.flatlined).length}`,
+          `Clock budget remaining: ${this.scoreDeadlineJobsRemaining}`,
+        ]
+      );
     }
 
     if (this.arc.scoreRevealed && this.clockJobsTaken >= CLOCK_ACT2_GRACE_JOBS) {
+      const wasStarted = this.arc.clockStarted;
       this.arc.clockStarted = true;
+      if (!wasStarted) {
+        this.#appendChronicleMilestone(
+          this.arc.arcStage,
+          'CLOCK IS LIVE',
+          'The operational window is now burning down. Every deploy adds heat.',
+          [`Clock heat ${this.clockHeat}`, `Jobs left ${this.scoreDeadlineJobsRemaining}`]
+        );
+      }
     }
   }
 
@@ -1611,6 +1877,7 @@ export class Campaign {
     this.curator = null;
     this.finn = null;
     this.terminal = null;
+    this.archiveTerminal = null;
     this.clinic = null;
     this.exitTile = null;
   }

@@ -1,19 +1,19 @@
 /**
  * The Hub map — small authored "safe house" the player returns to between
  * runs. Not procedural: the Hub is the same shape every visit so the player
- * forms a spatial relationship with the Curator, the loadout Terminal, and
- * the exit door.
+ * forms a spatial relationship with the Curator, the loadout Terminal, the
+ * Chronicle ledger, and the exit door.
  *
- * Layout (12×8, walls outline the room, `D` is the exit door,
- * `C` is the Curator, `F` is Finn the fence, `‡` is the loadout Terminal,
- * `⧰` is Patch the clinic, `@` is the player spawn):
+ * Layout (12×8, walls outline the room, `D` is the exit door, `C` is the
+ * Curator, `F` is Finn the fence, `‡` is the loadout Terminal, `L` is the
+ * Chronicle ledger, `⧰` is Patch the clinic, `@` is the player spawn):
  *
  *   ############
  *   #..........#
  *   #.C..F...‡.#
  *   #..........#
  *   #..........#
- *   #⧰....@....#
+ *   #.L..⧰...@.#
  *   #..........¤
  *   ############
  *
@@ -28,15 +28,16 @@ import { TILE } from '../constants.js';
 
 export const HUB_WIDTH = 12;
 export const HUB_HEIGHT = 8;
-export const HUB_PLAYER_SPAWN = Object.freeze({ x: 6, y: 5 });
+export const HUB_PLAYER_SPAWN = Object.freeze({ x: 9, y: 5 });
 export const HUB_CURATOR_SPAWN = Object.freeze({ x: 2, y: 2 });
 // Terminal sits across the room from the Curator so the player has to make
 // the explicit decision to walk to it (no accidental archetype reroll while
 // heading for the Curator). Walkable FLOOR, distinct from every other named
 // tile in the hub.
 export const HUB_FINN_SPAWN = Object.freeze({ x: 5, y: 2 });
-export const HUB_CLINIC_SPAWN = Object.freeze({ x: 2, y: 5 });
+export const HUB_CLINIC_SPAWN = Object.freeze({ x: 5, y: 5 });
 export const HUB_TERMINAL_SPAWN = Object.freeze({ x: 9, y: 2 });
+export const HUB_ARCHIVE_TERMINAL_SPAWN = Object.freeze({ x: 2, y: 5 });
 export const HUB_EXIT_TILE = Object.freeze({ x: 11, y: 6 });
 
 export function buildHub() {
@@ -61,6 +62,7 @@ export function buildHub() {
     finnSpawn: { ...HUB_FINN_SPAWN },
     clinicSpawn: { ...HUB_CLINIC_SPAWN },
     terminalSpawn: { ...HUB_TERMINAL_SPAWN },
+    archiveTerminalSpawn: { ...HUB_ARCHIVE_TERMINAL_SPAWN },
     exitTile: { ...HUB_EXIT_TILE },
   };
 }

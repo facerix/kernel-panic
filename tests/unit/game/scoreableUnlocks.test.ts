@@ -47,14 +47,14 @@ test('archiveScoreableItem is a no-op for a duplicate id', () => {
 });
 
 test('archiveScoreableItem validates the input list', () => {
-  assert.throws(() => archiveScoreableItem('proto-exoframe' as unknown as string[], 'x'), TypeError);
+  assert.throws(
+    () => archiveScoreableItem('proto-exoframe' as unknown as string[], 'x'),
+    TypeError
+  );
   assert.throws(() => archiveScoreableItem(['ok', ''], 'x'), TypeError);
 });
 
 test('archiveScoreableItem rejects an empty or non-string id', () => {
   assert.throws(() => archiveScoreableItem(['proto-exoframe'], ''), TypeError);
-  assert.throws(
-    () => archiveScoreableItem(['proto-exoframe'], 7 as unknown as string),
-    TypeError
-  );
+  assert.throws(() => archiveScoreableItem(['proto-exoframe'], 7 as unknown as string), TypeError);
 });

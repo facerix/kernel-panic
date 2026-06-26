@@ -52,7 +52,7 @@ import { placeSmoke, clearSmoke } from '/src/game/Smoke.js';
 import { placeHazardCluster } from '/src/game/Run.js';
 import { blastCells } from '/src/game/breachBlast.js';
 import { hasLineOfSight } from '/src/game/LineOfSight.js';
-import { ITEM_ID, getItemById } from '/src/game/items.js';
+import { ITEM_ID, SCOREABLE_ITEMS, getItemById } from '/src/game/items.js';
 import type { CampaignSnapshot } from '/src/game/persistence.js';
 import type { Contract } from '/src/game/hub/Curator.js';
 import {
@@ -108,6 +108,7 @@ import {
 } from '/src/shell/statusLine.js';
 import { applyMeatSeenRecord, syncVisionFields } from '/src/shell/visionSync.js';
 import type {
+  ChronicleArchiveElement,
   ClinicModalElement,
   ConfirmationModalElement,
   ContractSelectElement,
@@ -197,6 +198,7 @@ let crewRosterEl: CrewRosterElement;
 let finnShopEl: FinnShopElement;
 let clinicModalEl: ClinicModalElement;
 let itemInventoryEl: ItemInventoryElement;
+let chronicleArchiveEl: ChronicleArchiveElement;
 let keyHelpEl: KeyHelpElement;
 let logEl: HTMLElement;
 let logHeaderEl: HTMLElement;
@@ -388,6 +390,7 @@ export async function boot() {
   finnShopEl = mustGetElement<FinnShopElement>('finn-shop');
   clinicModalEl = mustGetElement<ClinicModalElement>('clinic-modal');
   itemInventoryEl = mustGetElement<ItemInventoryElement>('item-inventory');
+  chronicleArchiveEl = mustGetElement<ChronicleArchiveElement>('chronicle-archive');
   keyHelpEl = mustGetElement<KeyHelpElement>('key-help');
   logEl = mustQuery<HTMLElement>('.game-log');
   logHeaderEl = mustQuery<HTMLElement>('.game-log h3');
@@ -442,6 +445,7 @@ export async function boot() {
 
   itemInventoryEl.addEventListener('use-item', onUseItem);
   itemInventoryEl.addEventListener('dismiss', () => itemInventoryEl.hide());
+  chronicleArchiveEl.addEventListener('dismiss', () => chronicleArchiveEl.hide());
 
   keyHelpEl.addEventListener('dismiss', () => keyHelpEl.hide());
 
@@ -455,7 +459,6 @@ export async function boot() {
       tryShowKeyHelpOverlay();
     });
   }
-
   confirmationModalEl.addEventListener('confirm', evt => {
     const detail = (evt as CustomEvent<{ context?: string }>).detail;
     switch (detail?.context) {
@@ -582,6 +585,7 @@ function hideBlockingShellModals(): void {
   finnShopEl?.hide();
   clinicModalEl?.hide();
   itemInventoryEl?.hide();
+  chronicleArchiveEl?.hide();
 }
 
 function abortShellForFault(): void {
@@ -708,6 +712,25 @@ function presentCrewRoster() {
     recruitedThisVisit: campaign.recruitedThisVisit,
   });
   crewRosterEl.show();
+}
+
+function presentChronicleArchive() {
+  chronicleArchiveEl.setData({
+    activeChronicle: campaign
+      ? {
+          statusLines: formatHubArcStatusLines(campaign).filter(
+            (line): line is string => line !== null
+          ),
+          entries: campaign.chronicle,
+        }
+      : null,
+    history: dataStore.campaignHistory,
+    acquisitions: {
+      unlocked: dataStore.unlockedScoreableItems.length,
+      total: SCOREABLE_ITEMS.length,
+    },
+  });
+  chronicleArchiveEl.show();
 }
 
 function onCrewRecruit(evt: Event) {
@@ -1934,6 +1957,15 @@ function handleInteract(): void {
   }
   if (
     campaign.player &&
+    campaign.archiveTerminal &&
+    isChebyshevAdjacent(campaign.player, campaign.archiveTerminal)
+  ) {
+    flash('ARCHIVE — Chronicle and campaign history.');
+    presentChronicleArchive();
+    return;
+  }
+  if (
+    campaign.player &&
     campaign.terminal &&
     isChebyshevAdjacent(campaign.player, campaign.terminal)
   ) {
@@ -1953,6 +1985,7 @@ function handleInteract(): void {
     const hints = ['Curator (contract)'];
     if (campaign.finn) hints.unshift('Finn (shop)');
     if (campaign.clinic) hints.push('Patch (clinic)');
+    hints.push('Archive (Chronicle)');
     hints.push('Terminal (roster)');
     flash(`Step adjacent to ${hints.join(', ')}.`);
     return;
@@ -2584,6 +2617,7 @@ function isAnyBlockingModalOpen(): boolean {
   if (finnShopEl?.isOpen) return true;
   if (clinicModalEl?.isOpen) return true;
   if (itemInventoryEl?.isOpen) return true;
+  if (chronicleArchiveEl?.isOpen) return true;
   if (keyHelpEl?.isOpen) return true;
   if (faultEl?.isOpen) return true;
   // <confirmation-modal> uses a native <dialog> internally; treat any open

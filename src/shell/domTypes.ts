@@ -1,5 +1,6 @@
 import type { Campaign } from '../game/Campaign.js';
 import type { Crew } from '../game/Crew.js';
+import type { CampaignChronicleEntry } from '../game/chronicle.js';
 import type { Contract } from '../game/hub/Curator.js';
 import type { Item } from '../game/items.js';
 import type { CampaignSummary } from '../game/campaignSummary.js';
@@ -62,6 +63,17 @@ export type CrewRosterElement = ModalElement & {
       recruitedThisVisit?: boolean;
     }
   ): void;
+};
+
+export type ChronicleArchiveElement = ModalElement & {
+  setData(data: {
+    activeChronicle?: {
+      statusLines?: readonly string[];
+      entries: readonly CampaignChronicleEntry[];
+    } | null;
+    history: readonly CampaignSummary[];
+    acquisitions: { unlocked: number; total: number };
+  }): void;
 };
 
 export type FinnShopElement = ModalElement & {

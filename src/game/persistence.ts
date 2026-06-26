@@ -154,6 +154,12 @@ import type { EntitySnapshotExtra } from '../types.js';
 import type { CampaignMeta, CampaignState } from './Campaign.js';
 import { normalizeLocationSite } from './locations.js';
 import { normalizeMapDimensions } from './procgen/mapDimensions.js';
+import {
+  normalizeCampaignChronicle,
+  normalizePendingChronicleRun,
+  type CampaignChronicleEntry,
+  type PendingChronicleRun,
+} from './chronicle.js';
 import type { KeyItem, LocationSite, TileDelta } from '../types.js';
 
 const ARCHETYPE_KEY = Symbol.for('kernel-panic.archetype');
@@ -977,6 +983,10 @@ export type CampaignSnapshot = {
   keyItems?: KeyItemSnapshot[];
   /** Remembered combat locations (site roster). Defaults to [] for pre-P2.5.M7.2 saves. */
   siteRoster?: LocationSite[];
+  /** P3.M7: active campaign chronicle entries. Defaults to [] on older saves. */
+  chronicle?: CampaignChronicleEntry[];
+  /** Mid-run chronicle baseline used to finish the current job entry on restore. */
+  pendingChronicleRun?: PendingChronicleRun | null;
 };
 
 /** Serializable key item (P2.5.M6.2). */
@@ -1039,6 +1049,13 @@ export function snapshotCampaign(campaign: Campaign): CampaignSnapshot {
     clockJobsTaken: campaign.clockJobsTaken,
     keyItems: campaign.keyItems.map(k => ({ ...k })),
     siteRoster: campaign.siteRoster.map(snapshotLocationSite),
+    chronicle: campaign.chronicle.map(entry => ({ ...entry, detailLines: [...entry.detailLines] })),
+    pendingChronicleRun: campaign.pendingChronicleRun
+      ? {
+          ...campaign.pendingChronicleRun,
+          flatlinedCrewIdsBefore: [...campaign.pendingChronicleRun.flatlinedCrewIdsBefore],
+        }
+      : null,
   };
 }
 
@@ -1446,6 +1463,8 @@ export function restoreCampaign(record: unknown, options: RestoreCampaignOptions
     clockJobsTaken: record.clockJobsTaken ?? 0,
     keyItems: record.keyItems,
     siteRoster: record.siteRoster,
+    chronicle: record.chronicle,
+    pendingChronicleRun: record.pendingChronicleRun,
     onPersist: options.onPersist,
     onResult: options.onResult,
   });
@@ -1502,6 +1521,7 @@ export function restoreCampaign(record: unknown, options: RestoreCampaignOptions
     campaign.curator = null;
     campaign.finn = null;
     campaign.terminal = null;
+    campaign.archiveTerminal = null;
     campaign.clinic = null;
     campaign.exitTile = null;
   } else {
@@ -1517,6 +1537,7 @@ export function restoreCampaign(record: unknown, options: RestoreCampaignOptions
     campaign.curator = null;
     campaign.finn = null;
     campaign.terminal = null;
+    campaign.archiveTerminal = null;
     campaign.clinic = null;
     campaign.exitTile = null;
   }
@@ -2264,6 +2285,12 @@ function validateCampaignRecord(record: unknown): asserts record is CampaignSnap
     // Validate each entry up front so a corrupt roster crashes on load rather
     // than producing a bad map on a later revisit.
     candidate.siteRoster.forEach(entry => normalizeLocationSite(entry));
+  }
+  if (candidate.chronicle !== undefined) {
+    normalizeCampaignChronicle(candidate.chronicle);
+  }
+  if (candidate.pendingChronicleRun !== undefined) {
+    normalizePendingChronicleRun(candidate.pendingChronicleRun);
   }
 }
 

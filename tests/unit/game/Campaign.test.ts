@@ -196,6 +196,64 @@ test('onJobEnd with EXIT applies contract Cred and Rep rewards without spending 
   assert.equal(campaign.rep, 27); // 20 start + 7 repDelta
 });
 
+test('P3.M7: casing jobs append arc-aware chronicle entries and survive snapshot restore', () => {
+  const campaign = new Campaign({ seed: 42, rep: 65, completedJobs: 4 });
+  const scoreTarget = campaign.siteRoster.find(site => site.scoreTarget);
+  assert.ok(scoreTarget?.principal);
+  assert.ok(
+    campaign.chronicle.some(entry => entry.title === 'STAGE 2 — SCORE REVEALED'),
+    'Act 2 transition should log the Score reveal'
+  );
+
+  const decker = campaign.crew.find(member => member.archetype === 'Decker');
+  assert.ok(decker);
+  const contract = fakeContract({
+    label: '// Matsuda payroll cache //',
+    context: {
+      ...testContractContext(OBJECTIVES.REACH_EXIT),
+      principal: scoreTarget!.principal,
+      site: { id: 'payroll-cache', label: 'payroll cache', groups: ['corp', 'data'] },
+      locationSiteId: 'case-payroll-cache',
+    },
+    reward: { credits: 120, repDelta: 5 },
+  });
+
+  campaign.deployCrewMember(decker!.id, contract);
+  campaign.onJobEnd({ outcome: OUTCOME.EXIT, salvage: emptySalvage(), completed: true });
+
+  const entry = campaign.chronicle.at(-1);
+  assert.ok(entry);
+  assert.equal(entry!.kind, 'job');
+  assert.match(entry!.title, /^CASING/);
+  assert.match(entry!.summary, /another read/i);
+  assert.ok(entry!.detailLines.some(line => line.includes('Rep +5 | Credits +120')));
+
+  const restored = restoreCampaign(snapshotCampaign(campaign));
+  assert.equal(restored.chronicle.length, campaign.chronicle.length);
+  assert.deepEqual(restored.chronicle.at(-1), entry);
+});
+
+test('P3.M7: pending chronicle run survives restore and settles into a job entry', () => {
+  const campaign = new Campaign({ seed: 99 });
+  const member = campaign.crew[0]!;
+  const contract = fakeContract({
+    label: 'warehouse ghost',
+    reward: { credits: 40, repDelta: 2 },
+  });
+
+  campaign.deployCrewMember(member.id, contract);
+  const restored = restoreCampaign(snapshotCampaign(campaign));
+  assert.ok(restored.pendingChronicleRun, 'mid-run chronicle baseline should persist');
+
+  restored.onJobEnd({ outcome: OUTCOME.EXIT, salvage: emptySalvage(), completed: true });
+
+  const entry = restored.chronicle.at(-1);
+  assert.ok(entry);
+  assert.equal(entry!.kind, 'job');
+  assert.match(entry!.summary, /street-level/i);
+  assert.ok(entry!.detailLines.some(line => line.includes('Rep +2 | Credits +40')));
+});
+
 test('onJobEnd with incomplete EXIT (abort) forfeits salvage and applies rep penalty', () => {
   const campaign = new Campaign({ seed: 42 });
   const member = campaign.crew[1];

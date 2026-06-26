@@ -360,7 +360,9 @@ test('a clean abstract Score settles the arc but writes no meta-store unlock', (
   const decker = campaign.crew.find(member => member.archetype === 'Decker')!;
   const partner = campaign.crew.find(member => member.archetype !== 'Decker')!;
   const beforeCredits = campaign.credits;
-  campaign.deployCrewMember(decker.id, campaign.buildScoreContract(allAcquired), partner.id).enterCombat();
+  campaign
+    .deployCrewMember(decker.id, campaign.buildScoreContract(allAcquired), partner.id)
+    .enterCombat();
 
   campaign.onJobEnd({ outcome: OUTCOME.EXIT, completed: true });
   // Arc reaches its climax exactly as a blueprint Score would.

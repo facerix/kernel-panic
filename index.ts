@@ -21,6 +21,7 @@ import '/components/CrewRoster.js';
 import '/components/FinnShop.js';
 import '/components/ClinicModal.js';
 import '/components/ItemInventory.js';
+import '/components/ChronicleArchive.js';
 import KeyHelp from '/components/KeyHelp.js';
 
 const allComponentsReady = Promise.all([
@@ -40,6 +41,7 @@ const allComponentsReady = Promise.all([
   customElements.whenDefined('finn-shop'),
   customElements.whenDefined('clinic-modal'),
   customElements.whenDefined('item-inventory'),
+  customElements.whenDefined('chronicle-archive'),
   customElements.whenDefined('key-help'),
 ]);
 
