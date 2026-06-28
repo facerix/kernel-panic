@@ -76,11 +76,15 @@ export const SITE_ROSTER_CAP = 6;
 /** Minimum Rep to leave Act 1 — proven-operator bar (65). Recruitment opens earlier at KNOWN (50). */
 export const ARC_ACT_2_MIN_REP = 65;
 export const ARC_ACT_2_MIN_COMPLETED_JOBS = 4;
-export const ARC_ACT_3_MIN_COMPLETED_JOBS = 9;
-/** Minimum *living* crew size before the Score's final-prep stage unlocks. Starter 2 + Decker = 3, so 4 requires at least one additional recruit who hasn't flatlined. */
-export const ARC_ACT_3_MIN_CREW_ALIVE = 4;
-/** Visited sites sharing the Score target's principal required for Act 3. Includes the target itself. */
-export const ARC_ACT_3_MIN_PRINCIPAL_SITES_VISITED = 3;
+/**
+ * Distinct visited sites sharing the Score target's principal required to leave
+ * casing (Stage 2 → Stage 3). The synthesized Score target is never visited
+ * before the heist, so it does *not* count — this is purely the org sites the
+ * player has actually cased. This is the sole casing gate (the old living-crew
+ * and total-completed-jobs gates were dropped as arbitrary and invisible);
+ * surfaced on-screen via {@link Campaign.casingProgress}.
+ */
+export const ARC_ACT_3_MIN_PRINCIPAL_SITES_VISITED = 4;
 /** Act-2/3 deploys taken before corp heat starts (successful or not). */
 export const CLOCK_ACT2_GRACE_JOBS = 3;
 /** Deploys after grace before the Score window closes (Act 3 only). */
@@ -93,6 +97,25 @@ export const CLOCK_ACT3_MIN_JOBS_REMAINING = 3;
 /** Clock expiry applies only during Act 3 final prep; Act 2 casing can run past the old deadline. */
 export function clockDeadlineApplies(arcStage: CampaignArcStage): boolean {
   return arcStage === 'act-3';
+}
+
+/**
+ * Count distinct roster sites the player has *visited* that share the Score
+ * org's principal. Drives the casing gate and its on-screen indicator — kept in
+ * one place so the gate and the `CASED N/M` display can never disagree.
+ */
+export function casedPrincipalSiteCount(
+  siteRoster: readonly LocationSite[],
+  scorePrincipalId: string
+): number {
+  return siteRoster.filter(
+    site =>
+      // The synthesized Score target shares the org's principal but is never a
+      // "cased" site — you breach it during the heist, not on a prep run.
+      // Exclude it structurally so the gate can't count the crown jewel toward
+      // its own unlock even if a fixture or future bug marks it visited.
+      !site.scoreTarget && site.principal?.id === scorePrincipalId && site.lastVisitedJob > 0
+  ).length;
 }
 /** Campaign-ending payday for completing THE SCORE. */
 export const SCORE_CREDITS_REWARD = 5_000;
@@ -1688,9 +1711,9 @@ export class Campaign {
       this.#appendChronicleMilestone(
         'act-3',
         'STAGE 3 — FINAL PREP',
-        'The crew has enough casing, enough survivors, and a narrow window to attempt THE SCORE.',
+        'The crew has cased enough of the org and has a narrow window to attempt THE SCORE.',
         [
-          `Living crew: ${this.crew.filter(member => !member.flatlined).length}`,
+          `Sites cased: ${this.casingProgress()?.cased ?? 0}`,
           `Clock budget remaining: ${this.scoreDeadlineJobsRemaining}`,
         ]
       );
@@ -1715,18 +1738,23 @@ export class Campaign {
   }
 
   #qualifiesForAct3(): boolean {
-    if (this.completedJobs < ARC_ACT_3_MIN_COMPLETED_JOBS) return false;
-    const livingCrew = this.crew.filter(m => !m.flatlined).length;
-    if (livingCrew < ARC_ACT_3_MIN_CREW_ALIVE) return false;
+    const progress = this.casingProgress();
+    return progress !== null && progress.cased >= progress.required;
+  }
 
+  /**
+   * Casing progress toward final prep: distinct Score-org sites cased so far and
+   * the count required to leave Stage 2. Null until a Score target with a
+   * principal is designated (i.e. before the Score reveal). The Hub status line
+   * renders this as `CASED N/M`.
+   */
+  casingProgress(): { cased: number; required: number } | null {
     const scoreTarget = this.siteRoster.find(site => site.scoreTarget);
-    if (!scoreTarget?.principal?.id) return false;
-
-    const principalId = scoreTarget.principal.id;
-    const visitedPrincipalSites = this.siteRoster.filter(
-      site => site.principal?.id === principalId && site.lastVisitedJob > 0
-    ).length;
-    return visitedPrincipalSites >= ARC_ACT_3_MIN_PRINCIPAL_SITES_VISITED;
+    if (!scoreTarget?.principal?.id) return null;
+    return {
+      cased: casedPrincipalSiteCount(this.siteRoster, scoreTarget.principal.id),
+      required: ARC_ACT_3_MIN_PRINCIPAL_SITES_VISITED,
+    };
   }
 
   /**

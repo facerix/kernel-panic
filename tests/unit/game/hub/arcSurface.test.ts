@@ -72,10 +72,13 @@ test('formatHubArcStatusLines omits clock until the Curator briefing is dismisse
     scoreDeadlineJobsRemaining: 4,
   };
   assert.deepEqual(formatHubArcStatusLines(campaign), [
-    'STAGE 2: CASING | SCORE: Matsuda server farm',
+    'STAGE 2: CASING | SCORE: Matsuda server farm | CASED 0/4',
     null,
   ]);
-  assert.equal(formatHubArcStatus(campaign), 'STAGE 2: CASING | SCORE: Matsuda server farm');
+  assert.equal(
+    formatHubArcStatus(campaign),
+    'STAGE 2: CASING | SCORE: Matsuda server farm | CASED 0/4'
+  );
 });
 
 test('formatHubArcStatusLines shows active heat only after clock briefing', () => {
@@ -89,9 +92,40 @@ test('formatHubArcStatusLines shows active heat only after clock briefing', () =
     scoreDeadlineJobsRemaining: 3,
   };
   assert.deepEqual(formatHubArcStatusLines(campaign), [
-    'STAGE 2: CASING | SCORE: Matsuda server farm',
+    'STAGE 2: CASING | SCORE: Matsuda server farm | CASED 0/4',
     'CLOCK: HEAT 2',
   ]);
+});
+
+test('formatHubArcStatusLines surfaces casing progress, counting visited org sites but not the target', () => {
+  const orgSite = (id: string, visited: number): LocationSite =>
+    scoreSite({ id, tier: 'roster', scoreTarget: false, lastVisitedJob: visited });
+  const campaign = {
+    // Two cased org sites + an unvisited org site + the target (never counts).
+    arc: arc({ arcStage: 'act-2', scoreRevealed: true }),
+    siteRoster: [
+      scoreSite(),
+      orgSite('case-1', 6),
+      orgSite('case-2', 7),
+      orgSite('case-3', 0),
+    ],
+    crew: [],
+    hubReveals: {},
+  };
+  assert.equal(
+    formatHubArcStatus(campaign),
+    'STAGE 2: CASING | SCORE: Matsuda server farm | CASED 2/4'
+  );
+});
+
+test('formatHubArcStatusLines omits the casing indicator outside Stage 2', () => {
+  const campaign = {
+    arc: arc({ arcStage: 'act-3', scoreRevealed: true }),
+    siteRoster: [scoreSite(), scoreSite({ id: 'case-1', tier: 'roster', scoreTarget: false })],
+    crew: [],
+    hubReveals: {},
+  };
+  assert.equal(formatHubArcStatus(campaign), 'STAGE 3: FINAL PREP | SCORE: Matsuda server farm');
 });
 
 test('formatHubArcStatus throws when revealed state has no Score target', () => {

@@ -232,6 +232,8 @@ test('Campaign records partial Score as terminal without full reward', () => {
       scoreSite(),
       scoreSite({ id: 'case-1', tier: 'roster', scoreTarget: false, seed: '101' }),
       scoreSite({ id: 'case-2', tier: 'roster', scoreTarget: false, seed: '102' }),
+      scoreSite({ id: 'case-3', tier: 'roster', scoreTarget: false, seed: '103' }),
+      scoreSite({ id: 'case-4', tier: 'roster', scoreTarget: false, seed: '104' }),
     ],
   });
   const decker = campaign.crew.find(member => member.archetype === 'Decker')!;
@@ -259,6 +261,8 @@ function scoreReadyCampaign() {
       scoreSite(),
       scoreSite({ id: 'case-1', tier: 'roster', scoreTarget: false, seed: '101' }),
       scoreSite({ id: 'case-2', tier: 'roster', scoreTarget: false, seed: '102' }),
+      scoreSite({ id: 'case-3', tier: 'roster', scoreTarget: false, seed: '103' }),
+      scoreSite({ id: 'case-4', tier: 'roster', scoreTarget: false, seed: '104' }),
     ],
   });
   assert.ok(campaign.canAttemptScore(), 'fixture should be Score-ready');
@@ -344,6 +348,8 @@ test('different Score seeds can draw different abstract categories', () => {
         scoreSite({ seed: String(seed) }),
         scoreSite({ id: 'case-1', tier: 'roster', scoreTarget: false, seed: `${seed}01` }),
         scoreSite({ id: 'case-2', tier: 'roster', scoreTarget: false, seed: `${seed}02` }),
+        scoreSite({ id: 'case-3', tier: 'roster', scoreTarget: false, seed: `${seed}03` }),
+        scoreSite({ id: 'case-4', tier: 'roster', scoreTarget: false, seed: `${seed}04` }),
       ],
     });
     const briefing = campaign.buildScoreContract(SCOREABLE_ITEMS.map(i => i.id)).objective.briefing;

@@ -2,8 +2,10 @@ import type { Contract } from './Curator.js';
 import type { Campaign } from '../Campaign.js';
 import type { HubReveals } from './hubReveals.js';
 import {
+  ARC_ACT_3_MIN_PRINCIPAL_SITES_VISITED,
   CLOCK_ACT2_DEADLINE_JOBS,
   CLOCK_ACT2_GRACE_JOBS,
+  casedPrincipalSiteCount,
   clockDeadlineApplies,
 } from '../Campaign.js';
 import type { CampaignArcStage, LocationSite } from '../../types.js';
@@ -65,6 +67,12 @@ export function formatHubArcStatusLines(campaign: ArcSurfaceCampaign): HubArcSta
       throw new Error('arcSurface: score revealed without a Score target site');
     }
     parts.push(`SCORE: ${scoreTargetDisplayName(target)}`);
+    // Casing is the sole gate out of Stage 2 — surface its progress so the
+    // player can see how many Score-org sites are left to case.
+    if (campaign.arc.arcStage === 'act-2' && target.principal?.id) {
+      const cased = casedPrincipalSiteCount(campaign.siteRoster, target.principal.id);
+      parts.push(`CASED ${cased}/${ARC_ACT_3_MIN_PRINCIPAL_SITES_VISITED}`);
+    }
   }
   return [parts.join(' | '), formatClockStatus(campaign)];
 }
