@@ -26,8 +26,9 @@ import {
   totalSalvage,
   type TypedSalvage,
 } from '/src/game/salvage.js';
-import type { Crew as CrewMember, Gear } from '/src/game/Crew.js';
+import type { Crew as CrewMember } from '/src/game/Crew.js';
 import type { Item } from '/src/game/items.js';
+import { gearLines, statLines } from '/src/game/crewDisplay.js';
 
 /** Human-readable labels for item IDs (mirrors ItemInventory). */
 const ITEM_LABELS = {
@@ -35,19 +36,6 @@ const ITEM_LABELS = {
   'smoke-charge': 'Smoke Charge',
   'breaching-charge': 'Breaching Charge',
 };
-
-/** Human-readable labels for gear bonuses. */
-function gearLines(gear: Gear) {
-  if (!gear) return [];
-  const lines: string[] = [];
-  if (gear.maxHpBonus > 0) lines.push(`Armour Plating  +${gear.maxHpBonus} HP`);
-  if (gear.hitBonus > 0) lines.push(`Targeting Chip  +${(gear.hitBonus * 100).toFixed(0)}%`);
-  if ((gear.dodgeBonus ?? 0) > 0)
-    lines.push(`Reflex Weave  +${((gear.dodgeBonus ?? 0) * 100).toFixed(0)}%`);
-  if ((gear.rangedDamageBonus ?? 0) > 0)
-    lines.push(`Ballistics Coil  +${gear.rangedDamageBonus} ranged dmg`);
-  return lines;
-}
 
 /** Aggregate consumables into "Label x2" lines. */
 function consumableLines(consumables: Item[]) {
@@ -551,32 +539,11 @@ class CrewRoster extends HTMLElement {
       return;
     }
 
-    // Stats
-    const statsSection = h('div', { className: 'detail-section' });
-    statsSection.appendChild(h('p', { className: 'detail-section-title', textContent: 'STATS' }));
-    statsSection.appendChild(
-      h('p', { className: 'detail-stat', textContent: `HP  ${member.hp}/${member.maxHp}` })
-    );
-    const hitBonus = full.gear?.hitBonus ?? 0;
-    const actualHit = Math.min(full.baseHitChance + hitBonus, 1);
-    statsSection.appendChild(
-      h('p', {
-        className: 'detail-stat',
-        textContent: `AIM  ${(actualHit * 100).toFixed(0)}%`,
-      })
-    );
-    const dodgeBonus = full.gear?.dodgeBonus ?? 0;
-    const actualDodge = Math.min(full.baseDodgeChance + dodgeBonus, 1);
-    statsSection.appendChild(
-      h('p', {
-        className: 'detail-stat',
-        textContent: `DODGE  ${(actualDodge * 100).toFixed(0)}%`,
-      })
-    );
-    this.#detailEl!.appendChild(statsSection);
+    // Stats — full combat readout with gear bonuses annotated inline.
+    this.#detailEl!.appendChild(this.#buildStatsSection(full));
 
     // Gear
-    const gLines = gearLines(full.gear ?? ({} as Gear));
+    const gLines = gearLines(full.gear);
     const gearSection = h('div', { className: 'detail-section' });
     gearSection.appendChild(h('p', { className: 'detail-section-title', textContent: 'GEAR' }));
     if (gLines.length === 0) {
@@ -603,6 +570,20 @@ class CrewRoster extends HTMLElement {
       }
     }
     this.#detailEl!.appendChild(consSection);
+  }
+
+  /**
+   * Build the STATS section for a crew member or recruit. Delegates the
+   * stat→line mapping to {@link statLines} (pure, tested) so both detail panes
+   * render an identical, complete combat readout.
+   */
+  #buildStatsSection(member: CrewMember): HTMLElement {
+    const section = h('div', { className: 'detail-section' });
+    section.appendChild(h('p', { className: 'detail-section-title', textContent: 'STATS' }));
+    for (const line of statLines(member)) {
+      section.appendChild(h('p', { className: 'detail-stat', textContent: line }));
+    }
+    return section;
   }
 
   // ─── Recruitment ─────────────────────────────────────────────────────
@@ -681,27 +662,9 @@ class CrewRoster extends HTMLElement {
         }),
       ])
     );
-    // Stats — recruits are fresh, no gear/consumables.
-    const statsSection = h('div', { className: 'detail-section' });
-    statsSection.appendChild(h('p', { className: 'detail-section-title', textContent: 'STATS' }));
-    statsSection.appendChild(
-      h('p', { className: 'detail-stat', textContent: `HP  ${recruit.hp}/${recruit.maxHp}` })
-    );
-    const hitChance = recruit.baseHitChance ?? 0.65;
-    const dodgeChance = recruit.baseDodgeChance ?? 0.2;
-    statsSection.appendChild(
-      h('p', {
-        className: 'detail-stat',
-        textContent: `AIM  ${(hitChance * 100).toFixed(0)}%`,
-      })
-    );
-    statsSection.appendChild(
-      h('p', {
-        className: 'detail-stat',
-        textContent: `DODGE  ${(dodgeChance * 100).toFixed(0)}%`,
-      })
-    );
-    this.#detailEl!.appendChild(statsSection);
+    // Stats — recruits are fresh (no gear), but show the full combat readout
+    // so the player can compare a recruit against the standing crew.
+    this.#detailEl!.appendChild(this.#buildStatsSection(recruit));
   }
 
   /**
