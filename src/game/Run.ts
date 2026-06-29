@@ -45,7 +45,7 @@ import {
   JACK_OUT_SHOCK_DAMAGE,
   factionForPrincipalGroups,
 } from './constants.js';
-import { coordKey, explorationReachableKeys } from './mapConnectivity.js';
+import { coordKey, explorationReachableKeys, hasAdjacentPassableTile } from './mapConnectivity.js';
 import { isValidBlockingPlacement, checkPlacementIntegrity } from './placement.js';
 import { makeSalvage, type TypedSalvage } from './salvage.js';
 import { Entity, type LootableEntity } from './Entity.js';
@@ -387,6 +387,11 @@ export type RunOptions = {
   seed?: unknown;
   onPersist?: unknown;
   onResult?: unknown;
+  /** Fired once at the end of a successful `enterCombat()` — after the map is
+   *  built and placement succeeds. Lets the campaign defer irreversible,
+   *  one-shot commits (THE SCORE's `scoreAttempted`) until the run is actually
+   *  playable, so a generation failure can't strand the campaign. */
+  onCombatEntered?: unknown;
   /** Called when the player reaches the exit with an incomplete objective.
    *  The shell should show a confirmation prompt; call `run.confirmAbort()`
    *  to finalise the abort extraction, or do nothing to let the player
@@ -494,6 +499,8 @@ export class Run {
   priorKeyItems: KeyItem[];
   onPersist: ((record: RunSnapshot) => void) | null;
   onResult: ((result: RunResult) => void) | null;
+  /** Fired once after a successful `enterCombat()`; see `RunInit.onCombatEntered`. */
+  onCombatEntered: (() => void) | null;
   onAbortRequested: (() => void) | null;
   onJackOutRequested: ((request: JackOutRequest) => void) | null;
   /** Shell presentation hook — fired synchronously after jack-in completes. */
@@ -512,6 +519,7 @@ export class Run {
     seed,
     onPersist,
     onResult,
+    onCombatEntered,
     onAbortRequested,
     onJackOutRequested,
     onJackInPresent,
@@ -536,6 +544,9 @@ export class Run {
     }
     if (onResult !== undefined && typeof onResult !== 'function') {
       throw new TypeError('Run: onResult must be a function');
+    }
+    if (onCombatEntered !== undefined && typeof onCombatEntered !== 'function') {
+      throw new TypeError('Run: onCombatEntered must be a function');
     }
     if (onAbortRequested !== undefined && typeof onAbortRequested !== 'function') {
       throw new TypeError('Run: onAbortRequested must be a function');
@@ -593,6 +604,7 @@ export class Run {
     this.priorKeyItems = ((priorKeyItems as KeyItem[] | undefined) ?? []).map(k => ({ ...k }));
     this.onPersist = (onPersist as ((record: RunSnapshot) => void) | undefined) ?? null;
     this.onResult = (onResult as ((result: RunResult) => void) | undefined) ?? null;
+    this.onCombatEntered = (onCombatEntered as (() => void) | undefined) ?? null;
     this.onAbortRequested = (onAbortRequested as (() => void) | undefined) ?? null;
     this.onJackOutRequested =
       (onJackOutRequested as ((request: JackOutRequest) => void) | undefined) ?? null;
@@ -882,6 +894,11 @@ export class Run {
     this.state = RUN_STATE.COMBAT;
     this.#recordCurrentPlayerVision();
     this._reattachCombatListeners();
+    // The run is now playable — the map built and every objective fixture placed.
+    // Fire AFTER state=COMBAT so the campaign can commit one-shot, irreversible
+    // attempt flags (THE SCORE) only once the run can actually be won. A throw
+    // anywhere above skips this, leaving the campaign free to redeploy.
+    this.onCombatEntered?.();
   }
 
   /** Permitted from COMBAT only. Notifies the shell via `onResult`. */
@@ -2062,7 +2079,13 @@ export class Run {
     }
     if (this.contract.objective.kind === OBJECTIVES.SCORE_FINAL) {
       const doorId = scoreDoorId(this.contract);
-      const jackAnchor = findInteractableAnchor(this.world, this.player, this.exitTile, this.rng);
+      const jackAnchor = findScoreJackInAnchor(
+        this.world,
+        this.player,
+        this.exitTile,
+        this.rng,
+        doorId
+      );
       this.world.addEntity(
         new JackInPoint({
           id: 'jack-in-0',
@@ -3123,6 +3146,59 @@ function findDecoupledTerminalAnchor(
   );
   if (remote.length > 0) return rng.pick(remote);
   return rng.pick(candidates);
+}
+
+/**
+ * Jack-in anchor for THE SCORE — winnability-critical and self-healing.
+ *
+ * `score-door-0` is unlocked ONLY by jacking in and slicing the cyber core, so
+ * the jack-in MUST live on the spawn side of that locked door. A door-agnostic
+ * anchor can drop it *behind* the very door it unlocks, sealing the run (the
+ * shipped `bad-score` dead save). Because a failed Score is terminal, this never
+ * warns-and-ships a deadlock:
+ *
+ *   1. Prefer the door-aware decoupled anchor (spawn-side, non-chokepoint).
+ *   2. If that anchor isn't actually reachable with the door still locked (or the
+ *      finder finds nothing), REPAIR: relocate to the nearest spawn-side
+ *      reachable tile that can host a fixture.
+ *
+ * The spawn-side reachable set always contains spawn's neighbours, so the repair
+ * effectively cannot come up empty; only a degenerate map throws — and the Score
+ * commit is deferred until the map builds, so even that is retryable, not fatal.
+ */
+function findScoreJackInAnchor(
+  world: World,
+  player: Entity,
+  exitTile: GridPoint,
+  rng: Rng,
+  doorId: string
+): GridPoint {
+  const spawn = { x: player.x, y: player.y };
+  // Floor reachable from spawn with the score door still LOCKED (the default
+  // flood treats locked doors as walls). The jack-in must land inside this set.
+  const reachable = explorationReachableKeys(world, spawn);
+  try {
+    const anchor = findDecoupledTerminalAnchor(world, player, exitTile, rng, doorId);
+    if (reachable.has(coordKey(anchor.x, anchor.y))) return anchor;
+  } catch {
+    // Decoupled finder found nothing legal — fall through to the repair path.
+  }
+  // Self-heal: nearest spawn-side tile that can host the jack-in fixture.
+  // Deterministic ordering: by distance to spawn, then row, then column.
+  const repaired = [...reachable]
+    .map(key => parseCoordKey(key, 'findScoreJackInAnchor'))
+    .filter(
+      p =>
+        !(p.x === spawn.x && p.y === spawn.y) &&
+        !(p.x === exitTile.x && p.y === exitTile.y) &&
+        !world.liveEntityAt(p.x, p.y) &&
+        hasAdjacentPassableTile(world, p.x, p.y)
+    )
+    .sort((a, b) => manhattan(a, spawn) - manhattan(b, spawn) || a.y - b.y || a.x - b.x)[0];
+  if (!repaired) {
+    throw new Error(`Run: Score map has no spawn-side tile to host the jack-in (door ${doorId})`);
+  }
+  return repaired;
 }
 
 function findBehindDoorAnchor(

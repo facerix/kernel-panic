@@ -676,7 +676,7 @@ export class Campaign {
       }
     }
     if (isScoreContract(contract)) {
-      this.#beginScoreAttempt(contract);
+      this.#validateScoreAttempt(contract);
     } else if (this.arc.arcStage === 'act-2' || this.arc.arcStage === 'act-3') {
       this.clockJobsTaken += 1;
     }
@@ -697,6 +697,7 @@ export class Campaign {
       onResult: (result: RunResult) => {
         this.onResult?.(result);
       },
+      onCombatEntered: () => this.onActiveRunCombatEntered(),
     });
     this.activeRun.enterBriefing(deployedContract);
     // Remember this location (or refresh its visit marker) on deploy.
@@ -1814,7 +1815,16 @@ export class Campaign {
     return scoreTargets[0] ?? null;
   }
 
-  #beginScoreAttempt(contract: Contract): void {
+  /**
+   * Deploy-time gate for THE SCORE. Validates eligibility but does NOT commit —
+   * a failed Score is terminal, and the map isn't built until `enterCombat`
+   * (which can throw), so the irreversible `scoreAttempted`/`arcStage` mutation
+   * is deferred to {@link #commitScoreAttempt}, fired from the run's
+   * `onCombatEntered` hook once the run is actually playable. Re-validating here
+   * stays correct across a retry: an uncommitted prior attempt left the flags
+   * untouched, so a redeploy passes again.
+   */
+  #validateScoreAttempt(contract: Contract): void {
     if (this.arc.arcStage !== 'act-3') {
       throw new Error('Campaign.deployCrewMember: Score can only be attempted from Act 3');
     }
@@ -1831,8 +1841,30 @@ export class Campaign {
     if (!target || contract.context.locationSiteId !== target.id) {
       throw new Error('Campaign.deployCrewMember: Score contract does not target the Score site');
     }
+  }
+
+  /**
+   * Commit the (terminal) Score attempt — idempotent. Invoked from the active
+   * run's `onCombatEntered` hook, i.e. only after the Score map built and every
+   * objective fixture placed. Until this fires, a generation failure leaves the
+   * campaign able to redeploy rather than stranded in `score-partial`.
+   */
+  #commitScoreAttempt(): void {
+    if (this.arc.scoreAttempted) return;
     this.arc.scoreAttempted = true;
     this.arc.arcStage = 'score';
+    this.#persist();
+  }
+
+  /**
+   * Wired to `Run.onCombatEntered` for every deployed/restored run. Commits the
+   * Score attempt the moment a Score run becomes playable; a no-op otherwise.
+   */
+  onActiveRunCombatEntered(): void {
+    const contract = this.activeRun?.contract ?? null;
+    if (contract && isScoreContract(contract)) {
+      this.#commitScoreAttempt();
+    }
   }
 
   #clockExpired(): boolean {

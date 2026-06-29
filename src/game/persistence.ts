@@ -892,6 +892,7 @@ const ENTITY_RESTORE: Partial<Record<EntityArchetypeId, RestoreEntry>> = Object.
 type RestoreOptions = {
   onPersist?: (record: RunSnapshot) => void;
   onResult?: (result: RunResult) => void;
+  onCombatEntered?: () => void;
 };
 
 type RestoreCampaignOptions = {
@@ -1144,6 +1145,7 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
     seed: record.seed,
     onPersist: options.onPersist,
     onResult: options.onResult,
+    onCombatEntered: options.onCombatEntered,
   });
   run.rng = new Rng(record.rng.seed);
   run.rng.setState(record.rng.state);
@@ -1495,6 +1497,10 @@ export function restoreCampaign(record: unknown, options: RestoreCampaignOptions
     campaign.activeRun = restoreActiveRun(record.activeRun, member, partner, {
       onPersist: () => options.onPersist?.(campaign),
       onResult: options.onResult,
+      // A run resumed at BRIEFING builds its map on the next enterCombat; wire the
+      // hook so THE SCORE's terminal commit fires then, not at the (already-past)
+      // deploy — matching the live deploy path.
+      onCombatEntered: () => campaign.onActiveRunCombatEntered(),
     });
     // M7.2: a run resumed at BRIEFING has not yet built its map — re-derive the
     // prior-visit deltas from the (already-restored) roster so the upcoming
@@ -1925,6 +1931,7 @@ function restoreActiveRun(
     seed: record.seed,
     onPersist: options.onPersist,
     onResult: options.onResult,
+    onCombatEntered: options.onCombatEntered,
   });
   run.rng = new Rng(record.rng.seed);
   run.rng.setState(record.rng.state);

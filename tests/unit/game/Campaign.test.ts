@@ -1343,7 +1343,7 @@ test('P3.M1.5: Clock deadline does not end the campaign after the Score is attem
   assert.equal(campaign.clockHeat, CLOCK_ACT2_DEADLINE_JOBS - CLOCK_ACT2_GRACE_JOBS);
 });
 
-test('P3.M1.7: Score contract is gated to Act 3 and marks attempted on deployment', () => {
+test('P3.M1.7: Score contract is gated to Act 3 and commits the attempt only at combat entry', () => {
   const scorePrincipal = { id: 'matsuda', label: 'Matsuda', groups: ['corp'] };
   const campaign = new Campaign({
     seed: 42,
@@ -1386,9 +1386,16 @@ test('P3.M1.7: Score contract is gated to Act 3 and marks attempted on deploymen
   assert.ok(partner, 'Act 3 campaign should include a living meat partner');
   assert.throws(() => campaign.deployCrewMember(decker!.id, score), /meat partner/);
   const run = campaign.deployCrewMember(decker!.id, score, partner!.id);
-  assert.equal(campaign.arc.scoreAttempted, true);
-  assert.equal(campaign.arcStage, 'score');
+  // Defer-commit: deploying alone must NOT consume the (terminal) Score. The map
+  // is built in enterCombat, which can throw; committing earlier would strand the
+  // campaign in score-partial on a generation failure.
+  assert.equal(campaign.arc.scoreAttempted, false, 'deploy alone does not commit the Score');
+  assert.equal(campaign.arcStage, 'act-3');
   assert.equal(run.contract?.context.locationSiteId, 'score');
+  // Entering combat (map built, fixtures placed) is what commits the attempt.
+  run.enterCombat();
+  assert.equal(campaign.arc.scoreAttempted, true, 'combat entry commits the Score');
+  assert.equal(campaign.arcStage, 'score');
 });
 
 test('a flatlined pre-Score Decker creates a free Terminal replacement lead', () => {
