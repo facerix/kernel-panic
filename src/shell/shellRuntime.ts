@@ -947,10 +947,16 @@ function presentItemInventory() {
     return;
   }
   const run = campaign.activeRun;
-  if (!run || !run.player || !run.player.inventory) return;
+  if (!run || !run.player) return;
+  // The active operator owns the live job-scoped wallet — the Decker before
+  // jack-in, the partner while jacked in, and whichever crewmate has control
+  // after jack-out (the simstim flip swaps `activeActor`). This overlay is
+  // gated to Meatspace upstream, so `activeActor` is always a Crew here.
+  const operator = activeActorOf(run) as Crew | null;
+  if (!operator || !operator.inventory) return;
   itemInventoryEl.setContents({
-    salvage: run.player.inventory.salvage,
-    consumables: run.player.inventory.consumables,
+    salvage: operator.inventory.salvage,
+    consumables: operator.inventory.consumables,
     keyItems: [...campaign.keyItems, ...run.keyItems],
   });
   itemInventoryEl.show();
@@ -974,6 +980,11 @@ function onUseItem(evt: Event) {
   const run = campaign.activeRun;
   if (!run || !run.player) return;
   if (!run.world) throw new Error('[shell] active combat run has no world');
+  // Consumables act through whichever operator currently has control — the
+  // Decker before jack-in, the partner while jacked in, the flipped-to crewmate
+  // after jack-out. Routing through `run.player` would apply the item to the
+  // frozen Decker body whenever the partner is the one in control.
+  const operator = activeActorOf(run) as Crew;
   const { itemId } = (evt as CustomEvent<{ itemId?: string }>).detail;
   if (!itemId) return;
   // Aimed consumables (incendiary): close the inventory overlay, switch the
@@ -988,7 +999,7 @@ function onUseItem(evt: Event) {
     return;
   }
   if (descriptor.needsAim) {
-    if (!run.player.canAfford(AP_COST.INTERACT)) {
+    if (!operator.canAfford(AP_COST.INTERACT)) {
       // Cheap pre-check: don't strand the player in aim mode if `useConsumable`
       // will reject the commit anyway. Crew's `canAfford(AP_COST.INTERACT)`
       // remains the source of truth at commit time.
@@ -1002,7 +1013,7 @@ function onUseItem(evt: Event) {
     return;
   }
   try {
-    const result = run.player.useConsumable(itemId);
+    const result = operator.useConsumable(itemId);
     applyUseConsumableResult(result, run);
   } catch (err) {
     flash(`USE FAILED: ${errorMessage(err)}`);
@@ -1023,10 +1034,13 @@ function applyUseConsumableResult(
   run: Run
 ): void {
   if (!run.world || !run.player) throw new Error('[shell] applyUseConsumableResult: no scene');
+  // The acting operator — whoever currently has control — so HP/AP readouts
+  // reflect who actually used the item, not the frozen Decker body.
+  const operator = activeActorOf(run) as Crew;
   if (result.type === 'stim') {
     const healed = (result as { healed: number }).healed;
     flash(
-      `Used STIM — healed ${healed} HP (now ${run.player.hp}/${run.player.maxHp}). ${run.player.ap} AP left.`
+      `Used STIM — healed ${healed} HP (now ${operator.hp}/${operator.maxHp}). ${operator.ap} AP left.`
     );
     return;
   }
@@ -1038,7 +1052,7 @@ function applyUseConsumableResult(
     const overlays = placeSmoke(run.world.grid, cx, cy, radius);
     activeSmokeOverlays.push(...overlays);
     recomputeVision();
-    flash(`Used SMOKE CHARGE — LOS blocked in radius ${radius}. ${run.player.ap} AP left.`);
+    flash(`Used SMOKE CHARGE — LOS blocked in radius ${radius}. ${operator.ap} AP left.`);
     return;
   }
   if (result.type === 'incendiary') {
@@ -1054,10 +1068,10 @@ function applyUseConsumableResult(
     // through a wall and lose your bomb."
     const stamped = placeHazardCluster(run.world, { x: cx, y: cy }, run.rng);
     if (stamped === 0) {
-      flash(`Used INCENDIARY — bomb landed on hard cover; no fire took. ${run.player.ap} AP left.`);
+      flash(`Used INCENDIARY — bomb landed on hard cover; no fire took. ${operator.ap} AP left.`);
     } else {
       flash(
-        `Used INCENDIARY — ${stamped} tile${stamped === 1 ? '' : 's'} ignited. ${run.player.ap} AP left.`
+        `Used INCENDIARY — ${stamped} tile${stamped === 1 ? '' : 's'} ignited. ${operator.ap} AP left.`
       );
     }
     recomputeVision();
@@ -1069,7 +1083,7 @@ function applyUseConsumableResult(
       throw new Error('[shell] breaching charge returned invalid target data');
     }
     run.world.placeBreachingCharge(tx, ty);
-    flash(`BREACHING CHARGE planted. Detonates end of turn. ${run.player.ap} AP left.`);
+    flash(`BREACHING CHARGE planted. Detonates end of turn. ${operator.ap} AP left.`);
     recomputeVision();
     return;
   }
@@ -1092,6 +1106,10 @@ function resolveAimedUseItem(aim: { dx: number; dy: number }, run: Run): void {
     resetInputModes();
     return;
   }
+  // The thrower is whichever operator currently has control, so throws
+  // originate from their tile, not the frozen Decker body's. (We've already
+  // bailed above if we're flipped to Cyberspace.)
+  const operator = activeActorOf(run) as Crew;
   const itemId = pendingAimItemId;
   if (!itemId) {
     // Direction press arrived without a stashed item — shouldn't be reachable
@@ -1105,23 +1123,23 @@ function resolveAimedUseItem(aim: { dx: number; dy: number }, run: Run): void {
     // `player + dir * INCENDIARY_THROW_DIST`. If LOS from the thrower to
     // that tile is blocked (or the tile is out of bounds), refuse the
     // throw *before* spending AP / consuming the bomb.
-    const cx = run.player.x + aim.dx * INCENDIARY_THROW_DIST;
-    const cy = run.player.y + aim.dy * INCENDIARY_THROW_DIST;
+    const cx = operator.x + aim.dx * INCENDIARY_THROW_DIST;
+    const cy = operator.y + aim.dy * INCENDIARY_THROW_DIST;
     if (!run.world.grid.inBounds(cx, cy)) {
       flash('USE FAILED: target is off the map.');
       paint();
       return;
     }
     const blockers = run.world.blockerKeys();
-    if (!hasLineOfSight(run.world.grid, run.player.x, run.player.y, cx, cy, { blockers })) {
+    if (!hasLineOfSight(run.world.grid, operator.x, operator.y, cx, cy, { blockers })) {
       flash('USE FAILED: target is behind cover.');
       paint();
       return;
     }
   }
   if (itemId === ITEM_ID.BREACHING_CHARGE) {
-    const tx = run.player.x + aim.dx * BREACHING_CHARGE_RANGE;
-    const ty = run.player.y + aim.dy * BREACHING_CHARGE_RANGE;
+    const tx = operator.x + aim.dx * BREACHING_CHARGE_RANGE;
+    const ty = operator.y + aim.dy * BREACHING_CHARGE_RANGE;
     const plantCheck = run.world.canPlaceBreachingCharge(tx, ty);
     if (!plantCheck.ok) {
       const msg =
@@ -1136,7 +1154,7 @@ function resolveAimedUseItem(aim: { dx: number; dy: number }, run: Run): void {
     }
   }
   try {
-    const result = run.player.useConsumable(itemId, aim);
+    const result = operator.useConsumable(itemId, aim);
     applyUseConsumableResult(result, run);
   } catch (err) {
     flash(`USE FAILED: ${errorMessage(err)}`);
