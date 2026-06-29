@@ -106,6 +106,7 @@ export type TouchPadElement = HTMLElement & {
   aimKind: AimKind | null;
   setMode(mode: Mode, aimKind?: AimKind | null): void;
   setBlocked(predicate: (() => boolean) | null): void;
+  setFlipAvailable(available: boolean): void;
 };
 
 export type ConfirmationModalElement = HTMLElement & {

@@ -2267,6 +2267,11 @@ function paintPip(): void {
 
 export function paint(stateHint: InputState = activeInputState()): void {
   const run = currentScene();
+  // P3.M4.3: surface the simstim FLIP fab only when a flip target exists right
+  // now — same gate as the keyboard `Tab` (dual-deploy / post-jack-out crews).
+  // Set before the early-returns below so non-combat / hidden-canvas paints
+  // always clear a stale fab.
+  touchPadEl.setFlipAvailable(!!run && isRun(run) && run.canFlip());
   if (canvas.hidden) {
     setStatus(statusLine(stateHint));
     return;

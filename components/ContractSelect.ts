@@ -7,7 +7,7 @@
 import { h } from '/src/domUtils.js';
 import { encounterHostileCount } from '/src/game/encounters.js';
 import { contractLocationBadges } from '/src/game/hub/arcSurface.js';
-import { cloneObjective } from '/src/game/hub/Curator.js';
+import { cloneObjective, contractRequiresCyberspace } from '/src/game/hub/Curator.js';
 import type { Contract } from '/src/game/hub/Curator.js';
 
 const DIFFICULTY_LABEL: Record<string, string> = Object.freeze({
@@ -142,6 +142,14 @@ const CSS = `
 
 .badge.score {
   background: #f8f7ff;
+  color: #020403;
+}
+
+/* Cyberspace job marker — magenta from the cyber palette (see CYBER_ACCENT in
+   src/render/pip.ts and the simstim FLIP fab) so a dual-deploy reads as "the
+   cyber layer" wherever it surfaces. */
+.badge.cyber {
+  background: #ff8ad8;
   color: #020403;
 }
 
@@ -307,6 +315,12 @@ class ContractSelect extends HTMLElement {
                 className: `badge ${isScoreContract(contract) ? 'score' : contract.difficulty}`,
                 textContent: difficultyLabel(contract),
               }),
+              // Cyber jobs send a Decker into Cyberspace (with a meat partner
+              // when the crew can spare one) — flag them on the board so the
+              // player knows a Decker is in play before they open the briefing.
+              ...(contractRequiresCyberspace(contract)
+                ? [h('span', { className: 'badge cyber', textContent: 'CYBER' })]
+                : []),
               h('span', { className: 'target', textContent: jobTitleCopy(contract) }),
             ]),
             h(

@@ -105,6 +105,13 @@ const CSS = `
   --touchpad-btn-bg: #0a1614;
   --touchpad-btn-active: rgba(0, 217, 165, 0.32);
 
+  /* Cyberspace palette (mirrors CYBER_ACCENT in src/render/pip.ts) — the
+     simstim FLIP fab borrows it so the gesture reads as "the cyber layer". */
+  --touchpad-cyber: #ff8ad8;
+  --touchpad-cyber-glow: #ff5cc6;
+  --touchpad-cyber-soft: rgba(255, 92, 198, 0.18);
+  --touchpad-cyber-bg: rgba(28, 8, 22, 0.82);
+
   display: none;
   position: fixed;
   left: 0;
@@ -231,6 +238,39 @@ button.dpad-cell.center {
   visibility: hidden;
 }
 
+/* Simstim FLIP — pulled out of the action block and pinned to the right edge
+   near the vertical centre, so the layer-swap gesture lives apart from the
+   per-turn verbs. Hidden until the shell reports a flip target exists
+   (dual-deploy / post-jack-out), via the flip-available attribute. */
+.flip-fab {
+  position: fixed;
+  right: max(8px, env(safe-area-inset-right, 0px));
+  top: 50%;
+  transform: translateY(-50%);
+  display: none;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 58px;
+  min-height: 58px;
+  padding: 8px 6px;
+  pointer-events: auto;
+  background: var(--touchpad-cyber-bg);
+  border: 1px solid var(--touchpad-cyber);
+  border-radius: 10px;
+  color: var(--touchpad-cyber);
+  text-shadow: 0 0 6px var(--touchpad-cyber-glow);
+  box-shadow: 0 0 12px var(--touchpad-cyber-soft);
+}
+
+:host([flip-available]) .flip-fab { display: flex; }
+
+.flip-fab .label { font-weight: 700; letter-spacing: 0.08em; }
+.flip-fab .shortcut { color: var(--touchpad-cyber); opacity: 0.7; }
+.flip-fab:active {
+  background: var(--touchpad-cyber-soft);
+  border-color: var(--touchpad-cyber-glow);
+}
+
 button:active { background: var(--touchpad-btn-active); border-color: var(--touchpad-accent); }
 
 button:focus { outline: none; }
@@ -288,6 +328,9 @@ class TouchPad extends HTMLElement {
     shadow.appendChild(
       h('div', { className: 'shell' }, [this.#banner, metaRow, dpad, h('div'), actions])
     );
+    // The simstim FLIP fab lives outside `.shell` — it's pinned to the
+    // viewport's right edge, not laid out with the d-pad / action columns.
+    shadow.appendChild(this.#buildFlipFab());
 
     this.#boundOnPointerDown = this.#onPointerDown.bind(this);
     this.#boundOnPointerRelease = this.#onPointerRelease.bind(this);
@@ -429,6 +472,35 @@ class TouchPad extends HTMLElement {
       return btn;
     });
     return h('div', { className: 'actions', role: 'group', ariaLabel: 'Actions' }, buttons);
+  }
+
+  #buildFlipFab() {
+    const btn = h(
+      'button',
+      {
+        className: 'flip-fab',
+        type: 'button',
+        ariaLabel: 'Simstim flip — switch operator',
+      },
+      [
+        h('span', { className: 'label', textContent: 'FLIP' }),
+        h('span', { className: 'shortcut', textContent: '⇥' }),
+      ]
+    );
+    btn.dataset.button = 'flip';
+    this.#buttonsById.set('flip', btn);
+    return btn;
+  }
+
+  /**
+   * P3.M4.3: show or hide the simstim FLIP fab. The shell calls this from its
+   * paint loop with `run.canFlip()`, so the fab only appears when a second
+   * operator can actually take control (dual-deploy, or the two meat operators
+   * post-jack-out). Mirrors the keyboard `Tab` gate — never a dead button.
+   */
+  setFlipAvailable(available: boolean): void {
+    if (available) this.setAttribute('flip-available', '');
+    else this.removeAttribute('flip-available');
   }
 
   #findDataButton(evt: PointerEvent) {
