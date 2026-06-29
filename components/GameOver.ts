@@ -14,6 +14,7 @@
 
 import { h } from '/src/domUtils.js';
 import { validateCampaignSummary, type CampaignSummary } from '/src/game/campaignSummary.js';
+import { selectEndFlavor } from '/src/game/endFlavor.js';
 
 const CSS = `
 :host {
@@ -240,32 +241,6 @@ function hexSeed(seed: number): string {
   return `0x${(seed >>> 0).toString(16).toUpperCase().padStart(8, '0')}`;
 }
 
-function reasonCopy(summary: CampaignSummary): string {
-  if (summary.result === 'win') return 'The Score is complete.';
-  if (summary.result === 'partial') return 'The Score is compromised.';
-  if (summary.endReason === 'clock-expired') return 'The Score window closed.';
-  if (summary.endReason === 'decker-flatlined-score') {
-    return 'The Decker flatlined during the Score.';
-  }
-  return 'No surviving operators.';
-}
-
-function detailCopy(summary: CampaignSummary): string {
-  if (summary.result === 'win') {
-    return 'Target data secured. The crew beat the window and closed the campaign on their terms.';
-  }
-  if (summary.result === 'partial') {
-    return 'Someone made it out, but the finale broke before the crew could clear the target cleanly.';
-  }
-  if (summary.endReason === 'clock-expired') {
-    return 'Corp security caught up. The contract is cold and this campaign is over.';
-  }
-  if (summary.endReason === 'decker-flatlined-score') {
-    return 'The intrusion channel is gone. Nobody can finish the Score.';
-  }
-  return 'Every crew slot on the roster is flatlined. Their campaign ends here.';
-}
-
 class GameOver extends HTMLElement {
   #summary: CampaignSummary | null = null;
   #ready = false;
@@ -274,6 +249,7 @@ class GameOver extends HTMLElement {
     reason: HTMLElement;
     detail: HTMLElement;
     reward: HTMLElement;
+    rewardKicker: HTMLElement;
     rewardName: HTMLElement;
     rewardFlavor: HTMLElement;
     rosterList: HTMLElement;
@@ -294,13 +270,13 @@ class GameOver extends HTMLElement {
     const banner = h('h1', { className: 'banner' });
     const reason = h('p', { className: 'reason' });
     const detail = h('p', { className: 'detail' });
+    const rewardKicker = h('span', {
+      className: 'reward-kicker',
+      textContent: 'BLUEPRINT ACQUIRED',
+    });
     const rewardName = h('span', { className: 'reward-name' });
     const rewardFlavor = h('span', { className: 'reward-flavor' });
-    const reward = h('p', { className: 'reward' }, [
-      h('span', { className: 'reward-kicker', textContent: 'BLUEPRINT SECURED' }),
-      rewardName,
-      rewardFlavor,
-    ]);
+    const reward = h('p', { className: 'reward' }, [rewardKicker, rewardName, rewardFlavor]);
     const rosterList = h('dd');
     const jobsDd = h('dd', { id: 'jobs' });
     const repDd = h('dd', { id: 'rep' });
@@ -346,6 +322,7 @@ class GameOver extends HTMLElement {
       reason,
       detail,
       reward,
+      rewardKicker,
       rewardName,
       rewardFlavor,
       rosterList,
@@ -383,12 +360,16 @@ class GameOver extends HTMLElement {
   #render() {
     if (!this.#els || !this.#summary) return;
     const summary = this.#summary;
-    this.#els.banner.textContent = summary.result === 'win' ? 'SCORE COMPLETE' : 'GAME OVER';
-    this.#els.reason.textContent = reasonCopy(summary);
-    this.#els.detail.textContent = detailCopy(summary);
+    // Every end-screen line is drawn deterministically from per-seed flavor
+    // pools so each slot does distinct narrative work and varies run to run.
+    const flavor = selectEndFlavor(summary);
+    this.#els.banner.textContent = flavor.banner;
+    this.#els.reason.textContent = flavor.reason;
+    this.#els.detail.textContent = flavor.detail;
     // Score prize — present on a win that stole a specific blueprint.
     const reward = summary.result === 'win' ? (summary.scoreReward ?? null) : null;
-    if (reward) {
+    if (reward && flavor.rewardKicker) {
+      this.#els.rewardKicker.textContent = flavor.rewardKicker;
       this.#els.rewardName.textContent = reward.label;
       this.#els.rewardFlavor.textContent = reward.flavor;
       this.#els.reward.style.display = 'block';
