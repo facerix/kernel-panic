@@ -103,12 +103,7 @@ test('formatHubArcStatusLines surfaces casing progress, counting visited org sit
   const campaign = {
     // Two cased org sites + an unvisited org site + the target (never counts).
     arc: arc({ arcStage: 'act-2', scoreRevealed: true }),
-    siteRoster: [
-      scoreSite(),
-      orgSite('case-1', 6),
-      orgSite('case-2', 7),
-      orgSite('case-3', 0),
-    ],
+    siteRoster: [scoreSite(), orgSite('case-1', 6), orgSite('case-2', 7), orgSite('case-3', 0)],
     crew: [],
     hubReveals: {},
   };
