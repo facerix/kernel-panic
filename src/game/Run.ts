@@ -88,7 +88,7 @@ import { DataNode } from './cyber/DataNode.js';
 import { ProbeIce } from './cyber/ProbeIce.js';
 import { SparkIce } from './cyber/SparkIce.js';
 import { GuardianIce } from './cyber/GuardianIce.js';
-import { applyMutationDeltas } from './locations.js';
+import { applyMutationDeltas, siteIdForContract } from './locations.js';
 import { BreachingCharge } from './entities/BreachingCharge.js';
 import { ITEM_ID, getItemById, SCOREABLE_ITEMS } from './items.js';
 import { resetCorpTurnStatusCache } from './corpTurnStatusCopy.js';
@@ -366,6 +366,7 @@ type KeyItemSnapshot = {
   id: string;
   label: string;
   doorId: string;
+  siteId?: string;
 };
 
 export type JackOutRequest = {
@@ -972,7 +973,12 @@ export class Run {
               .map(crew => ({ ...snapshotEntity(crew), x: 0, y: 0 })),
           }
         : {}),
-      keyItems: this.keyItems.map(k => ({ id: k.id, label: k.label, doorId: k.doorId })),
+      keyItems: this.keyItems.map(k => ({
+        id: k.id,
+        label: k.label,
+        doorId: k.doorId,
+        ...(k.siteId ? { siteId: k.siteId } : {}),
+      })),
       mutationDeltas: world.mutationDeltas.map(delta => ({ ...delta })),
       // P3.M4.1/M4.2: the reserved meat partner. While the cyber layer is still
       // dormant the partner is off-grid, so it serializes as an entity record
@@ -1469,7 +1475,12 @@ export class Run {
     if (this.keyItems.some(k => k.id === item.id)) {
       throw new Error(`Run.addKeyItem: duplicate key item "${item.id}"`);
     }
-    this.keyItems.push({ id: item.id, label: item.label, doorId: item.doorId });
+    this.keyItems.push({
+      id: item.id,
+      label: item.label,
+      doorId: item.doorId,
+      ...(item.siteId ? { siteId: item.siteId } : {}),
+    });
   }
 
   mapSeenKeys(): string[] {
@@ -1988,10 +1999,10 @@ export class Run {
         this.contract.objective.kind !== OBJECTIVES.TERMINAL_SLICE &&
         this.contract.objective.kind !== OBJECTIVES.SCORE_FINAL
       ) {
-        const revisitSiteId = this.contract.context.locationSiteId;
-        const priorKey =
-          revisitSiteId &&
-          this.priorKeyItems.find(k => k.doorId === linkedDoorId && k.siteId === revisitSiteId);
+        const revisitSiteId = siteIdForContract(this.contract);
+        const priorKey = this.priorKeyItems.find(
+          k => k.doorId === linkedDoorId && k.siteId === revisitSiteId
+        );
         // Held site keycard from a prior visit → skip spawn; door stays locked
         // until interact (P2.5.M7.2).
         if (!priorKey) {
@@ -2026,10 +2037,11 @@ export class Run {
               this.rng,
               linkedDoorId
             );
-            // On a remembered-site revisit, stamp the keycard with the site id
-            // so collecting it promotes the card to campaign-scoped (P2.5.M6.2
-            // routing) for future revisit re-opens via interact (P2.5.M7.2).
-            const keycardSiteId = this.contract.context.locationSiteId;
+            // Stamp the keycard with the roster's site id (explicit on a
+            // revisit, else derived from the seed) so collecting it promotes
+            // the card to campaign-scoped on extraction and a future revisit
+            // re-opens the door via the held card instead of respawning one.
+            const keycardSiteId = siteIdForContract(this.contract);
             this.world.addEntity(
               new KeyCard({
                 id: `keycard-${linkedDoorId}`,
@@ -2037,7 +2049,7 @@ export class Run {
                 y: keycardAnchor.y,
                 doorId: linkedDoorId,
                 label: 'Access keycard',
-                ...(keycardSiteId ? { siteId: keycardSiteId } : {}),
+                siteId: keycardSiteId,
               })
             );
           }

@@ -941,7 +941,7 @@ function presentItemInventory() {
     itemInventoryEl.setContents({
       salvage: campaign.salvage,
       consumables: [],
-      keyItems: campaign.keyItems,
+      keyItems: keyItemsWithLocation(campaign.keyItems),
     });
     itemInventoryEl.show();
     return;
@@ -960,6 +960,23 @@ function presentItemInventory() {
     keyItems: [...campaign.keyItems, ...run.keyItems],
   });
   itemInventoryEl.show();
+}
+
+/**
+ * Enrich key items with their roster location name (`${principal} ${site}`)
+ * for the inventory tag. Resolved live from the campaign roster — keycards are
+ * evicted alongside their site, so a held card always has a roster entry,
+ * except legacy untokenized sites which simply render without a tag.
+ */
+function keyItemsWithLocation(items: KeyItem[]): KeyItemView[] {
+  return items.map(item => {
+    const site = item.siteId ? campaign?.findRosterSite(item.siteId) : null;
+    if (!site?.principal) return { ...item };
+    const locationName = site.site
+      ? `${site.principal.label} ${site.site.label}`
+      : site.principal.label;
+    return { ...item, locationName };
+  });
 }
 
 /**
@@ -1609,16 +1626,15 @@ export function handleIntent(intent: Intent): void {
     },
     keyItems: [...(campaign?.keyItems ?? []), ...(run as Run).keyItems],
     onKeycardCollected: kc => {
-      if (kc.siteId) {
-        // Campaign-scoped: persists across runs.
-        if (campaign?.keyItems.some(k => k.id === kc.id)) {
-          return;
-        }
-        campaign?.addKeyItem({ id: kc.id, label: kc.label, doorId: kc.doorId, siteId: kc.siteId });
-      } else {
-        // Run-scoped: lives only in this run, discarded on run end.
-        (run as Run).addKeyItem({ id: kc.id, label: kc.label, doorId: kc.doorId });
-      }
+      // Picked-up keycards are run-scoped during the run — still usable for
+      // in-run door unlock via ctx.keyItems. Campaign.onJobEnd promotes the
+      // site-stamped ones into the persistent inventory on live extraction.
+      (run as Run).addKeyItem({
+        id: kc.id,
+        label: kc.label,
+        doorId: kc.doorId,
+        ...(kc.siteId ? { siteId: kc.siteId } : {}),
+      });
     },
     onSecuredInteract: handleSecuredInteract,
     onPlayerAction: (actionName: string) => {

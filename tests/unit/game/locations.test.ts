@@ -9,6 +9,7 @@ import {
   mergeSiteSeenKeys,
   normalizeLocationSite,
   generateSiteId,
+  siteIdForContract,
 } from '../../../src/game/locations.js';
 import { Campaign, SITE_ROSTER_CAP } from '../../../src/game/Campaign.js';
 import { snapshotCampaign, restoreCampaign } from '../../../src/game/persistence.js';
@@ -59,6 +60,18 @@ test('generateSiteId passes through a non-empty string seed', () => {
 test('generateSiteId rejects bad seeds', () => {
   assert.throws(() => generateSiteId(NaN), /finite/);
   assert.throws(() => generateSiteId(''), /finite number or non-empty string/);
+});
+
+// ─── siteIdForContract ───────────────────────────────────────────────────────
+
+test('siteIdForContract uses the explicit locationSiteId when set (revisit)', () => {
+  const contract = { seed: 999, context: { locationSiteId: 'site-explicit' } };
+  assert.equal(siteIdForContract(contract), 'site-explicit');
+});
+
+test('siteIdForContract derives from the seed when no locationSiteId (fresh)', () => {
+  const contract = { seed: 999, context: {} };
+  assert.equal(siteIdForContract(contract), generateSiteId(999));
 });
 
 // ─── applyMutationDeltas (case 4) ─────────────────────────────────────────────

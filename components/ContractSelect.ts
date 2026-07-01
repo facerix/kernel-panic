@@ -175,6 +175,11 @@ const CSS = `
   border-color: #9be7ff;
 }
 
+.known.keycard {
+  color: var(--board-accent, #6ae8c8);
+  border-color: rgba(106, 232, 200, 0.7);
+}
+
 .meta {
   color: var(--board-dim);
   font-size: 0.84rem;
@@ -213,6 +218,7 @@ class ContractSelect extends HTMLElement {
   #contracts: Contract[] = [];
   #scoreTargetSiteId: string | null = null;
   #scorePrincipalId: string | null = null;
+  #heldKeycardSiteIds: ReadonlySet<string> = new Set();
   #selectedIndex = 0;
   #ready = false;
   #listEl: HTMLElement | null = null;
@@ -279,6 +285,14 @@ class ContractSelect extends HTMLElement {
     if (this.#ready) this.#render();
   }
 
+  setHeldKeycardSiteIds(siteIds: string[]) {
+    if (!Array.isArray(siteIds)) {
+      throw new TypeError('<contract-select>.setHeldKeycardSiteIds requires an array');
+    }
+    this.#heldKeycardSiteIds = new Set(siteIds);
+    if (this.#ready) this.#render();
+  }
+
   show() {
     this.setAttribute('open', '');
     queueMicrotask(() => this.#focusSelected());
@@ -326,7 +340,12 @@ class ContractSelect extends HTMLElement {
             h(
               'div',
               { className: 'location' },
-              locationLine(contract, this.#scoreTargetSiteId, this.#scorePrincipalId)
+              locationLine(
+                contract,
+                this.#scoreTargetSiteId,
+                this.#scorePrincipalId,
+                this.#heldKeycardSiteIds
+              )
             ),
             h('div', { className: 'meta', textContent: rewardCopy(contract) }),
           ]),
@@ -418,13 +437,19 @@ function jobTitleCopy(contract: Contract): string {
 function locationLine(
   contract: Contract,
   scoreTargetSiteId: string | null,
-  scorePrincipalId: string | null
+  scorePrincipalId: string | null,
+  heldKeycardSiteIds: ReadonlySet<string>
 ): HTMLElement[] {
   const { principal, site, siteState } = contract.context;
   const place = site ? `${principal.label} ${site.label}` : principal.label;
   const state = siteState ? ` [${siteState.label}]` : '';
   const nodes: HTMLElement[] = [h('span', { textContent: `Location: ${place}${state}` })];
-  for (const badge of contractLocationBadges(contract, scoreTargetSiteId, scorePrincipalId)) {
+  for (const badge of contractLocationBadges(
+    contract,
+    scoreTargetSiteId,
+    scorePrincipalId,
+    heldKeycardSiteIds
+  )) {
     const className = badge.variant === 'revisit' ? 'known' : `known ${badge.variant}`;
     nodes.push(h('span', { className, textContent: badge.text }));
   }

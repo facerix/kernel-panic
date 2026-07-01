@@ -50,6 +50,7 @@ import {
   mergeSiteDeltas as mergeDeltas,
   mergeSiteSeenKeys as mergeSeen,
   normalizeLocationSite,
+  siteIdForContract,
 } from './locations.js';
 import { resolveMapDimensions } from './procgen/mapDimensions.js';
 import {
@@ -776,6 +777,10 @@ export class Campaign {
       // returning to the Hub — breach holes survive even on an aborted exit.
       this.#mergeRunDeltasIntoRoster(this.activeRun);
       this.#mergeRunSeenIntoRoster(this.activeRun);
+      // Keycards carried out alive are promoted to the persistent campaign
+      // inventory — independent of objective completion, since the operator
+      // physically extracted with the card. Death (handled above) drops them.
+      this.#promoteRunKeyItems(this.activeRun);
       if (completed) {
         this.completedJobs += 1;
         addSalvage(this.salvage, extracted);
@@ -1310,6 +1315,25 @@ export class Campaign {
   }
 
   /**
+   * Promote a survived run's carried keycards into the persistent campaign
+   * inventory. Only site-stamped cards survive (run-scoped cards without a
+   * siteId belong to nowhere on the roster); already-held cards are skipped
+   * so a re-collected revisit card is idempotent rather than a crash.
+   */
+  #promoteRunKeyItems(run: Run): void {
+    for (const item of run.keyItems) {
+      if (!item.siteId) continue;
+      if (this.keyItems.some(k => k.id === item.id)) continue;
+      this.addKeyItem({
+        id: item.id,
+        label: item.label,
+        doorId: item.doorId,
+        siteId: item.siteId,
+      });
+    }
+  }
+
+  /**
    * Check whether the campaign inventory holds a key item that unlocks the
    * given door id. Returns the matching `KeyItem` or `null`.
    */
@@ -1363,7 +1387,12 @@ export class Campaign {
         );
         return;
       }
-      this.siteRoster.splice(evictIdx, 1);
+      const [evicted] = this.siteRoster.splice(evictIdx, 1);
+      // A site leaving campaign memory takes its keycards with it — a card for
+      // a location we can no longer revisit is dead weight in the inventory.
+      if (evicted) {
+        this.keyItems = this.keyItems.filter(k => k.siteId !== evicted.id);
+      }
     }
     this.siteRoster.push(normalized);
     this.#persist();
@@ -1400,7 +1429,7 @@ export class Campaign {
    * happens to reuse a remembered seed pick up that site's prior geometry.
    */
   locationSiteIdForContract(contract: Contract): string {
-    return contract.context.locationSiteId ?? generateSiteId(contract.seed);
+    return siteIdForContract(contract);
   }
 
   /**
@@ -1426,8 +1455,7 @@ export class Campaign {
    * skip respawning pickup keycards on revisit (player re-opens via interact).
    */
   priorKeyItemsForContract(contract: Contract): KeyItem[] {
-    const siteId = contract.context.locationSiteId;
-    if (!siteId) return [];
+    const siteId = siteIdForContract(contract);
     return this.keyItems.filter(k => k.siteId === siteId).map(k => ({ ...k }));
   }
 

@@ -11,6 +11,7 @@ import {
 import type { CampaignArcStage, LocationSite } from '../../types.js';
 import type { Decker } from '../archetypes/Decker.js';
 import type { Crew } from '../Crew.js';
+import { siteIdForContract } from '../locations.js';
 
 type ArcSurfaceCampaign = Pick<Campaign, 'arc' | 'siteRoster' | 'crew'> &
   Partial<
@@ -165,7 +166,7 @@ export function isScorePrincipalContract(
  * `known` styling).
  */
 export interface ContractLocationBadge {
-  variant: 'score-site' | 'casing' | 'revisit';
+  variant: 'score-site' | 'casing' | 'revisit' | 'keycard';
   text: string;
 }
 
@@ -187,7 +188,8 @@ export interface ContractLocationBadge {
 export function contractLocationBadges(
   contract: Contract,
   scoreTargetSiteId: string | null | undefined,
-  scorePrincipalId: string | null | undefined
+  scorePrincipalId: string | null | undefined,
+  heldKeycardSiteIds: ReadonlySet<string> = new Set()
 ): ContractLocationBadge[] {
   const badges: ContractLocationBadge[] = [];
   const scoreSite = isScoreSiteContract(contract, scoreTargetSiteId);
@@ -198,6 +200,11 @@ export function contractLocationBadges(
   }
   if (contract.context.locationSiteId && !scoreSite) {
     badges.push({ variant: 'revisit', text: '// known site' });
+  }
+  // A held keycard means we already extracted from this exact site — surface it
+  // so the player knows the locked door is already openable on this redeploy.
+  if (!scoreSite && heldKeycardSiteIds.has(siteIdForContract(contract))) {
+    badges.push({ variant: 'keycard', text: '// keycard held' });
   }
   return badges;
 }

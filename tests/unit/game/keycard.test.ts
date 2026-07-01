@@ -8,8 +8,10 @@ import assert from 'node:assert/strict';
 import { Grid } from '../../../src/game/Grid.js';
 import { World } from '../../../src/game/World.js';
 import { Entity } from '../../../src/game/Entity.js';
-import { Campaign } from '../../../src/game/Campaign.js';
-import { Run } from '../../../src/game/Run.js';
+import { Campaign, SITE_ROSTER_CAP } from '../../../src/game/Campaign.js';
+import { OUTCOME, Run } from '../../../src/game/Run.js';
+import { generateSiteId, siteIdForContract } from '../../../src/game/locations.js';
+import { emptySalvage } from '../../../src/game/salvage.js';
 import { Door } from '../../../src/game/entities/Door.js';
 import { Terminal } from '../../../src/game/entities/Terminal.js';
 import { Pickup } from '../../../src/game/entities/Pickup.js';
@@ -34,7 +36,7 @@ import { OBJECTIVES } from '../../../src/game/hub/Curator.js';
 import { Rng } from '../../../src/rng.js';
 import { TurnQueue } from '../../../src/game/TurnQueue.js';
 import { testContractContext } from './contractTestUtils.js';
-import type { KeyItem } from '../../../src/types.js';
+import type { KeyItem, LocationSite } from '../../../src/types.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -976,4 +978,142 @@ test('bump into locked door without keycard keeps door locked', () => {
   );
 
   assert.equal(door.locked, true, 'door should remain locked');
+});
+
+// ─── Keycard site-id stamping (P3.1 balance) ─────────────────────────────────
+
+test('spawned keycard is stamped with the contract-derived site id (no explicit locationSiteId)', () => {
+  let run = null;
+  let contract = null;
+  for (let seed = 1; seed < 80 && !run; seed++) {
+    const candidate = new Run({ crewMember: makeCrew(), seed });
+    const c = keycardDoorContract(seed);
+    candidate.enterBriefing(c);
+    try {
+      candidate.enterCombat();
+      run = candidate;
+      contract = c;
+    } catch {
+      continue;
+    }
+  }
+  assert.ok(run, 'need a keycard-door layout');
+  // The fresh contract carries no locationSiteId — the keycard should still be
+  // stamped with the seed-derived roster id (not left run-scoped/null).
+  assert.equal(contract!.context.locationSiteId, undefined);
+  const keycard = [...run!.world!.entities.values()].find(e => e instanceof KeyCard) as KeyCard;
+  assert.ok(keycard);
+  assert.equal(keycard.siteId, siteIdForContract(contract!));
+  assert.equal(keycard.siteId, generateSiteId(contract!.seed as number));
+});
+
+// ─── Run-scoped keycards carry siteId ────────────────────────────────────────
+
+test('Run.addKeyItem preserves siteId', () => {
+  const run = new Run({ crewMember: makeCrew(), seed: 99 });
+  run.addKeyItem({ id: 'kc-1', label: 'Site card', doorId: 'door-0', siteId: 'site-7' });
+  assert.equal(run.keyItems[0]!.siteId, 'site-7');
+});
+
+test('Run.keyItems snapshot round-trip preserves siteId', () => {
+  const run = new Run({ crewMember: makeCrew(), seed: 42 });
+  run.enterBriefing(fakeContract());
+  run.enterCombat();
+  run.addKeyItem({ id: 'kc-site', label: 'Site card', doorId: 'door-0', siteId: 'site-9' });
+  const rec = snapshot(run);
+  assert.equal(rec.keyItems![0]!.siteId, 'site-9');
+  const { run: restored } = restore(rec);
+  assert.equal(restored.keyItems[0]!.siteId, 'site-9');
+});
+
+// ─── Run-end promotion into campaign inventory ───────────────────────────────
+
+function deployWithRun(campaign: Campaign, contract = fakeContract()) {
+  const member = campaign.crew[1]!;
+  const run = campaign.deployCrewMember(member.id, contract);
+  run.enterCombat();
+  return run;
+}
+
+test('onJobEnd promotes a site-stamped run keycard into the campaign inventory on live extraction', () => {
+  const campaign = makeCampaign();
+  const run = deployWithRun(campaign);
+  run.addKeyItem({
+    id: 'kc-promote',
+    label: 'Site card',
+    doorId: 'door-0',
+    siteId: 'site-promote',
+  });
+  campaign.onJobEnd({ outcome: OUTCOME.EXIT, salvage: emptySalvage() });
+  assert.equal(campaign.keyItems.length, 1);
+  assert.equal(campaign.keyItems[0]!.id, 'kc-promote');
+  assert.equal(campaign.keyItems[0]!.siteId, 'site-promote');
+});
+
+test('onJobEnd promotes carried keycards even on an aborted (incomplete) extraction', () => {
+  const campaign = makeCampaign();
+  const run = deployWithRun(campaign);
+  run.addKeyItem({ id: 'kc-abort', label: 'Site card', doorId: 'door-0', siteId: 'site-abort' });
+  campaign.onJobEnd({ outcome: OUTCOME.EXIT, salvage: emptySalvage(), completed: false });
+  assert.equal(campaign.keyItems.length, 1);
+  assert.equal(campaign.keyItems[0]!.id, 'kc-abort');
+});
+
+test('onJobEnd does NOT promote keycards when the operator flatlines', () => {
+  const campaign = makeCampaign();
+  const run = deployWithRun(campaign);
+  run.addKeyItem({ id: 'kc-dead', label: 'Site card', doorId: 'door-0', siteId: 'site-dead' });
+  campaign.onJobEnd({ outcome: OUTCOME.DEATH });
+  assert.deepEqual(campaign.keyItems, []);
+});
+
+test('onJobEnd does not promote run-scoped keycards lacking a siteId', () => {
+  const campaign = makeCampaign();
+  const run = deployWithRun(campaign);
+  run.addKeyItem({ id: 'kc-runonly', label: 'Run card', doorId: 'door-0' });
+  campaign.onJobEnd({ outcome: OUTCOME.EXIT, salvage: emptySalvage() });
+  assert.deepEqual(campaign.keyItems, []);
+});
+
+test('onJobEnd promotion is idempotent against an already-held campaign keycard', () => {
+  const campaign = makeCampaign();
+  campaign.addKeyItem({ id: 'kc-dup', label: 'Site card', doorId: 'door-0', siteId: 'site-dup' });
+  const run = deployWithRun(campaign);
+  run.addKeyItem({ id: 'kc-dup', label: 'Site card', doorId: 'door-0', siteId: 'site-dup' });
+  campaign.onJobEnd({ outcome: OUTCOME.EXIT, salvage: emptySalvage() });
+  assert.equal(campaign.keyItems.length, 1, 'no duplicate, no crash');
+});
+
+// ─── Eviction drops the evicted site's keycards ──────────────────────────────
+
+function makeSite(id: string, lastVisitedJob: number): LocationSite {
+  return {
+    id,
+    seed: id,
+    mapWidth: 24,
+    mapHeight: 16,
+    label: `// site ${id}`,
+    tier: 'roster',
+    scoreTarget: false,
+    mutationDeltas: [],
+    seenKeys: [],
+    lastVisitedJob,
+  };
+}
+
+test('addSiteToRoster eviction removes keycards belonging to the evicted site', () => {
+  const campaign = makeCampaign();
+  // Fill the roster to capacity; site-0 is the oldest (lowest lastVisitedJob).
+  for (let i = 0; i < SITE_ROSTER_CAP; i++) {
+    campaign.addSiteToRoster(makeSite(`site-${i}`, i));
+  }
+  campaign.addKeyItem({ id: 'kc-old', label: 'Old card', doorId: 'door-0', siteId: 'site-0' });
+  campaign.addKeyItem({ id: 'kc-keep', label: 'Kept card', doorId: 'door-1', siteId: 'site-1' });
+
+  // One more site evicts the oldest (site-0).
+  campaign.addSiteToRoster(makeSite('site-new', SITE_ROSTER_CAP + 1));
+
+  assert.equal(campaign.findRosterSite('site-0'), null, 'oldest site evicted');
+  assert.equal(campaign.keyItems.length, 1, 'evicted-site keycard dropped');
+  assert.equal(campaign.keyItems[0]!.id, 'kc-keep', 'surviving-site keycard retained');
 });

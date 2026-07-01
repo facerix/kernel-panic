@@ -10,6 +10,14 @@ import type { AimKind, Mode } from '../input/keymap.js';
 
 export type HelpScope = 'hub' | 'combat';
 
+/**
+ * A key item enriched for display with its resolved location name
+ * (`${principal} ${site}`). The name is derived from the campaign roster at
+ * render time — not persisted on the `KeyItem` — and is absent for legacy
+ * untokenized sites.
+ */
+export type KeyItemView = KeyItem & { locationName?: string };
+
 export type ModalElement = HTMLElement & {
   show(): void;
   hide(): void;
@@ -27,6 +35,7 @@ export type ContractSelectElement = ModalElement & {
   setContracts(contracts: Contract[]): void;
   setScoreTargetSiteId(siteId: string | null): void;
   setScorePrincipalId(principalId: string | null): void;
+  setHeldKeycardSiteIds(siteIds: string[]): void;
 };
 
 export type CrashDumpElement = ModalElement & {
@@ -92,7 +101,7 @@ export type ItemInventoryElement = ModalElement & {
   setContents(contents: {
     salvage?: TypedSalvage;
     consumables?: NonNullable<Crew['inventory']>['consumables'];
-    keyItems?: KeyItem[];
+    keyItems?: KeyItemView[];
   }): void;
   setItems(consumables: NonNullable<Crew['inventory']>['consumables']): void;
 };

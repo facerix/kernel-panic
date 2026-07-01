@@ -31,7 +31,7 @@ import {
 } from '/src/game/salvage.js';
 import { KEYCARD_GLYPH } from '/src/game/constants.js';
 import type { Item } from '/src/game/items.js';
-import type { KeyItem } from '/src/types.js';
+import type { KeyItemView } from '/src/shell/domTypes.js';
 
 type ItemInventoryItem = Omit<Item, 'scope' | 'cost' | 'description' | 'needsTarget'> & {
   count: number;
@@ -252,7 +252,7 @@ const SALVAGE_LABELS: Record<SalvageType, string> = {
 class ItemInventory extends HTMLElement {
   #items: ItemInventoryItem[] = [];
   #salvage: TypedSalvage = emptySalvage();
-  #keyItems: KeyItem[] = [];
+  #keyItems: KeyItemView[] = [];
   #ready = false;
   #bodyEl: HTMLElement | null = null;
   #titleEl: HTMLElement | null = null;
@@ -308,11 +308,11 @@ class ItemInventory extends HTMLElement {
   setContents({
     salvage = emptySalvage(),
     consumables = [] as Item[],
-    keyItems = [] as KeyItem[],
+    keyItems = [] as KeyItemView[],
   }: {
     salvage?: TypedSalvage;
     consumables?: Item[];
-    keyItems?: KeyItem[];
+    keyItems?: KeyItemView[];
   } = {}) {
     this.#salvage = salvage;
     this.#keyItems = keyItems;
@@ -399,7 +399,10 @@ class ItemInventory extends HTMLElement {
         const row = h('div', { className: 'key-item-row' });
         row.append(
           h('span', { className: 'key-glyph', textContent: KEYCARD_GLYPH }),
-          h('span', { className: 'key-label', textContent: ki.label })
+          h('span', {
+            className: 'key-label',
+            textContent: ki.locationName ?? ki.label,
+          })
         );
         keyRows.appendChild(row);
       }

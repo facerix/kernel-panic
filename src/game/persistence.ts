@@ -2120,7 +2120,16 @@ function normalizeRunKeyItems(raw: unknown): KeyItem[] {
     if (typeof item.doorId !== 'string' || item.doorId.length === 0) {
       throw new TypeError(`restore: run keyItems[${i}].doorId must be a non-empty string`);
     }
-    return { id: item.id, label: item.label, doorId: item.doorId };
+    const result: KeyItem = { id: item.id, label: item.label, doorId: item.doorId };
+    if (item.siteId !== undefined) {
+      if (typeof item.siteId !== 'string' || item.siteId.length === 0) {
+        throw new TypeError(
+          `restore: run keyItems[${i}].siteId must be a non-empty string when set`
+        );
+      }
+      result.siteId = item.siteId;
+    }
+    return result;
   });
 }
 
