@@ -15,7 +15,7 @@ import { emptySalvage } from '../../../src/game/salvage.js';
 import { Door } from '../../../src/game/entities/Door.js';
 import { Terminal } from '../../../src/game/entities/Terminal.js';
 import { Pickup } from '../../../src/game/entities/Pickup.js';
-import { KeyCard } from '../../../src/game/entities/KeyCard.js';
+import { KeyCard, keycardIdFor, migrateLegacyKeycardId } from '../../../src/game/entities/KeyCard.js';
 import { findPath } from '../../../src/game/Pathfinding.js';
 import {
   snapshot,
@@ -213,16 +213,6 @@ test('Campaign.addKeyItem: throws on missing fields', () => {
   assert.throws(() => c.addKeyItem({ id: '', label: 'test', doorId: 'door-0' }), /non-empty/);
   assert.throws(() => c.addKeyItem({ id: 'kc-1', label: '', doorId: 'door-0' }), /non-empty/);
   assert.throws(() => c.addKeyItem({ id: 'kc-1', label: 'test', doorId: '' }), /non-empty/);
-});
-
-test('Campaign.keyItemForDoor: returns matching key item or null', () => {
-  const c = makeCampaign();
-  assert.equal(c.keyItemForDoor('door-0'), null);
-  c.addKeyItem({ id: 'kc-1', label: 'Card A', doorId: 'door-0' });
-  const found = c.keyItemForDoor('door-0');
-  assert.ok(found);
-  assert.equal(found!.id, 'kc-1');
-  assert.equal(c.keyItemForDoor('door-1'), null);
 });
 
 test('Campaign.keyItems: preserves optional siteId', () => {
@@ -1100,6 +1090,198 @@ function makeSite(id: string, lastVisitedJob: number): LocationSite {
     lastVisitedJob,
   };
 }
+
+// ─── P3.1: site-unique keycard ids (collision fix) ───────────────────────────
+
+test('keycardIdFor: encodes the site id so distinct sites get distinct ids', () => {
+  assert.equal(keycardIdFor('door-0', 'siteA'), 'keycard-door-0-siteA');
+  assert.equal(keycardIdFor('door-0', 'siteB'), 'keycard-door-0-siteB');
+  assert.notEqual(keycardIdFor('door-0', 'siteA'), keycardIdFor('door-0', 'siteB'));
+});
+
+test('keycardIdFor: run-scoped card (no site id) keeps the bare id', () => {
+  assert.equal(keycardIdFor('door-0'), 'keycard-door-0');
+  assert.equal(keycardIdFor('door-0', null), 'keycard-door-0');
+});
+
+test('spawned keycard id is site-unique (not the bare keycard-door-0)', () => {
+  let run = null;
+  let contract = null;
+  for (let seed = 1; seed < 80 && !run; seed++) {
+    const candidate = new Run({ crewMember: makeCrew(), seed });
+    const c = keycardDoorContract(seed);
+    candidate.enterBriefing(c);
+    try {
+      candidate.enterCombat();
+      run = candidate;
+      contract = c;
+    } catch {
+      continue;
+    }
+  }
+  assert.ok(run, 'need a keycard-door layout');
+  const keycard = [...run!.world!.entities.values()].find(e => e instanceof KeyCard) as KeyCard;
+  assert.ok(keycard);
+  const siteId = siteIdForContract(contract!);
+  assert.equal(keycard.id, keycardIdFor('door-0', siteId));
+  assert.notEqual(keycard.id, 'keycard-door-0', 'legacy bare id would collide across sites');
+});
+
+// ─── P3.1: legacy id migration on restore ────────────────────────────────────
+
+test('migrateLegacyKeycardId: re-stamps a legacy bare id with its site id', () => {
+  const migrated = migrateLegacyKeycardId({
+    id: 'keycard-door-0',
+    label: 'Access keycard',
+    doorId: 'door-0',
+    siteId: 'site-42',
+  });
+  assert.equal(migrated.id, 'keycard-door-0-site-42');
+});
+
+test('migrateLegacyKeycardId: idempotent on an already-migrated id', () => {
+  const item = {
+    id: 'keycard-door-0-site-42',
+    label: 'Access keycard',
+    doorId: 'door-0',
+    siteId: 'site-42',
+  };
+  assert.equal(migrateLegacyKeycardId(item).id, 'keycard-door-0-site-42');
+});
+
+test('migrateLegacyKeycardId: leaves run-scoped (no siteId) and custom ids untouched', () => {
+  assert.equal(
+    migrateLegacyKeycardId({ id: 'keycard-door-0', label: 'x', doorId: 'door-0' }).id,
+    'keycard-door-0',
+    'no siteId → nothing to disambiguate'
+  );
+  assert.equal(
+    migrateLegacyKeycardId({ id: 'kc-1', label: 'x', doorId: 'door-0', siteId: 's' }).id,
+    'kc-1',
+    'non-legacy custom id is preserved'
+  );
+});
+
+test('Campaign restore migrates a legacy bare keycard id to a site-unique id', () => {
+  const c = makeCampaign();
+  const snap = snapshotCampaign(c);
+  (snap as Record<string, unknown>).keyItems = [
+    { id: 'keycard-door-0', label: 'Access keycard', doorId: 'door-0', siteId: '210241126' },
+  ];
+  const restored = restoreCampaign(snap);
+  assert.equal(restored.keyItems[0]!.id, 'keycard-door-0-210241126');
+  assert.equal(restored.keyItems[0]!.siteId, '210241126');
+});
+
+test('Run restore migrates a legacy bare keycard id to a site-unique id', () => {
+  const run = new Run({ crewMember: makeCrew(), seed: 42 });
+  run.enterBriefing(fakeContract());
+  run.enterCombat();
+  const rec = snapshot(run);
+  (rec as Record<string, unknown>).keyItems = [
+    { id: 'keycard-door-0', label: 'Access keycard', doorId: 'door-0', siteId: '1062993016' },
+  ];
+  const { run: restored } = restore(rec);
+  assert.equal(restored.keyItems[0]!.id, 'keycard-door-0-1062993016');
+});
+
+test('migration repro: two colliding legacy cards survive as distinct cards', () => {
+  // The reported bug: a held Vuong card and a freshly-picked auction card both
+  // serialized as `keycard-door-0`. After migration they are distinct ids so
+  // promotion no longer silently drops one.
+  const campaign = makeCampaign();
+  const snap = snapshotCampaign(campaign);
+  (snap as Record<string, unknown>).keyItems = [
+    { id: 'keycard-door-0', label: 'Access keycard', doorId: 'door-0', siteId: '210241126' },
+  ];
+  const restored = restoreCampaign(snap);
+  // Simulate the run-carried auction card promoting on extraction.
+  const runCardId = keycardIdFor('door-0', '1062993016');
+  assert.notEqual(runCardId, restored.keyItems[0]!.id, 'ids no longer collide');
+  restored.addKeyItem({
+    id: runCardId,
+    label: 'Access keycard',
+    doorId: 'door-0',
+    siteId: '1062993016',
+  });
+  assert.equal(restored.keyItems.length, 2, 'both site cards retained');
+});
+
+// ─── P3.1: Run.effectiveKeyItems scopes to the current site ───────────────────
+
+test('Run.effectiveKeyItems: includes only campaign cards for the current site', () => {
+  let run = null;
+  let contract = null;
+  for (let seed = 1; seed < 80 && !run; seed++) {
+    const candidate = new Run({ crewMember: makeCrew(), seed });
+    const c = keycardDoorContract(seed);
+    candidate.enterBriefing(c);
+    try {
+      candidate.enterCombat();
+      run = candidate;
+      contract = c;
+    } catch {
+      continue;
+    }
+  }
+  assert.ok(run, 'need a keycard-door layout');
+  const siteId = siteIdForContract(contract!);
+  const campaignKeyItems: KeyItem[] = [
+    { id: keycardIdFor('door-0', siteId), label: 'This site', doorId: 'door-0', siteId },
+    {
+      id: keycardIdFor('door-0', 'other-site'),
+      label: 'Other site',
+      doorId: 'door-0',
+      siteId: 'other-site',
+    },
+  ];
+  const effective = run!.effectiveKeyItems(campaignKeyItems);
+  assert.ok(
+    effective.some(k => k.siteId === siteId),
+    'current-site card is included'
+  );
+  assert.ok(
+    !effective.some(k => k.siteId === 'other-site'),
+    'other-site card is excluded (was the phantom second keycard)'
+  );
+});
+
+test('Run.effectiveKeyItems: always includes run-scoped pickups and dedups by id', () => {
+  const run = new Run({ crewMember: makeCrew(), seed: 42 });
+  run.enterBriefing(keycardDoorContract(42));
+  const siteId = siteIdForContract(run.contract!);
+  const sharedId = keycardIdFor('door-0', siteId);
+  run.addKeyItem({ id: sharedId, label: 'Picked up', doorId: 'door-0', siteId });
+  // Campaign also lists the same card (shouldn't double-render).
+  const effective = run.effectiveKeyItems([
+    { id: sharedId, label: 'Held', doorId: 'door-0', siteId },
+  ]);
+  assert.equal(effective.filter(k => k.id === sharedId).length, 1, 'deduped by id');
+});
+
+test('Run.addKeyItem: canonicalizes a bare legacy id picked up off a pre-P3.1 map', () => {
+  const run = new Run({ crewMember: makeCrew(), seed: 99 });
+  // Simulates onKeycardCollected feeding a legacy entity id + its siteId.
+  run.addKeyItem({
+    id: 'keycard-door-0',
+    label: 'Access keycard',
+    doorId: 'door-0',
+    siteId: '1062993016',
+  });
+  assert.equal(run.keyItems[0]!.id, 'keycard-door-0-1062993016');
+});
+
+test('Run.effectiveKeyItems: no contract → only run-scoped pickups', () => {
+  const run = new Run({ crewMember: makeCrew(), seed: 42 });
+  run.addKeyItem({ id: 'kc-run', label: 'Run card', doorId: 'door-0' });
+  const effective = run.effectiveKeyItems([
+    { id: 'kc-camp', label: 'Camp card', doorId: 'door-0', siteId: 'site-x' },
+  ]);
+  assert.deepEqual(
+    effective.map(k => k.id),
+    ['kc-run']
+  );
+});
 
 test('addSiteToRoster eviction removes keycards belonging to the evicted site', () => {
   const campaign = makeCampaign();

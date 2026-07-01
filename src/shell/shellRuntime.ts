@@ -80,7 +80,7 @@ import {
   pipWorldOf,
   shouldShowPip,
 } from '/src/render/pip.js';
-import type { TurnActionStep } from '/src/types.js';
+import type { KeyItem, TurnActionStep } from '/src/types.js';
 import { installErrorBoundary, type FaultSignal } from '/src/errorBoundary.js';
 import { isDevelopmentMode } from '/src/domUtils.js';
 import {
@@ -120,8 +120,10 @@ import type {
   GameOverElement,
   InitialRecruitElement,
   InputState,
-  ItemInventoryElement,
+  CombatInventoryElement,
+  CrewInventoryElement,
   KeyHelpElement,
+  KeyItemView,
   RunBriefingElement,
   SystemStartElement,
   TouchPadElement,
@@ -197,7 +199,8 @@ let touchPadEl: TouchPadElement;
 let crewRosterEl: CrewRosterElement;
 let finnShopEl: FinnShopElement;
 let clinicModalEl: ClinicModalElement;
-let itemInventoryEl: ItemInventoryElement;
+let combatInventoryEl: CombatInventoryElement;
+let crewInventoryEl: CrewInventoryElement;
 let chronicleArchiveEl: ChronicleArchiveElement;
 let keyHelpEl: KeyHelpElement;
 let logEl: HTMLElement;
@@ -389,7 +392,8 @@ export async function boot() {
   crewRosterEl = mustGetElement<CrewRosterElement>('crew-roster');
   finnShopEl = mustGetElement<FinnShopElement>('finn-shop');
   clinicModalEl = mustGetElement<ClinicModalElement>('clinic-modal');
-  itemInventoryEl = mustGetElement<ItemInventoryElement>('item-inventory');
+  combatInventoryEl = mustGetElement<CombatInventoryElement>('combat-inventory');
+  crewInventoryEl = mustGetElement<CrewInventoryElement>('crew-inventory');
   chronicleArchiveEl = mustGetElement<ChronicleArchiveElement>('chronicle-archive');
   keyHelpEl = mustGetElement<KeyHelpElement>('key-help');
   logEl = mustQuery<HTMLElement>('.game-log');
@@ -443,8 +447,9 @@ export async function boot() {
   clinicModalEl.addEventListener('heal', onClinicHeal);
   clinicModalEl.addEventListener('dismiss', onClinicDismiss);
 
-  itemInventoryEl.addEventListener('use-item', onUseItem);
-  itemInventoryEl.addEventListener('dismiss', () => itemInventoryEl.hide());
+  combatInventoryEl.addEventListener('use-item', onUseItem);
+  combatInventoryEl.addEventListener('dismiss', () => combatInventoryEl.hide());
+  crewInventoryEl.addEventListener('dismiss', () => crewInventoryEl.hide());
   chronicleArchiveEl.addEventListener('dismiss', () => chronicleArchiveEl.hide());
 
   keyHelpEl.addEventListener('dismiss', () => keyHelpEl.hide());
@@ -584,7 +589,8 @@ function hideBlockingShellModals(): void {
   crewRosterEl?.hide();
   finnShopEl?.hide();
   clinicModalEl?.hide();
-  itemInventoryEl?.hide();
+  combatInventoryEl?.hide();
+  crewInventoryEl?.hide();
   chronicleArchiveEl?.hide();
 }
 
@@ -765,6 +771,11 @@ function presentBriefing(contract: Contract) {
 function presentContractSelect(contracts: Contract[]) {
   contractSelectEl.setScoreTargetSiteId(campaign ? scoreTargetSiteId(campaign) : null);
   contractSelectEl.setScorePrincipalId(campaign ? scorePrincipalId(campaign) : null);
+  contractSelectEl.setHeldKeycardSiteIds(
+    campaign
+      ? campaign.keyItems.map(k => k.siteId).filter((id): id is string => typeof id === 'string')
+      : []
+  );
   contractSelectEl.setContracts(contracts);
   contractSelectEl.show();
 }
@@ -926,24 +937,19 @@ function onFinnSellSalvage(evt: Event) {
   presentFinnShop();
 }
 
-function presentItemInventory() {
+function presentInventory() {
   if (!campaign) return;
-  // Inventory is now available in both Hub and combat. The two states
-  // surface different wallets:
-  //   - Combat: the deployed crew member's job-scoped inventory (what they've
-  //     picked up this run + their consumables).
-  //   - Hub:    the campaign-wide accumulated salvage. No active crew member,
-  //     so no consumables list — the player visits the shop or roster for
-  //     per-crew loadout management.
-  // This keeps the overlay's mental model simple: it always shows the
-  // currently meaningful wallet for the state the player is standing in.
+  // Two distinct surfaces for the two states:
+  //   - Hub:    <crew-inventory> — the campaign-wide stash (accumulated salvage
+  //     + stolen keycards). Read-only; no operator, so no consumables.
+  //   - Combat: <combat-inventory> — the deployed operator's live job-scoped
+  //     wallet, held keycards, and their navigable consumables list.
   if (campaign.state === CAMPAIGN_STATE.HUB) {
-    itemInventoryEl.setContents({
+    crewInventoryEl.setContents({
       salvage: campaign.salvage,
-      consumables: [],
       keyItems: keyItemsWithLocation(campaign.keyItems),
     });
-    itemInventoryEl.show();
+    crewInventoryEl.show();
     return;
   }
   const run = campaign.activeRun;
@@ -954,12 +960,16 @@ function presentItemInventory() {
   // gated to Meatspace upstream, so `activeActor` is always a Crew here.
   const operator = activeActorOf(run) as Crew | null;
   if (!operator || !operator.inventory) return;
-  itemInventoryEl.setContents({
+  combatInventoryEl.setContents({
     salvage: operator.inventory.salvage,
     consumables: operator.inventory.consumables,
-    keyItems: [...campaign.keyItems, ...run.keyItems],
+    // Combat renders keycards as the generic "Access keycard" — the locked
+    // door is in front of you, so no location lookup is needed here. Scope to
+    // this run's site so other sites' held cards don't render as phantom
+    // duplicates (P3.1).
+    keyItems: run.effectiveKeyItems(campaign.keyItems),
   });
-  itemInventoryEl.show();
+  combatInventoryEl.show();
 }
 
 /**
@@ -1024,7 +1034,7 @@ function onUseItem(evt: Event) {
       return;
     }
     pendingAimItemId = itemId;
-    itemInventoryEl.hide();
+    combatInventoryEl.hide();
     setInputAim(AIM_KIND.USE_ITEM);
     flash(`AIM ${descriptor.label.toUpperCase()} — pick a direction (Esc to cancel).`);
     return;
@@ -1036,7 +1046,7 @@ function onUseItem(evt: Event) {
     flash(`USE FAILED: ${errorMessage(err)}`);
     return;
   }
-  itemInventoryEl.hide();
+  combatInventoryEl.hide();
   paint();
   concludeOperatorTurn();
 }
@@ -1393,7 +1403,8 @@ function performQuitCampaign(): void {
   crewRosterEl.hide();
   finnShopEl.hide();
   clinicModalEl.hide();
-  itemInventoryEl.hide();
+  combatInventoryEl.hide();
+  crewInventoryEl.hide();
 
   pendingJobResult = null;
   dataStore.deleteCampaign();
@@ -1624,7 +1635,7 @@ export function handleIntent(intent: Intent): void {
     onCorpseSalvaged: entity => {
       activeVisionField(run).forgetCorpse(entity);
     },
-    keyItems: [...(campaign?.keyItems ?? []), ...(run as Run).keyItems],
+    keyItems: (run as Run).effectiveKeyItems(campaign?.keyItems ?? []),
     onKeycardCollected: kc => {
       // Picked-up keycards are run-scoped during the run — still usable for
       // in-run door unlock via ctx.keyItems. Campaign.onJobEnd promotes the
@@ -1655,7 +1666,7 @@ export function handleIntent(intent: Intent): void {
               return;
             }
           }
-          presentItemInventory();
+          presentInventory();
           break;
         case PLAYER_ACTIONS.INTERACT:
           handleInteract();
@@ -2655,7 +2666,8 @@ function isAnyBlockingModalOpen(): boolean {
   if (crewRosterEl?.isOpen) return true;
   if (finnShopEl?.isOpen) return true;
   if (clinicModalEl?.isOpen) return true;
-  if (itemInventoryEl?.isOpen) return true;
+  if (combatInventoryEl?.isOpen) return true;
+  if (crewInventoryEl?.isOpen) return true;
   if (chronicleArchiveEl?.isOpen) return true;
   if (keyHelpEl?.isOpen) return true;
   if (faultEl?.isOpen) return true;

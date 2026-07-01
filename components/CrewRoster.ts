@@ -30,7 +30,7 @@ import type { Crew as CrewMember } from '/src/game/Crew.js';
 import type { Item } from '/src/game/items.js';
 import { gearLines, statLines } from '/src/game/crewDisplay.js';
 
-/** Human-readable labels for item IDs (mirrors ItemInventory). */
+/** Human-readable labels for item IDs (mirrors CombatInventory). */
 const ITEM_LABELS = {
   stim: 'Stim',
   'smoke-charge': 'Smoke Charge',

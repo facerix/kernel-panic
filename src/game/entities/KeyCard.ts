@@ -43,6 +43,32 @@ export type KeyCardSnapshot = {
   siteId: string | null;
 };
 
+/**
+ * Canonical keycard id. The site id is baked in so two sites that share the
+ * stable objective `doorId` (`door-0` on every generated map) still get
+ * distinct ids — the P3.1 fix for the "inventory shows two keycards" collision.
+ * Run-scoped cards (no siteId) keep the bare `keycard-<doorId>` form; they are
+ * discarded at run end so there is only ever one live, hence no collision.
+ */
+export function keycardIdFor(doorId: string, siteId?: string | null): string {
+  return siteId ? `keycard-${doorId}-${siteId}` : `keycard-${doorId}`;
+}
+
+/**
+ * Migrate a legacy save's bare `keycard-<doorId>` id to the site-unique form.
+ * Only the exact legacy shape *with* a siteId is rewritten — post-fix ids,
+ * run-scoped ids (no siteId), and custom test ids are left untouched, so the
+ * transform is idempotent and safe to run on every restore.
+ */
+export function migrateLegacyKeycardId<T extends { id: string; doorId: string; siteId?: string }>(
+  item: T
+): T {
+  if (item.siteId && item.id === `keycard-${item.doorId}`) {
+    return { ...item, id: keycardIdFor(item.doorId, item.siteId) };
+  }
+  return item;
+}
+
 export class KeyCard extends Entity {
   doorId: string;
   label: string;

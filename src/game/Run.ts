@@ -79,7 +79,7 @@ import { CorpTurret } from './entities/CorpTurret.js';
 import { RelayNode } from './entities/RelayNode.js';
 import { ConsumablePickup } from './entities/ConsumablePickup.js';
 import { EscortNpc } from './entities/EscortNpc.js';
-import { KeyCard } from './entities/KeyCard.js';
+import { KeyCard, keycardIdFor, migrateLegacyKeycardId } from './entities/KeyCard.js';
 import { JackInPoint } from './entities/JackInPoint.js';
 import { CyberspaceLayer } from './cyber/CyberspaceLayer.js';
 import { CyberAvatar } from './cyber/CyberAvatar.js';
@@ -1472,15 +1472,39 @@ export class Run {
     if (typeof item.doorId !== 'string' || item.doorId.length === 0) {
       throw new TypeError('Run.addKeyItem: item.doorId must be a non-empty string');
     }
-    if (this.keyItems.some(k => k.id === item.id)) {
-      throw new Error(`Run.addKeyItem: duplicate key item "${item.id}"`);
+    // Canonicalize before the dedup check so a bare legacy id picked up off a
+    // pre-P3.1 map lands as the site-unique id, matching restore-time migration.
+    const canonical = migrateLegacyKeycardId(item);
+    if (this.keyItems.some(k => k.id === canonical.id)) {
+      throw new Error(`Run.addKeyItem: duplicate key item "${canonical.id}"`);
     }
     this.keyItems.push({
-      id: item.id,
-      label: item.label,
-      doorId: item.doorId,
-      ...(item.siteId ? { siteId: item.siteId } : {}),
+      id: canonical.id,
+      label: canonical.label,
+      doorId: canonical.doorId,
+      ...(canonical.siteId ? { siteId: canonical.siteId } : {}),
     });
+  }
+
+  /**
+   * The keycards effective at this run's site: run-scoped pickups plus any
+   * campaign-held cards stamped for the *current* site. Cards from other sites
+   * are excluded so the combat inventory and the door-unlock context stay
+   * scoped to the door in front of the operator — every generated door shares
+   * `doorId` `door-0`, so an unscoped merge both renders phantom duplicates and
+   * would let a foreign card open this door (P3.1 fix). Deduped by id.
+   */
+  effectiveKeyItems(campaignKeyItems: readonly KeyItem[]): KeyItem[] {
+    const siteId = this.contract ? siteIdForContract(this.contract) : null;
+    const siteScoped = siteId ? campaignKeyItems.filter(k => k.siteId === siteId) : [];
+    const seen = new Set<string>();
+    const result: KeyItem[] = [];
+    for (const k of [...siteScoped, ...this.keyItems]) {
+      if (seen.has(k.id)) continue;
+      seen.add(k.id);
+      result.push({ ...k });
+    }
+    return result;
   }
 
   mapSeenKeys(): string[] {
@@ -2044,7 +2068,7 @@ export class Run {
             const keycardSiteId = siteIdForContract(this.contract);
             this.world.addEntity(
               new KeyCard({
-                id: `keycard-${linkedDoorId}`,
+                id: keycardIdFor(linkedDoorId, keycardSiteId),
                 x: keycardAnchor.x,
                 y: keycardAnchor.y,
                 doorId: linkedDoorId,

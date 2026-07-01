@@ -53,6 +53,7 @@ import {
   siteIdForContract,
 } from './locations.js';
 import { resolveMapDimensions } from './procgen/mapDimensions.js';
+import { migrateLegacyKeycardId } from './entities/KeyCard.js';
 import {
   normalizeCampaignChronicle,
   normalizePendingChronicleRun,
@@ -1333,14 +1334,6 @@ export class Campaign {
     }
   }
 
-  /**
-   * Check whether the campaign inventory holds a key item that unlocks the
-   * given door id. Returns the matching `KeyItem` or `null`.
-   */
-  keyItemForDoor(doorId: string): KeyItem | null {
-    return this.keyItems.find(k => k.doorId === doorId) ?? null;
-  }
-
   // ─── Location memory / site roster (P2.5.M7.2) ───────────────────────────
 
   /** Look up a remembered site by its `LocationSite.id`. */
@@ -2000,7 +1993,9 @@ function normalizeKeyItems(raw: unknown): KeyItem[] {
       }
       result.siteId = item.siteId;
     }
-    return result;
+    // Legacy saves stamped every site's card with the colliding bare id
+    // `keycard-<doorId>`; re-key to the site-unique form on restore (P3.1).
+    return migrateLegacyKeycardId(result);
   });
 }
 

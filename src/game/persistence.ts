@@ -70,7 +70,7 @@ import { CorpTurret } from './entities/CorpTurret.js';
 import { RelayNode } from './entities/RelayNode.js';
 import { ConsumablePickup } from './entities/ConsumablePickup.js';
 import { EscortNpc } from './entities/EscortNpc.js';
-import { KeyCard } from './entities/KeyCard.js';
+import { KeyCard, migrateLegacyKeycardId } from './entities/KeyCard.js';
 import { JackInPoint } from './entities/JackInPoint.js';
 import { CyberspaceLayer } from './cyber/CyberspaceLayer.js';
 import { CyberAvatar } from './cyber/CyberAvatar.js';
@@ -2129,7 +2129,9 @@ function normalizeRunKeyItems(raw: unknown): KeyItem[] {
       }
       result.siteId = item.siteId;
     }
-    return result;
+    // Re-key legacy colliding `keycard-<doorId>` ids to the site-unique form
+    // (P3.1); symmetric with the campaign inventory migration.
+    return migrateLegacyKeycardId(result);
   });
 }
 

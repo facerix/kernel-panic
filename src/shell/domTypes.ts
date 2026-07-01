@@ -97,13 +97,18 @@ export type ClinicModalElement = ModalElement & {
   setPatients(crew: Crew[], balances: { credits: number; healedMemberIds?: string[] }): void;
 };
 
-export type ItemInventoryElement = ModalElement & {
+/** `<combat-inventory>` — the deployed operator's interactive kit. */
+export type CombatInventoryElement = ModalElement & {
   setContents(contents: {
     salvage?: TypedSalvage;
     consumables?: NonNullable<Crew['inventory']>['consumables'];
     keyItems?: KeyItemView[];
   }): void;
-  setItems(consumables: NonNullable<Crew['inventory']>['consumables']): void;
+};
+
+/** `<crew-inventory>` — the Hub's read-only campaign stash. */
+export type CrewInventoryElement = ModalElement & {
+  setContents(contents: { salvage?: TypedSalvage; keyItems?: KeyItemView[] }): void;
 };
 
 export type KeyHelpElement = ModalElement & {
