@@ -1618,6 +1618,13 @@ export function handleIntent(intent: Intent): void {
     throw new Error(`[shell] state "${run.state}" has no active world/actor for intents`);
   }
 
+  let keyItems: KeyItem[] = [];
+  if (run.state === 'COMBAT') {
+    keyItems = (run as Run).effectiveKeyItems(campaign?.keyItems ?? []);
+  } else {
+    keyItems = run.keyItems;
+  }
+
   applyIntent(intent, {
     world: intentWorld,
     player: intentActor as Parameters<typeof applyIntent>[1]['player'],
@@ -1635,7 +1642,7 @@ export function handleIntent(intent: Intent): void {
     onCorpseSalvaged: entity => {
       activeVisionField(run).forgetCorpse(entity);
     },
-    keyItems: (run as Run).effectiveKeyItems(campaign?.keyItems ?? []),
+    keyItems,
     onKeycardCollected: kc => {
       // Picked-up keycards are run-scoped during the run — still usable for
       // in-run door unlock via ctx.keyItems. Campaign.onJobEnd promotes the
