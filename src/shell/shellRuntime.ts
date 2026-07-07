@@ -55,6 +55,7 @@ import { hasLineOfSight } from '/src/game/LineOfSight.js';
 import { ITEM_ID, SCOREABLE_ITEMS, getItemById } from '/src/game/items.js';
 import type { CampaignSnapshot } from '/src/game/persistence.js';
 import type { Contract } from '/src/game/hub/Curator.js';
+import { principalLabelFor } from '/src/game/hub/Curator.js';
 import {
   formatHubArcStatusLines,
   scorePrincipalId,
@@ -771,9 +772,11 @@ function presentBriefing(contract: Contract) {
 function presentContractSelect(contracts: Contract[]) {
   contractSelectEl.setScoreTargetSiteId(campaign ? scoreTargetSiteId(campaign) : null);
   contractSelectEl.setScorePrincipalId(campaign ? scorePrincipalId(campaign) : null);
-  contractSelectEl.setHeldKeycardSiteIds(
+  contractSelectEl.setHeldKeycardPrincipalIds(
     campaign
-      ? campaign.keyItems.map(k => k.siteId).filter((id): id is string => typeof id === 'string')
+      ? campaign.keyItems
+          .map(k => k.principalId)
+          .filter((id): id is string => typeof id === 'string')
       : []
   );
   contractSelectEl.setContracts(contracts);
@@ -973,18 +976,16 @@ function presentInventory() {
 }
 
 /**
- * Enrich key items with their roster location name (`${principal} ${site}`)
- * for the inventory tag. Resolved live from the campaign roster — keycards are
- * evicted alongside their site, so a held card always has a roster entry,
- * except legacy untokenized sites which simply render without a tag.
+ * Enrich key items with their owning principal's name for the inventory tag.
+ * Keycards are scoped to a principal (owner), not a single site (P3.1-balance),
+ * so the tag names the owner — resolved from the static lexicon, so it renders
+ * even after every site that owner controlled has left the roster. Cards with an
+ * unknown/absent principal simply render without a tag.
  */
 function keyItemsWithLocation(items: KeyItem[]): KeyItemView[] {
   return items.map(item => {
-    const site = item.siteId ? campaign?.findRosterSite(item.siteId) : null;
-    if (!site?.principal) return { ...item };
-    const locationName = site.site
-      ? `${site.principal.label} ${site.site.label}`
-      : site.principal.label;
+    const locationName = item.principalId ? principalLabelFor(item.principalId) : null;
+    if (!locationName) return { ...item };
     return { ...item, locationName };
   });
 }
@@ -1646,12 +1647,12 @@ export function handleIntent(intent: Intent): void {
     onKeycardCollected: kc => {
       // Picked-up keycards are run-scoped during the run — still usable for
       // in-run door unlock via ctx.keyItems. Campaign.onJobEnd promotes the
-      // site-stamped ones into the persistent inventory on live extraction.
+      // principal-stamped ones into the persistent inventory on live extraction.
       (run as Run).addKeyItem({
         id: kc.id,
         label: kc.label,
         doorId: kc.doorId,
-        ...(kc.siteId ? { siteId: kc.siteId } : {}),
+        ...(kc.principalId ? { principalId: kc.principalId } : {}),
       });
     },
     onSecuredInteract: handleSecuredInteract,

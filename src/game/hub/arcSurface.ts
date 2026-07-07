@@ -11,7 +11,6 @@ import {
 import type { CampaignArcStage, LocationSite } from '../../types.js';
 import type { Decker } from '../archetypes/Decker.js';
 import type { Crew } from '../Crew.js';
-import { siteIdForContract } from '../locations.js';
 
 type ArcSurfaceCampaign = Pick<Campaign, 'arc' | 'siteRoster' | 'crew'> &
   Partial<
@@ -189,7 +188,7 @@ export function contractLocationBadges(
   contract: Contract,
   scoreTargetSiteId: string | null | undefined,
   scorePrincipalId: string | null | undefined,
-  heldKeycardSiteIds: ReadonlySet<string> = new Set()
+  heldKeycardPrincipalIds: ReadonlySet<string> = new Set()
 ): ContractLocationBadge[] {
   const badges: ContractLocationBadge[] = [];
   const scoreSite = isScoreSiteContract(contract, scoreTargetSiteId);
@@ -201,9 +200,11 @@ export function contractLocationBadges(
   if (contract.context.locationSiteId && !scoreSite) {
     badges.push({ variant: 'revisit', text: '// known site' });
   }
-  // A held keycard means we already extracted from this exact site — surface it
-  // so the player knows the locked door is already openable on this redeploy.
-  if (!scoreSite && heldKeycardSiteIds.has(siteIdForContract(contract))) {
+  // A held keycard means we hold this owner's access card (P3.1-balance) — it
+  // opens the locked door at every site they control, so surface it whenever the
+  // job targets a principal we already carry a card for.
+  const principalId = contract.context.principal?.id;
+  if (!scoreSite && principalId && heldKeycardPrincipalIds.has(principalId)) {
     badges.push({ variant: 'keycard', text: '// keycard held' });
   }
   return badges;

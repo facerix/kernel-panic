@@ -1,6 +1,6 @@
 {
   "name": "kernel-panic",
-  "version": "0.2.9-balance",
+  "version": "0.3.1-balance",
   "description": "Turn-based cyberpunk roguelike PWA (ASCII-plus terminal aesthetic)",
   "main": "index.html",
   "type": "module",

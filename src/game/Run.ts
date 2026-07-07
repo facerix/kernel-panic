@@ -88,7 +88,7 @@ import { DataNode } from './cyber/DataNode.js';
 import { ProbeIce } from './cyber/ProbeIce.js';
 import { SparkIce } from './cyber/SparkIce.js';
 import { GuardianIce } from './cyber/GuardianIce.js';
-import { applyMutationDeltas, siteIdForContract } from './locations.js';
+import { applyMutationDeltas } from './locations.js';
 import { BreachingCharge } from './entities/BreachingCharge.js';
 import { ITEM_ID, getItemById, SCOREABLE_ITEMS } from './items.js';
 import { resetCorpTurnStatusCache } from './corpTurnStatusCopy.js';
@@ -303,7 +303,7 @@ export type RunSnapshot = {
   extractedOperativeIds?: string[];
   /** P3.M5: off-grid crew records for extracted Score operatives. */
   extractedOperatives?: RunEntitySnapshot[];
-  /** Run-scoped key items / keycards without a siteId (P2.5.M6.2). Defaults to []. */
+  /** Run-scoped key items / keycards without a principalId (P2.5.M6.2). Defaults to []. */
   keyItems?: KeyItemSnapshot[];
   /** Terrain/entity mutations recorded during the run (P2.5.M7.1). Defaults to []. */
   mutationDeltas?: TileDelta[];
@@ -366,7 +366,7 @@ type KeyItemSnapshot = {
   id: string;
   label: string;
   doorId: string;
-  siteId?: string;
+  principalId?: string;
 };
 
 export type JackOutRequest = {
@@ -488,7 +488,7 @@ export class Run {
   telemetry: RunTelemetry;
   objectiveTimer: ObjectiveTimerSnapshot;
   mapSeen: Set<string>;
-  /** Run-scoped key items / keycards without a siteId (P2.5.M6.2). Lost on run end. */
+  /** Run-scoped key items / keycards without a principalId (P2.5.M6.2). Lost on run end. */
   keyItems: KeyItem[];
   /** P3.M5: Score-only independent extraction latch. Empty on normal runs. */
   extractedOperativeIds: Set<string>;
@@ -977,7 +977,7 @@ export class Run {
         id: k.id,
         label: k.label,
         doorId: k.doorId,
-        ...(k.siteId ? { siteId: k.siteId } : {}),
+        ...(k.principalId ? { principalId: k.principalId } : {}),
       })),
       mutationDeltas: world.mutationDeltas.map(delta => ({ ...delta })),
       // P3.M4.1/M4.2: the reserved meat partner. While the cyber layer is still
@@ -1456,8 +1456,8 @@ export class Run {
   }
 
   /**
-   * Add a run-scoped key item (keycard with no siteId). Crashes on duplicates
-   * per project policy — double-collection is always a bug.
+   * Add a run-scoped key item (keycard). Crashes on duplicates per project
+   * policy — double-collection is always a bug.
    */
   addKeyItem(item: KeyItem): void {
     if (!item || typeof item !== 'object') {
@@ -1473,7 +1473,7 @@ export class Run {
       throw new TypeError('Run.addKeyItem: item.doorId must be a non-empty string');
     }
     // Canonicalize before the dedup check so a bare legacy id picked up off a
-    // pre-P3.1 map lands as the site-unique id, matching restore-time migration.
+    // pre-P3.1 map lands as the principal-unique id, matching restore-time migration.
     const canonical = migrateLegacyKeycardId(item);
     if (this.keyItems.some(k => k.id === canonical.id)) {
       throw new Error(`Run.addKeyItem: duplicate key item "${canonical.id}"`);
@@ -1482,24 +1482,26 @@ export class Run {
       id: canonical.id,
       label: canonical.label,
       doorId: canonical.doorId,
-      ...(canonical.siteId ? { siteId: canonical.siteId } : {}),
+      ...(canonical.principalId ? { principalId: canonical.principalId } : {}),
     });
   }
 
   /**
    * The keycards effective at this run's site: run-scoped pickups plus any
-   * campaign-held cards stamped for the *current* site. Cards from other sites
-   * are excluded so the combat inventory and the door-unlock context stay
-   * scoped to the door in front of the operator — every generated door shares
-   * `doorId` `door-0`, so an unscoped merge both renders phantom duplicates and
-   * would let a foreign card open this door (P3.1 fix). Deduped by id.
+   * campaign-held cards stamped for the *current* principal (owner). Cards from
+   * other principals are excluded so the combat inventory and the door-unlock
+   * context stay scoped to the owner of the door in front of the operator —
+   * every generated door shares `doorId` `door-0`, so an unscoped merge both
+   * renders phantom duplicates and would let a rival owner's card open this door
+   * (P3.1 fix). A card for *this* owner opens the door at every site they
+   * control (P3.1-balance). Deduped by id.
    */
   effectiveKeyItems(campaignKeyItems: readonly KeyItem[]): KeyItem[] {
-    const siteId = this.contract ? siteIdForContract(this.contract) : null;
-    const siteScoped = siteId ? campaignKeyItems.filter(k => k.siteId === siteId) : [];
+    const principalId = this.contract?.context.principal?.id ?? null;
+    const scoped = principalId ? campaignKeyItems.filter(k => k.principalId === principalId) : [];
     const seen = new Set<string>();
     const result: KeyItem[] = [];
-    for (const k of [...siteScoped, ...this.keyItems]) {
+    for (const k of [...scoped, ...this.keyItems]) {
       if (seen.has(k.id)) continue;
       seen.add(k.id);
       result.push({ ...k });
@@ -2023,12 +2025,12 @@ export class Run {
         this.contract.objective.kind !== OBJECTIVES.TERMINAL_SLICE &&
         this.contract.objective.kind !== OBJECTIVES.SCORE_FINAL
       ) {
-        const revisitSiteId = siteIdForContract(this.contract);
+        const revisitPrincipalId = this.contract.context.principal?.id ?? null;
         const priorKey = this.priorKeyItems.find(
-          k => k.doorId === linkedDoorId && k.siteId === revisitSiteId
+          k => k.doorId === linkedDoorId && k.principalId === revisitPrincipalId
         );
-        // Held site keycard from a prior visit → skip spawn; door stays locked
-        // until interact (P2.5.M7.2).
+        // Held principal keycard from a prior visit (to any of this owner's
+        // sites) → skip spawn; door stays locked until interact (P2.5.M7.2).
         if (!priorKey) {
           // 50/50 roll — terminal unlock vs keycard unlock (P2.5.M6.2).
           const unlockMethod = resolveUnlockMethod(this.contract, this.rng);
@@ -2061,19 +2063,19 @@ export class Run {
               this.rng,
               linkedDoorId
             );
-            // Stamp the keycard with the roster's site id (explicit on a
-            // revisit, else derived from the seed) so collecting it promotes
-            // the card to campaign-scoped on extraction and a future revisit
-            // re-opens the door via the held card instead of respawning one.
-            const keycardSiteId = siteIdForContract(this.contract);
+            // Stamp the keycard with the site's owning principal so collecting
+            // it promotes the card to campaign-scoped on extraction and a future
+            // visit to *any* of this owner's sites re-opens the door via the
+            // held card instead of respawning one (P3.1-balance).
+            const keycardPrincipalId = this.contract.context.principal?.id;
             this.world.addEntity(
               new KeyCard({
-                id: keycardIdFor(linkedDoorId, keycardSiteId),
+                id: keycardIdFor(linkedDoorId, keycardPrincipalId),
                 x: keycardAnchor.x,
                 y: keycardAnchor.y,
                 doorId: linkedDoorId,
                 label: 'Access keycard',
-                siteId: keycardSiteId,
+                principalId: keycardPrincipalId,
               })
             );
           }
@@ -2788,7 +2790,7 @@ const SNAPSHOT_EXTRACTORS: Partial<Record<EntityArchetypeId, (e: Entity) => Enti
       return {
         doorId: k.doorId,
         label: k.label,
-        siteId: k.siteId ?? null,
+        principalId: k.principalId ?? null,
       } satisfies KeyCardSnapshot;
     },
     'jack-in-point': e => {

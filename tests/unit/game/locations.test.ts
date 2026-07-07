@@ -728,7 +728,7 @@ test('Run revisit: recon counts tiles seen this run, not prior site memory alone
   }
 });
 
-test('KeyCard on a revisit contract is stamped with the site id (case 7)', () => {
+test('KeyCard on a revisit contract is stamped with the owning principal id (case 7)', () => {
   const campaign = new Campaign({ seed: 1 });
   campaign.addSiteToRoster(validSite({ id: '4242', seed: '4242' }));
   const contract = reachExitContract(4242, {
@@ -747,19 +747,17 @@ test('KeyCard on a revisit contract is stamped with the site id (case 7)', () =>
     | KeyCard
     | undefined;
   assert.ok(keycard, 'keycard placed for a keycard-unlock contract');
-  assert.equal(keycard!.siteId, '4242', 'keycard carries the location site id');
+  assert.equal(
+    keycard!.principalId,
+    contract.context.principal.id,
+    'keycard carries the owning principal id'
+  );
 });
 
 test('revisit with prior site keycard skips spawn and keeps door locked (case 9)', () => {
   const campaign = new Campaign({ seed: 1 });
   campaign.addSiteToRoster(validSite({ id: '4242', seed: '4242' }));
-  campaign.addKeyItem({
-    id: 'keycard-door-0',
-    label: 'Access keycard',
-    doorId: 'door-0',
-    siteId: '4242',
-  });
-  const contract = reachExitContract(4242, {
+  const revisitContract = reachExitContract(4242, {
     objective: {
       kind: OBJECTIVES.RETRIEVE,
       title: 'Grab cache',
@@ -768,11 +766,17 @@ test('revisit with prior site keycard skips spawn and keeps door locked (case 9)
     },
     context: testContext('4242'),
   });
-  const run = campaign.deployCrewMember(campaign.crew[0]!.id, contract);
+  campaign.addKeyItem({
+    id: 'keycard-door-0',
+    label: 'Access keycard',
+    doorId: 'door-0',
+    principalId: revisitContract.context.principal.id,
+  });
+  const run = campaign.deployCrewMember(campaign.crew[0]!.id, revisitContract);
   run.enterCombat();
 
   const keycard = [...run.world!.entities.values()].find(e => e instanceof KeyCard);
-  assert.equal(keycard, undefined, 'no keycard when campaign already holds this site card');
+  assert.equal(keycard, undefined, 'no keycard when campaign already holds this owner’s card');
 
   const door = [...run.world!.entities.values()].find(
     e => e instanceof Door && e.doorId === 'door-0'

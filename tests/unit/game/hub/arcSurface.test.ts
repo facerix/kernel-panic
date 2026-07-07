@@ -18,7 +18,6 @@ import {
   scoreTargetDisplayName,
   scoreTargetSiteId,
 } from '../../../../src/game/hub/arcSurface.js';
-import { siteIdForContract } from '../../../../src/game/locations.js';
 import { Decker } from '../../../../src/game/archetypes/Decker.js';
 import { Merc } from '../../../../src/game/archetypes/Merc.js';
 import { CLOCK_ACT2_DEADLINE_JOBS, CLOCK_ACT2_GRACE_JOBS } from '../../../../src/game/Campaign.js';
@@ -323,26 +322,26 @@ test('contractLocationBadges returns no badges for a fresh non-principal job', (
   assert.deepEqual(contractLocationBadges(contract, 'score-site', 'other-principal'), []);
 });
 
-test('contractLocationBadges surfaces a keycard-held badge when the site id is in the held set', () => {
-  const contract = badgeFixture('case-site'); // revisit, non-principal
-  const held = new Set([siteIdForContract(contract)]);
+test('contractLocationBadges surfaces a keycard-held badge when the owning principal is in the held set', () => {
+  const contract = badgeFixture('case-site'); // revisit, non-score-principal
+  const held = new Set([contract.context.principal.id]);
   assert.deepEqual(contractLocationBadges(contract, 'score-site', 'other-principal', held), [
     { variant: 'revisit', text: '// known site' },
     { variant: 'keycard', text: '// keycard held' },
   ]);
 });
 
-test('contractLocationBadges keycard badge matches a fresh contract by derived seed id', () => {
-  const contract = badgeFixture(); // no locationSiteId → derived from seed
-  const held = new Set([siteIdForContract(contract)]);
+test('contractLocationBadges keycard badge matches a fresh contract by owning principal', () => {
+  const contract = badgeFixture(); // no locationSiteId → fresh site, same owner
+  const held = new Set([contract.context.principal.id]);
   assert.deepEqual(contractLocationBadges(contract, 'score-site', 'other-principal', held), [
     { variant: 'keycard', text: '// keycard held' },
   ]);
 });
 
-test('contractLocationBadges omits the keycard badge when no card is held for the site', () => {
+test('contractLocationBadges omits the keycard badge when no card is held for the owner', () => {
   const contract = badgeFixture('case-site');
-  const held = new Set(['some-other-site']);
+  const held = new Set(['some-other-principal']);
   assert.deepEqual(contractLocationBadges(contract, 'score-site', 'other-principal', held), [
     { variant: 'revisit', text: '// known site' },
   ]);
@@ -350,7 +349,7 @@ test('contractLocationBadges omits the keycard badge when no card is held for th
 
 test('contractLocationBadges never shows the keycard badge on the Score target', () => {
   const contract = badgeFixture('score-site');
-  const held = new Set([siteIdForContract(contract)]);
+  const held = new Set([contract.context.principal.id]);
   assert.deepEqual(contractLocationBadges(contract, 'score-site', 'matsuda', held), [
     { variant: 'score-site', text: 'SCORE SITE' },
   ]);

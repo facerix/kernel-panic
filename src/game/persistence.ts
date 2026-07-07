@@ -552,14 +552,18 @@ function readEscortNpc(extra: EntitySnapshotExtra, id: string): EscortNpcSnapsho
 function readKeyCard(extra: EntitySnapshotExtra, id: string): KeyCardSnapshot {
   if (hasNoState(extra))
     throw new TypeError(`restore: keycard entity ${id} requires keycard state`);
-  const k = extra as Partial<KeyCardSnapshot>;
-  if (k.siteId !== undefined && k.siteId !== null && typeof k.siteId !== 'string') {
-    throw new TypeError(`restore: keycard ${id} siteId must be a string`);
+  const k = extra as Partial<KeyCardSnapshot> & { siteId?: unknown };
+  if (k.principalId !== undefined && k.principalId !== null && typeof k.principalId !== 'string') {
+    throw new TypeError(`restore: keycard ${id} principalId must be a string`);
   }
+  // Legacy P3.1 grid pickups stamped a `siteId`; the P3.1-balance re-scope keys
+  // by principal instead. A mid-run grid card belongs to no promotable owner
+  // yet (it promotes only when collected + extracted), so a legacy `siteId` is
+  // simply dropped — the card restores as an unscoped run pickup.
   return {
     doorId: requireString(k.doorId, `restore: keycard ${id} doorId must be a non-empty string`),
     label: requireString(k.label, `restore: keycard ${id} label must be a non-empty string`),
-    siteId: (k.siteId as string | null | undefined) ?? null,
+    principalId: (k.principalId as string | null | undefined) ?? null,
   };
 }
 
@@ -878,7 +882,7 @@ const ENTITY_RESTORE: Partial<Record<EntityArchetypeId, RestoreEntry>> = Object.
     buildProps(extra, rec) {
       const k = readKeyCard(extra, rec.id);
       const props: Partial<RestoreEntityProps> = { doorId: k.doorId, label: k.label };
-      if (k.siteId) props.siteId = k.siteId;
+      if (k.principalId) props.principalId = k.principalId;
       return props;
     },
     apply(entity, _extra, rec) {
@@ -995,7 +999,7 @@ export type KeyItemSnapshot = {
   id: string;
   label: string;
   doorId: string;
-  siteId?: string;
+  principalId?: string;
 };
 
 /** Serializable shape of `Campaign.hubReveals`. */
@@ -2107,7 +2111,7 @@ function normalizeRunKeyItems(raw: unknown): KeyItem[] {
   if (!Array.isArray(raw)) {
     throw new TypeError('restore: run keyItems must be an array when supplied');
   }
-  return (raw as KeyItem[]).map((item, i) => {
+  return (raw as Array<KeyItem & { siteId?: string }>).map((item, i) => {
     if (!item || typeof item !== 'object') {
       throw new TypeError(`restore: run keyItems[${i}] must be an object`);
     }
@@ -2121,16 +2125,24 @@ function normalizeRunKeyItems(raw: unknown): KeyItem[] {
       throw new TypeError(`restore: run keyItems[${i}].doorId must be a non-empty string`);
     }
     const result: KeyItem = { id: item.id, label: item.label, doorId: item.doorId };
-    if (item.siteId !== undefined) {
-      if (typeof item.siteId !== 'string' || item.siteId.length === 0) {
+    if (item.principalId !== undefined) {
+      if (typeof item.principalId !== 'string' || item.principalId.length === 0) {
         throw new TypeError(
-          `restore: run keyItems[${i}].siteId must be a non-empty string when set`
+          `restore: run keyItems[${i}].principalId must be a non-empty string when set`
         );
       }
-      result.siteId = item.siteId;
+      result.principalId = item.principalId;
+    } else if (item.siteId !== undefined) {
+      // P3.1-balance re-scope: a legacy in-progress run held a `siteId`-scoped
+      // card. Run cards match the door by `doorId` regardless of scope, so it
+      // still opens this run's door; but without a principal it can't promote to
+      // the campaign on extraction — the player re-collects on the next visit.
+      console.warn(
+        `restore: run keycard "${item.id}" carried a legacy siteId; it stays run-scoped and will not persist on extraction`
+      );
     }
-    // Re-key legacy colliding `keycard-<doorId>` ids to the site-unique form
-    // (P3.1); symmetric with the campaign inventory migration.
+    // Heal the bare legacy `keycard-<doorId>` id shape (P3.1); a no-op once the
+    // card carries a principalId in the canonical id.
     return migrateLegacyKeycardId(result);
   });
 }

@@ -35,7 +35,7 @@ export type ContractSelectElement = ModalElement & {
   setContracts(contracts: Contract[]): void;
   setScoreTargetSiteId(siteId: string | null): void;
   setScorePrincipalId(principalId: string | null): void;
-  setHeldKeycardSiteIds(siteIds: string[]): void;
+  setHeldKeycardPrincipalIds(principalIds: string[]): void;
 };
 
 export type CrashDumpElement = ModalElement & {

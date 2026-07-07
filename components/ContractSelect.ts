@@ -218,7 +218,7 @@ class ContractSelect extends HTMLElement {
   #contracts: Contract[] = [];
   #scoreTargetSiteId: string | null = null;
   #scorePrincipalId: string | null = null;
-  #heldKeycardSiteIds: ReadonlySet<string> = new Set();
+  #heldKeycardPrincipalIds: ReadonlySet<string> = new Set();
   #selectedIndex = 0;
   #ready = false;
   #listEl: HTMLElement | null = null;
@@ -285,11 +285,11 @@ class ContractSelect extends HTMLElement {
     if (this.#ready) this.#render();
   }
 
-  setHeldKeycardSiteIds(siteIds: string[]) {
-    if (!Array.isArray(siteIds)) {
-      throw new TypeError('<contract-select>.setHeldKeycardSiteIds requires an array');
+  setHeldKeycardPrincipalIds(principalIds: string[]) {
+    if (!Array.isArray(principalIds)) {
+      throw new TypeError('<contract-select>.setHeldKeycardPrincipalIds requires an array');
     }
-    this.#heldKeycardSiteIds = new Set(siteIds);
+    this.#heldKeycardPrincipalIds = new Set(principalIds);
     if (this.#ready) this.#render();
   }
 
@@ -344,7 +344,7 @@ class ContractSelect extends HTMLElement {
                 contract,
                 this.#scoreTargetSiteId,
                 this.#scorePrincipalId,
-                this.#heldKeycardSiteIds
+                this.#heldKeycardPrincipalIds
               )
             ),
             h('div', { className: 'meta', textContent: rewardCopy(contract) }),
@@ -438,7 +438,7 @@ function locationLine(
   contract: Contract,
   scoreTargetSiteId: string | null,
   scorePrincipalId: string | null,
-  heldKeycardSiteIds: ReadonlySet<string>
+  heldKeycardPrincipalIds: ReadonlySet<string>
 ): HTMLElement[] {
   const { principal, site, siteState } = contract.context;
   const place = site ? `${principal.label} ${site.label}` : principal.label;
@@ -448,7 +448,7 @@ function locationLine(
     contract,
     scoreTargetSiteId,
     scorePrincipalId,
-    heldKeycardSiteIds
+    heldKeycardPrincipalIds
   )) {
     const className = badge.variant === 'revisit' ? 'known' : `known ${badge.variant}`;
     nodes.push(h('span', { className, textContent: badge.text }));

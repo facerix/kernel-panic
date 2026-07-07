@@ -53,7 +53,7 @@ import {
   siteIdForContract,
 } from './locations.js';
 import { resolveMapDimensions } from './procgen/mapDimensions.js';
-import { migrateLegacyKeycardId } from './entities/KeyCard.js';
+import { keycardIdFor, migrateLegacyKeycardId } from './entities/KeyCard.js';
 import {
   normalizeCampaignChronicle,
   normalizePendingChronicleRun,
@@ -457,8 +457,10 @@ export class Campaign {
     this.hubReveals = normalizeHubReveals(hubReveals, 'Campaign hubReveals');
     this.completedJobs = (completedJobs as number) ?? 0;
     this.clockJobsTaken = (clockJobsTaken as number) ?? 0;
-    this.keyItems = normalizeKeyItems(keyItems);
+    // Roster before key items: legacy keycards carry only `siteId` and are
+    // backfilled to their owning `principalId` via the roster (P3.1-balance).
     this.siteRoster = normalizeSiteRoster(siteRoster);
+    this.keyItems = normalizeKeyItems(keyItems, this.siteRoster);
     this.chronicle = normalizeCampaignChronicle(chronicle);
     this.pendingChronicleRun = normalizePendingChronicleRun(pendingChronicleRun);
     this.state = CAMPAIGN_STATE.HUB;
@@ -1317,19 +1319,19 @@ export class Campaign {
 
   /**
    * Promote a survived run's carried keycards into the persistent campaign
-   * inventory. Only site-stamped cards survive (run-scoped cards without a
-   * siteId belong to nowhere on the roster); already-held cards are skipped
-   * so a re-collected revisit card is idempotent rather than a crash.
+   * inventory. Only principal-stamped cards survive (run-scoped cards without a
+   * principalId belong to no owner on the roster); already-held cards are
+   * skipped so a re-collected revisit card is idempotent rather than a crash.
    */
   #promoteRunKeyItems(run: Run): void {
     for (const item of run.keyItems) {
-      if (!item.siteId) continue;
+      if (!item.principalId) continue;
       if (this.keyItems.some(k => k.id === item.id)) continue;
       this.addKeyItem({
         id: item.id,
         label: item.label,
         doorId: item.doorId,
-        siteId: item.siteId,
+        principalId: item.principalId,
       });
     }
   }
@@ -1380,12 +1382,12 @@ export class Campaign {
         );
         return;
       }
-      const [evicted] = this.siteRoster.splice(evictIdx, 1);
-      // A site leaving campaign memory takes its keycards with it — a card for
-      // a location we can no longer revisit is dead weight in the inventory.
-      if (evicted) {
-        this.keyItems = this.keyItems.filter(k => k.siteId !== evicted.id);
-      }
+      this.siteRoster.splice(evictIdx, 1);
+      // Keycards are scoped to the owning *principal*, not a single site
+      // (P3.1-balance): one card opens that owner's door at every site they
+      // control. So a site leaving the roster no longer purges keycards — the
+      // owner may still hold other roster sites, and the card set is naturally
+      // bounded by the small principal roster regardless.
     }
     this.siteRoster.push(normalized);
     this.#persist();
@@ -1444,12 +1446,14 @@ export class Campaign {
   }
 
   /**
-   * Campaign key items already held for a contract's target location. Used to
-   * skip respawning pickup keycards on revisit (player re-opens via interact).
+   * Campaign key items already held for a contract's owning principal. Used to
+   * skip respawning pickup keycards when we already hold this owner's card
+   * (from any of their sites) — the player re-opens the door via interact.
    */
   priorKeyItemsForContract(contract: Contract): KeyItem[] {
-    const siteId = siteIdForContract(contract);
-    return this.keyItems.filter(k => k.siteId === siteId).map(k => ({ ...k }));
+    const principalId = contract.context.principal?.id ?? null;
+    if (!principalId) return [];
+    return this.keyItems.filter(k => k.principalId === principalId).map(k => ({ ...k }));
   }
 
   /** Add or refresh the roster entry for a deployed contract's location. */
@@ -1967,13 +1971,23 @@ export class Campaign {
 /**
  * Normalize key items from a snapshot (or undefined for pre-P2.5.M6.2 saves).
  * Validates structure. Crashes on malformed entries per project policy.
+ *
+ * P3.1-balance re-scope: keycards are keyed by their owning `principalId`, not a
+ * single `siteId`. New saves carry `principalId` directly. Legacy saves carry
+ * only `siteId`; each is backfilled to its owner by looking the site up in the
+ * (already-restored) `roster`. A legacy card whose owning site is no longer on
+ * the roster can't be resolved to an owner — it is dropped with a warning
+ * rather than kept as an unscoped, unmatchable card (no silent corruption).
+ * Backfilled cards are re-keyed to the canonical principal id and deduped, so
+ * two same-owner cards collapse into one.
  */
-function normalizeKeyItems(raw: unknown): KeyItem[] {
+function normalizeKeyItems(raw: unknown, roster: readonly LocationSite[]): KeyItem[] {
   if (raw === undefined || raw === null) return [];
   if (!Array.isArray(raw)) {
     throw new TypeError('Campaign: keyItems must be an array when supplied');
   }
-  return (raw as KeyItem[]).map((item, i) => {
+  const result: KeyItem[] = [];
+  (raw as Array<KeyItem & { siteId?: string }>).forEach((item, i) => {
     if (!item || typeof item !== 'object') {
       throw new TypeError(`Campaign: keyItems[${i}] must be an object`);
     }
@@ -1986,17 +2000,55 @@ function normalizeKeyItems(raw: unknown): KeyItem[] {
     if (typeof item.doorId !== 'string' || item.doorId.length === 0) {
       throw new TypeError(`Campaign: keyItems[${i}].doorId must be a non-empty string`);
     }
-    const result: KeyItem = { id: item.id, label: item.label, doorId: item.doorId };
-    if (item.siteId !== undefined) {
+
+    let normalized: KeyItem;
+    if (item.principalId !== undefined) {
+      if (typeof item.principalId !== 'string' || item.principalId.length === 0) {
+        throw new TypeError(
+          `Campaign: keyItems[${i}].principalId must be a non-empty string when set`
+        );
+      }
+      // Current-format card: keep its (canonical) id, only healing the bare
+      // legacy `keycard-<doorId>` shape via migrateLegacyKeycardId.
+      normalized = migrateLegacyKeycardId({
+        id: item.id,
+        label: item.label,
+        doorId: item.doorId,
+        principalId: item.principalId,
+      });
+    } else if (item.siteId !== undefined) {
       if (typeof item.siteId !== 'string' || item.siteId.length === 0) {
         throw new TypeError(`Campaign: keyItems[${i}].siteId must be a non-empty string when set`);
       }
-      result.siteId = item.siteId;
+      const principalId = roster.find(s => s.id === item.siteId)?.principal?.id;
+      if (!principalId) {
+        console.warn(
+          `Campaign: dropping legacy keycard "${item.id}" — site "${item.siteId}" is not on the roster, so its owning principal cannot be resolved`
+        );
+        return;
+      }
+      // Legacy card: the old id baked in the siteId, so re-key to the canonical
+      // principal-unique form (two same-owner cards then collapse to one).
+      normalized = {
+        id: keycardIdFor(item.doorId, principalId),
+        label: item.label,
+        doorId: item.doorId,
+        principalId,
+      };
+    } else {
+      // Neither scope key: an unscoped campaign card. Preserve it verbatim — it
+      // is inert (matches no principal filter) but harmless, and dropping it
+      // would be silent data loss. Heal only the bare legacy id shape.
+      normalized = migrateLegacyKeycardId({
+        id: item.id,
+        label: item.label,
+        doorId: item.doorId,
+      });
     }
-    // Legacy saves stamped every site's card with the colliding bare id
-    // `keycard-<doorId>`; re-key to the site-unique form on restore (P3.1).
-    return migrateLegacyKeycardId(result);
+
+    if (!result.some(k => k.id === normalized.id)) result.push(normalized);
   });
+  return result;
 }
 
 /**
