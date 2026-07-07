@@ -15,7 +15,11 @@ import { emptySalvage } from '../../../src/game/salvage.js';
 import { Door } from '../../../src/game/entities/Door.js';
 import { Terminal } from '../../../src/game/entities/Terminal.js';
 import { Pickup } from '../../../src/game/entities/Pickup.js';
-import { KeyCard, keycardIdFor, migrateLegacyKeycardId } from '../../../src/game/entities/KeyCard.js';
+import {
+  KeyCard,
+  keycardIdFor,
+  migrateLegacyKeycardId,
+} from '../../../src/game/entities/KeyCard.js';
 import { findPath } from '../../../src/game/Pathfinding.js';
 import {
   snapshot,
