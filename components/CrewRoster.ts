@@ -28,7 +28,7 @@ import {
 } from '/src/game/salvage.js';
 import type { Crew as CrewMember } from '/src/game/Crew.js';
 import { ITEM_ID, type Item } from '/src/game/items.js';
-import { gearLines, statDisplays } from '/src/game/crewDisplay.js';
+import { gearLabels, statDisplays } from '/src/game/crewDisplay.js';
 
 function crewMemberHeader(crewMember: CrewMember): HTMLElement {
   const name = crewMember.callsign ?? crewMember.id;
@@ -121,6 +121,7 @@ const CSS = `
   --roster-danger: #ff5d73;
   --roster-shadow: 0 0 28px rgba(0, 217, 165, 0.18), 0 12px 36px rgba(0, 0, 0, 0.5);
   --roster-border-secondary: #a4d1cc;
+  --gear-label-bg: rgba(0, 217, 165, 0.18);
 
   display: none;
   position: fixed;
@@ -265,15 +266,86 @@ crew-list {
   margin-bottom: 0.15rem;
 }
 
-.detail-stat {
-  color: var(--roster-text);
-  margin: 0.1rem 0;
-}
-
 .detail-none {
   color: var(--roster-dim);
   font-style: italic;
   margin: 0.1rem;
+}
+
+.gear {
+  height: 300px;
+  margin: 0.5rem 0;
+  background: no-repeat center url('/images/gear.png');
+  background-size: contain;
+
+  position: relative;
+}
+
+.gear-label {
+  color: var(--roster-text);
+  font-size: smaller;
+  margin: 0;
+  max-width: 115px;
+  text-align: center;
+  position: absolute;
+  background: var(--gear-label-bg);
+  border-radius: 2px;
+  border-bottom: 1px solid var(--roster-border-secondary);
+  padding: 2px;
+
+  &.maxHpBonus {
+    top: 0.5rem;
+    left: 1.5rem;
+    width: 4.75rem;
+  }
+
+  &.hpRegen {
+    top: 5rem;
+    left: 0;
+    width: 5rem;
+  }
+
+  &.apBonus {
+    bottom: 1.5rem;
+    right: 1.75rem;
+    width: 4rem;
+  }
+
+  &.hitBonus {
+    top: 0;
+    right: 0;
+    width: 6.5rem;
+  }
+
+  &.rangedDamageBonus {
+    top: 7.5rem;
+    right: 0;
+    width: 5.5rem;
+  }
+
+  &.meleeDamageBonus {
+    top: 10rem;
+    left: 0.5rem;
+    width: 5rem;
+  }
+
+  &.armorBonus {
+    top: 3rem;
+    right: 1rem;
+    width: 4.5rem;
+  }
+
+  &.shieldRegen {
+    top: 14rem;
+    left: 0.5rem;
+    width: 5.5rem;
+  }
+
+  &.dodgeBonus {
+    top: 11.5rem;
+    right: 0;
+    width: 6.5rem;
+  }
 }
 
 .consumables {
@@ -654,14 +726,14 @@ class CrewRoster extends HTMLElement {
     this.#detailEl!.appendChild(statsTable(full));
 
     // Gear
-    const gLines = gearLines(full.gear);
-    const gearSection = h('div', { className: 'detail-section' });
-    gearSection.appendChild(h('p', { className: 'detail-section-title', textContent: 'GEAR' }));
-    if (gLines.length === 0) {
-      gearSection.appendChild(h('p', { className: 'detail-none', textContent: '-None-' }));
+    const gLabels = gearLabels(full.gear);
+    const gearSection = h('div', { className: 'detail-section gear' });
+    // gearSection.appendChild(h('p', { className: 'detail-section-title', textContent: 'GEAR' }));
+    if (Object.keys(gLabels).length === 0) {
+      gearSection.appendChild(h('p', { className: 'detail-none', textContent: '-No Gear-' }));
     } else {
-      for (const line of gLines) {
-        gearSection.appendChild(h('p', { className: 'detail-stat', textContent: line }));
+      for (const [key, label] of Object.entries(gLabels)) {
+        gearSection.appendChild(h('p', { className: `gear-label ${key}`, textContent: label }));
       }
     }
     this.#detailEl!.appendChild(gearSection);

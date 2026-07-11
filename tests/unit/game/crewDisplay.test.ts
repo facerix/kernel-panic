@@ -1,42 +1,43 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { gearLines, statDisplays } from '../../../src/game/crewDisplay.js';
+import { gearLabels, statDisplays } from '../../../src/game/crewDisplay.js';
 import { Merc } from '../../../src/game/archetypes/Merc.js';
 import { Razor } from '../../../src/game/archetypes/Razor.js';
 import { ITEM_ID } from '../../../src/game/items.js';
 
 // ---------------------------------------------------------------------------
-// gearLines — roster gear readout. Every applyGear channel must surface a line
-// so an operative's loadout is visible on the crew roster (P3.M6 gear bug).
+// gearLabels — roster gear readout. Every applyGear channel must surface an
+// entry so an operative's loadout is visible on the crew roster.
 // ---------------------------------------------------------------------------
 
-test('gearLines returns [] for null/empty gear', () => {
-  assert.deepEqual(gearLines(null), []);
+test('gearLabels returns {} for null/empty gear', () => {
+  assert.deepEqual(gearLabels(null), {});
   assert.deepEqual(
-    gearLines({ maxHpBonus: 0, hitBonus: 0, dodgeBonus: 0, rangedDamageBonus: 0 }),
-    []
+    gearLabels({ maxHpBonus: 0, hitBonus: 0, dodgeBonus: 0, rangedDamageBonus: 0 }),
+    {}
   );
 });
 
-test('gearLines surfaces the four pre-M6 channels', () => {
-  const lines = gearLines({
+test('gearLabels surfaces the four pre-M6 channels', () => {
+  const labels = gearLabels({
     maxHpBonus: 2,
     hitBonus: 0.1,
     dodgeBonus: 0.1,
     rangedDamageBonus: 1,
   });
+  const { maxHpBonus: hp, hitBonus: hit, dodgeBonus: dodge, rangedDamageBonus: shot } = labels;
   assert.ok(
-    lines.some(l => l.includes('Armor Plating') && l.includes('+2 HP')),
-    `expected Armor Plating line, got ${JSON.stringify(lines)}`
+    hp.includes('Armor Plating') && hp.includes('+2 HP'),
+    `expected Armor Plating line, got ${JSON.stringify(labels)}`
   );
-  assert.ok(lines.some(l => l.includes('Targeting Chip') && l.includes('10%')));
-  assert.ok(lines.some(l => l.includes('Reflex Weave') && l.includes('10%')));
-  assert.ok(lines.some(l => l.includes('Ballistics Coil') && l.includes('+1')));
+  assert.ok(shot.includes('Ballistics Coil') && shot.includes('+1'));
+  assert.ok(dodge.includes('Reflex Weave') && dodge.includes('10%'));
+  assert.ok(hit.includes('Targeting Chip') && hit.includes('10%'));
 });
 
-test('gearLines surfaces the five P3.M6.2 channels', () => {
-  const lines = gearLines({
+test('gearLabels surfaces the five P3.M6.2 channels', () => {
+  const labels = gearLabels({
     maxHpBonus: 0,
     hitBonus: 0,
     dodgeBonus: 0,
@@ -47,14 +48,18 @@ test('gearLines surfaces the five P3.M6.2 channels', () => {
     shieldRegen: 1,
     hpRegen: 1,
   });
-  assert.ok(
-    lines.some(l => l.includes('Monoblade')),
-    `missing Monoblade in ${JSON.stringify(lines)}`
-  );
-  assert.ok(lines.some(l => l.includes('Subdermal Plating')));
-  assert.ok(lines.some(l => l.includes('Reflex Booster')));
-  assert.ok(lines.some(l => l.includes('Phase Shield')));
-  assert.ok(lines.some(l => l.includes('Regen Mesh')));
+  const {
+    meleeDamageBonus: mb,
+    armorBonus: sp,
+    apBonus: rb,
+    shieldRegen: ps,
+    hpRegen: rm,
+  } = labels;
+  assert.ok(mb.includes('Monoblade'), `missing Monoblade in ${JSON.stringify(labels)}`);
+  assert.ok(sp.includes('Subdermal Plating'));
+  assert.ok(rb.includes('Reflex Booster'));
+  assert.ok(ps.includes('Phase Shield'));
+  assert.ok(rm.includes('Regen Mesh'));
 });
 
 test('every applyGear item yields at least one roster line', () => {
@@ -73,7 +78,10 @@ test('every applyGear item yields at least one roster line', () => {
   ]) {
     const crew = new Merc({ id: 'merc', x: 0, y: 0 });
     crew.applyGear(itemId);
-    assert.ok(gearLines(crew.gear).length >= 1, `applyGear(${itemId}) produced no roster line`);
+    assert.ok(
+      Object.keys(gearLabels(crew.gear)).length >= 1,
+      `applyGear(${itemId}) produced no roster line`
+    );
   }
 });
 

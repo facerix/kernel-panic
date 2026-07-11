@@ -167,6 +167,7 @@ const CacheConfig = {
       '/icons/icon512_maskable.png',
       '/icons/icon512_rounded.png',
       '/images/back.png',
+      '/images/gear.png',
       '/images/charge.png',
       '/images/molotov.png',
       '/images/smoke.png',

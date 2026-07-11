@@ -5,7 +5,7 @@
  * and every {@link Crew.applyGear} channel has a single, audited place to
  * surface.
  *
- * `gearLines` names the equipment (what the player bought from Finn);
+ * `gearLabels` names the equipment (what the player bought from Finn);
  * `statDisplays` maps each combat stat to its resulting display value (with any
  * gear contribution already folded in). The two are complementary: GEAR is the
  * loadout, STATS is the effect.
@@ -73,27 +73,29 @@ export function statDisplays(stats: StatReadout): Record<string, string> {
 }
 
 /**
- * Format the active gear bonuses on `gear` as display lines. A channel only
+ * Format the active gear bonuses on `gear`, keyed by the gear ID. A channel only
  * appears when its bonus is positive, so a fresh operator (or one that maxed a
- * stat at 0) shows nothing for it. Returns `[]` for null/absent gear.
+ * stat at 0) shows nothing for it. Returns `{}` for null/absent gear.
  *
- * Every branch here must mirror a case in {@link Crew.applyGear}; a purchase
- * that lands a bonus with no line is the bug this module exists to prevent
- * (P3.M6 gear was invisible on the roster).
+ * Every branch here must mirror a case in {Crew.applyGear}; a purchase
+ * that lands a bonus with no entry is the bug this module exists to prevent.
  */
-export function gearLines(gear: Gear | null | undefined): string[] {
-  if (!gear) return [];
-  const lines: string[] = [];
-  if (gear.maxHpBonus > 0) lines.push(`Armor Plating  +${gear.maxHpBonus} HP`);
-  if (gear.hitBonus > 0) lines.push(`Targeting Chip  +${pct(gear.hitBonus)}`);
-  if ((gear.dodgeBonus ?? 0) > 0) lines.push(`Reflex Weave  +${pct(gear.dodgeBonus ?? 0)}`);
+export function gearLabels(gear: Gear | null | undefined): Record<string, string> {
+  const labels: Record<string, string> = {};
+  if (!gear) return labels;
+  if (gear.maxHpBonus > 0) labels.maxHpBonus = `Armor Plating  +${gear.maxHpBonus} HP`;
+  if (gear.hitBonus > 0) labels.hitBonus = `Targeting Chip  +${pct(gear.hitBonus)} aim`;
+  if ((gear.dodgeBonus ?? 0) > 0)
+    labels.dodgeBonus = `Reflex Weave  +${pct(gear.dodgeBonus ?? 0)} dodge`;
   if ((gear.rangedDamageBonus ?? 0) > 0)
-    lines.push(`Ballistics Coil  +${gear.rangedDamageBonus} ranged dmg`);
+    labels.rangedDamageBonus = `Ballistics Coil  +${gear.rangedDamageBonus} ranged dmg`;
   if ((gear.meleeDamageBonus ?? 0) > 0)
-    lines.push(`Monoblade  +${gear.meleeDamageBonus} melee dmg`);
-  if ((gear.armorBonus ?? 0) > 0) lines.push(`Subdermal Plating  +${gear.armorBonus} armor`);
-  if ((gear.apBonus ?? 0) > 0) lines.push(`Reflex Booster  +${gear.apBonus} AP`);
-  if ((gear.shieldRegen ?? 0) > 0) lines.push(`Phase Shield  +${gear.shieldRegen} shield/turn`);
-  if ((gear.hpRegen ?? 0) > 0) lines.push(`Regen Mesh  +${gear.hpRegen} HP/turn`);
-  return lines;
+    labels.meleeDamageBonus = `Monoblade  +${gear.meleeDamageBonus} melee dmg`;
+  if ((gear.armorBonus ?? 0) > 0)
+    labels.armorBonus = `Subdermal Plating  +${gear.armorBonus} armor`;
+  if ((gear.apBonus ?? 0) > 0) labels.apBonus = `Reflex Booster  +${gear.apBonus} AP`;
+  if ((gear.shieldRegen ?? 0) > 0)
+    labels.shieldRegen = `Phase Shield  +${gear.shieldRegen} shield/turn`;
+  if ((gear.hpRegen ?? 0) > 0) labels.hpRegen = `Regen Mesh  +${gear.hpRegen} HP/turn`;
+  return labels;
 }
