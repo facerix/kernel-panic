@@ -2,8 +2,10 @@ import type { Contract } from './Curator.js';
 import type { Campaign } from '../Campaign.js';
 import type { HubReveals } from './hubReveals.js';
 import {
+  ARC_ACT_3_MIN_PRINCIPAL_SITES_VISITED,
   CLOCK_ACT2_DEADLINE_JOBS,
   CLOCK_ACT2_GRACE_JOBS,
+  casedPrincipalSiteCount,
   clockDeadlineApplies,
 } from '../Campaign.js';
 import type { CampaignArcStage, LocationSite } from '../../types.js';
@@ -65,6 +67,12 @@ export function formatHubArcStatusLines(campaign: ArcSurfaceCampaign): HubArcSta
       throw new Error('arcSurface: score revealed without a Score target site');
     }
     parts.push(`SCORE: ${scoreTargetDisplayName(target)}`);
+    // Casing is the sole gate out of Stage 2 — surface its progress so the
+    // player can see how many Score-org sites are left to case.
+    if (campaign.arc.arcStage === 'act-2' && target.principal?.id) {
+      const cased = casedPrincipalSiteCount(campaign.siteRoster, target.principal.id);
+      parts.push(`CASED ${cased}/${ARC_ACT_3_MIN_PRINCIPAL_SITES_VISITED}`);
+    }
   }
   return [parts.join(' | '), formatClockStatus(campaign)];
 }
@@ -157,7 +165,7 @@ export function isScorePrincipalContract(
  * `known` styling).
  */
 export interface ContractLocationBadge {
-  variant: 'score-site' | 'casing' | 'revisit';
+  variant: 'score-site' | 'casing' | 'revisit' | 'keycard';
   text: string;
 }
 
@@ -179,7 +187,8 @@ export interface ContractLocationBadge {
 export function contractLocationBadges(
   contract: Contract,
   scoreTargetSiteId: string | null | undefined,
-  scorePrincipalId: string | null | undefined
+  scorePrincipalId: string | null | undefined,
+  heldKeycardPrincipalIds: ReadonlySet<string> = new Set()
 ): ContractLocationBadge[] {
   const badges: ContractLocationBadge[] = [];
   const scoreSite = isScoreSiteContract(contract, scoreTargetSiteId);
@@ -190,6 +199,13 @@ export function contractLocationBadges(
   }
   if (contract.context.locationSiteId && !scoreSite) {
     badges.push({ variant: 'revisit', text: '// known site' });
+  }
+  // A held keycard means we hold this owner's access card (P3.1-balance) — it
+  // opens the locked door at every site they control, so surface it whenever the
+  // job targets a principal we already carry a card for.
+  const principalId = contract.context.principal?.id;
+  if (!scoreSite && principalId && heldKeycardPrincipalIds.has(principalId)) {
+    badges.push({ variant: 'keycard', text: '// keycard held' });
   }
   return badges;
 }

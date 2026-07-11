@@ -10,6 +10,14 @@ import type { AimKind, Mode } from '../input/keymap.js';
 
 export type HelpScope = 'hub' | 'combat';
 
+/**
+ * A key item enriched for display with its resolved location name
+ * (`${principal} ${site}`). The name is derived from the campaign roster at
+ * render time — not persisted on the `KeyItem` — and is absent for legacy
+ * untokenized sites.
+ */
+export type KeyItemView = KeyItem & { locationName?: string };
+
 export type ModalElement = HTMLElement & {
   show(): void;
   hide(): void;
@@ -27,6 +35,7 @@ export type ContractSelectElement = ModalElement & {
   setContracts(contracts: Contract[]): void;
   setScoreTargetSiteId(siteId: string | null): void;
   setScorePrincipalId(principalId: string | null): void;
+  setHeldKeycardPrincipalIds(principalIds: string[]): void;
 };
 
 export type CrashDumpElement = ModalElement & {
@@ -88,13 +97,18 @@ export type ClinicModalElement = ModalElement & {
   setPatients(crew: Crew[], balances: { credits: number; healedMemberIds?: string[] }): void;
 };
 
-export type ItemInventoryElement = ModalElement & {
+/** `<combat-inventory>` — the deployed operator's interactive kit. */
+export type CombatInventoryElement = ModalElement & {
   setContents(contents: {
     salvage?: TypedSalvage;
     consumables?: NonNullable<Crew['inventory']>['consumables'];
-    keyItems?: KeyItem[];
+    keyItems?: KeyItemView[];
   }): void;
-  setItems(consumables: NonNullable<Crew['inventory']>['consumables']): void;
+};
+
+/** `<crew-inventory>` — the Hub's read-only campaign stash. */
+export type CrewInventoryElement = ModalElement & {
+  setContents(contents: { salvage?: TypedSalvage; keyItems?: KeyItemView[] }): void;
 };
 
 export type KeyHelpElement = ModalElement & {
@@ -106,6 +120,7 @@ export type TouchPadElement = HTMLElement & {
   aimKind: AimKind | null;
   setMode(mode: Mode, aimKind?: AimKind | null): void;
   setBlocked(predicate: (() => boolean) | null): void;
+  setFlipAvailable(available: boolean): void;
 };
 
 export type ConfirmationModalElement = HTMLElement & {

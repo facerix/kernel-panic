@@ -61,6 +61,8 @@ test('Score completion summary uses post-settlement jobs, Rep, and Credits', () 
       validSite(),
       validSite({ id: 'case-1', tier: 'roster', scoreTarget: false, seed: '101' }),
       validSite({ id: 'case-2', tier: 'roster', scoreTarget: false, seed: '102' }),
+      validSite({ id: 'case-3', tier: 'roster', scoreTarget: false, seed: '103' }),
+      validSite({ id: 'case-4', tier: 'roster', scoreTarget: false, seed: '104' }),
     ],
   });
   const decker = campaign.crew.find(member => member.archetype === 'Decker');

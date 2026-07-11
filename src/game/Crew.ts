@@ -375,6 +375,48 @@ export class Crew extends Entity {
   }
 
   /**
+   * Whether this operator has already saturated a campaign-scoped gear item —
+   * i.e. re-applying it would be a stat no-op (`applyGear` clamps every channel
+   * with `Math.min`). This is the guardrail source of truth shared by
+   * `Campaign.purchase` (which refuses the sale rather than silently pocketing
+   * Creds) and the shop UI (which greys out an already-equipped operator).
+   *
+   * Every net-new P3.M6.2 item is limit-1 (`bonus === cap`), so one purchase
+   * saturates it; the older stacking gear (Targeting Chip, Reflex Weave) reports
+   * saturated only once fully stacked to its per-archetype cap. Armour Plating is
+   * unbounded (no cap) and therefore never saturates — it stays re-purchasable.
+   *
+   * Throws on a non-gear id: only CAMPAIGN-scope items reach here, and a typo
+   * should crash rather than silently report "not at cap" (which would let a
+   * broken caller waste Creds).
+   */
+  gearAtCap(itemId: string): boolean {
+    const g = this.gear;
+    switch (itemId) {
+      case ITEM_ID.ARMOUR_PLATING:
+        return false; // unbounded (+1 maxHp per purchase) — never saturates
+      case ITEM_ID.TARGETING_CHIP:
+        return (g?.hitBonus ?? 0) >= this.maxHitBonus;
+      case ITEM_ID.REFLEX_WEAVE:
+        return (g?.dodgeBonus ?? 0) >= this.maxDodgeBonus;
+      case ITEM_ID.BALLISTICS_COIL:
+        return (g?.rangedDamageBonus ?? 0) >= this.maxRangedDamageBonus;
+      case ITEM_ID.MONOBLADE:
+        return (g?.meleeDamageBonus ?? 0) >= this.maxMeleeDamageBonus;
+      case ITEM_ID.SUBDERMAL_PLATING:
+        return (g?.armorBonus ?? 0) >= this.maxArmorBonus;
+      case ITEM_ID.REFLEX_BOOSTER:
+        return (g?.apBonus ?? 0) >= this.maxApBonus;
+      case ITEM_ID.PHASE_SHIELD:
+        return (g?.shieldRegen ?? 0) >= this.maxShieldRegen;
+      case ITEM_ID.REGEN_MESH:
+        return (g?.hpRegen ?? 0) >= this.maxHpRegen;
+      default:
+        throw new Error(`Crew.gearAtCap: unknown gear item "${itemId}"`);
+    }
+  }
+
+  /**
    * Refresh AP at the start of this crew member's turn, then apply per-turn
    * gear regen (P3.M6.2). `super.refreshAp` (Entity) zeroes `shieldHp`, so the
    * Phase Shield re-grant here tops the buffer back to `shieldRegen` each turn

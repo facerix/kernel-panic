@@ -31,9 +31,12 @@ type CrewMemberSnapshot = {
   hp: number;
   maxHp: number;
   flatlined: boolean;
-  atMaxHit: boolean;
-  atMaxDodge: boolean;
-  atMaxRangedDamage: boolean;
+  /**
+   * Ids of the campaign gear this operator has already saturated (limit-1 gear
+   * they own, or stacking gear at its cap). Sourced from `Crew.gearAtCap` so the
+   * shop greys out the same purchases `Campaign.purchase` would refuse.
+   */
+  saturatedGearIds: string[];
 };
 
 const SALVAGE_TYPE_LABELS: Record<SalvageType, string> = {
@@ -362,6 +365,11 @@ const ITEM_CAP_LABELS: Record<string, string> = {
   [ITEM_ID.TARGETING_CHIP]: 'MAX HIT',
   [ITEM_ID.BALLISTICS_COIL]: 'MAX RANGED DMG',
   [ITEM_ID.REFLEX_WEAVE]: 'MAX DODGE',
+  [ITEM_ID.MONOBLADE]: 'EQUIPPED',
+  [ITEM_ID.SUBDERMAL_PLATING]: 'EQUIPPED',
+  [ITEM_ID.REFLEX_BOOSTER]: 'EQUIPPED',
+  [ITEM_ID.PHASE_SHIELD]: 'EQUIPPED',
+  [ITEM_ID.REGEN_MESH]: 'EQUIPPED',
 };
 
 const SCOPE_ORDER = [ITEM_SCOPE.JOB, ITEM_SCOPE.CAMPAIGN];
@@ -439,6 +447,7 @@ class FinnShop extends HTMLElement {
     balances: { credits: number; salvage: TypedSalvage }
   ) {
     this.#catalog = catalog;
+    const gearIds = catalog.filter(item => item.scope === ITEM_SCOPE.CAMPAIGN).map(item => item.id);
     this.#crew = crew.map(member => ({
       id: member.id,
       callsign: member.callsign ?? member.id,
@@ -446,9 +455,7 @@ class FinnShop extends HTMLElement {
       hp: member.hp,
       maxHp: member.maxHp,
       flatlined: !!member.flatlined,
-      atMaxHit: (member.gear?.hitBonus ?? 0) >= member.maxHitBonus,
-      atMaxDodge: (member.gear?.dodgeBonus ?? 0) >= member.maxDodgeBonus,
-      atMaxRangedDamage: (member.gear?.rangedDamageBonus ?? 0) >= member.maxRangedDamageBonus,
+      saturatedGearIds: gearIds.filter(id => member.gearAtCap(id)),
     }));
     this.#credits = balances.credits ?? 0;
     this.#salvage = balances.salvage ?? emptySalvage();
@@ -624,16 +631,10 @@ class FinnShop extends HTMLElement {
       this.#crew.findIndex(member => !this.#isTargetDisabled(member))
     );
 
-    const isTargetingChip = item.id === ITEM_ID.TARGETING_CHIP;
-    const isReflexWeave = item.id === ITEM_ID.REFLEX_WEAVE;
-    const isBallisticsCoil = item.id === ITEM_ID.BALLISTICS_COIL;
     const rows = h('div', { className: 'rows' });
     for (let i = 0; i < this.#crew.length; i++) {
       const member = this.#crew[i];
-      const atCap =
-        (isTargetingChip && member.atMaxHit) ||
-        (isReflexWeave && member.atMaxDodge) ||
-        (isBallisticsCoil && member.atMaxRangedDamage);
+      const atCap = member.saturatedGearIds.includes(item.id);
       const disabled = this.#isTargetDisabled(member);
       const btn = h('button', {
         type: 'button',
@@ -795,16 +796,7 @@ class FinnShop extends HTMLElement {
 
   #isTargetDisabled(member: CrewMemberSnapshot) {
     if (member.flatlined || !this.#pendingItem) return true;
-    switch (this.#pendingItem.id) {
-      case ITEM_ID.TARGETING_CHIP:
-        return member.atMaxHit;
-      case ITEM_ID.REFLEX_WEAVE:
-        return member.atMaxDodge;
-      case ITEM_ID.BALLISTICS_COIL:
-        return member.atMaxRangedDamage;
-      default:
-        return false;
-    }
+    return member.saturatedGearIds.includes(this.#pendingItem.id);
   }
 
   #syncCurrent() {

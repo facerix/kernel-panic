@@ -20,6 +20,7 @@ import {
   restoreCampaign,
 } from '../../../src/game/persistence.js';
 import { buildCrewMember } from '../../../src/game/archetypes/index.js';
+import { explorationReachableKeys, coordKey } from '../../../src/game/mapConnectivity.js';
 import { SCOREABLE_ITEMS, SCOREABLE_ITEM_IDS } from '../../../src/game/items.js';
 import { CONTRACT_DIFFICULTY } from '../../../src/game/constants.js';
 import { OBJECTIVES } from '../../../src/game/hub/Curator.js';
@@ -32,11 +33,11 @@ import type { LocationSite } from '../../../src/types.js';
 
 const SCORE_DOOR_ID = 'score-door-0';
 
-function scoreContract(seed = 100): Contract {
+function scoreContract(seed = 100, mapWidth = 28, mapHeight = 18): Contract {
   return {
     seed,
-    mapWidth: 28,
-    mapHeight: 18,
+    mapWidth,
+    mapHeight,
     objective: {
       kind: OBJECTIVES.SCORE_FINAL,
       title: 'The Score',
@@ -79,11 +80,32 @@ function adjacentFreeTile(world: World, target: Entity) {
   throw new Error(`no free tile adjacent to ${target.id}`);
 }
 
-function scoreRun(seed = 100): Run {
+function scoreRun(seed = 100, mapWidth = 28, mapHeight = 18): Run {
   const run = new Run({ crewMember: makeDecker(), partnerMember: makeMerc(), seed });
-  run.enterBriefing(scoreContract(seed));
+  run.enterBriefing(scoreContract(seed, mapWidth, mapHeight));
   run.enterCombat();
   return run;
+}
+
+/**
+ * The Score door is unlocked only by jacking in and slicing the cyber core, so
+ * the jack-in point MUST sit on the spawn side of the locked door. We isolate
+ * exactly that failure: flood the grid from spawn treating ONLY `score-door-0`
+ * as a wall (`respectEntityBlockers: false` so transient mobs and unrelated
+ * doors don't muddy the verdict). If the jack-in tile is unreachable, the run is
+ * sealed by the very door the jack-in is supposed to open.
+ */
+function jackInReachableWithDoorLocked(run: Run): boolean {
+  const door = scoreDoor(run);
+  assert.equal(door.locked, true, 'invariant only meaningful while the door is locked');
+  const point = [...run.world!.entities.values()].find(e => e instanceof JackInPoint);
+  assert.ok(point, 'Score placed a jack-in point');
+  const spawn = { x: run.player!.x, y: run.player!.y };
+  const reachable = explorationReachableKeys(run.world!, spawn, {
+    respectEntityBlockers: false,
+    extraBlockers: new Set([coordKey(door.x, door.y)]),
+  });
+  return reachable.has(coordKey(point.x, point.y));
 }
 
 function jackIn(run: Run): CyberspaceLayer {
@@ -159,6 +181,75 @@ test('Score run places linked Meatspace and Cyberspace objectives', () => {
   assert.equal([...layer.world.entities.values()].filter(e => e instanceof DataNode).length, 1);
 });
 
+test('Score jack-in point is reachable from spawn with the score door locked (regression: dead seed 1277998342)', () => {
+  // Reproduces a shipped soft-lock: the jack-in point — the only way to unlock
+  // score-door-0 — generated *behind* that door, sealing the run. 32x20 map.
+  const run = scoreRun(1277998342, 32, 20);
+  assert.ok(
+    jackInReachableWithDoorLocked(run),
+    'jack-in must be reachable before the door it unlocks is opened'
+  );
+});
+
+test('Score jack-in point is always spawn-side reachable across a seed sweep', () => {
+  for (let seed = 1; seed <= 40; seed++) {
+    const run = scoreRun(seed);
+    assert.ok(
+      jackInReachableWithDoorLocked(run),
+      `seed ${seed}: jack-in unreachable with score door locked (soft-lock)`
+    );
+  }
+});
+
+test('Run.onCombatEntered fires once after a successful enterCombat, never on failure', () => {
+  let ok = 0;
+  const good = new Run({
+    crewMember: makeDecker(),
+    partnerMember: makeMerc(),
+    seed: 100,
+    onCombatEntered: () => ok++,
+  });
+  good.enterBriefing(scoreContract(100));
+  good.enterCombat();
+  assert.equal(ok, 1, 'hook fires exactly once when the run becomes playable');
+
+  let bad = 0;
+  const doomed = new Run({
+    crewMember: makeDecker(),
+    partnerMember: makeMerc(),
+    seed: 100,
+    onCombatEntered: () => bad++,
+  });
+  doomed.enterBriefing(scoreContract(100, 8, 8)); // valid dims, but no door-gated layout fits
+  assert.throws(() => doomed.enterCombat());
+  assert.equal(bad, 0, 'a generation failure must not fire the combat-entered hook');
+});
+
+test('a Score map that fails to generate does not consume the (terminal) attempt', () => {
+  const campaign = new Campaign({
+    seed: 42,
+    rep: 65,
+    completedJobs: 9,
+    siteRoster: [
+      scoreSite({ mapWidth: 8, mapHeight: 8 }), // valid but un-buildable door-gated map
+      scoreSite({ id: 'case-1', tier: 'roster', scoreTarget: false, seed: '101' }),
+      scoreSite({ id: 'case-2', tier: 'roster', scoreTarget: false, seed: '102' }),
+      scoreSite({ id: 'case-3', tier: 'roster', scoreTarget: false, seed: '103' }),
+      scoreSite({ id: 'case-4', tier: 'roster', scoreTarget: false, seed: '104' }),
+    ],
+  });
+  const decker = campaign.crew.find(m => m.archetype === 'Decker')!;
+  const partner = campaign.crew.find(m => m.archetype !== 'Decker')!;
+  const run = campaign.deployCrewMember(decker.id, campaign.buildScoreContract(), partner.id);
+  assert.equal(campaign.arc.scoreAttempted, false, 'deploy alone never commits the Score');
+
+  assert.throws(() => run.enterCombat(), 'a 3x3 Score map cannot be generated');
+  // The terminal flag stayed clear — the campaign can redeploy instead of being
+  // stranded in score-partial by a generation failure.
+  assert.equal(campaign.arc.scoreAttempted, false);
+  assert.equal(campaign.arcStage, 'act-3');
+});
+
 test('slicing the Score core unlocks the linked Meatspace door', () => {
   const run = scoreRun();
   const door = scoreDoor(run);
@@ -232,6 +323,8 @@ test('Campaign records partial Score as terminal without full reward', () => {
       scoreSite(),
       scoreSite({ id: 'case-1', tier: 'roster', scoreTarget: false, seed: '101' }),
       scoreSite({ id: 'case-2', tier: 'roster', scoreTarget: false, seed: '102' }),
+      scoreSite({ id: 'case-3', tier: 'roster', scoreTarget: false, seed: '103' }),
+      scoreSite({ id: 'case-4', tier: 'roster', scoreTarget: false, seed: '104' }),
     ],
   });
   const decker = campaign.crew.find(member => member.archetype === 'Decker')!;
@@ -259,6 +352,8 @@ function scoreReadyCampaign() {
       scoreSite(),
       scoreSite({ id: 'case-1', tier: 'roster', scoreTarget: false, seed: '101' }),
       scoreSite({ id: 'case-2', tier: 'roster', scoreTarget: false, seed: '102' }),
+      scoreSite({ id: 'case-3', tier: 'roster', scoreTarget: false, seed: '103' }),
+      scoreSite({ id: 'case-4', tier: 'roster', scoreTarget: false, seed: '104' }),
     ],
   });
   assert.ok(campaign.canAttemptScore(), 'fixture should be Score-ready');
@@ -344,6 +439,8 @@ test('different Score seeds can draw different abstract categories', () => {
         scoreSite({ seed: String(seed) }),
         scoreSite({ id: 'case-1', tier: 'roster', scoreTarget: false, seed: `${seed}01` }),
         scoreSite({ id: 'case-2', tier: 'roster', scoreTarget: false, seed: `${seed}02` }),
+        scoreSite({ id: 'case-3', tier: 'roster', scoreTarget: false, seed: `${seed}03` }),
+        scoreSite({ id: 'case-4', tier: 'roster', scoreTarget: false, seed: `${seed}04` }),
       ],
     });
     const briefing = campaign.buildScoreContract(SCOREABLE_ITEMS.map(i => i.id)).objective.briefing;

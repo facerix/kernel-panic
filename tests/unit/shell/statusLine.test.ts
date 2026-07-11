@@ -60,6 +60,7 @@ test('formatStatusLine renders combat a11y summary and alert tag', () => {
       hp: { hp: 3, maxHp: 3 },
       ap: { ap: 4, maxAp: 4 },
       turn: { currentFaction: FACTION.PLAYER, turnNumber: 1 },
+      cyber: false,
     },
     contextHtml: joinStatusParts([formatAlertTag({ phase: 'alert', holdTurnsRemaining: 2 })]),
     actionHistory: [],

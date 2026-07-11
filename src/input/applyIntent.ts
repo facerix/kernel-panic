@@ -131,7 +131,7 @@ export type ApplyIntentContext = {
     id: string;
     doorId: string;
     label: string;
-    siteId: string | null;
+    principalId: string | null;
   }) => void;
   /**
    * Merged key-item inventory — campaign + run-scoped (P2.5.M6.2). Passed
@@ -339,9 +339,9 @@ function collectTileLoot(ctx: ApplyIntentContext) {
     world.removeEntity(consumablePickup.id);
     log(`> ${entityLabel(player)} picks up ${consumablePickup.label}.`);
   }
-  // Walk-onto keycard collection (P2.5.M6.2). siteId determines scope:
-  //   - siteId set → campaign-scoped (persists across runs)
-  //   - no siteId  → run-scoped (discarded on run end)
+  // Walk-onto keycard collection (P2.5.M6.2). principalId determines scope:
+  //   - principalId set → campaign-scoped (persists across runs)
+  //   - no principalId  → run-scoped (discarded on run end)
   const keycard = player.alive ? world.keycardAt(player.x, player.y) : null;
   if (keycard) {
     world.removeEntity(keycard.id);
@@ -349,7 +349,7 @@ function collectTileLoot(ctx: ApplyIntentContext) {
       id: keycard.id,
       doorId: keycard.doorId,
       label: keycard.label,
-      siteId: keycard.siteId,
+      principalId: keycard.principalId,
     });
     log(`> ${entityLabel(player)} picks up ${keycard.label}.`);
   }

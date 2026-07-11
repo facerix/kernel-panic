@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  ARC_ACT_3_MIN_PRINCIPAL_SITES_VISITED,
   Campaign,
   CAMPAIGN_STATE,
   CLOCK_ACT2_DEADLINE_JOBS,
@@ -511,6 +512,48 @@ test('purchase applies reflex weave gear bonus', () => {
   assert.equal(member.gear.dodgeBonus, 0.1);
 });
 
+test('purchase refuses limit-1 gear the target already has equipped, without charging', () => {
+  // Reflex Booster is limit-1 ("One per operator"): a second sale would silently
+  // clamp to a no-op in applyGear while still pocketing the Creds. Guard it.
+  const campaign = new Campaign({ seed: 42, credits: SHOP_COST.REFLEX_BOOSTER * 2 });
+  const member = campaign.crew[0];
+  campaign.purchase({ itemId: 'reflex-booster', targetMemberId: member.id });
+  const creditsAfterFirst = campaign.credits;
+  const maxApAfterFirst = member.maxAp;
+  assert.throws(
+    () => campaign.purchase({ itemId: 'reflex-booster', targetMemberId: member.id }),
+    /at capacity/i
+  );
+  assert.equal(campaign.credits, creditsAfterFirst, 'no Creds deducted on the refused sale');
+  assert.equal(member.maxAp, maxApAfterFirst, 'stat unchanged by the refused sale');
+});
+
+test('purchase refuses every net-new limit-1 gear item once equipped', () => {
+  for (const itemId of ['monoblade', 'subdermal-plating', 'phase-shield', 'regen-mesh'] as const) {
+    const cost = SHOP_COST[itemId.toUpperCase().replace(/-/g, '_') as keyof typeof SHOP_COST];
+    const campaign = new Campaign({ seed: 42, credits: cost * 2 });
+    const member = campaign.crew[0];
+    campaign.purchase({ itemId, targetMemberId: member.id });
+    assert.throws(
+      () => campaign.purchase({ itemId, targetMemberId: member.id }),
+      /at capacity/i,
+      `${itemId} should be refused once equipped`
+    );
+    assert.equal(campaign.credits, cost, `${itemId} refusal must not deduct Creds`);
+  }
+});
+
+test('purchase still allows re-buying unbounded Armour Plating (not limit-1)', () => {
+  // Armour Plating has no cap (+1 maxHp each time), so it must stay re-purchasable.
+  const campaign = new Campaign({ seed: 42, credits: SHOP_COST.ARMOUR_PLATING * 2 });
+  const member = campaign.crew[0];
+  const origMaxHp = member.maxHp;
+  campaign.purchase({ itemId: 'armour-plating', targetMemberId: member.id });
+  campaign.purchase({ itemId: 'armour-plating', targetMemberId: member.id });
+  assert.equal(member.maxHp, origMaxHp + 2, 'second Armour Plating stacks');
+  assert.equal(campaign.credits, 0, 'both Armour Platings charged');
+});
+
 // meta upgrades (expanded-catalog, better-contracts) removed — Rep
 // tiers replace them. Tests for those items removed here.
 
@@ -825,114 +868,95 @@ test('P3.M1.2: abort extraction does not count as a completed arc job', () => {
   assert.equal(campaign.arc.scoreRevealed, false);
 });
 
-test('P3.M1.2: Act 2 gates — each Act 3 condition checked independently', () => {
-  // Act 3 requires: completedJobs >= 9, 4 living crew, and 3 visited same-principal sites.
-  // Default test crew: buildCrew() trio + auto-Decker = 4 living.
-  const scorePrincipal = { id: 'matsuda', label: 'Matsuda', groups: ['corp'] };
+const SCORE_PRINCIPAL = { id: 'matsuda', label: 'Matsuda', groups: ['corp'] };
 
-  // Gate: not enough jobs (crew and sites satisfied by default)
-  const tooFewJobs = new Campaign({
-    seed: 44,
-    rep: 65,
-    completedJobs: 8,
-    siteRoster: [
-      validSite({
-        id: 'score',
-        seed: '100',
-        tier: 'score',
-        scoreTarget: true,
-        lastVisitedJob: 5,
-        principal: scorePrincipal,
-      }),
-      validSite({ id: 'case-1', seed: '101', lastVisitedJob: 6, principal: scorePrincipal }),
-      validSite({ id: 'case-2', seed: '102', lastVisitedJob: 7, principal: scorePrincipal }),
-    ],
+/** Synthesized Score target as it exists in real play: never visited pre-heist. */
+function scoreTargetSite(): LocationSite {
+  return validSite({
+    id: 'score',
+    seed: '100',
+    tier: 'score',
+    scoreTarget: true,
+    lastVisitedJob: 0,
+    principal: SCORE_PRINCIPAL,
   });
-  assert.equal(tooFewJobs.arcStage, 'act-2', 'blocks on job count');
+}
 
-  // Gate: not enough living crew (need 4 non-flatlined).
-  // Start in Act 1 (low rep), flatline a member, then cross the Act 2 threshold
-  // so the Act 3 check sees only 3 living crew.
-  const attrition = new Campaign({
-    seed: 45,
-    rep: 20,
-    completedJobs: 9,
-    siteRoster: [
-      validSite({
-        id: 'score',
-        seed: '100',
-        tier: 'score',
-        scoreTarget: true,
-        lastVisitedJob: 5,
-        principal: scorePrincipal,
-      }),
-      validSite({ id: 'case-1', seed: '101', lastVisitedJob: 6, principal: scorePrincipal }),
-      validSite({ id: 'case-2', seed: '102', lastVisitedJob: 7, principal: scorePrincipal }),
-    ],
-  });
-  assert.equal(attrition.arcStage, 'act-1', 'starts in Act 1 with low rep');
-  attrition.crew[0].flatlined = true;
-  attrition.rep = 65;
-  attrition.enterHub();
-  assert.equal(attrition.crew.length, 4, 'buildCrew trio + auto-Decker');
-  assert.equal(attrition.crew.filter(m => !m.flatlined).length, 3, 'only 3 living');
-  assert.equal(attrition.arcStage, 'act-2', 'blocks on living crew count');
+/** `n` distinct visited sites belonging to the Score org (the casing payoff). */
+function casedSites(n: number): LocationSite[] {
+  return Array.from({ length: n }, (_, i) =>
+    validSite({
+      id: `case-${i}`,
+      seed: `${101 + i}`,
+      lastVisitedJob: 6 + i,
+      principal: SCORE_PRINCIPAL,
+    })
+  );
+}
 
-  // Gate: not enough same-principal visited sites (2 of 3 required)
-  const tooCasual = new Campaign({
+test('P3.M1.2: casing is the sole Act 3 gate — cased-site count drives the transition', () => {
+  // One fewer than required stays in Stage 2, and casingProgress reflects it.
+  const underCased = new Campaign({
     seed: 46,
     rep: 65,
-    completedJobs: 9,
-    siteRoster: [
-      validSite({
-        id: 'score',
-        seed: '100',
-        tier: 'score',
-        scoreTarget: true,
-        lastVisitedJob: 5,
-        principal: scorePrincipal,
-      }),
-      validSite({ id: 'case-1', seed: '101', lastVisitedJob: 6, principal: scorePrincipal }),
-      // Only 2 visited sites for this principal — need 3
-    ],
+    completedJobs: 4,
+    siteRoster: [scoreTargetSite(), ...casedSites(ARC_ACT_3_MIN_PRINCIPAL_SITES_VISITED - 1)],
   });
-  assert.equal(tooCasual.arcStage, 'act-2', 'blocks on principal site visits');
-
-  // Gate: score target never visited (synthesized, lastVisitedJob: 0)
-  const noTargetVisit = new Campaign({
-    seed: 47,
-    rep: 65,
-    completedJobs: 9,
+  assert.equal(underCased.arcStage, 'act-2', 'blocks below the casing threshold');
+  assert.deepEqual(underCased.casingProgress(), {
+    cased: ARC_ACT_3_MIN_PRINCIPAL_SITES_VISITED - 1,
+    required: ARC_ACT_3_MIN_PRINCIPAL_SITES_VISITED,
   });
-  const scoreTarget = noTargetVisit.siteRoster.find(s => s.scoreTarget);
-  assert.ok(scoreTarget);
-  assert.equal(scoreTarget!.lastVisitedJob, 0, 'synthesized target starts unvisited');
-  assert.equal(noTargetVisit.arcStage, 'act-2', 'blocks when score target unvisited');
-});
 
-test('P3.M1.2: Act 2 advances to Act 3 with 4 living crew and 3 visited same-principal sites', () => {
-  const scorePrincipal = { id: 'matsuda', label: 'Matsuda', groups: ['corp'] };
-  const campaign = new Campaign({
+  // The synthesized Score target is never visited, so it never counts toward
+  // its own casing gate.
+  assert.equal(
+    underCased.siteRoster.find(s => s.scoreTarget)!.lastVisitedJob,
+    0,
+    'score target stays unvisited'
+  );
+
+  // Hitting the threshold advances regardless of total job count.
+  const cased = new Campaign({
     seed: 42,
     rep: 65,
-    completedJobs: 9,
-    siteRoster: [
-      validSite({
-        id: 'score',
-        seed: '100',
-        tier: 'score',
-        scoreTarget: true,
-        lastVisitedJob: 5,
-        principal: scorePrincipal,
-      }),
-      validSite({ id: 'case-1', seed: '101', lastVisitedJob: 6, principal: scorePrincipal }),
-      validSite({ id: 'case-2', seed: '102', lastVisitedJob: 7, principal: scorePrincipal }),
-    ],
+    completedJobs: 4,
+    siteRoster: [scoreTargetSite(), ...casedSites(ARC_ACT_3_MIN_PRINCIPAL_SITES_VISITED)],
   });
+  assert.equal(cased.arcStage, 'act-3', 'advances on cased-site count alone');
+  assert.deepEqual(cased.casingProgress(), {
+    cased: ARC_ACT_3_MIN_PRINCIPAL_SITES_VISITED,
+    required: ARC_ACT_3_MIN_PRINCIPAL_SITES_VISITED,
+  });
+});
 
-  const living = campaign.crew.filter(m => !m.flatlined).length;
-  assert.ok(living >= 4, `need 4 living crew, have ${living}`);
-  assert.equal(campaign.arcStage, 'act-3');
+test('P3.M1.2: crew attrition no longer blocks Act 3 (living-crew gate removed)', () => {
+  // Start in Act 1 (low rep), flatline most of the crew, then cross into Act 2.
+  // Under the old gate this stalled at act-2; now casing alone decides.
+  const campaign = new Campaign({
+    seed: 45,
+    rep: 20,
+    completedJobs: 4,
+    siteRoster: [scoreTargetSite(), ...casedSites(ARC_ACT_3_MIN_PRINCIPAL_SITES_VISITED)],
+  });
+  assert.equal(campaign.arcStage, 'act-1', 'starts in Act 1 with low rep');
+
+  campaign.crew[0].flatlined = true;
+  campaign.crew[1].flatlined = true;
+  campaign.rep = 65;
+  campaign.enterHub();
+
+  assert.ok(
+    campaign.crew.filter(m => !m.flatlined).length < 4,
+    'fewer than the old 4-living-crew floor'
+  );
+  assert.equal(campaign.arcStage, 'act-3', 'casing satisfied — attrition does not block');
+});
+
+test('P3.M1.2: casingProgress is null before the Score target is designated', () => {
+  const act1 = new Campaign({ seed: 7, rep: 20, completedJobs: 0 });
+  assert.equal(act1.arcStage, 'act-1');
+  assert.equal(act1.casingProgress(), null);
 });
 
 test('P3.M2: Decker assignment is idempotent — restored save with existing Decker does not duplicate', () => {
@@ -1113,6 +1137,18 @@ test('P3.M1.5: clock loss requires Act 3 — Act 2 casing survives past the depl
         lastVisitedJob: 7,
         principal: { id: 'matsuda', label: 'Matsuda', groups: ['corp'] },
       }),
+      validSite({
+        id: 'case-3',
+        seed: '103',
+        lastVisitedJob: 8,
+        principal: { id: 'matsuda', label: 'Matsuda', groups: ['corp'] },
+      }),
+      validSite({
+        id: 'case-4',
+        seed: '104',
+        lastVisitedJob: 9,
+        principal: { id: 'matsuda', label: 'Matsuda', groups: ['corp'] },
+      }),
     ],
   });
   assert.equal(act3AtDeadline.arcStage, 'act-3');
@@ -1142,6 +1178,8 @@ test('P3.M1.5: Act 3 entry clamps an over-budget clock to guarantee Score deploy
       }),
       validSite({ id: 'case-1', seed: '101', lastVisitedJob: 6, principal: scorePrincipal }),
       validSite({ id: 'case-2', seed: '102', lastVisitedJob: 7, principal: scorePrincipal }),
+      validSite({ id: 'case-3', seed: '103', lastVisitedJob: 8, principal: scorePrincipal }),
+      validSite({ id: 'case-4', seed: '104', lastVisitedJob: 9, principal: scorePrincipal }),
     ],
   });
 
@@ -1264,6 +1302,18 @@ test('terminal result detection bypasses debrief for Score, terminal death, and 
         lastVisitedJob: 7,
         principal: { id: 'matsuda', label: 'Matsuda', groups: ['corp'] },
       }),
+      validSite({
+        id: 'case-3',
+        seed: '103',
+        lastVisitedJob: 8,
+        principal: { id: 'matsuda', label: 'Matsuda', groups: ['corp'] },
+      }),
+      validSite({
+        id: 'case-4',
+        seed: '104',
+        lastVisitedJob: 9,
+        principal: { id: 'matsuda', label: 'Matsuda', groups: ['corp'] },
+      }),
     ],
   });
   assert.equal(clockLoss.arcStage, 'act-3');
@@ -1335,7 +1385,7 @@ test('P3.M1.5: Clock deadline does not end the campaign after the Score is attem
   assert.equal(campaign.clockHeat, CLOCK_ACT2_DEADLINE_JOBS - CLOCK_ACT2_GRACE_JOBS);
 });
 
-test('P3.M1.7: Score contract is gated to Act 3 and marks attempted on deployment', () => {
+test('P3.M1.7: Score contract is gated to Act 3 and commits the attempt only at combat entry', () => {
   const scorePrincipal = { id: 'matsuda', label: 'Matsuda', groups: ['corp'] };
   const campaign = new Campaign({
     seed: 42,
@@ -1353,6 +1403,8 @@ test('P3.M1.7: Score contract is gated to Act 3 and marks attempted on deploymen
       }),
       validSite({ id: 'case-1', seed: '101', lastVisitedJob: 6, principal: scorePrincipal }),
       validSite({ id: 'case-2', seed: '102', lastVisitedJob: 7, principal: scorePrincipal }),
+      validSite({ id: 'case-3', seed: '103', lastVisitedJob: 8, principal: scorePrincipal }),
+      validSite({ id: 'case-4', seed: '104', lastVisitedJob: 9, principal: scorePrincipal }),
     ],
   });
   assert.equal(campaign.arcStage, 'act-3');
@@ -1376,9 +1428,16 @@ test('P3.M1.7: Score contract is gated to Act 3 and marks attempted on deploymen
   assert.ok(partner, 'Act 3 campaign should include a living meat partner');
   assert.throws(() => campaign.deployCrewMember(decker!.id, score), /meat partner/);
   const run = campaign.deployCrewMember(decker!.id, score, partner!.id);
-  assert.equal(campaign.arc.scoreAttempted, true);
-  assert.equal(campaign.arcStage, 'score');
+  // Defer-commit: deploying alone must NOT consume the (terminal) Score. The map
+  // is built in enterCombat, which can throw; committing earlier would strand the
+  // campaign in score-partial on a generation failure.
+  assert.equal(campaign.arc.scoreAttempted, false, 'deploy alone does not commit the Score');
+  assert.equal(campaign.arcStage, 'act-3');
   assert.equal(run.contract?.context.locationSiteId, 'score');
+  // Entering combat (map built, fixtures placed) is what commits the attempt.
+  run.enterCombat();
+  assert.equal(campaign.arc.scoreAttempted, true, 'combat entry commits the Score');
+  assert.equal(campaign.arcStage, 'score');
 });
 
 test('a flatlined pre-Score Decker creates a free Terminal replacement lead', () => {
@@ -1414,6 +1473,8 @@ test('the Score remains unavailable until a living replacement Decker is recruit
       }),
       validSite({ id: 'case-1', seed: '101', lastVisitedJob: 6, principal: scorePrincipal }),
       validSite({ id: 'case-2', seed: '102', lastVisitedJob: 7, principal: scorePrincipal }),
+      validSite({ id: 'case-3', seed: '103', lastVisitedJob: 8, principal: scorePrincipal }),
+      validSite({ id: 'case-4', seed: '104', lastVisitedJob: 9, principal: scorePrincipal }),
     ],
   });
   const decker = campaign.crew.find(member => member.archetype === 'Decker');
@@ -1447,6 +1508,8 @@ test('P3.M1.7: completed Score contract records campaign win state', () => {
       }),
       validSite({ id: 'case-1', seed: '101', lastVisitedJob: 6, principal: scorePrincipal }),
       validSite({ id: 'case-2', seed: '102', lastVisitedJob: 7, principal: scorePrincipal }),
+      validSite({ id: 'case-3', seed: '103', lastVisitedJob: 8, principal: scorePrincipal }),
+      validSite({ id: 'case-4', seed: '104', lastVisitedJob: 9, principal: scorePrincipal }),
     ],
   });
   const decker = campaign.crew.find(m => m.archetype === 'Decker');
@@ -1480,6 +1543,8 @@ test('a Decker flatline during the Score ends the campaign explicitly', () => {
       }),
       validSite({ id: 'case-1', seed: '101', lastVisitedJob: 6, principal: scorePrincipal }),
       validSite({ id: 'case-2', seed: '102', lastVisitedJob: 7, principal: scorePrincipal }),
+      validSite({ id: 'case-3', seed: '103', lastVisitedJob: 8, principal: scorePrincipal }),
+      validSite({ id: 'case-4', seed: '104', lastVisitedJob: 9, principal: scorePrincipal }),
     ],
   });
   const decker = campaign.crew.find(member => member.archetype === 'Decker');

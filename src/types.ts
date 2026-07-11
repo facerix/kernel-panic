@@ -188,20 +188,22 @@ export type TurnActionSteps = Generator<TurnActionStep, void, undefined>;
 
 /**
  * Key-item — keycards used to unlock doors (P2.5.M6.2). Comes in two scopes:
- *   - **Campaign-scoped** (`siteId` set): stored in `Campaign.keyItems`,
- *     survives across runs. Not consumed on use (P2.5.M7.2 revisit).
- *   - **Run-scoped** (no `siteId`): stored in `Run.keyItems`, discarded
+ *   - **Campaign-scoped** (`principalId` set): stored in `Campaign.keyItems`,
+ *     survives across runs. Not consumed on use (P2.5.M7.2 revisit). Scoped to
+ *     the owning principal, so it opens that owner's door at every site they
+ *     control (P3.1-balance).
+ *   - **Run-scoped** (no `principalId`): stored in `Run.keyItems`, discarded
  *     when the run ends.
  */
 export type KeyItem = {
-  /** Unique id (e.g. `'keycard-door-0-<seed>'`). */
+  /** Unique id (e.g. `'keycard-door-0-<principalId>'`). */
   id: string;
   /** Display label for UI / log. */
   label: string;
   /** Stable `doorId` of the door this key opens. */
   doorId: string;
-  /** Optional site id — populated by P2.5.M7.2 location memory. */
-  siteId?: string;
+  /** Optional principal (owner) id — the campaign scope key (P3.1-balance). */
+  principalId?: string;
 };
 
 /**

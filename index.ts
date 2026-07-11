@@ -20,7 +20,8 @@ import '/components/CrewList.js';
 import '/components/CrewRoster.js';
 import '/components/FinnShop.js';
 import '/components/ClinicModal.js';
-import '/components/ItemInventory.js';
+import '/components/CombatInventory.js';
+import '/components/CrewInventory.js';
 import '/components/ChronicleArchive.js';
 import KeyHelp from '/components/KeyHelp.js';
 
@@ -40,7 +41,8 @@ const allComponentsReady = Promise.all([
   customElements.whenDefined('crew-roster'),
   customElements.whenDefined('finn-shop'),
   customElements.whenDefined('clinic-modal'),
-  customElements.whenDefined('item-inventory'),
+  customElements.whenDefined('combat-inventory'),
+  customElements.whenDefined('crew-inventory'),
   customElements.whenDefined('chronicle-archive'),
   customElements.whenDefined('key-help'),
 ]);

@@ -266,6 +266,16 @@ export const CONTRACT_LEXICON = Object.freeze({
   ]),
 });
 
+/**
+ * Display label for a principal (owner) id, resolved from the static lexicon.
+ * Used by the inventory to name a principal-scoped keycard's owner even after
+ * every site that owner controlled has left the roster (P3.1-balance). Returns
+ * `null` for an unknown id.
+ */
+export function principalLabelFor(principalId: string): string | null {
+  return CONTRACT_LEXICON.principals.find(p => p.id === principalId)?.label ?? null;
+}
+
 export const CONTRACT_RECIPES: readonly ContractRecipe[] = Object.freeze([
   {
     id: 'retrieve-asset',

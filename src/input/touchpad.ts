@@ -7,7 +7,8 @@
  *
  * Button identifiers:
  *   - Directions (8): N, NE, E, SE, S, SW, W, NW
- *   - Actions: fire, special, interact, jack-out, end-turn, cancel
+ *   - Actions: fire, special, interact, jack-out, look, inventory, flip,
+ *     end-turn, cancel
  *   - Shell (not `applyIntent`): quit-campaign → synthetic `Q`
  *
  * The `special` action covers each archetype's perk verb (Merc Vault, Razor
@@ -39,6 +40,8 @@ const ACTION_KEYS = Object.freeze({
   'jack-out': 'j',
   inventory: 'i',
   look: 'l',
+  // P3.M4.3: simstim flip — Tab swaps active control between operators.
+  flip: 'Tab',
   'end-turn': '.',
   cancel: 'Escape',
 });

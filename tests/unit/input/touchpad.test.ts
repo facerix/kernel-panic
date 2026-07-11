@@ -19,6 +19,7 @@ test('TOUCHPAD_ACTIONS includes gameplay actions (perks unified as `special`)', 
     'cancel',
     'end-turn',
     'fire',
+    'flip',
     'interact',
     'inventory',
     'jack-out',
@@ -47,6 +48,7 @@ test('syntheticKeyFor resolves actions to keymap keys', () => {
   assert.equal(syntheticKeyFor('inventory'), 'i');
   assert.equal(syntheticKeyFor('jack-out'), 'j');
   assert.equal(syntheticKeyFor('look'), 'l');
+  assert.equal(syntheticKeyFor('flip'), 'Tab');
 });
 
 test('TOUCHPAD_SHELL_ACTIONS lists shell-only buttons', () => {
@@ -140,6 +142,19 @@ test('IDLE + jack-out button emits jack-out intent', () => {
   const r = dispatchTouchAction('jack-out', MODE.IDLE);
   assert.deepEqual(r.intent, { type: 'jack-out' });
   assert.equal(r.nextMode, MODE.IDLE);
+});
+
+test('IDLE + flip button emits simstim flip intent', () => {
+  const r = dispatchTouchAction('flip', MODE.IDLE);
+  assert.deepEqual(r.intent, { type: 'flip' });
+  assert.equal(r.nextMode, MODE.IDLE);
+});
+
+test('AIM (fire) + flip button stays in AIM (no flip mid-aim)', () => {
+  const r = dispatchTouchAction('flip', MODE.AIM, AIM_KIND.FIRE);
+  assert.equal(r.intent, null);
+  assert.equal(r.nextMode, MODE.AIM);
+  assert.equal(r.aimKind, AIM_KIND.FIRE);
 });
 
 test('LOOK + direction emits a look-move intent', () => {

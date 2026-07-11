@@ -72,10 +72,13 @@ test('formatHubArcStatusLines omits clock until the Curator briefing is dismisse
     scoreDeadlineJobsRemaining: 4,
   };
   assert.deepEqual(formatHubArcStatusLines(campaign), [
-    'STAGE 2: CASING | SCORE: Matsuda server farm',
+    'STAGE 2: CASING | SCORE: Matsuda server farm | CASED 0/4',
     null,
   ]);
-  assert.equal(formatHubArcStatus(campaign), 'STAGE 2: CASING | SCORE: Matsuda server farm');
+  assert.equal(
+    formatHubArcStatus(campaign),
+    'STAGE 2: CASING | SCORE: Matsuda server farm | CASED 0/4'
+  );
 });
 
 test('formatHubArcStatusLines shows active heat only after clock briefing', () => {
@@ -89,9 +92,35 @@ test('formatHubArcStatusLines shows active heat only after clock briefing', () =
     scoreDeadlineJobsRemaining: 3,
   };
   assert.deepEqual(formatHubArcStatusLines(campaign), [
-    'STAGE 2: CASING | SCORE: Matsuda server farm',
+    'STAGE 2: CASING | SCORE: Matsuda server farm | CASED 0/4',
     'CLOCK: HEAT 2',
   ]);
+});
+
+test('formatHubArcStatusLines surfaces casing progress, counting visited org sites but not the target', () => {
+  const orgSite = (id: string, visited: number): LocationSite =>
+    scoreSite({ id, tier: 'roster', scoreTarget: false, lastVisitedJob: visited });
+  const campaign = {
+    // Two cased org sites + an unvisited org site + the target (never counts).
+    arc: arc({ arcStage: 'act-2', scoreRevealed: true }),
+    siteRoster: [scoreSite(), orgSite('case-1', 6), orgSite('case-2', 7), orgSite('case-3', 0)],
+    crew: [],
+    hubReveals: {},
+  };
+  assert.equal(
+    formatHubArcStatus(campaign),
+    'STAGE 2: CASING | SCORE: Matsuda server farm | CASED 2/4'
+  );
+});
+
+test('formatHubArcStatusLines omits the casing indicator outside Stage 2', () => {
+  const campaign = {
+    arc: arc({ arcStage: 'act-3', scoreRevealed: true }),
+    siteRoster: [scoreSite(), scoreSite({ id: 'case-1', tier: 'roster', scoreTarget: false })],
+    crew: [],
+    hubReveals: {},
+  };
+  assert.equal(formatHubArcStatus(campaign), 'STAGE 3: FINAL PREP | SCORE: Matsuda server farm');
 });
 
 test('formatHubArcStatus throws when revealed state has no Score target', () => {
@@ -291,6 +320,39 @@ test('contractLocationBadges surfaces both CASING and known-site when both are t
 test('contractLocationBadges returns no badges for a fresh non-principal job', () => {
   const contract = badgeFixture(); // no locationSiteId, principal not the Score org
   assert.deepEqual(contractLocationBadges(contract, 'score-site', 'other-principal'), []);
+});
+
+test('contractLocationBadges surfaces a keycard-held badge when the owning principal is in the held set', () => {
+  const contract = badgeFixture('case-site'); // revisit, non-score-principal
+  const held = new Set([contract.context.principal.id]);
+  assert.deepEqual(contractLocationBadges(contract, 'score-site', 'other-principal', held), [
+    { variant: 'revisit', text: '// known site' },
+    { variant: 'keycard', text: '// keycard held' },
+  ]);
+});
+
+test('contractLocationBadges keycard badge matches a fresh contract by owning principal', () => {
+  const contract = badgeFixture(); // no locationSiteId → fresh site, same owner
+  const held = new Set([contract.context.principal.id]);
+  assert.deepEqual(contractLocationBadges(contract, 'score-site', 'other-principal', held), [
+    { variant: 'keycard', text: '// keycard held' },
+  ]);
+});
+
+test('contractLocationBadges omits the keycard badge when no card is held for the owner', () => {
+  const contract = badgeFixture('case-site');
+  const held = new Set(['some-other-principal']);
+  assert.deepEqual(contractLocationBadges(contract, 'score-site', 'other-principal', held), [
+    { variant: 'revisit', text: '// known site' },
+  ]);
+});
+
+test('contractLocationBadges never shows the keycard badge on the Score target', () => {
+  const contract = badgeFixture('score-site');
+  const held = new Set([contract.context.principal.id]);
+  assert.deepEqual(contractLocationBadges(contract, 'score-site', 'matsuda', held), [
+    { variant: 'score-site', text: 'SCORE SITE' },
+  ]);
 });
 
 test('findDecker throws when crew has no Decker', () => {

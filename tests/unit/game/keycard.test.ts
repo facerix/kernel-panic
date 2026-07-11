@@ -1,6 +1,8 @@
 /**
- * M6.2: KeyCard entity, Campaign.keyItems, decoupled terminal placement,
- * 50/50 unlock method roll, Door keycard interaction, and persistence.
+ * M6.2 + P3.1-balance: KeyCard entity, Campaign.keyItems, decoupled terminal
+ * placement, 50/50 unlock method roll, Door keycard interaction, persistence,
+ * and principal-scoping (a keycard opens its owner's door at every site they
+ * control).
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -8,12 +10,17 @@ import assert from 'node:assert/strict';
 import { Grid } from '../../../src/game/Grid.js';
 import { World } from '../../../src/game/World.js';
 import { Entity } from '../../../src/game/Entity.js';
-import { Campaign } from '../../../src/game/Campaign.js';
-import { Run } from '../../../src/game/Run.js';
+import { Campaign, SITE_ROSTER_CAP } from '../../../src/game/Campaign.js';
+import { OUTCOME, Run } from '../../../src/game/Run.js';
+import { emptySalvage } from '../../../src/game/salvage.js';
 import { Door } from '../../../src/game/entities/Door.js';
 import { Terminal } from '../../../src/game/entities/Terminal.js';
 import { Pickup } from '../../../src/game/entities/Pickup.js';
-import { KeyCard } from '../../../src/game/entities/KeyCard.js';
+import {
+  KeyCard,
+  keycardIdFor,
+  migrateLegacyKeycardId,
+} from '../../../src/game/entities/KeyCard.js';
 import { findPath } from '../../../src/game/Pathfinding.js';
 import {
   snapshot,
@@ -30,11 +37,11 @@ import {
   KEYCARD_GLYPH,
   AP_COST,
 } from '../../../src/game/constants.js';
-import { OBJECTIVES } from '../../../src/game/hub/Curator.js';
+import { OBJECTIVES, type ContractContext } from '../../../src/game/hub/Curator.js';
 import { Rng } from '../../../src/rng.js';
 import { TurnQueue } from '../../../src/game/TurnQueue.js';
 import { testContractContext } from './contractTestUtils.js';
-import type { KeyItem } from '../../../src/types.js';
+import type { KeyItem, LocationSite, LocationToken } from '../../../src/types.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -73,6 +80,8 @@ function fakeContract(overrides = {}) {
   };
 }
 
+// Default keycard-door contract — its context principal is `matsuda` (the
+// testContractContext default).
 function keycardDoorContract(seed: number, overrides = {}) {
   return fakeContract({
     seed,
@@ -84,6 +93,25 @@ function keycardDoorContract(seed: number, overrides = {}) {
     },
     label: 'keycard test job',
     context: testContractContext(OBJECTIVES.RETRIEVE),
+  });
+}
+
+// A keycard-door contract owned by an explicit principal — lets a test pit two
+// different owners (or two sites of the same owner) against each other.
+function keycardContractForPrincipal(seed: number, principalId: string) {
+  const context: ContractContext = testContractContext(OBJECTIVES.RETRIEVE, {
+    principal: { id: principalId, label: principalId, groups: ['corp'] },
+  });
+  return fakeContract({
+    seed,
+    objective: {
+      kind: OBJECTIVES.RETRIEVE,
+      title: 'Secure locked cache',
+      briefing: 'Find the keycard and retrieve the cache.',
+      params: { target: 'locked-cache', doorId: 'door-0', unlockMethod: 'keycard' },
+    },
+    label: 'keycard test job',
+    context,
   });
 }
 
@@ -109,6 +137,24 @@ function makeCampaign(overrides = {}) {
   });
 }
 
+const TOKEN = (id: string, label = id, groups = ['corp']): LocationToken => ({ id, label, groups });
+
+function makeSite(id: string, lastVisitedJob: number, principal?: LocationToken): LocationSite {
+  return {
+    id,
+    seed: id,
+    mapWidth: 24,
+    mapHeight: 16,
+    label: `// site ${id}`,
+    tier: 'roster',
+    scoreTarget: false,
+    mutationDeltas: [],
+    seenKeys: [],
+    lastVisitedJob,
+    ...(principal ? { principal } : {}),
+  };
+}
+
 // ─── KeyCard entity ──────────────────────────────────────────────────────────
 
 test('KeyCard: constructs as a passable neutral entity with the keycard glyph', () => {
@@ -120,24 +166,24 @@ test('KeyCard: constructs as a passable neutral entity with the keycard glyph', 
   assert.equal(kc.label, 'Access keycard');
   assert.equal(kc.maxAp, 0);
   assert.equal(kc.maxHp, 1);
-  assert.equal(kc.siteId, null, 'siteId defaults to null (run-scoped)');
+  assert.equal(kc.principalId, null, 'principalId defaults to null (run-scoped)');
 });
 
-test('KeyCard: siteId marks a campaign-scoped keycard', () => {
+test('KeyCard: principalId marks a campaign-scoped keycard', () => {
   const kc = new KeyCard({
     id: 'kc-1',
     x: 3,
     y: 1,
     doorId: 'door-0',
-    label: 'Site card',
-    siteId: 'site-42',
+    label: 'Owner card',
+    principalId: 'matsuda',
   });
-  assert.equal(kc.siteId, 'site-42');
+  assert.equal(kc.principalId, 'matsuda');
 });
 
-test('KeyCard: throws on empty siteId', () => {
+test('KeyCard: throws on empty principalId', () => {
   assert.throws(
-    () => new KeyCard({ id: 'kc-1', x: 3, y: 1, doorId: 'door-0', label: 'test', siteId: '' }),
+    () => new KeyCard({ id: 'kc-1', x: 3, y: 1, doorId: 'door-0', label: 'test', principalId: '' }),
     /non-empty string/
   );
 });
@@ -213,20 +259,10 @@ test('Campaign.addKeyItem: throws on missing fields', () => {
   assert.throws(() => c.addKeyItem({ id: 'kc-1', label: 'test', doorId: '' }), /non-empty/);
 });
 
-test('Campaign.keyItemForDoor: returns matching key item or null', () => {
+test('Campaign.keyItems: preserves optional principalId', () => {
   const c = makeCampaign();
-  assert.equal(c.keyItemForDoor('door-0'), null);
-  c.addKeyItem({ id: 'kc-1', label: 'Card A', doorId: 'door-0' });
-  const found = c.keyItemForDoor('door-0');
-  assert.ok(found);
-  assert.equal(found!.id, 'kc-1');
-  assert.equal(c.keyItemForDoor('door-1'), null);
-});
-
-test('Campaign.keyItems: preserves optional siteId', () => {
-  const c = makeCampaign();
-  c.addKeyItem({ id: 'kc-1', label: 'Card A', doorId: 'door-0', siteId: 'site-42' });
-  assert.equal(c.keyItems[0]!.siteId, 'site-42');
+  c.addKeyItem({ id: 'kc-1', label: 'Card A', doorId: 'door-0', principalId: 'matsuda' });
+  assert.equal(c.keyItems[0]!.principalId, 'matsuda');
 });
 
 // ─── Campaign.keyItems persistence ───────────────────────────────────────────
@@ -234,18 +270,18 @@ test('Campaign.keyItems: preserves optional siteId', () => {
 test('Campaign.keyItems snapshot round-trip', () => {
   const c = makeCampaign();
   c.addKeyItem({ id: 'kc-1', label: 'Card A', doorId: 'door-0' });
-  c.addKeyItem({ id: 'kc-2', label: 'Card B', doorId: 'door-1', siteId: 'site-1' });
+  c.addKeyItem({ id: 'kc-2', label: 'Card B', doorId: 'door-1', principalId: 'vuong-holdings' });
   const snap = snapshotCampaign(c);
   assert.ok(snap.keyItems);
   assert.equal(snap.keyItems!.length, 2);
   assert.equal(snap.keyItems![0]!.doorId, 'door-0');
-  assert.equal(snap.keyItems![1]!.siteId, 'site-1');
+  assert.equal(snap.keyItems![1]!.principalId, 'vuong-holdings');
 
   const restored = restoreCampaign(snap);
   assert.equal(restored.keyItems.length, 2);
   assert.equal(restored.keyItems[0]!.id, 'kc-1');
   assert.equal(restored.keyItems[0]!.doorId, 'door-0');
-  assert.equal(restored.keyItems[1]!.siteId, 'site-1');
+  assert.equal(restored.keyItems[1]!.principalId, 'vuong-holdings');
 });
 
 test('Campaign.keyItems: pre-M6.2 saves default to empty array', () => {
@@ -319,7 +355,7 @@ test('Run.keyItems: pre-M6.2 saves default to empty array', () => {
 
 // ─── onKeycardCollected scope routing ───────────────────────────────────────
 
-test('onKeycardCollected: run-scoped keycard (no siteId) passes siteId: null', () => {
+test('onKeycardCollected: run-scoped keycard (no principalId) passes principalId: null', () => {
   const world = corridorWorld();
   const crew = makeCrew();
   crew.x = 2;
@@ -330,7 +366,8 @@ test('onKeycardCollected: run-scoped keycard (no siteId) passes siteId: null', (
   world.addEntity(kc);
   const queue = new TurnQueue([FACTION.PLAYER, FACTION.CORP]);
 
-  let collected: { id: string; doorId: string; label: string; siteId: string | null } | null = null;
+  let collected: { id: string; doorId: string; label: string; principalId: string | null } | null =
+    null;
   applyIntent(
     { type: 'move', dx: 1, dy: 0 },
     {
@@ -349,10 +386,10 @@ test('onKeycardCollected: run-scoped keycard (no siteId) passes siteId: null', (
   );
 
   assert.ok(collected);
-  assert.equal(collected!.siteId, null, 'run-scoped keycard should have siteId: null');
+  assert.equal(collected!.principalId, null, 'run-scoped keycard should have principalId: null');
 });
 
-test('onKeycardCollected: campaign-scoped keycard (with siteId) passes siteId through', () => {
+test('onKeycardCollected: campaign-scoped keycard (with principalId) passes principalId through', () => {
   const world = corridorWorld();
   const crew = makeCrew();
   crew.x = 2;
@@ -364,13 +401,14 @@ test('onKeycardCollected: campaign-scoped keycard (with siteId) passes siteId th
     x: 3,
     y: 1,
     doorId: 'door-0',
-    label: 'Site card',
-    siteId: 'site-42',
+    label: 'Owner card',
+    principalId: 'matsuda',
   });
   world.addEntity(kc);
   const queue = new TurnQueue([FACTION.PLAYER, FACTION.CORP]);
 
-  let collected: { id: string; doorId: string; label: string; siteId: string | null } | null = null;
+  let collected: { id: string; doorId: string; label: string; principalId: string | null } | null =
+    null;
   applyIntent(
     { type: 'move', dx: 1, dy: 0 },
     {
@@ -389,10 +427,14 @@ test('onKeycardCollected: campaign-scoped keycard (with siteId) passes siteId th
   );
 
   assert.ok(collected);
-  assert.equal(collected!.siteId, 'site-42', 'campaign-scoped keycard should pass siteId');
+  assert.equal(
+    collected!.principalId,
+    'matsuda',
+    'campaign-scoped keycard should pass principalId'
+  );
 });
 
-// ─── Door + keycard interaction ──────────────────────────────────────────────
+// ─── Door + keycard interaction (doorId-based, scope enforced upstream) ───────
 
 test('Door.interact with matching keycard unlocks the door', () => {
   const world = corridorWorld();
@@ -534,7 +576,7 @@ test('collectTileLoot: duplicate campaign keycard pickup does not throw', () => 
     y: 1,
     doorId: 'door-0',
     label: 'Access keycard',
-    siteId: 'site-42',
+    principalId: 'matsuda',
   });
   world.addEntity(kc);
   const queue = new TurnQueue([FACTION.PLAYER, FACTION.CORP]);
@@ -543,7 +585,7 @@ test('collectTileLoot: duplicate campaign keycard pickup does not throw', () => 
     id: 'keycard-door-0',
     label: 'Access keycard',
     doorId: 'door-0',
-    siteId: 'site-42',
+    principalId: 'matsuda',
   });
 
   applyIntent(
@@ -558,14 +600,14 @@ test('collectTileLoot: duplicate campaign keycard pickup does not throw', () => 
       resetInputModes: () => {},
       onPlayerAction: () => {},
       onKeycardCollected: collected => {
-        if (collected.siteId && campaign.keyItems.some(k => k.id === collected.id)) {
+        if (collected.principalId && campaign.keyItems.some(k => k.id === collected.id)) {
           return;
         }
         campaign.addKeyItem({
           id: collected.id,
           label: collected.label,
           doorId: collected.doorId,
-          siteId: collected.siteId!,
+          principalId: collected.principalId!,
         });
       },
     }
@@ -577,22 +619,24 @@ test('collectTileLoot: duplicate campaign keycard pickup does not throw', () => 
 
 // ─── KeyCard entity snapshot round-trip ──────────────────────────────────────
 
+function firstOpenTile(run: Run): { x: number; y: number } {
+  for (let y = 1; y < run.world!.grid.height - 1; y++) {
+    for (let x = 1; x < run.world!.grid.width - 1; x++) {
+      if (!run.world!.grid.isPassable(x, y)) continue;
+      if (run.world!.liveEntityAt(x, y)) continue;
+      return { x, y };
+    }
+  }
+  throw new Error('no open tile');
+}
+
 test('KeyCard snapshot round-trips through Run snapshot/restore', () => {
   const crew = makeCrew();
   const run = new Run({ crewMember: crew, seed: 42 });
   run.enterBriefing(fakeContract());
   run.enterCombat();
 
-  // Find an unoccupied passable tile for the keycard.
-  let anchor = null;
-  for (let y = 1; y < run.world!.grid.height - 1 && !anchor; y++) {
-    for (let x = 1; x < run.world!.grid.width - 1 && !anchor; x++) {
-      if (!run.world!.grid.isPassable(x, y)) continue;
-      if (run.world!.liveEntityAt(x, y)) continue;
-      anchor = { x, y };
-    }
-  }
-  assert.ok(anchor);
+  const anchor = firstOpenTile(run);
   run.world!.addEntity(
     new KeyCard({
       id: 'keycard-test',
@@ -618,61 +662,45 @@ test('KeyCard snapshot round-trips through Run snapshot/restore', () => {
   assert.equal(restoredKc.passable, true);
 });
 
-test('KeyCard entity snapshot preserves siteId through round-trip', () => {
+test('KeyCard entity snapshot preserves principalId through round-trip', () => {
   const crew = makeCrew();
   const run = new Run({ crewMember: crew, seed: 42 });
   run.enterBriefing(fakeContract());
   run.enterCombat();
 
-  let anchor = null;
-  for (let y = 1; y < run.world!.grid.height - 1 && !anchor; y++) {
-    for (let x = 1; x < run.world!.grid.width - 1 && !anchor; x++) {
-      if (!run.world!.grid.isPassable(x, y)) continue;
-      if (run.world!.liveEntityAt(x, y)) continue;
-      anchor = { x, y };
-    }
-  }
-  assert.ok(anchor);
+  const anchor = firstOpenTile(run);
   run.world!.addEntity(
     new KeyCard({
-      id: 'keycard-site',
+      id: 'keycard-owner',
       x: anchor.x,
       y: anchor.y,
       doorId: 'door-0',
-      label: 'Site card',
-      siteId: 'site-42',
+      label: 'Owner card',
+      principalId: 'matsuda',
     })
   );
 
   const rec = snapshot(run);
   const kcRec = rec.entities.find(e => e.archetype === 'keycard');
   assert.ok(kcRec);
-  assert.equal(kcRec!.extra?.siteId, 'site-42');
+  assert.equal(kcRec!.extra?.principalId, 'matsuda');
 
   const { world } = restore(rec);
   const restoredKc = [...world.entities.values()].find(e => e instanceof KeyCard) as KeyCard;
   assert.ok(restoredKc);
-  assert.equal(restoredKc.siteId, 'site-42');
+  assert.equal(restoredKc.principalId, 'matsuda');
 });
 
-test('KeyCard entity snapshot stores siteId as null when unset', () => {
+test('KeyCard entity snapshot stores principalId as null when unset', () => {
   const crew = makeCrew();
   const run = new Run({ crewMember: crew, seed: 42 });
   run.enterBriefing(fakeContract());
   run.enterCombat();
 
-  let anchor = null;
-  for (let y = 1; y < run.world!.grid.height - 1 && !anchor; y++) {
-    for (let x = 1; x < run.world!.grid.width - 1 && !anchor; x++) {
-      if (!run.world!.grid.isPassable(x, y)) continue;
-      if (run.world!.liveEntityAt(x, y)) continue;
-      anchor = { x, y };
-    }
-  }
-  assert.ok(anchor);
+  const anchor = firstOpenTile(run);
   run.world!.addEntity(
     new KeyCard({
-      id: 'keycard-nositeId',
+      id: 'keycard-noprincipal',
       x: anchor.x,
       y: anchor.y,
       doorId: 'door-0',
@@ -684,9 +712,9 @@ test('KeyCard entity snapshot stores siteId as null when unset', () => {
   const kcRec = rec.entities.find(e => e.archetype === 'keycard');
   assert.ok(kcRec);
   assert.equal(
-    kcRec!.extra?.siteId,
+    kcRec!.extra?.principalId,
     null,
-    'siteId is bag-hygienic null (not undefined) when unset'
+    'principalId is bag-hygienic null (not undefined) when unset'
   );
 });
 
@@ -796,7 +824,6 @@ test('decoupled terminal placement is reachable from spawn (not through locked d
     e => e instanceof Terminal && (e as Terminal).unlocksId === 'door-0'
   );
   assert.ok(terminal instanceof Terminal);
-  // Terminal must be reachable from spawn without unlocking the door.
   const path = findPath(
     run.world!,
     { x: run.player!.x, y: run.player!.y },
@@ -976,4 +1003,352 @@ test('bump into locked door without keycard keeps door locked', () => {
   );
 
   assert.equal(door.locked, true, 'door should remain locked');
+});
+
+// ─── Keycard principal stamping (P3.1-balance) ───────────────────────────────
+
+test('spawned keycard is stamped with the contract-owning principal id', () => {
+  let run = null;
+  let contract = null;
+  for (let seed = 1; seed < 80 && !run; seed++) {
+    const candidate = new Run({ crewMember: makeCrew(), seed });
+    const c = keycardDoorContract(seed);
+    candidate.enterBriefing(c);
+    try {
+      candidate.enterCombat();
+      run = candidate;
+      contract = c;
+    } catch {
+      continue;
+    }
+  }
+  assert.ok(run, 'need a keycard-door layout');
+  const keycard = [...run!.world!.entities.values()].find(e => e instanceof KeyCard) as KeyCard;
+  assert.ok(keycard);
+  assert.equal(keycard.principalId, contract!.context.principal.id);
+  assert.equal(keycard.principalId, 'matsuda');
+});
+
+// ─── Run-scoped keycards carry principalId ───────────────────────────────────
+
+test('Run.addKeyItem preserves principalId', () => {
+  const run = new Run({ crewMember: makeCrew(), seed: 99 });
+  run.addKeyItem({ id: 'kc-1', label: 'Owner card', doorId: 'door-0', principalId: 'matsuda' });
+  assert.equal(run.keyItems[0]!.principalId, 'matsuda');
+});
+
+test('Run.keyItems snapshot round-trip preserves principalId', () => {
+  const run = new Run({ crewMember: makeCrew(), seed: 42 });
+  run.enterBriefing(fakeContract());
+  run.enterCombat();
+  run.addKeyItem({ id: 'kc-owner', label: 'Owner card', doorId: 'door-0', principalId: 'yutani' });
+  const rec = snapshot(run);
+  assert.equal(rec.keyItems![0]!.principalId, 'yutani');
+  const { run: restored } = restore(rec);
+  assert.equal(restored.keyItems[0]!.principalId, 'yutani');
+});
+
+// ─── Run-end promotion into campaign inventory ───────────────────────────────
+
+function deployWithRun(campaign: Campaign, contract = fakeContract()) {
+  const member = campaign.crew[1]!;
+  const run = campaign.deployCrewMember(member.id, contract);
+  run.enterCombat();
+  return run;
+}
+
+test('onJobEnd promotes a principal-stamped run keycard into the campaign inventory on live extraction', () => {
+  const campaign = makeCampaign();
+  const run = deployWithRun(campaign);
+  run.addKeyItem({
+    id: 'kc-promote',
+    label: 'Owner card',
+    doorId: 'door-0',
+    principalId: 'matsuda',
+  });
+  campaign.onJobEnd({ outcome: OUTCOME.EXIT, salvage: emptySalvage() });
+  assert.equal(campaign.keyItems.length, 1);
+  assert.equal(campaign.keyItems[0]!.id, 'kc-promote');
+  assert.equal(campaign.keyItems[0]!.principalId, 'matsuda');
+});
+
+test('onJobEnd promotes carried keycards even on an aborted (incomplete) extraction', () => {
+  const campaign = makeCampaign();
+  const run = deployWithRun(campaign);
+  run.addKeyItem({ id: 'kc-abort', label: 'Owner card', doorId: 'door-0', principalId: 'matsuda' });
+  campaign.onJobEnd({ outcome: OUTCOME.EXIT, salvage: emptySalvage(), completed: false });
+  assert.equal(campaign.keyItems.length, 1);
+  assert.equal(campaign.keyItems[0]!.id, 'kc-abort');
+});
+
+test('onJobEnd does NOT promote keycards when the operator flatlines', () => {
+  const campaign = makeCampaign();
+  const run = deployWithRun(campaign);
+  run.addKeyItem({ id: 'kc-dead', label: 'Owner card', doorId: 'door-0', principalId: 'matsuda' });
+  campaign.onJobEnd({ outcome: OUTCOME.DEATH });
+  assert.deepEqual(campaign.keyItems, []);
+});
+
+test('onJobEnd does not promote run-scoped keycards lacking a principalId', () => {
+  const campaign = makeCampaign();
+  const run = deployWithRun(campaign);
+  run.addKeyItem({ id: 'kc-runonly', label: 'Run card', doorId: 'door-0' });
+  campaign.onJobEnd({ outcome: OUTCOME.EXIT, salvage: emptySalvage() });
+  assert.deepEqual(campaign.keyItems, []);
+});
+
+test('onJobEnd promotion is idempotent against an already-held campaign keycard', () => {
+  const campaign = makeCampaign();
+  campaign.addKeyItem({
+    id: 'kc-dup',
+    label: 'Owner card',
+    doorId: 'door-0',
+    principalId: 'matsuda',
+  });
+  const run = deployWithRun(campaign);
+  run.addKeyItem({ id: 'kc-dup', label: 'Owner card', doorId: 'door-0', principalId: 'matsuda' });
+  campaign.onJobEnd({ outcome: OUTCOME.EXIT, salvage: emptySalvage() });
+  assert.equal(campaign.keyItems.length, 1, 'no duplicate, no crash');
+});
+
+// ─── P3.1-balance: principal-unique keycard ids ──────────────────────────────
+
+test('keycardIdFor: encodes the principal id so distinct owners get distinct ids', () => {
+  assert.equal(keycardIdFor('door-0', 'matsuda'), 'keycard-door-0-matsuda');
+  assert.equal(keycardIdFor('door-0', 'vuong-holdings'), 'keycard-door-0-vuong-holdings');
+  assert.notEqual(keycardIdFor('door-0', 'matsuda'), keycardIdFor('door-0', 'vuong-holdings'));
+});
+
+test('keycardIdFor: run-scoped card (no principal id) keeps the bare id', () => {
+  assert.equal(keycardIdFor('door-0'), 'keycard-door-0');
+  assert.equal(keycardIdFor('door-0', null), 'keycard-door-0');
+});
+
+test('spawned keycard id is principal-unique (not the bare keycard-door-0)', () => {
+  let run = null;
+  let contract = null;
+  for (let seed = 1; seed < 80 && !run; seed++) {
+    const candidate = new Run({ crewMember: makeCrew(), seed });
+    const c = keycardDoorContract(seed);
+    candidate.enterBriefing(c);
+    try {
+      candidate.enterCombat();
+      run = candidate;
+      contract = c;
+    } catch {
+      continue;
+    }
+  }
+  assert.ok(run, 'need a keycard-door layout');
+  const keycard = [...run!.world!.entities.values()].find(e => e instanceof KeyCard) as KeyCard;
+  assert.ok(keycard);
+  assert.equal(keycard.id, keycardIdFor('door-0', contract!.context.principal.id));
+  assert.notEqual(keycard.id, 'keycard-door-0', 'legacy bare id would collide across owners');
+});
+
+// ─── Legacy id migration on restore ──────────────────────────────────────────
+
+test('migrateLegacyKeycardId: re-stamps a legacy bare id with its principal id', () => {
+  const migrated = migrateLegacyKeycardId({
+    id: 'keycard-door-0',
+    label: 'Access keycard',
+    doorId: 'door-0',
+    principalId: 'matsuda',
+  });
+  assert.equal(migrated.id, 'keycard-door-0-matsuda');
+});
+
+test('migrateLegacyKeycardId: idempotent on an already-migrated id', () => {
+  const item = {
+    id: 'keycard-door-0-matsuda',
+    label: 'Access keycard',
+    doorId: 'door-0',
+    principalId: 'matsuda',
+  };
+  assert.equal(migrateLegacyKeycardId(item).id, 'keycard-door-0-matsuda');
+});
+
+test('migrateLegacyKeycardId: leaves run-scoped (no principalId) and custom ids untouched', () => {
+  assert.equal(
+    migrateLegacyKeycardId({ id: 'keycard-door-0', label: 'x', doorId: 'door-0' }).id,
+    'keycard-door-0',
+    'no principalId → nothing to disambiguate'
+  );
+  assert.equal(
+    migrateLegacyKeycardId({ id: 'kc-1', label: 'x', doorId: 'door-0', principalId: 'p' }).id,
+    'kc-1',
+    'non-legacy custom id is preserved'
+  );
+});
+
+// ─── P3.1-balance: legacy siteId → principalId backfill on restore ────────────
+
+test('Campaign restore backfills a legacy siteId keycard to its owning principal', () => {
+  const c = makeCampaign();
+  const snap = snapshotCampaign(c);
+  (snap as Record<string, unknown>).siteRoster = [makeSite('4242', 3, TOKEN('matsuda', 'Matsuda'))];
+  (snap as Record<string, unknown>).keyItems = [
+    { id: 'keycard-door-0-4242', label: 'Access keycard', doorId: 'door-0', siteId: '4242' },
+  ];
+  const restored = restoreCampaign(snap);
+  assert.equal(restored.keyItems.length, 1);
+  assert.equal(restored.keyItems[0]!.principalId, 'matsuda', 'backfilled from the roster site');
+  assert.equal(
+    restored.keyItems[0]!.id,
+    'keycard-door-0-matsuda',
+    're-keyed to the canonical principal id'
+  );
+  assert.equal((restored.keyItems[0] as { siteId?: string }).siteId, undefined, 'siteId dropped');
+});
+
+test('Campaign restore collapses two same-owner legacy siteId cards into one', () => {
+  const c = makeCampaign();
+  const snap = snapshotCampaign(c);
+  (snap as Record<string, unknown>).siteRoster = [
+    makeSite('siteA', 1, TOKEN('matsuda', 'Matsuda')),
+    makeSite('siteB', 2, TOKEN('matsuda', 'Matsuda')),
+  ];
+  (snap as Record<string, unknown>).keyItems = [
+    { id: 'keycard-door-0-siteA', label: 'Access keycard', doorId: 'door-0', siteId: 'siteA' },
+    { id: 'keycard-door-0-siteB', label: 'Access keycard', doorId: 'door-0', siteId: 'siteB' },
+  ];
+  const restored = restoreCampaign(snap);
+  assert.equal(restored.keyItems.length, 1, 'two matsuda site cards collapse to one owner card');
+  assert.equal(restored.keyItems[0]!.principalId, 'matsuda');
+});
+
+test('Campaign restore drops a legacy siteId keycard whose site is not on the roster', () => {
+  const c = makeCampaign();
+  const snap = snapshotCampaign(c);
+  (snap as Record<string, unknown>).siteRoster = []; // owning site already evicted
+  (snap as Record<string, unknown>).keyItems = [
+    { id: 'keycard-door-0-ghost', label: 'Access keycard', doorId: 'door-0', siteId: 'ghost' },
+  ];
+  const restored = restoreCampaign(snap);
+  assert.deepEqual(restored.keyItems, [], 'unresolvable legacy card dropped');
+});
+
+test('Campaign restore preserves an unscoped campaign card (no principalId, no siteId)', () => {
+  const c = makeCampaign();
+  const snap = snapshotCampaign(c);
+  (snap as Record<string, unknown>).keyItems = [
+    { id: 'kc-scopeless', label: 'Access keycard', doorId: 'door-0' },
+  ];
+  const restored = restoreCampaign(snap);
+  assert.equal(restored.keyItems.length, 1, 'inert scopeless card preserved, not dropped');
+  assert.equal(restored.keyItems[0]!.id, 'kc-scopeless');
+});
+
+test('Run restore keeps a legacy siteId run card run-scoped (drops the stale scope)', () => {
+  const run = new Run({ crewMember: makeCrew(), seed: 42 });
+  run.enterBriefing(fakeContract());
+  run.enterCombat();
+  const rec = snapshot(run);
+  (rec as Record<string, unknown>).keyItems = [
+    {
+      id: 'keycard-door-0-1062993016',
+      label: 'Access keycard',
+      doorId: 'door-0',
+      siteId: '1062993016',
+    },
+  ];
+  const { run: restored } = restore(rec);
+  assert.equal(restored.keyItems.length, 1);
+  assert.equal(restored.keyItems[0]!.principalId, undefined, 'no principal → run-scoped');
+});
+
+// ─── P3.1-balance: Run.effectiveKeyItems scopes to the current principal ──────
+
+test('Run.effectiveKeyItems: a card carries across sites of the same owner', () => {
+  // A card earned at one matsuda site. Deploy to a *different* matsuda site
+  // (different seed → different site) and the held card must still apply — this
+  // is the principal-scoping behavior that site-scoping could not express.
+  const matsudaCard: KeyItem = {
+    id: keycardIdFor('door-0', 'matsuda'),
+    label: 'Matsuda access',
+    doorId: 'door-0',
+    principalId: 'matsuda',
+  };
+  const runAtOtherMatsudaSite = new Run({ crewMember: makeCrew(), seed: 777 });
+  runAtOtherMatsudaSite.enterBriefing(keycardContractForPrincipal(777, 'matsuda'));
+  const effective = runAtOtherMatsudaSite.effectiveKeyItems([matsudaCard]);
+  assert.ok(
+    effective.some(k => k.id === matsudaCard.id),
+    'same-owner card applies at a different site'
+  );
+});
+
+test('Run.effectiveKeyItems: excludes a card owned by a different principal', () => {
+  const vuongCard: KeyItem = {
+    id: keycardIdFor('door-0', 'vuong-holdings'),
+    label: 'Vuong access',
+    doorId: 'door-0',
+    principalId: 'vuong-holdings',
+  };
+  const run = new Run({ crewMember: makeCrew(), seed: 5 });
+  run.enterBriefing(keycardContractForPrincipal(5, 'matsuda'));
+  const effective = run.effectiveKeyItems([vuongCard]);
+  assert.ok(
+    !effective.some(k => k.id === vuongCard.id),
+    'a different owner’s card is excluded (would open the wrong door otherwise)'
+  );
+});
+
+test('Run.effectiveKeyItems: always includes run-scoped pickups and dedups by id', () => {
+  const run = new Run({ crewMember: makeCrew(), seed: 42 });
+  run.enterBriefing(keycardContractForPrincipal(42, 'matsuda'));
+  const sharedId = keycardIdFor('door-0', 'matsuda');
+  run.addKeyItem({ id: sharedId, label: 'Picked up', doorId: 'door-0', principalId: 'matsuda' });
+  // Campaign also lists the same card (shouldn't double-render).
+  const effective = run.effectiveKeyItems([
+    { id: sharedId, label: 'Held', doorId: 'door-0', principalId: 'matsuda' },
+  ]);
+  assert.equal(effective.filter(k => k.id === sharedId).length, 1, 'deduped by id');
+});
+
+test('Run.addKeyItem: canonicalizes a bare legacy id picked up off a pre-P3.1 map', () => {
+  const run = new Run({ crewMember: makeCrew(), seed: 99 });
+  // Simulates onKeycardCollected feeding a legacy entity id + its principalId.
+  run.addKeyItem({
+    id: 'keycard-door-0',
+    label: 'Access keycard',
+    doorId: 'door-0',
+    principalId: 'matsuda',
+  });
+  assert.equal(run.keyItems[0]!.id, 'keycard-door-0-matsuda');
+});
+
+test('Run.effectiveKeyItems: no contract → only run-scoped pickups', () => {
+  const run = new Run({ crewMember: makeCrew(), seed: 42 });
+  run.addKeyItem({ id: 'kc-run', label: 'Run card', doorId: 'door-0' });
+  const effective = run.effectiveKeyItems([
+    { id: 'kc-camp', label: 'Camp card', doorId: 'door-0', principalId: 'matsuda' },
+  ]);
+  assert.deepEqual(
+    effective.map(k => k.id),
+    ['kc-run']
+  );
+});
+
+// ─── P3.1-balance: eviction no longer drops keycards ─────────────────────────
+
+test('addSiteToRoster eviction keeps principal-scoped keycards (they outlive sites)', () => {
+  const campaign = makeCampaign();
+  // Fill the roster to capacity; site-0 is the oldest (lowest lastVisitedJob).
+  for (let i = 0; i < SITE_ROSTER_CAP; i++) {
+    campaign.addSiteToRoster(makeSite(`site-${i}`, i, TOKEN('matsuda', 'Matsuda')));
+  }
+  campaign.addKeyItem({
+    id: keycardIdFor('door-0', 'matsuda'),
+    label: 'Matsuda card',
+    doorId: 'door-0',
+    principalId: 'matsuda',
+  });
+
+  // One more site evicts the oldest (site-0), which the card was "found" at.
+  campaign.addSiteToRoster(makeSite('site-new', SITE_ROSTER_CAP + 1, TOKEN('matsuda', 'Matsuda')));
+
+  assert.equal(campaign.findRosterSite('site-0'), null, 'oldest site evicted');
+  assert.equal(campaign.keyItems.length, 1, 'principal keycard survives site eviction');
+  assert.equal(campaign.keyItems[0]!.principalId, 'matsuda');
 });

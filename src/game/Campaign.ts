@@ -50,8 +50,10 @@ import {
   mergeSiteDeltas as mergeDeltas,
   mergeSiteSeenKeys as mergeSeen,
   normalizeLocationSite,
+  siteIdForContract,
 } from './locations.js';
 import { resolveMapDimensions } from './procgen/mapDimensions.js';
+import { keycardIdFor, migrateLegacyKeycardId } from './entities/KeyCard.js';
 import {
   normalizeCampaignChronicle,
   normalizePendingChronicleRun,
@@ -76,11 +78,15 @@ export const SITE_ROSTER_CAP = 6;
 /** Minimum Rep to leave Act 1 — proven-operator bar (65). Recruitment opens earlier at KNOWN (50). */
 export const ARC_ACT_2_MIN_REP = 65;
 export const ARC_ACT_2_MIN_COMPLETED_JOBS = 4;
-export const ARC_ACT_3_MIN_COMPLETED_JOBS = 9;
-/** Minimum *living* crew size before the Score's final-prep stage unlocks. Starter 2 + Decker = 3, so 4 requires at least one additional recruit who hasn't flatlined. */
-export const ARC_ACT_3_MIN_CREW_ALIVE = 4;
-/** Visited sites sharing the Score target's principal required for Act 3. Includes the target itself. */
-export const ARC_ACT_3_MIN_PRINCIPAL_SITES_VISITED = 3;
+/**
+ * Distinct visited sites sharing the Score target's principal required to leave
+ * casing (Stage 2 → Stage 3). The synthesized Score target is never visited
+ * before the heist, so it does *not* count — this is purely the org sites the
+ * player has actually cased. This is the sole casing gate (the old living-crew
+ * and total-completed-jobs gates were dropped as arbitrary and invisible);
+ * surfaced on-screen via {@link Campaign.casingProgress}.
+ */
+export const ARC_ACT_3_MIN_PRINCIPAL_SITES_VISITED = 4;
 /** Act-2/3 deploys taken before corp heat starts (successful or not). */
 export const CLOCK_ACT2_GRACE_JOBS = 3;
 /** Deploys after grace before the Score window closes (Act 3 only). */
@@ -93,6 +99,25 @@ export const CLOCK_ACT3_MIN_JOBS_REMAINING = 3;
 /** Clock expiry applies only during Act 3 final prep; Act 2 casing can run past the old deadline. */
 export function clockDeadlineApplies(arcStage: CampaignArcStage): boolean {
   return arcStage === 'act-3';
+}
+
+/**
+ * Count distinct roster sites the player has *visited* that share the Score
+ * org's principal. Drives the casing gate and its on-screen indicator — kept in
+ * one place so the gate and the `CASED N/M` display can never disagree.
+ */
+export function casedPrincipalSiteCount(
+  siteRoster: readonly LocationSite[],
+  scorePrincipalId: string
+): number {
+  return siteRoster.filter(
+    site =>
+      // The synthesized Score target shares the org's principal but is never a
+      // "cased" site — you breach it during the heist, not on a prep run.
+      // Exclude it structurally so the gate can't count the crown jewel toward
+      // its own unlock even if a fixture or future bug marks it visited.
+      !site.scoreTarget && site.principal?.id === scorePrincipalId && site.lastVisitedJob > 0
+  ).length;
 }
 /** Campaign-ending payday for completing THE SCORE. */
 export const SCORE_CREDITS_REWARD = 5_000;
@@ -432,8 +457,10 @@ export class Campaign {
     this.hubReveals = normalizeHubReveals(hubReveals, 'Campaign hubReveals');
     this.completedJobs = (completedJobs as number) ?? 0;
     this.clockJobsTaken = (clockJobsTaken as number) ?? 0;
-    this.keyItems = normalizeKeyItems(keyItems);
+    // Roster before key items: legacy keycards carry only `siteId` and are
+    // backfilled to their owning `principalId` via the roster (P3.1-balance).
     this.siteRoster = normalizeSiteRoster(siteRoster);
+    this.keyItems = normalizeKeyItems(keyItems, this.siteRoster);
     this.chronicle = normalizeCampaignChronicle(chronicle);
     this.pendingChronicleRun = normalizePendingChronicleRun(pendingChronicleRun);
     this.state = CAMPAIGN_STATE.HUB;
@@ -653,7 +680,7 @@ export class Campaign {
       }
     }
     if (isScoreContract(contract)) {
-      this.#beginScoreAttempt(contract);
+      this.#validateScoreAttempt(contract);
     } else if (this.arc.arcStage === 'act-2' || this.arc.arcStage === 'act-3') {
       this.clockJobsTaken += 1;
     }
@@ -674,6 +701,7 @@ export class Campaign {
       onResult: (result: RunResult) => {
         this.onResult?.(result);
       },
+      onCombatEntered: () => this.onActiveRunCombatEntered(),
     });
     this.activeRun.enterBriefing(deployedContract);
     // Remember this location (or refresh its visit marker) on deploy.
@@ -752,6 +780,10 @@ export class Campaign {
       // returning to the Hub — breach holes survive even on an aborted exit.
       this.#mergeRunDeltasIntoRoster(this.activeRun);
       this.#mergeRunSeenIntoRoster(this.activeRun);
+      // Keycards carried out alive are promoted to the persistent campaign
+      // inventory — independent of objective completion, since the operator
+      // physically extracted with the card. Death (handled above) drops them.
+      this.#promoteRunKeyItems(this.activeRun);
       if (completed) {
         this.completedJobs += 1;
         addSalvage(this.salvage, extracted);
@@ -1191,6 +1223,14 @@ export class Campaign {
         throw new Error(`Campaign.purchase: meta upgrade "${itemId}" already purchased`);
       }
     }
+    // Refuse gear the target has already saturated (limit-1 gear it already has
+    // equipped, or stacking gear at its cap). `applyGear` would silently clamp
+    // this to a no-op, so without the guard Finn pockets the Creds for nothing.
+    if (item.scope === ITEM_SCOPE.CAMPAIGN && target && target.gearAtCap(itemId)) {
+      throw new Error(
+        `Campaign.purchase: ${target.callsign ?? target.id} already has "${itemId}" at capacity`
+      );
+    }
 
     // Commit: deduct Creds first, then apply effect.
     this.credits -= item.cost;
@@ -1286,11 +1326,22 @@ export class Campaign {
   }
 
   /**
-   * Check whether the campaign inventory holds a key item that unlocks the
-   * given door id. Returns the matching `KeyItem` or `null`.
+   * Promote a survived run's carried keycards into the persistent campaign
+   * inventory. Only principal-stamped cards survive (run-scoped cards without a
+   * principalId belong to no owner on the roster); already-held cards are
+   * skipped so a re-collected revisit card is idempotent rather than a crash.
    */
-  keyItemForDoor(doorId: string): KeyItem | null {
-    return this.keyItems.find(k => k.doorId === doorId) ?? null;
+  #promoteRunKeyItems(run: Run): void {
+    for (const item of run.keyItems) {
+      if (!item.principalId) continue;
+      if (this.keyItems.some(k => k.id === item.id)) continue;
+      this.addKeyItem({
+        id: item.id,
+        label: item.label,
+        doorId: item.doorId,
+        principalId: item.principalId,
+      });
+    }
   }
 
   // ─── Location memory / site roster (P2.5.M7.2) ───────────────────────────
@@ -1340,6 +1391,11 @@ export class Campaign {
         return;
       }
       this.siteRoster.splice(evictIdx, 1);
+      // Keycards are scoped to the owning *principal*, not a single site
+      // (P3.1-balance): one card opens that owner's door at every site they
+      // control. So a site leaving the roster no longer purges keycards — the
+      // owner may still hold other roster sites, and the card set is naturally
+      // bounded by the small principal roster regardless.
     }
     this.siteRoster.push(normalized);
     this.#persist();
@@ -1376,7 +1432,7 @@ export class Campaign {
    * happens to reuse a remembered seed pick up that site's prior geometry.
    */
   locationSiteIdForContract(contract: Contract): string {
-    return contract.context.locationSiteId ?? generateSiteId(contract.seed);
+    return siteIdForContract(contract);
   }
 
   /**
@@ -1398,13 +1454,14 @@ export class Campaign {
   }
 
   /**
-   * Campaign key items already held for a contract's target location. Used to
-   * skip respawning pickup keycards on revisit (player re-opens via interact).
+   * Campaign key items already held for a contract's owning principal. Used to
+   * skip respawning pickup keycards when we already hold this owner's card
+   * (from any of their sites) — the player re-opens the door via interact.
    */
   priorKeyItemsForContract(contract: Contract): KeyItem[] {
-    const siteId = contract.context.locationSiteId;
-    if (!siteId) return [];
-    return this.keyItems.filter(k => k.siteId === siteId).map(k => ({ ...k }));
+    const principalId = contract.context.principal?.id ?? null;
+    if (!principalId) return [];
+    return this.keyItems.filter(k => k.principalId === principalId).map(k => ({ ...k }));
   }
 
   /** Add or refresh the roster entry for a deployed contract's location. */
@@ -1688,9 +1745,9 @@ export class Campaign {
       this.#appendChronicleMilestone(
         'act-3',
         'STAGE 3 — FINAL PREP',
-        'The crew has enough casing, enough survivors, and a narrow window to attempt THE SCORE.',
+        'The crew has cased enough of the org and has a narrow window to attempt THE SCORE.',
         [
-          `Living crew: ${this.crew.filter(member => !member.flatlined).length}`,
+          `Sites cased: ${this.casingProgress()?.cased ?? 0}`,
           `Clock budget remaining: ${this.scoreDeadlineJobsRemaining}`,
         ]
       );
@@ -1715,18 +1772,23 @@ export class Campaign {
   }
 
   #qualifiesForAct3(): boolean {
-    if (this.completedJobs < ARC_ACT_3_MIN_COMPLETED_JOBS) return false;
-    const livingCrew = this.crew.filter(m => !m.flatlined).length;
-    if (livingCrew < ARC_ACT_3_MIN_CREW_ALIVE) return false;
+    const progress = this.casingProgress();
+    return progress !== null && progress.cased >= progress.required;
+  }
 
+  /**
+   * Casing progress toward final prep: distinct Score-org sites cased so far and
+   * the count required to leave Stage 2. Null until a Score target with a
+   * principal is designated (i.e. before the Score reveal). The Hub status line
+   * renders this as `CASED N/M`.
+   */
+  casingProgress(): { cased: number; required: number } | null {
     const scoreTarget = this.siteRoster.find(site => site.scoreTarget);
-    if (!scoreTarget?.principal?.id) return false;
-
-    const principalId = scoreTarget.principal.id;
-    const visitedPrincipalSites = this.siteRoster.filter(
-      site => site.principal?.id === principalId && site.lastVisitedJob > 0
-    ).length;
-    return visitedPrincipalSites >= ARC_ACT_3_MIN_PRINCIPAL_SITES_VISITED;
+    if (!scoreTarget?.principal?.id) return null;
+    return {
+      cased: casedPrincipalSiteCount(this.siteRoster, scoreTarget.principal.id),
+      required: ARC_ACT_3_MIN_PRINCIPAL_SITES_VISITED,
+    };
   }
 
   /**
@@ -1786,7 +1848,16 @@ export class Campaign {
     return scoreTargets[0] ?? null;
   }
 
-  #beginScoreAttempt(contract: Contract): void {
+  /**
+   * Deploy-time gate for THE SCORE. Validates eligibility but does NOT commit —
+   * a failed Score is terminal, and the map isn't built until `enterCombat`
+   * (which can throw), so the irreversible `scoreAttempted`/`arcStage` mutation
+   * is deferred to {@link #commitScoreAttempt}, fired from the run's
+   * `onCombatEntered` hook once the run is actually playable. Re-validating here
+   * stays correct across a retry: an uncommitted prior attempt left the flags
+   * untouched, so a redeploy passes again.
+   */
+  #validateScoreAttempt(contract: Contract): void {
     if (this.arc.arcStage !== 'act-3') {
       throw new Error('Campaign.deployCrewMember: Score can only be attempted from Act 3');
     }
@@ -1803,8 +1874,30 @@ export class Campaign {
     if (!target || contract.context.locationSiteId !== target.id) {
       throw new Error('Campaign.deployCrewMember: Score contract does not target the Score site');
     }
+  }
+
+  /**
+   * Commit the (terminal) Score attempt — idempotent. Invoked from the active
+   * run's `onCombatEntered` hook, i.e. only after the Score map built and every
+   * objective fixture placed. Until this fires, a generation failure leaves the
+   * campaign able to redeploy rather than stranded in `score-partial`.
+   */
+  #commitScoreAttempt(): void {
+    if (this.arc.scoreAttempted) return;
     this.arc.scoreAttempted = true;
     this.arc.arcStage = 'score';
+    this.#persist();
+  }
+
+  /**
+   * Wired to `Run.onCombatEntered` for every deployed/restored run. Commits the
+   * Score attempt the moment a Score run becomes playable; a no-op otherwise.
+   */
+  onActiveRunCombatEntered(): void {
+    const contract = this.activeRun?.contract ?? null;
+    if (contract && isScoreContract(contract)) {
+      this.#commitScoreAttempt();
+    }
   }
 
   #clockExpired(): boolean {
@@ -1886,13 +1979,23 @@ export class Campaign {
 /**
  * Normalize key items from a snapshot (or undefined for pre-P2.5.M6.2 saves).
  * Validates structure. Crashes on malformed entries per project policy.
+ *
+ * P3.1-balance re-scope: keycards are keyed by their owning `principalId`, not a
+ * single `siteId`. New saves carry `principalId` directly. Legacy saves carry
+ * only `siteId`; each is backfilled to its owner by looking the site up in the
+ * (already-restored) `roster`. A legacy card whose owning site is no longer on
+ * the roster can't be resolved to an owner — it is dropped with a warning
+ * rather than kept as an unscoped, unmatchable card (no silent corruption).
+ * Backfilled cards are re-keyed to the canonical principal id and deduped, so
+ * two same-owner cards collapse into one.
  */
-function normalizeKeyItems(raw: unknown): KeyItem[] {
+function normalizeKeyItems(raw: unknown, roster: readonly LocationSite[]): KeyItem[] {
   if (raw === undefined || raw === null) return [];
   if (!Array.isArray(raw)) {
     throw new TypeError('Campaign: keyItems must be an array when supplied');
   }
-  return (raw as KeyItem[]).map((item, i) => {
+  const result: KeyItem[] = [];
+  (raw as Array<KeyItem & { siteId?: string }>).forEach((item, i) => {
     if (!item || typeof item !== 'object') {
       throw new TypeError(`Campaign: keyItems[${i}] must be an object`);
     }
@@ -1905,15 +2008,55 @@ function normalizeKeyItems(raw: unknown): KeyItem[] {
     if (typeof item.doorId !== 'string' || item.doorId.length === 0) {
       throw new TypeError(`Campaign: keyItems[${i}].doorId must be a non-empty string`);
     }
-    const result: KeyItem = { id: item.id, label: item.label, doorId: item.doorId };
-    if (item.siteId !== undefined) {
+
+    let normalized: KeyItem;
+    if (item.principalId !== undefined) {
+      if (typeof item.principalId !== 'string' || item.principalId.length === 0) {
+        throw new TypeError(
+          `Campaign: keyItems[${i}].principalId must be a non-empty string when set`
+        );
+      }
+      // Current-format card: keep its (canonical) id, only healing the bare
+      // legacy `keycard-<doorId>` shape via migrateLegacyKeycardId.
+      normalized = migrateLegacyKeycardId({
+        id: item.id,
+        label: item.label,
+        doorId: item.doorId,
+        principalId: item.principalId,
+      });
+    } else if (item.siteId !== undefined) {
       if (typeof item.siteId !== 'string' || item.siteId.length === 0) {
         throw new TypeError(`Campaign: keyItems[${i}].siteId must be a non-empty string when set`);
       }
-      result.siteId = item.siteId;
+      const principalId = roster.find(s => s.id === item.siteId)?.principal?.id;
+      if (!principalId) {
+        console.warn(
+          `Campaign: dropping legacy keycard "${item.id}" — site "${item.siteId}" is not on the roster, so its owning principal cannot be resolved`
+        );
+        return;
+      }
+      // Legacy card: the old id baked in the siteId, so re-key to the canonical
+      // principal-unique form (two same-owner cards then collapse to one).
+      normalized = {
+        id: keycardIdFor(item.doorId, principalId),
+        label: item.label,
+        doorId: item.doorId,
+        principalId,
+      };
+    } else {
+      // Neither scope key: an unscoped campaign card. Preserve it verbatim — it
+      // is inert (matches no principal filter) but harmless, and dropping it
+      // would be silent data loss. Heal only the bare legacy id shape.
+      normalized = migrateLegacyKeycardId({
+        id: item.id,
+        label: item.label,
+        doorId: item.doorId,
+      });
     }
-    return result;
+
+    if (!result.some(k => k.id === normalized.id)) result.push(normalized);
   });
+  return result;
 }
 
 /**

@@ -55,6 +55,7 @@ import { hasLineOfSight } from '/src/game/LineOfSight.js';
 import { ITEM_ID, SCOREABLE_ITEMS, getItemById } from '/src/game/items.js';
 import type { CampaignSnapshot } from '/src/game/persistence.js';
 import type { Contract } from '/src/game/hub/Curator.js';
+import { principalLabelFor } from '/src/game/hub/Curator.js';
 import {
   formatHubArcStatusLines,
   scorePrincipalId,
@@ -80,7 +81,7 @@ import {
   pipWorldOf,
   shouldShowPip,
 } from '/src/render/pip.js';
-import type { TurnActionStep } from '/src/types.js';
+import type { KeyItem, TurnActionStep } from '/src/types.js';
 import { installErrorBoundary, type FaultSignal } from '/src/errorBoundary.js';
 import { isDevelopmentMode } from '/src/domUtils.js';
 import {
@@ -120,8 +121,10 @@ import type {
   GameOverElement,
   InitialRecruitElement,
   InputState,
-  ItemInventoryElement,
+  CombatInventoryElement,
+  CrewInventoryElement,
   KeyHelpElement,
+  KeyItemView,
   RunBriefingElement,
   SystemStartElement,
   TouchPadElement,
@@ -197,7 +200,8 @@ let touchPadEl: TouchPadElement;
 let crewRosterEl: CrewRosterElement;
 let finnShopEl: FinnShopElement;
 let clinicModalEl: ClinicModalElement;
-let itemInventoryEl: ItemInventoryElement;
+let combatInventoryEl: CombatInventoryElement;
+let crewInventoryEl: CrewInventoryElement;
 let chronicleArchiveEl: ChronicleArchiveElement;
 let keyHelpEl: KeyHelpElement;
 let logEl: HTMLElement;
@@ -389,7 +393,8 @@ export async function boot() {
   crewRosterEl = mustGetElement<CrewRosterElement>('crew-roster');
   finnShopEl = mustGetElement<FinnShopElement>('finn-shop');
   clinicModalEl = mustGetElement<ClinicModalElement>('clinic-modal');
-  itemInventoryEl = mustGetElement<ItemInventoryElement>('item-inventory');
+  combatInventoryEl = mustGetElement<CombatInventoryElement>('combat-inventory');
+  crewInventoryEl = mustGetElement<CrewInventoryElement>('crew-inventory');
   chronicleArchiveEl = mustGetElement<ChronicleArchiveElement>('chronicle-archive');
   keyHelpEl = mustGetElement<KeyHelpElement>('key-help');
   logEl = mustQuery<HTMLElement>('.game-log');
@@ -443,8 +448,9 @@ export async function boot() {
   clinicModalEl.addEventListener('heal', onClinicHeal);
   clinicModalEl.addEventListener('dismiss', onClinicDismiss);
 
-  itemInventoryEl.addEventListener('use-item', onUseItem);
-  itemInventoryEl.addEventListener('dismiss', () => itemInventoryEl.hide());
+  combatInventoryEl.addEventListener('use-item', onUseItem);
+  combatInventoryEl.addEventListener('dismiss', () => combatInventoryEl.hide());
+  crewInventoryEl.addEventListener('dismiss', () => crewInventoryEl.hide());
   chronicleArchiveEl.addEventListener('dismiss', () => chronicleArchiveEl.hide());
 
   keyHelpEl.addEventListener('dismiss', () => keyHelpEl.hide());
@@ -584,7 +590,8 @@ function hideBlockingShellModals(): void {
   crewRosterEl?.hide();
   finnShopEl?.hide();
   clinicModalEl?.hide();
-  itemInventoryEl?.hide();
+  combatInventoryEl?.hide();
+  crewInventoryEl?.hide();
   chronicleArchiveEl?.hide();
 }
 
@@ -765,6 +772,13 @@ function presentBriefing(contract: Contract) {
 function presentContractSelect(contracts: Contract[]) {
   contractSelectEl.setScoreTargetSiteId(campaign ? scoreTargetSiteId(campaign) : null);
   contractSelectEl.setScorePrincipalId(campaign ? scorePrincipalId(campaign) : null);
+  contractSelectEl.setHeldKeycardPrincipalIds(
+    campaign
+      ? campaign.keyItems
+          .map(k => k.principalId)
+          .filter((id): id is string => typeof id === 'string')
+      : []
+  );
   contractSelectEl.setContracts(contracts);
   contractSelectEl.show();
 }
@@ -926,34 +940,54 @@ function onFinnSellSalvage(evt: Event) {
   presentFinnShop();
 }
 
-function presentItemInventory() {
+function presentInventory() {
   if (!campaign) return;
-  // Inventory is now available in both Hub and combat. The two states
-  // surface different wallets:
-  //   - Combat: the deployed crew member's job-scoped inventory (what they've
-  //     picked up this run + their consumables).
-  //   - Hub:    the campaign-wide accumulated salvage. No active crew member,
-  //     so no consumables list — the player visits the shop or roster for
-  //     per-crew loadout management.
-  // This keeps the overlay's mental model simple: it always shows the
-  // currently meaningful wallet for the state the player is standing in.
+  // Two distinct surfaces for the two states:
+  //   - Hub:    <crew-inventory> — the campaign-wide stash (accumulated salvage
+  //     + stolen keycards). Read-only; no operator, so no consumables.
+  //   - Combat: <combat-inventory> — the deployed operator's live job-scoped
+  //     wallet, held keycards, and their navigable consumables list.
   if (campaign.state === CAMPAIGN_STATE.HUB) {
-    itemInventoryEl.setContents({
+    crewInventoryEl.setContents({
       salvage: campaign.salvage,
-      consumables: [],
-      keyItems: campaign.keyItems,
+      keyItems: keyItemsWithLocation(campaign.keyItems),
     });
-    itemInventoryEl.show();
+    crewInventoryEl.show();
     return;
   }
   const run = campaign.activeRun;
-  if (!run || !run.player || !run.player.inventory) return;
-  itemInventoryEl.setContents({
-    salvage: run.player.inventory.salvage,
-    consumables: run.player.inventory.consumables,
-    keyItems: [...campaign.keyItems, ...run.keyItems],
+  if (!run || !run.player) return;
+  // The active operator owns the live job-scoped wallet — the Decker before
+  // jack-in, the partner while jacked in, and whichever crewmate has control
+  // after jack-out (the simstim flip swaps `activeActor`). This overlay is
+  // gated to Meatspace upstream, so `activeActor` is always a Crew here.
+  const operator = activeActorOf(run) as Crew | null;
+  if (!operator || !operator.inventory) return;
+  combatInventoryEl.setContents({
+    salvage: operator.inventory.salvage,
+    consumables: operator.inventory.consumables,
+    // Combat renders keycards as the generic "Access keycard" — the locked
+    // door is in front of you, so no location lookup is needed here. Scope to
+    // this run's site so other sites' held cards don't render as phantom
+    // duplicates (P3.1).
+    keyItems: run.effectiveKeyItems(campaign.keyItems),
   });
-  itemInventoryEl.show();
+  combatInventoryEl.show();
+}
+
+/**
+ * Enrich key items with their owning principal's name for the inventory tag.
+ * Keycards are scoped to a principal (owner), not a single site (P3.1-balance),
+ * so the tag names the owner — resolved from the static lexicon, so it renders
+ * even after every site that owner controlled has left the roster. Cards with an
+ * unknown/absent principal simply render without a tag.
+ */
+function keyItemsWithLocation(items: KeyItem[]): KeyItemView[] {
+  return items.map(item => {
+    const locationName = item.principalId ? principalLabelFor(item.principalId) : null;
+    if (!locationName) return { ...item };
+    return { ...item, locationName };
+  });
 }
 
 /**
@@ -974,6 +1008,11 @@ function onUseItem(evt: Event) {
   const run = campaign.activeRun;
   if (!run || !run.player) return;
   if (!run.world) throw new Error('[shell] active combat run has no world');
+  // Consumables act through whichever operator currently has control — the
+  // Decker before jack-in, the partner while jacked in, the flipped-to crewmate
+  // after jack-out. Routing through `run.player` would apply the item to the
+  // frozen Decker body whenever the partner is the one in control.
+  const operator = activeActorOf(run) as Crew;
   const { itemId } = (evt as CustomEvent<{ itemId?: string }>).detail;
   if (!itemId) return;
   // Aimed consumables (incendiary): close the inventory overlay, switch the
@@ -988,7 +1027,7 @@ function onUseItem(evt: Event) {
     return;
   }
   if (descriptor.needsAim) {
-    if (!run.player.canAfford(AP_COST.INTERACT)) {
+    if (!operator.canAfford(AP_COST.INTERACT)) {
       // Cheap pre-check: don't strand the player in aim mode if `useConsumable`
       // will reject the commit anyway. Crew's `canAfford(AP_COST.INTERACT)`
       // remains the source of truth at commit time.
@@ -996,19 +1035,19 @@ function onUseItem(evt: Event) {
       return;
     }
     pendingAimItemId = itemId;
-    itemInventoryEl.hide();
+    combatInventoryEl.hide();
     setInputAim(AIM_KIND.USE_ITEM);
     flash(`AIM ${descriptor.label.toUpperCase()} — pick a direction (Esc to cancel).`);
     return;
   }
   try {
-    const result = run.player.useConsumable(itemId);
+    const result = operator.useConsumable(itemId);
     applyUseConsumableResult(result, run);
   } catch (err) {
     flash(`USE FAILED: ${errorMessage(err)}`);
     return;
   }
-  itemInventoryEl.hide();
+  combatInventoryEl.hide();
   paint();
   concludeOperatorTurn();
 }
@@ -1023,10 +1062,13 @@ function applyUseConsumableResult(
   run: Run
 ): void {
   if (!run.world || !run.player) throw new Error('[shell] applyUseConsumableResult: no scene');
+  // The acting operator — whoever currently has control — so HP/AP readouts
+  // reflect who actually used the item, not the frozen Decker body.
+  const operator = activeActorOf(run) as Crew;
   if (result.type === 'stim') {
     const healed = (result as { healed: number }).healed;
     flash(
-      `Used STIM — healed ${healed} HP (now ${run.player.hp}/${run.player.maxHp}). ${run.player.ap} AP left.`
+      `Used STIM — healed ${healed} HP (now ${operator.hp}/${operator.maxHp}). ${operator.ap} AP left.`
     );
     return;
   }
@@ -1038,7 +1080,7 @@ function applyUseConsumableResult(
     const overlays = placeSmoke(run.world.grid, cx, cy, radius);
     activeSmokeOverlays.push(...overlays);
     recomputeVision();
-    flash(`Used SMOKE CHARGE — LOS blocked in radius ${radius}. ${run.player.ap} AP left.`);
+    flash(`Used SMOKE CHARGE — LOS blocked in radius ${radius}. ${operator.ap} AP left.`);
     return;
   }
   if (result.type === 'incendiary') {
@@ -1054,10 +1096,10 @@ function applyUseConsumableResult(
     // through a wall and lose your bomb."
     const stamped = placeHazardCluster(run.world, { x: cx, y: cy }, run.rng);
     if (stamped === 0) {
-      flash(`Used INCENDIARY — bomb landed on hard cover; no fire took. ${run.player.ap} AP left.`);
+      flash(`Used INCENDIARY — bomb landed on hard cover; no fire took. ${operator.ap} AP left.`);
     } else {
       flash(
-        `Used INCENDIARY — ${stamped} tile${stamped === 1 ? '' : 's'} ignited. ${run.player.ap} AP left.`
+        `Used INCENDIARY — ${stamped} tile${stamped === 1 ? '' : 's'} ignited. ${operator.ap} AP left.`
       );
     }
     recomputeVision();
@@ -1069,7 +1111,7 @@ function applyUseConsumableResult(
       throw new Error('[shell] breaching charge returned invalid target data');
     }
     run.world.placeBreachingCharge(tx, ty);
-    flash(`BREACHING CHARGE planted. Detonates end of turn. ${run.player.ap} AP left.`);
+    flash(`BREACHING CHARGE planted. Detonates end of turn. ${operator.ap} AP left.`);
     recomputeVision();
     return;
   }
@@ -1092,6 +1134,10 @@ function resolveAimedUseItem(aim: { dx: number; dy: number }, run: Run): void {
     resetInputModes();
     return;
   }
+  // The thrower is whichever operator currently has control, so throws
+  // originate from their tile, not the frozen Decker body's. (We've already
+  // bailed above if we're flipped to Cyberspace.)
+  const operator = activeActorOf(run) as Crew;
   const itemId = pendingAimItemId;
   if (!itemId) {
     // Direction press arrived without a stashed item — shouldn't be reachable
@@ -1105,23 +1151,23 @@ function resolveAimedUseItem(aim: { dx: number; dy: number }, run: Run): void {
     // `player + dir * INCENDIARY_THROW_DIST`. If LOS from the thrower to
     // that tile is blocked (or the tile is out of bounds), refuse the
     // throw *before* spending AP / consuming the bomb.
-    const cx = run.player.x + aim.dx * INCENDIARY_THROW_DIST;
-    const cy = run.player.y + aim.dy * INCENDIARY_THROW_DIST;
+    const cx = operator.x + aim.dx * INCENDIARY_THROW_DIST;
+    const cy = operator.y + aim.dy * INCENDIARY_THROW_DIST;
     if (!run.world.grid.inBounds(cx, cy)) {
       flash('USE FAILED: target is off the map.');
       paint();
       return;
     }
     const blockers = run.world.blockerKeys();
-    if (!hasLineOfSight(run.world.grid, run.player.x, run.player.y, cx, cy, { blockers })) {
+    if (!hasLineOfSight(run.world.grid, operator.x, operator.y, cx, cy, { blockers })) {
       flash('USE FAILED: target is behind cover.');
       paint();
       return;
     }
   }
   if (itemId === ITEM_ID.BREACHING_CHARGE) {
-    const tx = run.player.x + aim.dx * BREACHING_CHARGE_RANGE;
-    const ty = run.player.y + aim.dy * BREACHING_CHARGE_RANGE;
+    const tx = operator.x + aim.dx * BREACHING_CHARGE_RANGE;
+    const ty = operator.y + aim.dy * BREACHING_CHARGE_RANGE;
     const plantCheck = run.world.canPlaceBreachingCharge(tx, ty);
     if (!plantCheck.ok) {
       const msg =
@@ -1136,7 +1182,7 @@ function resolveAimedUseItem(aim: { dx: number; dy: number }, run: Run): void {
     }
   }
   try {
-    const result = run.player.useConsumable(itemId, aim);
+    const result = operator.useConsumable(itemId, aim);
     applyUseConsumableResult(result, run);
   } catch (err) {
     flash(`USE FAILED: ${errorMessage(err)}`);
@@ -1358,7 +1404,8 @@ function performQuitCampaign(): void {
   crewRosterEl.hide();
   finnShopEl.hide();
   clinicModalEl.hide();
-  itemInventoryEl.hide();
+  combatInventoryEl.hide();
+  crewInventoryEl.hide();
 
   pendingJobResult = null;
   dataStore.deleteCampaign();
@@ -1572,6 +1619,13 @@ export function handleIntent(intent: Intent): void {
     throw new Error(`[shell] state "${run.state}" has no active world/actor for intents`);
   }
 
+  let keyItems: KeyItem[] = [];
+  if (run.state === 'COMBAT') {
+    keyItems = (run as Run).effectiveKeyItems(campaign?.keyItems ?? []);
+  } else {
+    keyItems = run.keyItems;
+  }
+
   applyIntent(intent, {
     world: intentWorld,
     player: intentActor as Parameters<typeof applyIntent>[1]['player'],
@@ -1589,18 +1643,17 @@ export function handleIntent(intent: Intent): void {
     onCorpseSalvaged: entity => {
       activeVisionField(run).forgetCorpse(entity);
     },
-    keyItems: [...(campaign?.keyItems ?? []), ...(run as Run).keyItems],
+    keyItems,
     onKeycardCollected: kc => {
-      if (kc.siteId) {
-        // Campaign-scoped: persists across runs.
-        if (campaign?.keyItems.some(k => k.id === kc.id)) {
-          return;
-        }
-        campaign?.addKeyItem({ id: kc.id, label: kc.label, doorId: kc.doorId, siteId: kc.siteId });
-      } else {
-        // Run-scoped: lives only in this run, discarded on run end.
-        (run as Run).addKeyItem({ id: kc.id, label: kc.label, doorId: kc.doorId });
-      }
+      // Picked-up keycards are run-scoped during the run — still usable for
+      // in-run door unlock via ctx.keyItems. Campaign.onJobEnd promotes the
+      // principal-stamped ones into the persistent inventory on live extraction.
+      (run as Run).addKeyItem({
+        id: kc.id,
+        label: kc.label,
+        doorId: kc.doorId,
+        ...(kc.principalId ? { principalId: kc.principalId } : {}),
+      });
     },
     onSecuredInteract: handleSecuredInteract,
     onPlayerAction: (actionName: string) => {
@@ -1621,7 +1674,7 @@ export function handleIntent(intent: Intent): void {
               return;
             }
           }
-          presentItemInventory();
+          presentInventory();
           break;
         case PLAYER_ACTIONS.INTERACT:
           handleInteract();
@@ -2267,6 +2320,11 @@ function paintPip(): void {
 
 export function paint(stateHint: InputState = activeInputState()): void {
   const run = currentScene();
+  // P3.M4.3: surface the simstim FLIP fab only when a flip target exists right
+  // now — same gate as the keyboard `Tab` (dual-deploy / post-jack-out crews).
+  // Set before the early-returns below so non-combat / hidden-canvas paints
+  // always clear a stale fab.
+  touchPadEl.setFlipAvailable(!!run && isRun(run) && run.canFlip());
   if (canvas.hidden) {
     setStatus(statusLine(stateHint));
     return;
@@ -2616,7 +2674,8 @@ function isAnyBlockingModalOpen(): boolean {
   if (crewRosterEl?.isOpen) return true;
   if (finnShopEl?.isOpen) return true;
   if (clinicModalEl?.isOpen) return true;
-  if (itemInventoryEl?.isOpen) return true;
+  if (combatInventoryEl?.isOpen) return true;
+  if (crewInventoryEl?.isOpen) return true;
   if (chronicleArchiveEl?.isOpen) return true;
   if (keyHelpEl?.isOpen) return true;
   if (faultEl?.isOpen) return true;

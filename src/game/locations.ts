@@ -82,6 +82,21 @@ export function generateSiteId(seed: number | string): string {
 }
 
 /**
+ * Stable roster site id for a contract's target location. Revisit contracts
+ * carry an explicit `locationSiteId`; everything else derives one from the map
+ * seed via {@link generateSiteId}, so a fresh contract that reuses a remembered
+ * seed resolves to the same roster site. Mirrors
+ * `Campaign.locationSiteIdForContract` but takes a structural param to keep
+ * this module import-light (no `Contract` dependency).
+ */
+export function siteIdForContract(contract: {
+  seed: number | string;
+  context: { locationSiteId?: string };
+}): string {
+  return contract.context.locationSiteId ?? generateSiteId(contract.seed);
+}
+
+/**
  * Replay terrain mutations onto a freshly-built grid (revisit re-entry).
  * Mutates `grid` only — does not touch any `World.mutationDeltas` accumulator,
  * so this run's *new* breaches stay separate from the persisted history.

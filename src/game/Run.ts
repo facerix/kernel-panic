@@ -45,7 +45,7 @@ import {
   JACK_OUT_SHOCK_DAMAGE,
   factionForPrincipalGroups,
 } from './constants.js';
-import { coordKey, explorationReachableKeys } from './mapConnectivity.js';
+import { coordKey, explorationReachableKeys, hasAdjacentPassableTile } from './mapConnectivity.js';
 import { isValidBlockingPlacement, checkPlacementIntegrity } from './placement.js';
 import { makeSalvage, type TypedSalvage } from './salvage.js';
 import { Entity, type LootableEntity } from './Entity.js';
@@ -79,7 +79,7 @@ import { CorpTurret } from './entities/CorpTurret.js';
 import { RelayNode } from './entities/RelayNode.js';
 import { ConsumablePickup } from './entities/ConsumablePickup.js';
 import { EscortNpc } from './entities/EscortNpc.js';
-import { KeyCard } from './entities/KeyCard.js';
+import { KeyCard, keycardIdFor, migrateLegacyKeycardId } from './entities/KeyCard.js';
 import { JackInPoint } from './entities/JackInPoint.js';
 import { CyberspaceLayer } from './cyber/CyberspaceLayer.js';
 import { CyberAvatar } from './cyber/CyberAvatar.js';
@@ -303,7 +303,7 @@ export type RunSnapshot = {
   extractedOperativeIds?: string[];
   /** P3.M5: off-grid crew records for extracted Score operatives. */
   extractedOperatives?: RunEntitySnapshot[];
-  /** Run-scoped key items / keycards without a siteId (P2.5.M6.2). Defaults to []. */
+  /** Run-scoped key items / keycards without a principalId (P2.5.M6.2). Defaults to []. */
   keyItems?: KeyItemSnapshot[];
   /** Terrain/entity mutations recorded during the run (P2.5.M7.1). Defaults to []. */
   mutationDeltas?: TileDelta[];
@@ -366,6 +366,7 @@ type KeyItemSnapshot = {
   id: string;
   label: string;
   doorId: string;
+  principalId?: string;
 };
 
 export type JackOutRequest = {
@@ -387,6 +388,11 @@ export type RunOptions = {
   seed?: unknown;
   onPersist?: unknown;
   onResult?: unknown;
+  /** Fired once at the end of a successful `enterCombat()` — after the map is
+   *  built and placement succeeds. Lets the campaign defer irreversible,
+   *  one-shot commits (THE SCORE's `scoreAttempted`) until the run is actually
+   *  playable, so a generation failure can't strand the campaign. */
+  onCombatEntered?: unknown;
   /** Called when the player reaches the exit with an incomplete objective.
    *  The shell should show a confirmation prompt; call `run.confirmAbort()`
    *  to finalise the abort extraction, or do nothing to let the player
@@ -482,7 +488,7 @@ export class Run {
   telemetry: RunTelemetry;
   objectiveTimer: ObjectiveTimerSnapshot;
   mapSeen: Set<string>;
-  /** Run-scoped key items / keycards without a siteId (P2.5.M6.2). Lost on run end. */
+  /** Run-scoped key items / keycards without a principalId (P2.5.M6.2). Lost on run end. */
   keyItems: KeyItem[];
   /** P3.M5: Score-only independent extraction latch. Empty on normal runs. */
   extractedOperativeIds: Set<string>;
@@ -494,6 +500,8 @@ export class Run {
   priorKeyItems: KeyItem[];
   onPersist: ((record: RunSnapshot) => void) | null;
   onResult: ((result: RunResult) => void) | null;
+  /** Fired once after a successful `enterCombat()`; see `RunInit.onCombatEntered`. */
+  onCombatEntered: (() => void) | null;
   onAbortRequested: (() => void) | null;
   onJackOutRequested: ((request: JackOutRequest) => void) | null;
   /** Shell presentation hook — fired synchronously after jack-in completes. */
@@ -512,6 +520,7 @@ export class Run {
     seed,
     onPersist,
     onResult,
+    onCombatEntered,
     onAbortRequested,
     onJackOutRequested,
     onJackInPresent,
@@ -536,6 +545,9 @@ export class Run {
     }
     if (onResult !== undefined && typeof onResult !== 'function') {
       throw new TypeError('Run: onResult must be a function');
+    }
+    if (onCombatEntered !== undefined && typeof onCombatEntered !== 'function') {
+      throw new TypeError('Run: onCombatEntered must be a function');
     }
     if (onAbortRequested !== undefined && typeof onAbortRequested !== 'function') {
       throw new TypeError('Run: onAbortRequested must be a function');
@@ -593,6 +605,7 @@ export class Run {
     this.priorKeyItems = ((priorKeyItems as KeyItem[] | undefined) ?? []).map(k => ({ ...k }));
     this.onPersist = (onPersist as ((record: RunSnapshot) => void) | undefined) ?? null;
     this.onResult = (onResult as ((result: RunResult) => void) | undefined) ?? null;
+    this.onCombatEntered = (onCombatEntered as (() => void) | undefined) ?? null;
     this.onAbortRequested = (onAbortRequested as (() => void) | undefined) ?? null;
     this.onJackOutRequested =
       (onJackOutRequested as ((request: JackOutRequest) => void) | undefined) ?? null;
@@ -882,6 +895,11 @@ export class Run {
     this.state = RUN_STATE.COMBAT;
     this.#recordCurrentPlayerVision();
     this._reattachCombatListeners();
+    // The run is now playable — the map built and every objective fixture placed.
+    // Fire AFTER state=COMBAT so the campaign can commit one-shot, irreversible
+    // attempt flags (THE SCORE) only once the run can actually be won. A throw
+    // anywhere above skips this, leaving the campaign free to redeploy.
+    this.onCombatEntered?.();
   }
 
   /** Permitted from COMBAT only. Notifies the shell via `onResult`. */
@@ -955,7 +973,12 @@ export class Run {
               .map(crew => ({ ...snapshotEntity(crew), x: 0, y: 0 })),
           }
         : {}),
-      keyItems: this.keyItems.map(k => ({ id: k.id, label: k.label, doorId: k.doorId })),
+      keyItems: this.keyItems.map(k => ({
+        id: k.id,
+        label: k.label,
+        doorId: k.doorId,
+        ...(k.principalId ? { principalId: k.principalId } : {}),
+      })),
       mutationDeltas: world.mutationDeltas.map(delta => ({ ...delta })),
       // P3.M4.1/M4.2: the reserved meat partner. While the cyber layer is still
       // dormant the partner is off-grid, so it serializes as an entity record
@@ -1433,8 +1456,8 @@ export class Run {
   }
 
   /**
-   * Add a run-scoped key item (keycard with no siteId). Crashes on duplicates
-   * per project policy — double-collection is always a bug.
+   * Add a run-scoped key item (keycard). Crashes on duplicates per project
+   * policy — double-collection is always a bug.
    */
   addKeyItem(item: KeyItem): void {
     if (!item || typeof item !== 'object') {
@@ -1449,10 +1472,41 @@ export class Run {
     if (typeof item.doorId !== 'string' || item.doorId.length === 0) {
       throw new TypeError('Run.addKeyItem: item.doorId must be a non-empty string');
     }
-    if (this.keyItems.some(k => k.id === item.id)) {
-      throw new Error(`Run.addKeyItem: duplicate key item "${item.id}"`);
+    // Canonicalize before the dedup check so a bare legacy id picked up off a
+    // pre-P3.1 map lands as the principal-unique id, matching restore-time migration.
+    const canonical = migrateLegacyKeycardId(item);
+    if (this.keyItems.some(k => k.id === canonical.id)) {
+      throw new Error(`Run.addKeyItem: duplicate key item "${canonical.id}"`);
     }
-    this.keyItems.push({ id: item.id, label: item.label, doorId: item.doorId });
+    this.keyItems.push({
+      id: canonical.id,
+      label: canonical.label,
+      doorId: canonical.doorId,
+      ...(canonical.principalId ? { principalId: canonical.principalId } : {}),
+    });
+  }
+
+  /**
+   * The keycards effective at this run's site: run-scoped pickups plus any
+   * campaign-held cards stamped for the *current* principal (owner). Cards from
+   * other principals are excluded so the combat inventory and the door-unlock
+   * context stay scoped to the owner of the door in front of the operator —
+   * every generated door shares `doorId` `door-0`, so an unscoped merge both
+   * renders phantom duplicates and would let a rival owner's card open this door
+   * (P3.1 fix). A card for *this* owner opens the door at every site they
+   * control (P3.1-balance). Deduped by id.
+   */
+  effectiveKeyItems(campaignKeyItems: readonly KeyItem[]): KeyItem[] {
+    const principalId = this.contract?.context.principal?.id ?? null;
+    const scoped = principalId ? campaignKeyItems.filter(k => k.principalId === principalId) : [];
+    const seen = new Set<string>();
+    const result: KeyItem[] = [];
+    for (const k of [...scoped, ...this.keyItems]) {
+      if (seen.has(k.id)) continue;
+      seen.add(k.id);
+      result.push({ ...k });
+    }
+    return result;
   }
 
   mapSeenKeys(): string[] {
@@ -1971,12 +2025,12 @@ export class Run {
         this.contract.objective.kind !== OBJECTIVES.TERMINAL_SLICE &&
         this.contract.objective.kind !== OBJECTIVES.SCORE_FINAL
       ) {
-        const revisitSiteId = this.contract.context.locationSiteId;
-        const priorKey =
-          revisitSiteId &&
-          this.priorKeyItems.find(k => k.doorId === linkedDoorId && k.siteId === revisitSiteId);
-        // Held site keycard from a prior visit → skip spawn; door stays locked
-        // until interact (P2.5.M7.2).
+        const revisitPrincipalId = this.contract.context.principal?.id ?? null;
+        const priorKey = this.priorKeyItems.find(
+          k => k.doorId === linkedDoorId && k.principalId === revisitPrincipalId
+        );
+        // Held principal keycard from a prior visit (to any of this owner's
+        // sites) → skip spawn; door stays locked until interact (P2.5.M7.2).
         if (!priorKey) {
           // 50/50 roll — terminal unlock vs keycard unlock (P2.5.M6.2).
           const unlockMethod = resolveUnlockMethod(this.contract, this.rng);
@@ -2009,18 +2063,19 @@ export class Run {
               this.rng,
               linkedDoorId
             );
-            // On a remembered-site revisit, stamp the keycard with the site id
-            // so collecting it promotes the card to campaign-scoped (P2.5.M6.2
-            // routing) for future revisit re-opens via interact (P2.5.M7.2).
-            const keycardSiteId = this.contract.context.locationSiteId;
+            // Stamp the keycard with the site's owning principal so collecting
+            // it promotes the card to campaign-scoped on extraction and a future
+            // visit to *any* of this owner's sites re-opens the door via the
+            // held card instead of respawning one (P3.1-balance).
+            const keycardPrincipalId = this.contract.context.principal?.id;
             this.world.addEntity(
               new KeyCard({
-                id: `keycard-${linkedDoorId}`,
+                id: keycardIdFor(linkedDoorId, keycardPrincipalId),
                 x: keycardAnchor.x,
                 y: keycardAnchor.y,
                 doorId: linkedDoorId,
                 label: 'Access keycard',
-                ...(keycardSiteId ? { siteId: keycardSiteId } : {}),
+                principalId: keycardPrincipalId,
               })
             );
           }
@@ -2062,7 +2117,13 @@ export class Run {
     }
     if (this.contract.objective.kind === OBJECTIVES.SCORE_FINAL) {
       const doorId = scoreDoorId(this.contract);
-      const jackAnchor = findInteractableAnchor(this.world, this.player, this.exitTile, this.rng);
+      const jackAnchor = findScoreJackInAnchor(
+        this.world,
+        this.player,
+        this.exitTile,
+        this.rng,
+        doorId
+      );
       this.world.addEntity(
         new JackInPoint({
           id: 'jack-in-0',
@@ -2729,7 +2790,7 @@ const SNAPSHOT_EXTRACTORS: Partial<Record<EntityArchetypeId, (e: Entity) => Enti
       return {
         doorId: k.doorId,
         label: k.label,
-        siteId: k.siteId ?? null,
+        principalId: k.principalId ?? null,
       } satisfies KeyCardSnapshot;
     },
     'jack-in-point': e => {
@@ -3123,6 +3184,59 @@ function findDecoupledTerminalAnchor(
   );
   if (remote.length > 0) return rng.pick(remote);
   return rng.pick(candidates);
+}
+
+/**
+ * Jack-in anchor for THE SCORE — winnability-critical and self-healing.
+ *
+ * `score-door-0` is unlocked ONLY by jacking in and slicing the cyber core, so
+ * the jack-in MUST live on the spawn side of that locked door. A door-agnostic
+ * anchor can drop it *behind* the very door it unlocks, sealing the run (the
+ * shipped `bad-score` dead save). Because a failed Score is terminal, this never
+ * warns-and-ships a deadlock:
+ *
+ *   1. Prefer the door-aware decoupled anchor (spawn-side, non-chokepoint).
+ *   2. If that anchor isn't actually reachable with the door still locked (or the
+ *      finder finds nothing), REPAIR: relocate to the nearest spawn-side
+ *      reachable tile that can host a fixture.
+ *
+ * The spawn-side reachable set always contains spawn's neighbours, so the repair
+ * effectively cannot come up empty; only a degenerate map throws — and the Score
+ * commit is deferred until the map builds, so even that is retryable, not fatal.
+ */
+function findScoreJackInAnchor(
+  world: World,
+  player: Entity,
+  exitTile: GridPoint,
+  rng: Rng,
+  doorId: string
+): GridPoint {
+  const spawn = { x: player.x, y: player.y };
+  // Floor reachable from spawn with the score door still LOCKED (the default
+  // flood treats locked doors as walls). The jack-in must land inside this set.
+  const reachable = explorationReachableKeys(world, spawn);
+  try {
+    const anchor = findDecoupledTerminalAnchor(world, player, exitTile, rng, doorId);
+    if (reachable.has(coordKey(anchor.x, anchor.y))) return anchor;
+  } catch {
+    // Decoupled finder found nothing legal — fall through to the repair path.
+  }
+  // Self-heal: nearest spawn-side tile that can host the jack-in fixture.
+  // Deterministic ordering: by distance to spawn, then row, then column.
+  const repaired = [...reachable]
+    .map(key => parseCoordKey(key, 'findScoreJackInAnchor'))
+    .filter(
+      p =>
+        !(p.x === spawn.x && p.y === spawn.y) &&
+        !(p.x === exitTile.x && p.y === exitTile.y) &&
+        !world.liveEntityAt(p.x, p.y) &&
+        hasAdjacentPassableTile(world, p.x, p.y)
+    )
+    .sort((a, b) => manhattan(a, spawn) - manhattan(b, spawn) || a.y - b.y || a.x - b.x)[0];
+  if (!repaired) {
+    throw new Error(`Run: Score map has no spawn-side tile to host the jack-in (door ${doorId})`);
+  }
+  return repaired;
 }
 
 function findBehindDoorAnchor(

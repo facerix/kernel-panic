@@ -26,42 +26,89 @@ import {
   totalSalvage,
   type TypedSalvage,
 } from '/src/game/salvage.js';
-import type { Crew as CrewMember, Gear } from '/src/game/Crew.js';
-import type { Item } from '/src/game/items.js';
+import type { Crew as CrewMember } from '/src/game/Crew.js';
+import { ITEM_ID, type Item } from '/src/game/items.js';
+import { gearLines, statDisplays } from '/src/game/crewDisplay.js';
 
-/** Human-readable labels for item IDs (mirrors ItemInventory). */
-const ITEM_LABELS = {
-  stim: 'Stim',
-  'smoke-charge': 'Smoke Charge',
-  'breaching-charge': 'Breaching Charge',
-};
-
-/** Human-readable labels for gear bonuses. */
-function gearLines(gear: Gear) {
-  if (!gear) return [];
-  const lines: string[] = [];
-  if (gear.maxHpBonus > 0) lines.push(`Armour Plating  +${gear.maxHpBonus} HP`);
-  if (gear.hitBonus > 0) lines.push(`Targeting Chip  +${(gear.hitBonus * 100).toFixed(0)}%`);
-  if ((gear.dodgeBonus ?? 0) > 0)
-    lines.push(`Reflex Weave  +${((gear.dodgeBonus ?? 0) * 100).toFixed(0)}%`);
-  if ((gear.rangedDamageBonus ?? 0) > 0)
-    lines.push(`Ballistics Coil  +${gear.rangedDamageBonus} ranged dmg`);
-  return lines;
+function crewMemberHeader(crewMember: CrewMember): HTMLElement {
+  const name = crewMember.callsign ?? crewMember.id;
+  const className = (crewMember.constructor?.name ?? crewMember.archetype ?? 'Crew').toUpperCase();
+  return h('p', { className: 'detail-header' }, [
+    h('span', { className: 'detail-name', textContent: name }),
+    h('span', {
+      className: 'detail-class',
+      textContent: ` [${className}]`,
+    }),
+  ]);
 }
 
-/** Aggregate consumables into "Label x2" lines. */
-function consumableLines(consumables: Item[]) {
-  if (!consumables || consumables.length === 0) return [];
+function StatCell(label: string, value: string): HTMLElement {
+  return h('td', {}, [
+    h('span', { className: 'stat-label', textContent: label }),
+    h('span', { className: 'stat-value', textContent: value }),
+  ]);
+}
+
+function statsTable(crewMember: CrewMember): HTMLElement {
+  const labels = statDisplays(crewMember);
+  return h('div', { className: 'stats-table-container' }, [
+    h('table', { className: 'detail-stats-table' }, [
+      h('tr', {}, [
+        StatCell('HP ', labels.hp),
+        StatCell('AP ', labels.ap),
+        StatCell('ARMOR ', labels.armor),
+      ]),
+    ]),
+    h('table', { className: 'detail-stats-table secondary' }, [
+      h('tr', {}, [StatCell('RANGED ', labels.ranged), StatCell('AIM ', labels.aim)]),
+    ]),
+    h('table', { className: 'detail-stats-table secondary' }, [
+      h('tr', {}, [StatCell('MELEE ', labels.melee), StatCell('DODGE ', labels.dodge)]),
+    ]),
+  ]);
+}
+
+function consumablesRow(items: Item[]): HTMLElement {
   const counts = new Map();
-  for (const c of consumables) {
+  for (const c of items) {
     counts.set(c.id, (counts.get(c.id) ?? 0) + 1);
   }
-  const lines = [];
-  for (const [id, count] of counts) {
-    const label = ITEM_LABELS[id as keyof typeof ITEM_LABELS] ?? id;
-    lines.push(count > 1 ? `${label} x${count}` : label);
-  }
-  return lines;
+
+  const stims = h('div', { className: 'consumable-item' }, [
+    h('img', { src: '/images/stim.png', alt: 'Stims' }),
+    h('span', { className: 'consumable-count', innerText: counts.get(ITEM_ID.STIM) ?? 0 }),
+    h('div', { className: 'consumable-caption', innerText: 'Stim' }),
+  ]);
+
+  const smoke = h('div', { className: 'consumable-item' }, [
+    h('img', { src: '/images/smoke.png', alt: 'Smoke' }),
+    h('span', { className: 'consumable-count', innerText: counts.get(ITEM_ID.SMOKE_CHARGE) ?? 0 }),
+    h('div', { className: 'consumable-caption', innerText: 'Smoke' }),
+  ]);
+
+  const incendiary = h('div', { className: 'consumable-item' }, [
+    h('img', { src: '/images/incind.png', alt: 'Firebomb' }),
+    h('span', { className: 'consumable-count', innerText: counts.get(ITEM_ID.INCENDIARY) ?? 0 }),
+    h('div', { className: 'consumable-caption', innerText: 'Fire' }),
+  ]);
+
+  const charge = h('div', { className: 'consumable-item' }, [
+    h('img', { src: '/images/charge.png', alt: 'Charge' }),
+    h('span', {
+      className: 'consumable-count',
+      innerText: counts.get(ITEM_ID.BREACHING_CHARGE) ?? 0,
+    }),
+    h('div', { className: 'consumable-caption', innerText: 'Breach' }),
+  ]);
+
+  const consSection = h('div', { className: 'detail-section consumables' }, [
+    stims,
+    smoke,
+    incendiary,
+    charge,
+  ]);
+
+  return consSection;
 }
 
 const CSS = `
@@ -73,6 +120,7 @@ const CSS = `
   --roster-accent: var(--accent-color, #00d9a5);
   --roster-danger: #ff5d73;
   --roster-shadow: 0 0 28px rgba(0, 217, 165, 0.18), 0 12px 36px rgba(0, 0, 0, 0.5);
+  --roster-border-secondary: #a4d1cc;
 
   display: none;
   position: fixed;
@@ -154,14 +202,18 @@ crew-list {
 .detail {
   border-left: 1px dashed var(--roster-border);
   padding-left: 1rem;
-  min-height: 120px;
+  min-height: 15rem;
+  height: stretch;
+
+  display: flex;
+  flex-direction: column;
 }
 
 .detail-header {
   display: flex;
   align-items: baseline;
   gap: 0.15rem;
-  margin: 0 0 0.5rem;
+  margin: 0;
 }
 
 .detail-name {
@@ -175,6 +227,28 @@ crew-list {
   color: var(--roster-dim);
   font-size: 0.88rem;
   letter-spacing: 0.08em;
+  margin-left: auto;
+}
+
+.detail-stats-table {
+  border-collapse: collapse; 
+  font-size: smaller;
+  width: 100%;
+
+  td {
+    border: 1px solid var(--roster-border-secondary);
+    padding: 0.25rem;
+
+    span.stat-label {
+      color: var(--roster-border-secondary);
+    }
+  }
+
+  &.secondary {
+    td {
+      border-top-width: 0;
+    }
+  }
 }
 
 .detail-section {
@@ -200,6 +274,35 @@ crew-list {
   color: var(--roster-dim);
   font-style: italic;
   margin: 0.1rem;
+}
+
+.consumables {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: space-between;
+  margin: auto 0 0;
+
+  .consumable-item {
+    flex: 0 0 22%;
+    position: relative;
+
+    img {
+      filter: hue-rotate(-35deg); /* from cyan to lime */
+      width: 3.5rem;
+    }
+
+    .consumable-count {
+      position: absolute;
+      right: 0.15rem;
+      bottom: 1.15rem;
+      background-color: var(--roster-bg);
+    }
+
+    .consumable-caption {
+      font-size: smaller;
+      text-align: center;
+    }
+  }
 }
 
 .flatlined-label {
@@ -355,10 +458,6 @@ class CrewRoster extends HTMLElement {
       this.#onSelect((evt as CustomEvent<{ member: CrewMember }>).detail.member)
     );
 
-    this.#detailEl = h('div', { className: 'detail' });
-
-    const body = h('div', { className: 'body' }, [this.#listEl, this.#detailEl]);
-
     // Recruit section (hidden until recruits are set).
     this.#recruitRowsEl = h('div', { className: 'recruit-rows' });
     this.#recruitBtnEl = h('button', {
@@ -375,13 +474,21 @@ class CrewRoster extends HTMLElement {
     ]);
     this.#recruitSectionEl.style.display = 'none';
 
+    const listContainer = h('div', { className: 'crew-list-container' }, [
+      this.#listEl,
+      this.#recruitSectionEl,
+    ]);
+
+    this.#detailEl = h('div', { className: 'detail' });
+
+    const body = h('div', { className: 'body' }, [listContainer, this.#detailEl]);
+
     this.#hintEl = h('p', { className: 'hint', textContent: '[ ↑/↓ navigate  ·  Esc dismiss ]' });
     this.#panelEl = h('section', { className: 'panel' }, [
       this.#titleEl,
       this.#balanceEl,
       this.#campaignStatusEl,
       body,
-      this.#recruitSectionEl,
       this.#hintEl,
     ]);
     shadow.appendChild(this.#panelEl);
@@ -534,15 +641,7 @@ class CrewRoster extends HTMLElement {
     while (this.#detailEl!.firstChild) this.#detailEl!.removeChild(this.#detailEl!.firstChild);
 
     // Name + class header
-    this.#detailEl!.appendChild(
-      h('p', { className: 'detail-header' }, [
-        h('span', { className: 'detail-name', textContent: member.callsign }),
-        h('span', {
-          className: 'detail-class',
-          textContent: ` [${member.archetype.toUpperCase()}]`,
-        }),
-      ])
-    );
+    this.#detailEl!.appendChild(crewMemberHeader(full));
 
     if (member.flatlined) {
       this.#detailEl!.appendChild(
@@ -551,32 +650,11 @@ class CrewRoster extends HTMLElement {
       return;
     }
 
-    // Stats
-    const statsSection = h('div', { className: 'detail-section' });
-    statsSection.appendChild(h('p', { className: 'detail-section-title', textContent: 'STATS' }));
-    statsSection.appendChild(
-      h('p', { className: 'detail-stat', textContent: `HP  ${member.hp}/${member.maxHp}` })
-    );
-    const hitBonus = full.gear?.hitBonus ?? 0;
-    const actualHit = Math.min(full.baseHitChance + hitBonus, 1);
-    statsSection.appendChild(
-      h('p', {
-        className: 'detail-stat',
-        textContent: `AIM  ${(actualHit * 100).toFixed(0)}%`,
-      })
-    );
-    const dodgeBonus = full.gear?.dodgeBonus ?? 0;
-    const actualDodge = Math.min(full.baseDodgeChance + dodgeBonus, 1);
-    statsSection.appendChild(
-      h('p', {
-        className: 'detail-stat',
-        textContent: `DODGE  ${(actualDodge * 100).toFixed(0)}%`,
-      })
-    );
-    this.#detailEl!.appendChild(statsSection);
+    // Stats — full combat readout with gear bonuses annotated inline.
+    this.#detailEl!.appendChild(statsTable(full));
 
     // Gear
-    const gLines = gearLines(full.gear ?? ({} as Gear));
+    const gLines = gearLines(full.gear);
     const gearSection = h('div', { className: 'detail-section' });
     gearSection.appendChild(h('p', { className: 'detail-section-title', textContent: 'GEAR' }));
     if (gLines.length === 0) {
@@ -590,19 +668,7 @@ class CrewRoster extends HTMLElement {
 
     // Consumables
     const consumables = full.inventory?.consumables ?? ([] as Item[]);
-    const cLines = consumableLines(consumables);
-    const consSection = h('div', { className: 'detail-section' });
-    consSection.appendChild(
-      h('p', { className: 'detail-section-title', textContent: 'CONSUMABLES' })
-    );
-    if (cLines.length === 0) {
-      consSection.appendChild(h('p', { className: 'detail-none', textContent: '-None-' }));
-    } else {
-      for (const line of cLines) {
-        consSection.appendChild(h('p', { className: 'detail-stat', textContent: line }));
-      }
-    }
-    this.#detailEl!.appendChild(consSection);
+    this.#detailEl!.appendChild(consumablesRow(consumables));
   }
 
   // ─── Recruitment ─────────────────────────────────────────────────────
@@ -672,36 +738,10 @@ class CrewRoster extends HTMLElement {
 
   #showRecruitDetail(recruit: CrewMember) {
     while (this.#detailEl!.firstChild) this.#detailEl!.removeChild(this.#detailEl!.firstChild);
-    this.#detailEl!.appendChild(
-      h('p', { className: 'detail-header' }, [
-        h('span', { className: 'detail-name', textContent: recruit.callsign ?? recruit.id }),
-        h('span', {
-          className: 'detail-class',
-          textContent: ` [${(recruit.constructor?.name ?? recruit.archetype ?? 'Crew').toUpperCase()}]`,
-        }),
-      ])
-    );
-    // Stats — recruits are fresh, no gear/consumables.
-    const statsSection = h('div', { className: 'detail-section' });
-    statsSection.appendChild(h('p', { className: 'detail-section-title', textContent: 'STATS' }));
-    statsSection.appendChild(
-      h('p', { className: 'detail-stat', textContent: `HP  ${recruit.hp}/${recruit.maxHp}` })
-    );
-    const hitChance = recruit.baseHitChance ?? 0.65;
-    const dodgeChance = recruit.baseDodgeChance ?? 0.2;
-    statsSection.appendChild(
-      h('p', {
-        className: 'detail-stat',
-        textContent: `AIM  ${(hitChance * 100).toFixed(0)}%`,
-      })
-    );
-    statsSection.appendChild(
-      h('p', {
-        className: 'detail-stat',
-        textContent: `DODGE  ${(dodgeChance * 100).toFixed(0)}%`,
-      })
-    );
-    this.#detailEl!.appendChild(statsSection);
+    this.#detailEl!.appendChild(crewMemberHeader(recruit));
+    // Stats — recruits are fresh (no gear), but show the full combat readout
+    // so the player can compare a recruit against the standing crew.
+    this.#detailEl!.appendChild(statsTable(recruit));
   }
 
   /**

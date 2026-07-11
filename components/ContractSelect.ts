@@ -7,7 +7,7 @@
 import { h } from '/src/domUtils.js';
 import { encounterHostileCount } from '/src/game/encounters.js';
 import { contractLocationBadges } from '/src/game/hub/arcSurface.js';
-import { cloneObjective } from '/src/game/hub/Curator.js';
+import { cloneObjective, contractRequiresCyberspace } from '/src/game/hub/Curator.js';
 import type { Contract } from '/src/game/hub/Curator.js';
 
 const DIFFICULTY_LABEL: Record<string, string> = Object.freeze({
@@ -145,6 +145,14 @@ const CSS = `
   color: #020403;
 }
 
+/* Cyberspace job marker — magenta from the cyber palette (see CYBER_ACCENT in
+   src/render/pip.ts and the simstim FLIP fab) so a dual-deploy reads as "the
+   cyber layer" wherever it surfaces. */
+.badge.cyber {
+  background: #ff8ad8;
+  color: #020403;
+}
+
 .known {
   color: var(--board-dim);
   border: 1px solid rgba(106, 232, 200, 0.45);
@@ -165,6 +173,11 @@ const CSS = `
   color: #020403;
   background: #9be7ff;
   border-color: #9be7ff;
+}
+
+.known.keycard {
+  color: var(--board-accent, #6ae8c8);
+  border-color: rgba(106, 232, 200, 0.7);
 }
 
 .meta {
@@ -205,6 +218,7 @@ class ContractSelect extends HTMLElement {
   #contracts: Contract[] = [];
   #scoreTargetSiteId: string | null = null;
   #scorePrincipalId: string | null = null;
+  #heldKeycardPrincipalIds: ReadonlySet<string> = new Set();
   #selectedIndex = 0;
   #ready = false;
   #listEl: HTMLElement | null = null;
@@ -271,6 +285,14 @@ class ContractSelect extends HTMLElement {
     if (this.#ready) this.#render();
   }
 
+  setHeldKeycardPrincipalIds(principalIds: string[]) {
+    if (!Array.isArray(principalIds)) {
+      throw new TypeError('<contract-select>.setHeldKeycardPrincipalIds requires an array');
+    }
+    this.#heldKeycardPrincipalIds = new Set(principalIds);
+    if (this.#ready) this.#render();
+  }
+
   show() {
     this.setAttribute('open', '');
     queueMicrotask(() => this.#focusSelected());
@@ -307,12 +329,23 @@ class ContractSelect extends HTMLElement {
                 className: `badge ${isScoreContract(contract) ? 'score' : contract.difficulty}`,
                 textContent: difficultyLabel(contract),
               }),
+              // Cyber jobs send a Decker into Cyberspace (with a meat partner
+              // when the crew can spare one) — flag them on the board so the
+              // player knows a Decker is in play before they open the briefing.
+              ...(contractRequiresCyberspace(contract)
+                ? [h('span', { className: 'badge cyber', textContent: 'CYBER' })]
+                : []),
               h('span', { className: 'target', textContent: jobTitleCopy(contract) }),
             ]),
             h(
               'div',
               { className: 'location' },
-              locationLine(contract, this.#scoreTargetSiteId, this.#scorePrincipalId)
+              locationLine(
+                contract,
+                this.#scoreTargetSiteId,
+                this.#scorePrincipalId,
+                this.#heldKeycardPrincipalIds
+              )
             ),
             h('div', { className: 'meta', textContent: rewardCopy(contract) }),
           ]),
@@ -404,13 +437,19 @@ function jobTitleCopy(contract: Contract): string {
 function locationLine(
   contract: Contract,
   scoreTargetSiteId: string | null,
-  scorePrincipalId: string | null
+  scorePrincipalId: string | null,
+  heldKeycardPrincipalIds: ReadonlySet<string>
 ): HTMLElement[] {
   const { principal, site, siteState } = contract.context;
   const place = site ? `${principal.label} ${site.label}` : principal.label;
   const state = siteState ? ` [${siteState.label}]` : '';
   const nodes: HTMLElement[] = [h('span', { textContent: `Location: ${place}${state}` })];
-  for (const badge of contractLocationBadges(contract, scoreTargetSiteId, scorePrincipalId)) {
+  for (const badge of contractLocationBadges(
+    contract,
+    scoreTargetSiteId,
+    scorePrincipalId,
+    heldKeycardPrincipalIds
+  )) {
     const className = badge.variant === 'revisit' ? 'known' : `known ${badge.variant}`;
     nodes.push(h('span', { className, textContent: badge.text }));
   }
