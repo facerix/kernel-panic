@@ -87,9 +87,9 @@ function consumablesRow(items: Item[]): HTMLElement {
   ]);
 
   const incendiary = h('div', { className: 'consumable-item' }, [
-    h('img', { src: '/images/incind.png', alt: 'Firebomb' }),
+    h('img', { src: '/images/molotov.png', alt: 'Molotov' }),
     h('span', { className: 'consumable-count', innerText: counts.get(ITEM_ID.INCENDIARY) ?? 0 }),
-    h('div', { className: 'consumable-caption', innerText: 'Fire' }),
+    h('div', { className: 'consumable-caption', innerText: 'Molotov' }),
   ]);
 
   const charge = h('div', { className: 'consumable-item' }, [

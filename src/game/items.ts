@@ -121,7 +121,7 @@ export const DEFAULT_ITEMS: readonly Item[] = Object.freeze([
   }),
   Object.freeze({
     id: ITEM_ID.INCENDIARY,
-    label: 'Incendiary Bomb',
+    label: 'Molotov',
     scope: ITEM_SCOPE.JOB,
     cost: SHOP_COST.INCENDIARY,
     description: `Throw ${INCENDIARY_THROW_DIST} tiles in a chosen direction; ignites a persistent hazard cluster. Single use.`,

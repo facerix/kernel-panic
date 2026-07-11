@@ -1096,10 +1096,10 @@ function applyUseConsumableResult(
     // through a wall and lose your bomb."
     const stamped = placeHazardCluster(run.world, { x: cx, y: cy }, run.rng);
     if (stamped === 0) {
-      flash(`Used INCENDIARY — bomb landed on hard cover; no fire took. ${operator.ap} AP left.`);
+      flash(`Used MOLOTOV — landed on hard cover; no fire took. ${operator.ap} AP left.`);
     } else {
       flash(
-        `Used INCENDIARY — ${stamped} tile${stamped === 1 ? '' : 's'} ignited. ${operator.ap} AP left.`
+        `Used MOLOTOV — ${stamped} tile${stamped === 1 ? '' : 's'} ignited. ${operator.ap} AP left.`
       );
     }
     recomputeVision();
