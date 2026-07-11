@@ -1223,6 +1223,14 @@ export class Campaign {
         throw new Error(`Campaign.purchase: meta upgrade "${itemId}" already purchased`);
       }
     }
+    // Refuse gear the target has already saturated (limit-1 gear it already has
+    // equipped, or stacking gear at its cap). `applyGear` would silently clamp
+    // this to a no-op, so without the guard Finn pockets the Creds for nothing.
+    if (item.scope === ITEM_SCOPE.CAMPAIGN && target && target.gearAtCap(itemId)) {
+      throw new Error(
+        `Campaign.purchase: ${target.callsign ?? target.id} already has "${itemId}" at capacity`
+      );
+    }
 
     // Commit: deduct Creds first, then apply effect.
     this.credits -= item.cost;

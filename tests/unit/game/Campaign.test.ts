@@ -512,6 +512,48 @@ test('purchase applies reflex weave gear bonus', () => {
   assert.equal(member.gear.dodgeBonus, 0.1);
 });
 
+test('purchase refuses limit-1 gear the target already has equipped, without charging', () => {
+  // Reflex Booster is limit-1 ("One per operator"): a second sale would silently
+  // clamp to a no-op in applyGear while still pocketing the Creds. Guard it.
+  const campaign = new Campaign({ seed: 42, credits: SHOP_COST.REFLEX_BOOSTER * 2 });
+  const member = campaign.crew[0];
+  campaign.purchase({ itemId: 'reflex-booster', targetMemberId: member.id });
+  const creditsAfterFirst = campaign.credits;
+  const maxApAfterFirst = member.maxAp;
+  assert.throws(
+    () => campaign.purchase({ itemId: 'reflex-booster', targetMemberId: member.id }),
+    /at capacity/i
+  );
+  assert.equal(campaign.credits, creditsAfterFirst, 'no Creds deducted on the refused sale');
+  assert.equal(member.maxAp, maxApAfterFirst, 'stat unchanged by the refused sale');
+});
+
+test('purchase refuses every net-new limit-1 gear item once equipped', () => {
+  for (const itemId of ['monoblade', 'subdermal-plating', 'phase-shield', 'regen-mesh'] as const) {
+    const cost = SHOP_COST[itemId.toUpperCase().replace(/-/g, '_') as keyof typeof SHOP_COST];
+    const campaign = new Campaign({ seed: 42, credits: cost * 2 });
+    const member = campaign.crew[0];
+    campaign.purchase({ itemId, targetMemberId: member.id });
+    assert.throws(
+      () => campaign.purchase({ itemId, targetMemberId: member.id }),
+      /at capacity/i,
+      `${itemId} should be refused once equipped`
+    );
+    assert.equal(campaign.credits, cost, `${itemId} refusal must not deduct Creds`);
+  }
+});
+
+test('purchase still allows re-buying unbounded Armour Plating (not limit-1)', () => {
+  // Armour Plating has no cap (+1 maxHp each time), so it must stay re-purchasable.
+  const campaign = new Campaign({ seed: 42, credits: SHOP_COST.ARMOUR_PLATING * 2 });
+  const member = campaign.crew[0];
+  const origMaxHp = member.maxHp;
+  campaign.purchase({ itemId: 'armour-plating', targetMemberId: member.id });
+  campaign.purchase({ itemId: 'armour-plating', targetMemberId: member.id });
+  assert.equal(member.maxHp, origMaxHp + 2, 'second Armour Plating stacks');
+  assert.equal(campaign.credits, 0, 'both Armour Platings charged');
+});
+
 // meta upgrades (expanded-catalog, better-contracts) removed — Rep
 // tiers replace them. Tests for those items removed here.
 

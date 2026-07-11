@@ -425,6 +425,47 @@ test('Crew.rangedDamage defaults to RANGED_DAMAGE; Merc overrides', () => {
   assert.equal(t.rangedDamage, RANGED_DAMAGE);
 });
 
+test('Crew.gearAtCap reports every limit-1 gear item saturated after one apply', () => {
+  const limit1 = [
+    ITEM_ID.BALLISTICS_COIL,
+    ITEM_ID.MONOBLADE,
+    ITEM_ID.SUBDERMAL_PLATING,
+    ITEM_ID.REFLEX_BOOSTER,
+    ITEM_ID.PHASE_SHIELD,
+    ITEM_ID.REGEN_MESH,
+  ];
+  for (const itemId of limit1) {
+    const m = new Merc({ id: 'm', x: 0, y: 0 });
+    assert.equal(m.gearAtCap(itemId), false, `${itemId} not saturated before purchase`);
+    m.applyGear(itemId);
+    assert.equal(m.gearAtCap(itemId), true, `${itemId} saturated after one purchase`);
+  }
+});
+
+test('Crew.gearAtCap: unbounded Armour Plating never saturates', () => {
+  const m = new Merc({ id: 'm', x: 0, y: 0 });
+  assert.equal(m.gearAtCap(ITEM_ID.ARMOUR_PLATING), false);
+  m.applyGear(ITEM_ID.ARMOUR_PLATING);
+  m.applyGear(ITEM_ID.ARMOUR_PLATING);
+  assert.equal(m.gearAtCap(ITEM_ID.ARMOUR_PLATING), false, 'still re-purchasable after stacking');
+});
+
+test('Crew.gearAtCap: stacking gear saturates only at its per-archetype cap', () => {
+  const m = new Merc({ id: 'm', x: 0, y: 0 });
+  // Targeting Chip stacks in TARGETING_BONUS steps up to (1 − baseHitChance).
+  const steps = Math.round(m.maxHitBonus / TARGETING_BONUS);
+  for (let i = 0; i < steps; i++) {
+    assert.equal(m.gearAtCap(ITEM_ID.TARGETING_CHIP), false, `not capped at step ${i}`);
+    m.applyGear(ITEM_ID.TARGETING_CHIP);
+  }
+  assert.equal(m.gearAtCap(ITEM_ID.TARGETING_CHIP), true, 'capped once fully stacked');
+});
+
+test('Crew.gearAtCap throws on a non-gear id (no silent false)', () => {
+  const m = new Merc({ id: 'm', x: 0, y: 0 });
+  assert.throws(() => m.gearAtCap('stim'), /unknown gear item/i);
+});
+
 test('Crew.rangedAttackDamage is archetype base plus capped Ballistics Coil', () => {
   const m = new Merc({ id: 'm', x: 0, y: 0 });
   assert.equal(m.rangedAttackDamage(), MERC_RANGED_DAMAGE);
