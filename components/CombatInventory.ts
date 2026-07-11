@@ -13,7 +13,7 @@
 
 import { h } from '/src/domUtils.js';
 import { emptySalvage, type TypedSalvage } from '/src/game/salvage.js';
-import type { Item } from '/src/game/items.js';
+import { getItemById, type Item } from '/src/game/items.js';
 import type { KeyItemView } from '/src/shell/domTypes.js';
 import { INVENTORY_CSS, InventoryOverlay } from '/components/InventoryOverlay.js';
 
@@ -21,12 +21,6 @@ type CombatInventoryItem = Omit<Item, 'scope' | 'cost' | 'description' | 'needsT
   count: number;
 };
 
-/** Human-readable labels for item IDs. */
-const ITEM_LABELS = {
-  stim: 'Stim',
-  'smoke-charge': 'Smoke Charge',
-  'breaching-charge': 'Breaching Charge',
-};
 
 /** Interactive consumables-list styling layered on top of the shared chrome. */
 const CONSUMABLE_CSS = `
@@ -117,7 +111,9 @@ class CombatInventory extends InventoryOverlay {
     }
     this.#items = [];
     for (const [id, count] of counts) {
-      this.#items.push({ id, label: ITEM_LABELS[id as keyof typeof ITEM_LABELS] ?? id, count });
+      // Label from the single catalog source of truth (`items.ts`); throws on an
+      // unknown id rather than silently rendering the raw id.
+      this.#items.push({ id, label: getItemById(id).label, count });
     }
     this.#selectedIndex = 0;
     if (this.ready) this.render();
