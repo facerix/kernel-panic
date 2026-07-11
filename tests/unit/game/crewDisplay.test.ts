@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { gearLines, statLines } from '../../../src/game/crewDisplay.js';
+import { gearLines, statDisplays } from '../../../src/game/crewDisplay.js';
 import { Merc } from '../../../src/game/archetypes/Merc.js';
 import { Razor } from '../../../src/game/archetypes/Razor.js';
 import { ITEM_ID } from '../../../src/game/items.js';
@@ -27,8 +27,8 @@ test('gearLines surfaces the four pre-M6 channels', () => {
     rangedDamageBonus: 1,
   });
   assert.ok(
-    lines.some(l => l.includes('Armour Plating') && l.includes('+2 HP')),
-    `expected Armour Plating line, got ${JSON.stringify(lines)}`
+    lines.some(l => l.includes('Armor Plating') && l.includes('+2 HP')),
+    `expected Armor Plating line, got ${JSON.stringify(lines)}`
   );
   assert.ok(lines.some(l => l.includes('Targeting Chip') && l.includes('10%')));
   assert.ok(lines.some(l => l.includes('Reflex Weave') && l.includes('10%')));
@@ -78,29 +78,38 @@ test('every applyGear item yields at least one roster line', () => {
 });
 
 // ---------------------------------------------------------------------------
-// statLines — roster STATS block. Core combat stats always show; gear bonuses
-// surface inline; per-turn regen only when active.
+// statDisplays — roster STATS block. Maps each combat stat to its display
+// value with gear folded into the value (no inline annotation). Core keys
+// always present; per-turn regen keys only when active; bonuses counted once.
 // ---------------------------------------------------------------------------
 
-test('statLines always shows the seven core stats, no regen rows by default', () => {
+/** Leading numeric value of a stat display ("3 dmg" → 3, "65%" → 65). */
+const num = (s: string) => parseInt(s, 10);
+
+test('statDisplays exposes the seven core stat keys, no regen keys by default', () => {
   const crew = new Merc({ id: 'merc', x: 0, y: 0 });
-  const lines = statLines(crew);
-  for (const label of ['HP', 'AP', 'AIM', 'DODGE', 'RANGED', 'MELEE', 'ARMOUR']) {
-    assert.ok(
-      lines.some(l => l.startsWith(label + '  ') || l.startsWith(label + ' ')),
-      `missing ${label} stat in ${JSON.stringify(lines)}`
-    );
+  const labels = statDisplays(crew);
+  for (const key of ['hp', 'ap', 'aim', 'dodge', 'ranged', 'melee', 'armor']) {
+    assert.ok(key in labels, `missing ${key} in ${JSON.stringify(labels)}`);
   }
-  assert.ok(!lines.some(l => l.startsWith('SHIELD')), 'no shield regen row without gear');
-  assert.ok(!lines.some(l => l.startsWith('REGEN')), 'no hp regen row without gear');
-  // A bare operator shows no bonus annotations.
-  assert.ok(
-    !lines.some(l => l.includes('(+')),
-    `unexpected bonus on bare crew: ${JSON.stringify(lines)}`
-  );
+  assert.equal(labels.shield, undefined, 'no shield regen key without gear');
+  assert.equal(labels.regen, undefined, 'no hp regen key without gear');
+  // Shape: HP is current/max, AIM/DODGE are percentages, damage carries a unit.
+  assert.equal(labels.hp, `${crew.hp}/${crew.maxHp}`);
+  assert.match(labels.aim, /^\d+%$/);
+  assert.match(labels.dodge, /^\d+%$/);
+  assert.match(labels.ranged, /\bdmg$/);
+  assert.match(labels.melee, /\bdmg$/);
+  // Values are folded — a bare operator carries no inline "(+N)" annotations.
+  for (const [k, v] of Object.entries(labels)) {
+    assert.ok(!v.includes('(+'), `unexpected annotation on ${k}: ${JSON.stringify(labels)}`);
+  }
 });
 
-test('statLines annotates each gear-boosted stat inline', () => {
+test('statDisplays folds each gear bonus into its stat value, counted exactly once', () => {
+  const bare = statDisplays(new Merc({ id: 'bare', x: 0, y: 0 }));
+  const bareCrew = new Merc({ id: 'ref', x: 0, y: 0 });
+
   const crew = new Merc({ id: 'merc', x: 0, y: 0 });
   crew.applyGear(ITEM_ID.TARGETING_CHIP);
   crew.applyGear(ITEM_ID.REFLEX_WEAVE);
@@ -108,56 +117,49 @@ test('statLines annotates each gear-boosted stat inline', () => {
   crew.applyGear(ITEM_ID.MONOBLADE);
   crew.applyGear(ITEM_ID.REFLEX_BOOSTER);
   crew.applyGear(ITEM_ID.SUBDERMAL_PLATING);
-  const lines = statLines(crew);
-  assert.ok(
-    lines.some(l => l.startsWith('AIM') && l.includes('(+')),
-    'AIM bonus'
-  );
-  assert.ok(
-    lines.some(l => l.startsWith('DODGE') && l.includes('(+')),
-    'DODGE bonus'
-  );
-  assert.ok(
-    lines.some(l => l.startsWith('RANGED') && l.includes('(+')),
-    'RANGED bonus'
-  );
-  assert.ok(
-    lines.some(l => l.startsWith('MELEE') && l.includes('(+')),
-    'MELEE bonus'
-  );
-  assert.ok(
-    lines.some(l => l.startsWith('AP') && l.includes('(+')),
-    'AP bonus'
-  );
-  // Subdermal Plating raises ARMOUR off its 0 base.
-  assert.ok(
-    lines.some(l => l.startsWith('ARMOUR') && /ARMOUR\s+1/.test(l)),
-    'ARMOUR value'
-  );
+  const labels = statDisplays(crew);
+
+  // Base-derived stats: the bonus reads higher than the bare value.
+  assert.ok(num(labels.aim) > num(bare.aim), 'AIM reflects targeting chip');
+  assert.ok(num(labels.dodge) > num(bare.dodge), 'DODGE reflects reflex weave');
+  assert.ok(num(labels.ranged) > num(bare.ranged), 'RANGED reflects ballistics coil');
+  assert.ok(num(labels.melee) > num(bare.melee), 'MELEE reflects monoblade');
+
+  // Live stats: `maxAp` and `damageReduction` already bake the gear delta in, so
+  // the display must count it once — not add the tracked bonus a second time.
+  assert.equal(crew.maxAp, bareCrew.maxAp + 1, 'sanity: reflex booster raised maxAp by 1');
+  assert.equal(labels.ap, `${crew.maxAp}`, 'AP folds the booster exactly once');
+  assert.equal(crew.damageReduction, 1, 'sanity: subdermal plating raised armor to 1');
+  assert.equal(labels.armor, `${crew.damageReduction}`, 'ARMOR folds subdermal plating once');
+
+  // Still no inline annotations once gear is on.
+  for (const [k, v] of Object.entries(labels)) {
+    assert.ok(!v.includes('(+'), `unexpected annotation on ${k}: ${JSON.stringify(labels)}`);
+  }
 });
 
-test('statLines shows regen rows only when phase shield / regen mesh equipped', () => {
+test('statDisplays exposes regen keys only when phase shield / regen mesh equipped', () => {
   const crew = new Merc({ id: 'merc', x: 0, y: 0 });
   crew.applyGear(ITEM_ID.PHASE_SHIELD);
   crew.applyGear(ITEM_ID.REGEN_MESH);
-  const lines = statLines(crew);
+  const labels = statDisplays(crew);
+  assert.ok(labels.shield?.includes('/turn'), `shield: ${labels.shield}`);
+  assert.ok(labels.regen?.includes('HP/turn'), `regen: ${labels.regen}`);
+  // The value owns its sign: a single leading '+', never doubled by the caller.
   assert.ok(
-    lines.some(l => l.startsWith('SHIELD') && l.includes('/turn')),
-    'shield regen row'
+    labels.shield.startsWith('+') && !labels.shield.startsWith('++'),
+    `shield sign: ${labels.shield}`
   );
   assert.ok(
-    lines.some(l => l.startsWith('REGEN') && l.includes('HP/turn')),
-    'hp regen row'
+    labels.regen.startsWith('+') && !labels.regen.startsWith('++'),
+    `regen sign: ${labels.regen}`
   );
 });
 
-test('statLines reflects archetype melee/ranged differences without gear', () => {
-  // Razor's heavier blade should read on the MELEE line; a fresh recruit-style
+test('statDisplays reflects archetype melee/ranged differences without gear', () => {
+  // Razor's heavier blade should read on the MELEE value; a fresh recruit-style
   // readout still works because Crew getters supply the base values.
   const razor = new Razor({ id: 'razor', x: 0, y: 0 });
   const merc = new Merc({ id: 'merc', x: 0, y: 0 });
-  const razorMelee = statLines(razor).find(l => l.startsWith('MELEE'));
-  const mercMelee = statLines(merc).find(l => l.startsWith('MELEE'));
-  assert.ok(razorMelee && mercMelee);
-  assert.notEqual(razorMelee, mercMelee);
+  assert.notEqual(statDisplays(razor).melee, statDisplays(merc).melee);
 });

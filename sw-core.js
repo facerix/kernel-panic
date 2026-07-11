@@ -167,6 +167,10 @@ const CacheConfig = {
       '/icons/icon512_maskable.png',
       '/icons/icon512_rounded.png',
       '/images/back.png',
+      '/images/charge.png',
+      '/images/incind.png',
+      '/images/smoke.png',
+      '/images/stim.png',
       '/fonts/silkscreen/slkscr-webfont.woff',
       '/fonts/silkscreen/slkscrb-webfont.woff',
     ];
