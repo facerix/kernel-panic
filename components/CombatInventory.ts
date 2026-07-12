@@ -21,7 +21,6 @@ type CombatInventoryItem = Omit<Item, 'scope' | 'cost' | 'description' | 'needsT
   count: number;
 };
 
-
 /** Interactive consumables-list styling layered on top of the shared chrome. */
 const CONSUMABLE_CSS = `
 .rows {
