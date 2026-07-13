@@ -21,11 +21,13 @@ import {
   CONTRACT_DIFFICULTY,
   FACTION,
   SALVAGE_TO_CRED_RATE,
+  STATUS_EFFECT,
   TILE,
 } from '../../../src/game/constants.js';
 import { makeSalvage, totalSalvage } from '../../../src/game/salvage.js';
 import { buildCrewMember } from '../../../src/game/archetypes/index.js';
 import { Decker } from '../../../src/game/archetypes/Decker.js';
+import { Berserk } from '../../../src/game/archetypes/Berserk.js';
 import { PatrolHostile } from '../../../src/game/ai/PatrolHostile.js';
 import { applyOverride } from '../../../src/game/droneOverride.js';
 import { Rng } from '../../../src/rng.js';
@@ -115,6 +117,49 @@ test('snapshot/restore round-trips a Decker deploy (P3.M2)', () => {
   assert.ok(restoredRun.player instanceof Decker, 'Decker should restore as a Decker');
   assert.equal(restoredRun.player.callsign, run.player.callsign);
   // Stable round-trip through a second snapshot.
+  assert.deepEqual(snapshot(restoredRun), rec);
+});
+
+test('snapshot/restore round-trips a Berserk deploy (P3.5.M3)', () => {
+  const run = freshCombatRun(0xb3e5e4, 'berserk');
+  assert.ok(run.player instanceof Berserk, 'fixture should deploy a Berserk');
+  const rec = snapshot(run);
+  const { run: restoredRun } = restore(rec);
+  assert.ok(restoredRun.player instanceof Berserk, 'Berserk should restore as a Berserk');
+  assert.equal(restoredRun.player.callsign, run.player.callsign);
+  assert.deepEqual(snapshot(restoredRun), rec);
+});
+
+test('snapshot/restore preserves an active Berserk Surge, including bonus AP', () => {
+  const run = freshCombatRun(0xb3e5e5, 'berserk');
+  const berserk = run.player as Berserk;
+  berserk.surge();
+  berserk.refreshAp();
+  assert.equal(berserk.ap, berserk.maxAp + 1);
+
+  const rec = snapshot(run);
+  const { run: restoredRun } = restore(rec);
+  const restored = restoredRun.player as Berserk;
+  assert.ok(restored instanceof Berserk);
+  assert.equal(restored.hasEffect(STATUS_EFFECT.SURGE), true);
+  assert.equal(restored.ap, restored.maxAp + 1);
+  assert.deepEqual(snapshot(restoredRun), rec);
+});
+
+test('snapshot/restore preserves Berserk Crash and its derived hit penalty', () => {
+  const run = freshCombatRun(0xb3e5e6, 'berserk');
+  const berserk = run.player as Berserk;
+  berserk.surge();
+  berserk.refreshAp();
+  berserk.refreshAp();
+  assert.equal(berserk.hasEffect(STATUS_EFFECT.CRASH), true);
+
+  const rec = snapshot(run);
+  const { run: restoredRun } = restore(rec);
+  const restored = restoredRun.player as Berserk;
+  assert.ok(restored instanceof Berserk);
+  assert.equal(restored.hasEffect(STATUS_EFFECT.CRASH), true);
+  assert.equal(restored.baseHitChance, 0.65);
   assert.deepEqual(snapshot(restoredRun), rec);
 });
 

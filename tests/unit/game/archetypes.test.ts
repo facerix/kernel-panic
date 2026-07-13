@@ -23,6 +23,7 @@ import {
   pickCallsign,
 } from '../../../src/game/archetypes/index.js';
 import { Decker } from '../../../src/game/archetypes/Decker.js';
+import { Berserk, CALLSIGNS as BERSERK_CALLSIGNS } from '../../../src/game/archetypes/Berserk.js';
 import { FACTION } from '../../../src/game/constants.js';
 import { Merc, CALLSIGNS as MERC_CALLSIGNS } from '../../../src/game/archetypes/Merc.js';
 import { CALLSIGNS as RAZOR_CALLSIGNS } from '../../../src/game/archetypes/Razor.js';
@@ -49,7 +50,7 @@ test('Merc perk is vault; Razor perk is slide; Tech perk is deploy', () => {
   assert.deepEqual(ARCHETYPES.tech.perks, ['deploy']);
 });
 
-test('ARCHETYPE_IDS lists every registered id, in display order', () => {
+test('ARCHETYPE_IDS preserves the legacy starter-selector display order', () => {
   // Display order matters for the character-select modal (default focus is
   // the first entry on first load). Merc → Razor → Tech, simplest kit first.
   assert.deepEqual(ARCHETYPE_IDS, ['merc', 'razor', 'tech']);
@@ -72,6 +73,7 @@ test('each archetype exports a CALLSIGNS list of 10–15 unique entries', () => 
 test('CALLSIGNS_BY_ARCHETYPE mirrors the per-archetype module exports', () => {
   assert.deepEqual(CALLSIGNS_BY_ARCHETYPE.merc, MERC_CALLSIGNS);
   assert.deepEqual(CALLSIGNS_BY_ARCHETYPE.razor, RAZOR_CALLSIGNS);
+  assert.deepEqual(CALLSIGNS_BY_ARCHETYPE.berserk, BERSERK_CALLSIGNS);
 });
 
 test('pickCallsign returns a name from the archetype pool', () => {
@@ -166,6 +168,7 @@ test('perkAim metadata: only self-centered perks are tagged "self"', () => {
   assert.equal(ARCHETYPES.razor.perkAim, 'directional');
   assert.equal(ARCHETYPES.tech.perkAim, 'directional');
   assert.equal(ARCHETYPES.decker.perkAim, 'self');
+  assert.equal(ARCHETYPES.berserk.perkAim, 'self');
 });
 
 test('perkAimForArchetype resolves lowercase id and class-cased Crew.archetype', () => {
@@ -173,6 +176,8 @@ test('perkAimForArchetype resolves lowercase id and class-cased Crew.archetype',
   assert.equal(perkAimForArchetype('Decker'), 'self', 'accepts class-cased archetype');
   assert.equal(perkAimForArchetype('merc'), 'directional');
   assert.equal(perkAimForArchetype('Razor'), 'directional');
+  assert.equal(perkAimForArchetype('berserk'), 'self');
+  assert.equal(perkAimForArchetype('Berserk'), 'self');
 });
 
 test('perkAimForArchetype throws on an unknown archetype (no silent fallback)', () => {
@@ -195,6 +200,20 @@ test('buildCrewMember can still construct a Decker by id (recruitment path)', ()
   assert.ok(d instanceof Decker);
   assert.equal(isArchetypeId('decker'), true);
   assert.ok(CALLSIGNS_BY_ARCHETYPE.decker.includes(d.callsign));
+});
+
+test('Berserk is registered, recruitable, and self-targeted', () => {
+  const a = ARCHETYPES.berserk;
+  assert.deepEqual(a.perks, ['surge']);
+  assert.equal(a.perkName, 'SURGE');
+  assert.equal(a.perkAim, 'self');
+  assert.ok(!ARCHETYPE_IDS.includes('berserk'));
+  assert.ok(RECRUIT_ARCHETYPE_POOL.includes('berserk'));
+
+  const berserk = buildCrewMember('berserk', { x: 1, y: 2 }, new Rng(10));
+  assert.ok(berserk instanceof Berserk);
+  assert.equal(isArchetypeId('berserk'), true);
+  assert.ok(BERSERK_CALLSIGNS.includes(berserk.callsign));
 });
 
 test('isArchetypeId is a string-set membership check', () => {

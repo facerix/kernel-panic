@@ -1,6 +1,6 @@
 // Service Worker for Kernel Panic - Development Version
-const VERSION = '0.3.4-dev';
-importScripts('/sw-release.js?v=0.3.3b');
+const VERSION = '0.3.4b-dev';
+importScripts('/sw-release.js?v=0.3.4b');
 importScripts(`/sw-core.js?v=${VERSION}`);
 
 if (!self.KernelPanicRelease) {

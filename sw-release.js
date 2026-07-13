@@ -2,11 +2,11 @@
 // Increment shellEpoch only when the new app shell cannot safely coexist with
 // the previous worker (for example, removed or renamed runtime modules).
 self.KernelPanicRelease = Object.freeze({
-  version: '0.3.3b',
+  version: '0.3.4b',
   shellEpoch: 2,
-  title: 'Update controls online',
+  title: 'Berserk archetype online',
   highlights: Object.freeze([
-    'Release notes now accompany app updates.',
-    'Breaking updates now require a safe restart.',
+    'Recruit Berserk operators and trigger their Surge perk.',
+    'Surge boosts damage and AP before an unavoidable Crash.',
   ]),
 });

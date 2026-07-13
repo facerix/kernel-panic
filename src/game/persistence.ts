@@ -39,6 +39,8 @@ import {
   DOOR_OPEN_GLYPH,
   FACTION,
   SALVAGE_TO_CRED_RATE,
+  STATUS_EFFECT,
+  SURGE_AP_BONUS,
   TILE,
 } from './constants.js';
 import { migrateSalvage, type TypedSalvage } from './salvage.js';
@@ -48,6 +50,7 @@ import { Merc } from './archetypes/Merc.js';
 import { Razor } from './archetypes/Razor.js';
 import { Tech } from './archetypes/Tech.js';
 import { Decker } from './archetypes/Decker.js';
+import { Berserk } from './archetypes/Berserk.js';
 import { Turret } from './Turret.js';
 import { Skirmisher, type SkirmisherProps } from './ai/Skirmisher.js';
 import { Guard, type GuardProps } from './ai/Guard.js';
@@ -213,6 +216,7 @@ const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) =
     razor: (props: RestoreEntityProps) => new Razor(props as CrewInit),
     tech: (props: RestoreEntityProps) => new Tech(props as CrewInit),
     decker: (props: RestoreEntityProps) => new Decker(props as DeckerInit),
+    berserk: (props: RestoreEntityProps) => new Berserk(props as CrewInit),
     turret: (props: RestoreEntityProps) => new Turret(props as TurretInit),
     drone: (props: RestoreEntityProps) => new Skirmisher(props as SkirmisherProps),
     guard: (props: RestoreEntityProps) => new Guard(props as GuardProps),
@@ -257,12 +261,33 @@ const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) =
   });
 
 const KNOWN_FACTIONS = new Set(Object.values(FACTION));
+const KNOWN_STATUS_EFFECTS = new Set<string>(Object.values(STATUS_EFFECT));
 const KNOWN_RUN_STATES = new Set(Object.values(RUN_STATE));
 const KNOWN_PATROL_STATES = new Set(Object.values(PATROL_STATE));
 const PATROL_ARCHETYPE_SET = new Set<EntityArchetypeId>(PATROL_ARCHETYPE_IDS);
 
 function isPatrolArchetype(archetype: EntityArchetypeId): archetype is PatrolArchetypeId {
   return PATROL_ARCHETYPE_SET.has(archetype);
+}
+
+function readActiveEffects(rec: RunEntitySnapshot): Map<string, number> {
+  if (rec.effects === undefined) return new Map();
+  if (!rec.effects || typeof rec.effects !== 'object' || Array.isArray(rec.effects)) {
+    throw new TypeError(`restore: entity ${rec.id} effects must be an object`);
+  }
+  const effects = new Map<string, number>();
+  for (const [id, duration] of Object.entries(rec.effects)) {
+    if (!KNOWN_STATUS_EFFECTS.has(id) || id === STATUS_EFFECT.STEALTH) {
+      throw new Error(`restore: entity ${rec.id} has unknown or reserved effect "${id}"`);
+    }
+    if (!Number.isInteger(duration) || duration <= 0) {
+      throw new RangeError(
+        `restore: entity ${rec.id} effect "${id}" duration must be a positive integer`
+      );
+    }
+    effects.set(id, duration);
+  }
+  return effects;
 }
 
 // ---------------------------------------------------------------------------
@@ -1592,6 +1617,8 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
     throw new Error(`restore: entity ${rec.id} has unknown faction "${rec.faction}"`);
   }
 
+  const activeEffects = readActiveEffects(rec);
+
   const extra = normalizeEntityExtra(rec);
   const entry = ENTITY_RESTORE[rec.archetype];
 
@@ -1637,11 +1664,16 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
   entity.alive = rec.alive ?? rec.hp > 0;
   entity.shieldHp = rec.shieldHp ?? 0;
   if (Number.isInteger(rec.ap)) {
-    if (rec.ap < 0 || rec.ap > entity.maxAp) {
-      throw new RangeError(`restore: entity ${rec.id} ap=${rec.ap} out of [0, ${entity.maxAp}]`);
+    const maxAp =
+      rec.archetype === 'berserk' && activeEffects.has(STATUS_EFFECT.SURGE)
+        ? entity.maxAp + SURGE_AP_BONUS
+        : entity.maxAp;
+    if (rec.ap < 0 || rec.ap > maxAp) {
+      throw new RangeError(`restore: entity ${rec.id} ap=${rec.ap} out of [0, ${maxAp}]`);
     }
     entity.ap = rec.ap;
   }
+  for (const [id, duration] of activeEffects) entity.applyEffect(id, duration);
   entity.stealthed = !!rec.stealthed;
   if (rec.faction) entity.faction = rec.faction;
   if (rec.glyph) entity.glyph = rec.glyph;
@@ -1717,7 +1749,13 @@ function validateRecord(record: unknown): asserts record is RunSnapshot {
   }
 }
 
-const KNOWN_ARCHETYPES_SET = new Set<CrewArchetypeId>(['merc', 'razor', 'tech', 'decker']);
+const KNOWN_ARCHETYPES_SET = new Set<CrewArchetypeId>([
+  'merc',
+  'razor',
+  'tech',
+  'decker',
+  'berserk',
+]);
 
 /** Clamp gear bonuses to archetype caps after restore. */
 function repairGearForCrew(member: Crew) {
@@ -2329,6 +2367,7 @@ function archetypeOfCrew(member: Crew): CrewArchetypeId {
   if (member instanceof Razor) return 'razor';
   if (member instanceof Tech) return 'tech';
   if (member instanceof Decker) return 'decker';
+  if (member instanceof Berserk) return 'berserk';
   throw new Error(`snapshotCampaign: cannot classify crew member ${member?.id}`);
 }
 

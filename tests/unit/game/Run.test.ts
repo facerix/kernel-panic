@@ -23,6 +23,7 @@ import { findPath } from '../../../src/game/Pathfinding.js';
 import { Rng } from '../../../src/rng.js';
 import { testContractContext } from './contractTestUtils.js';
 import { ITEM_ID } from '../../../src/game/items.js';
+import { Berserk } from '../../../src/game/archetypes/Berserk.js';
 
 const fakeContract = (overrides = {}) => ({
   seed: 12345,
@@ -82,6 +83,14 @@ test('Run starts with state=null and a deployed crew member', () => {
   assert.equal(run.rng.seed, 42);
   assert.equal(run.crewMember, crewMember);
   assert.equal(run.archetype, 'razor');
+});
+
+test('Run classifies a Berserk and seeds matching telemetry', () => {
+  const crewMember = makeCrew('berserk');
+  const run = new Run({ crewMember, seed: 43 });
+  assert.ok(crewMember instanceof Berserk);
+  assert.equal(run.archetype, 'berserk');
+  assert.equal(run.telemetry.archetype, 'berserk');
 });
 
 test('legal transition chain: BRIEFING → COMBAT → RESULT', () => {

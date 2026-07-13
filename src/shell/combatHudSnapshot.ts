@@ -1,5 +1,5 @@
 import { RUN_STATE } from '../game/Run.js';
-import { STATUS_EFFECT } from '../game/constants.js';
+import { STATUS_EFFECT, SURGE_AP_BONUS } from '../game/constants.js';
 import type { Run } from '../game/Run.js';
 import type { CombatHudDefenseInput, CombatHudSummaryInput } from '../render/combatHud.js';
 import { CyberAvatar } from '../game/cyber/CyberAvatar.js';
@@ -51,6 +51,8 @@ export function combatHudBodyPanes(
         archetype: 'Avatar',
         stealthed: actor.stealthed,
         stunned: actor.hasEffect(STATUS_EFFECT.STUN),
+        surging: actor.hasEffect(STATUS_EFFECT.SURGE),
+        crashing: actor.hasEffect(STATUS_EFFECT.CRASH),
       },
       hp: { hp: actor.hp, maxHp: actor.maxHp, label: 'RAM' },
       ap: { ap: actor.ap, maxAp: actor.maxAp },
@@ -65,10 +67,15 @@ export function combatHudBodyPanes(
       archetype: crew === scene.player ? scene.archetype : crew.archetype,
       stealthed: crew.stealthed,
       stunned: crew.hasEffect(STATUS_EFFECT.STUN),
+      surging: crew.hasEffect(STATUS_EFFECT.SURGE),
+      crashing: crew.hasEffect(STATUS_EFFECT.CRASH),
     },
     hp: { hp: crew.hp, maxHp: crew.maxHp },
     ...(defense ? { defense } : {}),
-    ap: { ap: crew.ap, maxAp: crew.maxAp },
+    ap: {
+      ap: crew.ap,
+      maxAp: crew.maxAp + (crew.hasEffect(STATUS_EFFECT.SURGE) ? SURGE_AP_BONUS : 0),
+    },
   };
 }
 

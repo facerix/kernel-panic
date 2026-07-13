@@ -107,6 +107,27 @@ test('formatIdentityHud appends [STUNNED] when the controlled actor is EMP-stunn
   );
 });
 
+test('formatIdentityHud surfaces Berserk Surge and Crash states', () => {
+  assert.equal(
+    formatIdentityHud({
+      callsign: 'Fury',
+      archetype: 'berserk',
+      stealthed: false,
+      surging: true,
+    }),
+    'Fury [BERSERK] [SURGING]'
+  );
+  assert.equal(
+    formatIdentityHud({
+      callsign: 'Fury',
+      archetype: 'berserk',
+      stealthed: false,
+      crashing: true,
+    }),
+    'Fury [BERSERK] [CRASH]'
+  );
+});
+
 test('formatHpSegments right-fills live HP segments', () => {
   assert.equal(formatHpSegments({ hp: 3, maxHp: 3 }), 'HP ■■■');
   assert.equal(formatHpSegments({ hp: 2, maxHp: 3 }), 'HP □■■');
@@ -131,6 +152,8 @@ test('formatApPips right-fills available AP pips', () => {
   assert.equal(formatApPips({ ap: 4, maxAp: 4 }), 'AP ●●●●');
   assert.equal(formatApPips({ ap: 2, maxAp: 4 }), 'AP ○○●●');
   assert.equal(formatApPips({ ap: 0, maxAp: 4 }), 'AP ○○○○');
+  assert.equal(formatApPips({ ap: 5, maxAp: 5 }), 'AP ●●●●●');
+  assert.equal(formatApPips({ ap: 4, maxAp: 5 }), 'AP ○●●●●');
 });
 
 test('vital formatters reject invalid counts instead of hiding impossible state', () => {

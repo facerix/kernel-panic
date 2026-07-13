@@ -70,6 +70,7 @@ import type { Tech } from '../game/archetypes/Tech.js';
 import type { Merc } from '../game/archetypes/Merc.js';
 import type { Razor } from '../game/archetypes/Razor.js';
 import type { Decker } from '../game/archetypes/Decker.js';
+import type { Berserk } from '../game/archetypes/Berserk.js';
 
 export type Intent = {
   type: string;
@@ -386,6 +387,7 @@ function collectTileLoot(ctx: ApplyIntentContext) {
  *   - `canVault`    → Merc's Vault
  *   - `canSlide`    → Razor's Slide
  *   - `canEmp`      → Decker's EMP neural-shock (self-centered AOE stun)
+ *   - `canSurge`    → Berserk's Surge self-buff
  *   - `canOverride` → CyberAvatar's ICE override (cyber grid only)
  *
  * Capability sniffing (vs. a class `instanceof` check) keeps this module free
@@ -416,12 +418,30 @@ function doSpecial(intent: Intent, ctx: ApplyIntentContext) {
   if (typeof (player as Decker).canEmp === 'function') {
     return doEmp(ctx);
   }
+  if (typeof (player as Berserk).canSurge === 'function') {
+    return doSurge(ctx);
+  }
   // Only the CyberAvatar still exposes canOverride (P3.5.M2 moved the Decker's
   // Meatspace perk to EMP; M4 repoints this picker at the Adept's Influence).
   if (typeof (player as CyberAvatar).canOverride === 'function') {
     return doOverride(intent, ctx);
   }
   log('> SPECIAL: this archetype has no perk action.');
+}
+
+/** Trigger the Berserk's self-targeted Surge. */
+function doSurge(ctx: ApplyIntentContext) {
+  const { player, log } = ctx;
+  const berserk = player as Berserk;
+  const playerLabel = entityLabel(player);
+  const check = berserk.canSurge();
+  if (!check.ok) {
+    log(`> ${playerLabel} SURGE DENIED: ${check.reason}`);
+    return;
+  }
+  berserk.surge();
+  log(`> ${playerLabel} SURGES — power spikes before the crash (${player.ap} AP left).`);
+  gateOnApExhausted(ctx);
 }
 
 /**

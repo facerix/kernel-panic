@@ -38,7 +38,7 @@ M3 + M4 + M5 ──> M6 (stat-roll → archetype derivation, needs all 6 profile
 |---|---|
 | P3.5.M1 — Generic status-effect subsystem | ✅ Complete |
 | P3.5.M2 — Decker perk swap: Override → EMP AOE stun | ✅ Complete |
-| P3.5.M3 — Berserk archetype (surge/crash) | 🔲 Not started |
+| P3.5.M3 — Berserk archetype (surge/crash) | ✅ Complete |
 | P3.5.M4 — Adept archetype (Influence, renamed from Override) | 🔲 Not started |
 | P3.5.M5 — Chimera archetype (scrap-to-HP sustain) | 🔲 Not started |
 | P3.5.M6 — Inverted crew generation (roll stats, derive archetype) | 🔲 Not started |
@@ -211,6 +211,15 @@ Berserk is recruit-pool only — moot as a distinct decision once M6 lands, sinc
 **Critical files:** `src/game/archetypes/Berserk.ts` (new), `src/game/surge.ts` (new), plus the wiring-surface files above.
 
 **Tests:** `tests/unit/game/Berserk.test.ts` (new — mirrors `Razor.test.ts`: legality/AP debit, damage+AP bonus while surging, crash auto-applies on surge expiry, hit-chance penalty applied/restored, base stats), `tests/unit/game/persistence.test.ts`, `tests/unit/game/Run.test.ts`, `tests/unit/input/applyIntent.test.ts` (each extended per the wiring-surface list).
+
+**Implementation notes (as-built):**
+- `Berserk` and the pure `surge.ts` legality/commit module shipped with the proposed tuning and callsign pool. Surge is self-targeted, costs 2 AP, adds +1 ranged/melee damage while active, and grants +1 AP on an active Surge refresh. It cannot be re-armed during Surge or Crash, so the mandatory payback cannot be postponed indefinitely.
+- Surge expiry immediately arms a two-refresh Crash. Crash applies -1 AP and -0.1 base hit chance while active; accuracy is derived directly from `STATUS_EFFECT.CRASH` rather than tracked in a second mutable flag, so expiry and restore cannot over-/under-correct the stat.
+- **Run persistence correction:** the earlier phase-level assumption that timed effects never meet persistence was false for mid-combat autosaves. `RunEntitySnapshot.effects` now stores validated non-stealth timed effects (legacy `stealthed` stays byte-compatible), so Surge/Crash cannot be cleared by reload. Restore accepts Berserk's legitimate `maxAp + SURGE_AP_BONUS` snapshot only while Surge is present and fails loud on unknown/reserved/malformed effects.
+- Full archetype fan-out landed: registry/factory/callsigns/perk metadata, recruit pool, Run classification/telemetry/snapshot, campaign/run restore, capability-based input dispatch, and self-targeting keyboard/touch behavior. The interim weighted pool is now `2 Merc / 2 Razor / 1 Tech / 1 Berserk`; its tests include Berserk in the denominator instead of silently ignoring a new class. M6 still replaces this pool with stat-first derivation.
+- Player-facing state is explicit: combat HUD appends `[SURGING]` / `[CRASH]`, the log announces Surge/denials, and Key Help no longer tells self-targeted perks to pick a direction. Offline precache includes Berserk/Surge plus the previously omitted Decker/EMP modules; service-worker/release version is `0.3.4b`.
+- **Smoketest correction (`0.3.4b`):** the combat HUD now treats active Surge as a real `maxAp + 1` five-pip capacity, fixing the tier-1 `ap must be <= 4, got 5` paint fault and preserving the spent fifth pip. Berserk's refresh override also respects the base stun gate, so overlapping Stun cannot leak one AP back into a deliberately zero-AP activation.
+- Verification: focused Berserk/wiring/persistence tests, `npm run format`, `npm run lint`, and full `npm test` pass. Browser smoke at `http://localhost:8099/` resumed combat without console warnings/errors and installed the new service worker successfully.
 
 ---
 

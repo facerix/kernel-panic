@@ -85,10 +85,14 @@ export function factionForPrincipalGroups(groups: readonly string[]): FactionId 
  *   - `STUN` — EMP neural-shock: the entity takes 0 AP on its stunned refresh
  *     (M2). Gated in `Entity.refreshAp` *before* the tick, so a duration of 1
  *     covers the upcoming refresh, not the one that just passed.
+ *   - `SURGE` / `CRASH` — Berserk's chained self-buff and mandatory payback
+ *     window (M3).
  */
 export const STATUS_EFFECT = Object.freeze({
   STEALTH: 'stealth',
   STUN: 'stun',
+  SURGE: 'surge',
+  CRASH: 'crash',
 });
 
 export type StatusEffectId = (typeof STATUS_EFFECT)[keyof typeof STATUS_EFFECT];
@@ -108,7 +112,16 @@ export const AP_COST = Object.freeze({
   DEPLOY: 2, // Tech — place a turret on an adjacent tile
   OVERRIDE: 2, // CyberAvatar — flip ICE allegiance on the cyber grid (M4 renames -> INFLUENCE for the Adept)
   EMP: 2, // Decker — self-centered AOE neural-shock stun (P3.5.M2)
+  SURGE: 2, // Berserk — self-buff that always chains into CRASH (P3.5.M3)
 });
+
+/** Berserk Surge/Crash tuning (P3.5.M3). */
+export const SURGE_DURATION = 2;
+export const SURGE_DAMAGE_BONUS = 1;
+export const SURGE_AP_BONUS = 1;
+export const CRASH_DURATION = 2;
+export const CRASH_AP_PENALTY = 1;
+export const CRASH_HIT_PENALTY = 0.1;
 
 /**
  * Decker drone-override parameters (P3.M2). The Decker's signature Meatspace

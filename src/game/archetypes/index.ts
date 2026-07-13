@@ -23,11 +23,12 @@ import { Merc, CALLSIGNS as MERC_CALLSIGNS } from './Merc.js';
 import { Razor, CALLSIGNS as RAZOR_CALLSIGNS } from './Razor.js';
 import { Tech, CALLSIGNS as TECH_CALLSIGNS } from './Tech.js';
 import { Decker, CALLSIGNS as DECKER_CALLSIGNS } from './Decker.js';
+import { Berserk, CALLSIGNS as BERSERK_CALLSIGNS } from './Berserk.js';
 import type { Rng } from '../../rng.js';
 import type { FactionId } from '../constants.js';
 import type { CrewInit } from '../Crew.js';
 
-export type Archetype = Merc | Razor | Tech | Decker;
+export type Archetype = Merc | Razor | Tech | Decker | Berserk;
 
 /**
  * Display order is also the starter crew order in `Campaign.buildCrew`.
@@ -47,7 +48,14 @@ export const ARCHETYPE_IDS = Object.freeze(['merc', 'razor', 'tech']);
  * The Decker is **not** in this pool — normal random recruitment must never
  * roll one; it joins only through the Act-2 narrative beat (P3.M2 / P3.M1).
  */
-export const RECRUIT_ARCHETYPE_POOL = Object.freeze(['merc', 'merc', 'razor', 'razor', 'tech']);
+export const RECRUIT_ARCHETYPE_POOL = Object.freeze([
+  'merc',
+  'merc',
+  'razor',
+  'razor',
+  'tech',
+  'berserk',
+]);
 
 /**
  * All three archetypes share a single perk key (`x`) — the keymap collapses
@@ -94,6 +102,15 @@ export const ARCHETYPES = Object.freeze({
     // Self-centered blast — the perk key fires it immediately, no aim step.
     perkAim: 'self',
   }),
+  berserk: Object.freeze({
+    id: 'berserk',
+    name: 'BERSERK',
+    blurb: 'Volatile assault. Surge hard, then endure the crash.',
+    perks: Object.freeze(['surge']),
+    perkName: 'SURGE',
+    perkLabel: 'Berserks can SURGE: gain damage and AP before crashing',
+    perkAim: 'self',
+  }),
 });
 
 export type ArchetypeInfo = (typeof ARCHETYPES)[keyof typeof ARCHETYPES];
@@ -121,6 +138,7 @@ const BUILDERS = Object.freeze({
   razor: Razor,
   tech: Tech,
   decker: Decker,
+  berserk: Berserk,
 });
 
 /**
@@ -134,6 +152,7 @@ export const CALLSIGNS_BY_ARCHETYPE = Object.freeze({
   razor: RAZOR_CALLSIGNS,
   tech: TECH_CALLSIGNS,
   decker: DECKER_CALLSIGNS,
+  berserk: BERSERK_CALLSIGNS,
 });
 
 export function isArchetypeId(value: string) {

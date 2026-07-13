@@ -31,6 +31,9 @@ export type CombatHudIdentityInput = Readonly<{
   stealthed: boolean;
   /** P3.5.M2: the controlled actor is EMP-stunned (0 AP next refresh). */
   stunned?: boolean;
+  /** P3.5.M3: Berserk's active power window / mandatory payback window. */
+  surging?: boolean;
+  crashing?: boolean;
 }>;
 
 export type CombatHudVitalInput = Readonly<{
@@ -135,6 +138,8 @@ export function formatIdentityHud(identity: CombatHudIdentityInput): string {
   let label = callsign ? `${callsign} [${archetype}]` : archetype;
   if (identity.stealthed) label += ' [CLOAKED]';
   if (identity.stunned) label += ' [STUNNED]';
+  if (identity.surging) label += ' [SURGING]';
+  if (identity.crashing) label += ' [CRASH]';
   return label;
 }
 

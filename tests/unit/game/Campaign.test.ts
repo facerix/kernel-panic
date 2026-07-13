@@ -1586,8 +1586,8 @@ test('generateRecruits returns empty when Rep < threshold', () => {
   assert.equal(campaign.availableRecruits.length, 0);
 });
 
-test('generateRecruits archetype weights approximate 40/40/20 over many seeds', () => {
-  const counts: Record<string, number> = { Merc: 0, Razor: 0, Tech: 0 };
+test('generateRecruits follows the 2/2/1/1 archetype pool over many seeds', () => {
+  const counts: Record<string, number> = { Merc: 0, Razor: 0, Tech: 0, Berserk: 0 };
   const total = 1000;
   for (let i = 0; i < total; i++) {
     const campaign = new Campaign({ seed: i, rep: 80 });
@@ -1595,14 +1595,16 @@ test('generateRecruits archetype weights approximate 40/40/20 over many seeds', 
       counts[recruit.constructor.name]++;
     }
   }
-  const sum = counts.Merc + counts.Razor + counts.Tech;
-  // Merc and Razor should each be ~40%, Tech ~20%. Allow ±8% tolerance.
-  assert.ok(counts.Merc / sum > 0.32, `Merc ${((counts.Merc / sum) * 100).toFixed(1)}% < 32%`);
-  assert.ok(counts.Merc / sum < 0.48, `Merc ${((counts.Merc / sum) * 100).toFixed(1)}% > 48%`);
-  assert.ok(counts.Razor / sum > 0.32, `Razor ${((counts.Razor / sum) * 100).toFixed(1)}% < 32%`);
-  assert.ok(counts.Razor / sum < 0.48, `Razor ${((counts.Razor / sum) * 100).toFixed(1)}% > 48%`);
-  assert.ok(counts.Tech / sum > 0.12, `Tech ${((counts.Tech / sum) * 100).toFixed(1)}% < 12%`);
-  assert.ok(counts.Tech / sum < 0.28, `Tech ${((counts.Tech / sum) * 100).toFixed(1)}% > 28%`);
+  const sum = counts.Merc + counts.Razor + counts.Tech + counts.Berserk;
+  // Merc/Razor ~33%; Tech/Berserk ~17%. Allow ±8% tolerance.
+  for (const id of ['Merc', 'Razor']) {
+    const ratio = counts[id] / sum;
+    assert.ok(ratio > 0.25 && ratio < 0.41, `${id} ${(ratio * 100).toFixed(1)}% out of range`);
+  }
+  for (const id of ['Tech', 'Berserk']) {
+    const ratio = counts[id] / sum;
+    assert.ok(ratio > 0.09 && ratio < 0.25, `${id} ${(ratio * 100).toFixed(1)}% out of range`);
+  }
 });
 
 test('generateRecruits deduplicates callsigns against flatlined crew members', () => {
@@ -1760,7 +1762,7 @@ test('generateInitialCandidates returns RECRUIT.INITIAL_CANDIDATES (3) candidate
 });
 
 test('generateInitialCandidates uses weighted archetype pool', () => {
-  const counts: Record<string, number> = { Merc: 0, Razor: 0, Tech: 0 };
+  const counts: Record<string, number> = { Merc: 0, Razor: 0, Tech: 0, Berserk: 0 };
   const total = 500;
   for (let i = 0; i < total; i++) {
     const campaign = new Campaign({ seed: i, crew: [] });
@@ -1769,12 +1771,11 @@ test('generateInitialCandidates uses weighted archetype pool', () => {
       counts[c.constructor.name]++;
     }
   }
-  const sum = counts.Merc + counts.Razor + counts.Tech;
-  // Merc and Razor should each be ~40%, Tech ~20%. Allow ±10% tolerance.
-  assert.ok(counts.Merc / sum > 0.3, `Merc ${((counts.Merc / sum) * 100).toFixed(1)}% < 30%`);
-  assert.ok(counts.Merc / sum < 0.5, `Merc ${((counts.Merc / sum) * 100).toFixed(1)}% > 50%`);
-  assert.ok(counts.Tech / sum > 0.1, `Tech ${((counts.Tech / sum) * 100).toFixed(1)}% < 10%`);
-  assert.ok(counts.Tech / sum < 0.3, `Tech ${((counts.Tech / sum) * 100).toFixed(1)}% > 30%`);
+  const sum = counts.Merc + counts.Razor + counts.Tech + counts.Berserk;
+  assert.ok(counts.Berserk > 0, 'Berserk must be reachable in the starter candidate pool');
+  assert.ok(counts.Merc / sum > 0.23 && counts.Merc / sum < 0.43);
+  assert.ok(counts.Tech / sum > 0.07 && counts.Tech / sum < 0.27);
+  assert.ok(counts.Berserk / sum > 0.07 && counts.Berserk / sum < 0.27);
 });
 
 test('recruitInitial validates exactly RECRUIT.INITIAL_PICKS (2) IDs', () => {

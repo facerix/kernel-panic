@@ -11,12 +11,14 @@ import {
   AP_COST,
   MELEE_DAMAGE,
   SALVAGE_PER_IMPROVISED_TURRET,
+  STATUS_EFFECT,
 } from '../../../src/game/constants.js';
 import { makeSalvage, totalSalvage } from '../../../src/game/salvage.js';
 import { Merc } from '../../../src/game/archetypes/Merc.js';
 import { Razor } from '../../../src/game/archetypes/Razor.js';
 import { Tech } from '../../../src/game/archetypes/Tech.js';
 import { Decker } from '../../../src/game/archetypes/Decker.js';
+import { Berserk } from '../../../src/game/archetypes/Berserk.js';
 import { CyberAvatar } from '../../../src/game/cyber/CyberAvatar.js';
 import { ProbeIce } from '../../../src/game/cyber/ProbeIce.js';
 import { Turret } from '../../../src/game/Turret.js';
@@ -51,7 +53,9 @@ function buildCtx({ archetype = 'merc', placeDrone = true } = {}) {
       ? new Merc({ id: 'merc', x: 2, y: 2, maxAp: 4 })
       : archetype === 'tech'
         ? new Tech({ id: 'tech', x: 2, y: 2, maxAp: 4 })
-        : new Razor({ id: 'razor', x: 2, y: 2, maxAp: 4 });
+        : archetype === 'berserk'
+          ? new Berserk({ id: 'berserk', x: 2, y: 2, maxAp: 4 })
+          : new Razor({ id: 'razor', x: 2, y: 2, maxAp: 4 });
   world.addEntity(player);
 
   let drone = null;
@@ -510,6 +514,16 @@ test('special intent routes to EMP on a Decker and stuns a same-faction ally in 
   corp.refreshAp();
   assert.equal(corp.ap, 0, 'corp unit in radius is stunned too');
   assert.ok(log.some(line => line.includes('EMP')));
+});
+
+test('special intent routes to Surge on a Berserk without entering directional movement', () => {
+  const { ctx, log, player } = buildCtx({ archetype: 'berserk', placeDrone: false });
+  const positionBefore = { x: player.x, y: player.y };
+  applyIntent({ type: 'special', dx: 0, dy: 0 }, ctx);
+  assert.deepEqual({ x: player.x, y: player.y }, positionBefore);
+  assert.equal(player.hasEffect(STATUS_EFFECT.SURGE), true);
+  assert.equal(player.ap, player.maxAp - AP_COST.SURGE);
+  assert.ok(log.some(line => line.includes('SURGES')));
 });
 
 test('special intent routes CyberAvatar Override against Probe ICE', () => {
