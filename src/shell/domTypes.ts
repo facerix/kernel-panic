@@ -7,6 +7,10 @@ import type { CampaignSummary } from '../game/campaignSummary.js';
 import type { TypedSalvage } from '../game/salvage.js';
 import type { KeyItem, Telemetry } from '../types.js';
 import type { AimKind, Mode } from '../input/keymap.js';
+import type {
+  UpdateAvailableDetail,
+  UpdateRestartRequiredDetail,
+} from '../ServiceWorkerManager.js';
 
 export type HelpScope = 'hub' | 'combat';
 
@@ -128,7 +132,12 @@ export type ConfirmationModalElement = HTMLElement & {
 };
 
 export type UpdateNotificationElement = HTMLElement & {
-  show(pendingWorker: ServiceWorker | null): void;
+  show(update: UpdateAvailableDetail): void;
+  showRestartRequired(release: UpdateRestartRequiredDetail['release']): void;
+  showUnavailable(message: string): void;
+  showUpdating(status?: string): void;
+  showFailure(message: string): void;
+  readonly isOpen: boolean;
 };
 
 export type InputState = {

@@ -3,6 +3,10 @@
  */
 import dataStore from '/src/DataStore.js';
 import { serviceWorkerManager } from '/src/ServiceWorkerManager.js';
+import type {
+  UpdateAvailableDetail,
+  UpdateRestartRequiredDetail,
+} from '/src/ServiceWorkerManager.js';
 
 import { Campaign, CAMPAIGN_STATE, willEndCampaignAfterResult } from '/src/game/Campaign.js';
 import { buildCampaignSummary } from '/src/game/campaignSummary.js';
@@ -204,6 +208,7 @@ let combatInventoryEl: CombatInventoryElement;
 let crewInventoryEl: CrewInventoryElement;
 let chronicleArchiveEl: ChronicleArchiveElement;
 let keyHelpEl: KeyHelpElement;
+let updateNotificationEl: UpdateNotificationElement;
 let logEl: HTMLElement;
 let logHeaderEl: HTMLElement;
 let logContentEl: HTMLPreElement;
@@ -506,10 +511,30 @@ export async function boot() {
   });
 
   // Update-notification wiring kept from the original scaffold.
-  const updateNotification = mustQuery<UpdateNotificationElement>('update-notification');
+  updateNotificationEl = mustQuery<UpdateNotificationElement>('update-notification');
   window.addEventListener('sw-update-available', event => {
-    const detail = (event as CustomEvent<{ pendingWorker: ServiceWorker | null }>).detail;
-    updateNotification.show(detail.pendingWorker);
+    const detail = (event as CustomEvent<UpdateAvailableDetail>).detail;
+    showUpdateWhenStable(() => updateNotificationEl.show(detail));
+  });
+  window.addEventListener('sw-update-restart-required', event => {
+    const detail = (event as CustomEvent<UpdateRestartRequiredDetail>).detail;
+    showUpdateWhenStable(() => updateNotificationEl.showRestartRequired(detail.release));
+  });
+  window.addEventListener('sw-update-error', event => {
+    const detail = (event as CustomEvent<{ message: string }>).detail;
+    showUpdateWhenStable(() => updateNotificationEl.showUnavailable(detail.message));
+  });
+  window.addEventListener('sw-update-progress', event => {
+    const detail = (event as CustomEvent<{ status: string }>).detail;
+    updateNotificationEl.showUpdating(detail.status);
+  });
+  updateNotificationEl.addEventListener('update-accepted', event => {
+    const pendingWorker = (event as CustomEvent<{ pendingWorker: ServiceWorker }>).detail
+      .pendingWorker;
+    activateUpdateSafely(pendingWorker);
+  });
+  updateNotificationEl.addEventListener('update-restart-requested', () => {
+    restartWithValidatedSave();
   });
 
   await dataStore.init();
@@ -1196,6 +1221,44 @@ function resolveAimedUseItem(aim: { dx: number; dy: number }, run: Run): void {
 function handlePersist() {
   if (!campaign || degrading) return;
   dataStore.setCampaign(snapshotCampaign(campaign));
+}
+
+function showUpdateWhenStable(show: () => void): void {
+  if (animLock.isLocked() || isAnyBlockingModalOpen()) {
+    window.setTimeout(() => showUpdateWhenStable(show), 100);
+    return;
+  }
+  show();
+}
+
+function persistValidatedCampaignForRestart(): void {
+  if (!campaign || degrading) return;
+  const snapshot = snapshotCampaign(campaign);
+  // Constructing a second campaign verifies the serialized boundary before
+  // the live page is allowed to unload. It deliberately has no persistence or
+  // result callbacks, so validation cannot mutate the active session.
+  restoreCampaign(structuredClone(snapshot));
+  dataStore.setCampaign(snapshot);
+}
+
+async function activateUpdateSafely(pendingWorker: ServiceWorker): Promise<void> {
+  try {
+    persistValidatedCampaignForRestart();
+    await serviceWorkerManager.handleUpdateNow(pendingWorker);
+  } catch (error) {
+    console.error('[shell] Failed to activate service-worker update:', error);
+    updateNotificationEl.showFailure('Update failed. Your current campaign remains saved.');
+  }
+}
+
+function restartWithValidatedSave(): void {
+  try {
+    persistValidatedCampaignForRestart();
+    window.location.reload();
+  } catch (error) {
+    console.error('[shell] Refusing restart because campaign validation failed:', error);
+    updateNotificationEl.showFailure('Restart blocked: campaign save validation failed.');
+  }
 }
 
 function presentEndedCampaignOverlay(c: Campaign): void {
@@ -2679,6 +2742,7 @@ function isAnyBlockingModalOpen(): boolean {
   if (chronicleArchiveEl?.isOpen) return true;
   if (keyHelpEl?.isOpen) return true;
   if (faultEl?.isOpen) return true;
+  if (updateNotificationEl?.isOpen) return true;
   // <confirmation-modal> uses a native <dialog> internally; treat any open
   // attribute as "blocking".
   if (isConfirmationDialogOpen(confirmationModalEl)) return true;

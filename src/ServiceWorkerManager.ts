@@ -1,6 +1,15 @@
 // Singleton module for service worker registration
 // Provides centralized management of service worker lifecycle
 import { isDevelopmentMode } from './domUtils.js';
+import {
+  parseUpdateRelease,
+  requiresUpdateAcknowledgement,
+  type AvailableUpdate,
+  type UpdateRelease,
+} from './updateRelease.js';
+
+export type UpdateAvailableDetail = AvailableUpdate;
+export type UpdateRestartRequiredDetail = Readonly<{ release: UpdateRelease | null }>;
 
 export class ServiceWorkerManager {
   #isRegistered = false;
@@ -9,6 +18,8 @@ export class ServiceWorkerManager {
   #developmentMode = isDevelopmentMode();
   #swFile = this.#developmentMode ? '/sw-dev.js' : '/sw.js';
   #isUpdating = false;
+  #announcedWorker: ServiceWorker | null = null;
+  #hadController = false;
   static instance: ServiceWorkerManager | null = null;
 
   constructor() {
@@ -30,13 +41,14 @@ export class ServiceWorkerManager {
       this.#registration = existingRegistration;
       this.#isRegistered = true;
 
-      this.#checkForMultipleWorkers().catch(error => {
-        console.warn(`[KernelPanic] Error checking for multiple workers:`, error);
-      });
+      this.#checkForMultipleWorkers();
 
       if (!this.#listenersSetup) {
         this.#setupUpdateListeners();
       }
+      this.#registration.update().catch(error => {
+        console.error(`[KernelPanic] Startup service-worker update check failed:`, error);
+      });
       return this.#registration;
     }
 
@@ -52,7 +64,9 @@ export class ServiceWorkerManager {
         });
       }
 
-      this.#registration = await navigator.serviceWorker.register(this.#swFile);
+      this.#registration = await navigator.serviceWorker.register(this.#swFile, {
+        updateViaCache: 'none',
+      });
       this.#isRegistered = true;
 
       console.log(
@@ -69,7 +83,7 @@ export class ServiceWorkerManager {
     }
   }
 
-  async #checkForMultipleWorkers() {
+  #checkForMultipleWorkers() {
     if (!this.#registration) return;
 
     const active = this.#registration.active;
@@ -84,45 +98,25 @@ export class ServiceWorkerManager {
         installing: installing ? `${installing.state} (script: ${installing.scriptURL})` : 'none',
         controller: controller ? `${controller.state} (script: ${controller.scriptURL})` : 'none',
       });
-
-      if (waiting && controller && waiting !== controller && !this.#isUpdating) {
-        try {
-          const activeVersion = await this.getVersion();
-          const waitingVersion = await this.getLatestVersion();
-          if (activeVersion === waitingVersion) {
-            console.log(
-              `[KernelPanic] Waiting worker is same version as active. Auto-activating...`
-            );
-            await this.skipWaiting(waiting);
-            return;
-          }
-        } catch (error) {
-          console.warn(`[KernelPanic] Could not verify versions, proceeding normally:`, error);
-        }
-      }
     }
   }
 
   #setupUpdateListeners() {
     if (!this.#registration || this.#listenersSetup) return;
 
-    setTimeout(async () => {
+    this.#hadController = Boolean(navigator.serviceWorker.controller);
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      const previouslyControlled = this.#hadController;
+      this.#hadController = Boolean(navigator.serviceWorker.controller);
+      if (!previouslyControlled || this.#isUpdating) return;
+      this.#dispatchRestartRequired();
+    });
+
+    setTimeout(() => {
       if (this.#registration?.waiting && navigator.serviceWorker.controller && !this.#isUpdating) {
         const waitingWorker = this.#registration.waiting;
-
-        try {
-          const currentVersion = await this.getVersion();
-          const latestVersion = await this.getLatestVersion();
-          if (currentVersion === latestVersion) {
-            console.log(`[KernelPanic] Waiting worker is same version, skipping notification`);
-            return;
-          }
-        } catch (error) {
-          console.warn(`[KernelPanic] Could not verify versions:`, error);
-        }
-
         console.log(`[KernelPanic] Found waiting service worker from previous session`);
-        this.#dispatchUpdateEvent(waitingWorker);
+        this.#announceUpdate(waitingWorker);
       }
     }, 0);
 
@@ -140,33 +134,8 @@ export class ServiceWorkerManager {
           navigator.serviceWorker.controller &&
           !this.#isUpdating
         ) {
-          this.getLatestVersion()
-            .then(latestVersion => {
-              return this.getVersion().then(currentVersion => {
-                if (currentVersion === latestVersion) {
-                  console.log(`[KernelPanic] New worker is same version, skipping notification`);
-                  return false;
-                }
-                return true;
-              });
-            })
-            .then(shouldShow => {
-              if (shouldShow) {
-                console.log(
-                  `[KernelPanic] New service worker available. Consider refreshing the page.`
-                );
-                this.#dispatchUpdateEvent(newWorker);
-              }
-              newWorker.removeEventListener('statechange', handleStateChange);
-            })
-            .catch(error => {
-              console.warn(`[KernelPanic] Could not verify version, showing notification:`, error);
-              console.log(
-                `[KernelPanic] New service worker available. Consider refreshing the page.`
-              );
-              this.#dispatchUpdateEvent(newWorker);
-              newWorker.removeEventListener('statechange', handleStateChange);
-            });
+          this.#announceUpdate(newWorker);
+          newWorker.removeEventListener('statechange', handleStateChange);
         }
       };
 
@@ -177,19 +146,59 @@ export class ServiceWorkerManager {
     this.#listenersSetup = true;
   }
 
-  #dispatchUpdateEvent(pendingWorker?: ServiceWorker | null) {
-    if (this.#isUpdating) {
-      console.log(`[KernelPanic] Update already in progress, skipping notification`);
-      return;
-    }
+  async #announceUpdate(pendingWorker: ServiceWorker): Promise<void> {
+    if (this.#isUpdating || this.#announcedWorker === pendingWorker) return;
+    const activeWorker = this.#registration?.active;
+    if (!activeWorker || !navigator.serviceWorker.controller) return;
 
-    const event = new CustomEvent('sw-update-available', {
-      detail: {
-        registration: this.#registration,
-        pendingWorker: pendingWorker || this.#registration?.waiting,
-      },
-    });
-    window.dispatchEvent(event);
+    try {
+      const [active, pending] = await Promise.all([
+        this.getReleaseInfo(activeWorker),
+        this.getReleaseInfo(pendingWorker),
+      ]);
+      if (active.version === pending.version) {
+        console.log(`[KernelPanic] Waiting worker is same version, skipping notification`);
+        return;
+      }
+
+      const detail: UpdateAvailableDetail = Object.freeze({
+        pendingWorker,
+        active,
+        pending,
+        required: requiresUpdateAcknowledgement(active, pending),
+      });
+      this.#announcedWorker = pendingWorker;
+      window.dispatchEvent(
+        new CustomEvent<UpdateAvailableDetail>('sw-update-available', { detail })
+      );
+    } catch (error) {
+      this.#announcedWorker = pendingWorker;
+      console.error(`[KernelPanic] Refusing update with invalid release metadata:`, error);
+      window.dispatchEvent(
+        new CustomEvent('sw-update-error', {
+          detail: { message: 'Update metadata is invalid. The current version remains active.' },
+        })
+      );
+    }
+  }
+
+  #dispatchRestartRequired(): void {
+    const controller = navigator.serviceWorker.controller;
+    if (!controller) return;
+    this.getReleaseInfo(controller)
+      .then(release => {
+        const detail: UpdateRestartRequiredDetail = Object.freeze({ release });
+        window.dispatchEvent(
+          new CustomEvent<UpdateRestartRequiredDetail>('sw-update-restart-required', { detail })
+        );
+      })
+      .catch(error => {
+        console.error(`[KernelPanic] Activated worker has invalid release metadata:`, error);
+        const detail: UpdateRestartRequiredDetail = Object.freeze({ release: null });
+        window.dispatchEvent(
+          new CustomEvent<UpdateRestartRequiredDetail>('sw-update-restart-required', { detail })
+        );
+      });
   }
 
   async checkForUpdates() {
@@ -205,7 +214,7 @@ export class ServiceWorkerManager {
       setTimeout(() => {
         if (this.#registration?.waiting && navigator.serviceWorker.controller) {
           console.log(`[KernelPanic] Update check found waiting service worker`);
-          this.#dispatchUpdateEvent(this.#registration.waiting);
+          this.#announceUpdate(this.#registration.waiting);
         }
       }, 100);
     } catch (error) {
@@ -250,6 +259,28 @@ export class ServiceWorkerManager {
     }
   }
 
+  async getReleaseInfo(worker: ServiceWorker): Promise<UpdateRelease> {
+    return new Promise((resolve, reject) => {
+      const messageChannel = new window.MessageChannel();
+      const timeout = window.setTimeout(() => {
+        messageChannel.port1.close();
+        reject(new Error('Timed out waiting for service-worker release metadata'));
+      }, 1000);
+
+      messageChannel.port1.onmessage = event => {
+        window.clearTimeout(timeout);
+        messageChannel.port1.close();
+        try {
+          resolve(parseUpdateRelease(event.data, 'service-worker release metadata'));
+        } catch (error) {
+          reject(error);
+        }
+      };
+
+      worker.postMessage({ type: 'GET_RELEASE_INFO' }, [messageChannel.port2]);
+    });
+  }
+
   async getLatestVersion(): Promise<string | null> {
     if (!this.#registration) {
       return null;
@@ -261,21 +292,7 @@ export class ServiceWorkerManager {
     }
 
     try {
-      return new Promise(resolve => {
-        const messageChannel = new window.MessageChannel();
-        const timeout = setTimeout(() => {
-          messageChannel.port1.close();
-          resolve(null);
-        }, 1000);
-
-        messageChannel.port1.onmessage = event => {
-          clearTimeout(timeout);
-          messageChannel.port1.close();
-          resolve(event.data?.version || null);
-        };
-
-        pendingWorker.postMessage({ type: 'GET_CACHE_INFO' }, [messageChannel.port2]);
-      });
+      return (await this.getReleaseInfo(pendingWorker)).version;
     } catch (error) {
       console.error(`[KernelPanic] Failed to get latest service worker version:`, error);
       return null;

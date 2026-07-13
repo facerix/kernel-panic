@@ -1,7 +1,13 @@
 // Service Worker for Kernel Panic - Production Version
 // Import shared caching core with cache-busting query parameter
-const VERSION = '0.3.2b';
+const VERSION = '0.3.4';
+importScripts(`/sw-release.js?v=${VERSION}`);
 importScripts(`/sw-core.js?v=${VERSION}`);
+
+if (!self.KernelPanicRelease || self.KernelPanicRelease.version !== VERSION) {
+  throw new Error(`[KernelPanic] Release metadata does not match worker version ${VERSION}`);
+}
+const RELEASE_INFO = self.KernelPanicRelease;
 
 const cacheConfig = CacheConfig.create(VERSION);
 const CACHE_VERSION = cacheConfig.version;
@@ -34,7 +40,13 @@ self.addEventListener('install', event => {
 
 self.addEventListener('activate', event => {
   event.waitUntil(
-    ServiceWorkerCore.handleActivate(CACHE_NAMES, CACHE_PREFIX, LOG_PREFIX)
+    ServiceWorkerCore.handleActivate(
+      CACHE_NAMES,
+      CACHE_PREFIX,
+      CACHE_VERSION,
+      RELEASE_INFO,
+      LOG_PREFIX
+    )
   );
 });
 
@@ -51,9 +63,21 @@ self.addEventListener('fetch', event => {
 self.addEventListener('message', event => {
   if (event.data && event.data.type === 'SKIP_WAITING') {
     event.waitUntil(
-      ServiceWorkerCore.handleMessage(event, CACHE_NAMES.name, CACHE_VERSION, LOG_PREFIX)
+      ServiceWorkerCore.handleMessage(
+        event,
+        CACHE_NAMES.name,
+        CACHE_VERSION,
+        RELEASE_INFO,
+        LOG_PREFIX
+      )
     );
   } else {
-    ServiceWorkerCore.handleMessage(event, CACHE_NAMES.name, CACHE_VERSION, LOG_PREFIX);
+    ServiceWorkerCore.handleMessage(
+      event,
+      CACHE_NAMES.name,
+      CACHE_VERSION,
+      RELEASE_INFO,
+      LOG_PREFIX
+    );
   }
 });
