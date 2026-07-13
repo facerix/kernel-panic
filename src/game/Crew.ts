@@ -13,6 +13,7 @@ import {
   BREACHING_CHARGE_RANGE,
   TARGETING_BONUS,
   TURRET_DAMAGE,
+  TURRET_MAX_HP,
   RANGED_DAMAGE_BONUS,
   RANGED_MAX_DAMAGE_BONUS,
   MELEE_DAMAGE_BONUS,
@@ -240,13 +241,14 @@ export class Crew extends Entity {
   }
 
   /**
-   * Stats for a player turret this crew member deploys (Tech). HP mirrors the
-   * owner's current max (includes Bone Lacing); damage uses the same Hot
-   * Rounds bonus on the turret base (`TURRET_DAMAGE`).
+   * Stats for a player turret this crew member deploys (Tech). HP is the
+   * turret's own base (`TURRET_MAX_HP`) — a machine, so it does NOT inherit
+   * owner body augments like Bone Lacing. Damage still inherits the owner's
+   * ranged (RiP Rounds) bonus on the turret base (`TURRET_DAMAGE`).
    */
   turretDeployProfile(): { maxHp: number; attackDamage: number } {
     return {
-      maxHp: this.maxHp,
+      maxHp: TURRET_MAX_HP,
       attackDamage: TURRET_DAMAGE + this.effectiveRangedDamageBonus,
     };
   }

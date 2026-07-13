@@ -141,7 +141,8 @@ export const JACK_OUT_SHOCK_DAMAGE = 3;
  *     drones but doesn't dominate the engagement.
  *   - `TURRET_DAMAGE` — flat 2; matches the Merc's heavy sidearm (see `MERC_RANGED_DAMAGE`).
  *   - `TURRET_SHOTS_PER_AFTERMATH` — two resolve passes per turret each player yield (2.6.5).
- * Deployed turrets copy the owner's {@link Crew.maxHp} at drop time (Bone Lacing applies).
+ * Deployed turrets always use `TURRET_MAX_HP` — they do not inherit the owner's
+ * {@link Crew.maxHp} or body augments like Bone Lacing.
  */
 export const TURRET_MAX_HP = 3;
 export const TURRET_RANGE = 4;

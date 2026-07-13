@@ -153,7 +153,7 @@ export const SCOREABLE_ITEMS: readonly Item[] = Object.freeze([
     label: 'Bone Lacing',
     scope: ITEM_SCOPE.CAMPAIGN,
     cost: SHOP_COST.BONE_LACING,
-    description: "+1 max HP (Tech's turrets deploy at that max HP).",
+    description: '+1 max HP.',
     needsTarget: true,
     flavor: 'Black-clinic skeletal reinforcement, laced in straight off a fabrication line.',
   }),
