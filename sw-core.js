@@ -11,8 +11,8 @@ const CacheConfig = {
     return {
       version,
       name: `${prefix}v${version}`,
-      staticName: `${prefix}static`,
-      runtimeName: `${prefix}runtime`,
+      staticName: `${prefix}static-v${version}`,
+      runtimeName: `${prefix}runtime-v${version}`,
       prefix
     };
   },
@@ -38,7 +38,6 @@ const CacheConfig = {
       '/components/ClinicModal.js',
       '/components/ChronicleArchive.js',
       '/components/InitialRecruit.js',
-      '/components/ItemInventory.js',
       '/components/KeyHelp.js',
       '/components/RunBriefing.js',
       '/components/SystemStart.js',
@@ -151,7 +150,6 @@ const CacheConfig = {
       '/src/shell/sceneListeners.js',
       '/src/shell/sceneView.js',
       '/src/shell/statusLine.js',
-      '/src/shell/GameShell.js',
       '/src/shell/shellRuntime.js',
       '/src/statusActivityRows.js',
     ];
@@ -339,7 +337,9 @@ const ServiceWorkerCore = {
       
       console.log(`${logPrefix} ✓ Cached ${coreCachedCount}/${coreResources.length} core resources`);
       if (failedResources.length > 0) {
-        console.warn(`${logPrefix} Failed core resources:`, failedResources);
+        throw new Error(
+          `${logPrefix} Refusing incomplete install; failed core resources: ${JSON.stringify(failedResources)}`
+        );
       }
       
       const staticCache = await caches.open(cacheNames.staticName);
@@ -370,7 +370,7 @@ const ServiceWorkerCore = {
     }
   },
 
-  async handleActivate(cacheNames, cachePrefix, logPrefix = '[SW]') {
+  async handleActivate(cacheNames, cachePrefix, cacheVersion, releaseInfo, logPrefix = '[SW]') {
     console.log(`${logPrefix} Service Worker activating...`);
     
     const existingCaches = await caches.keys();
@@ -388,6 +388,15 @@ const ServiceWorkerCore = {
     console.log(`${logPrefix} Service Worker activated`);
     console.log(`${logPrefix} Active caches: ${cachesToKeep.join(', ')}`);
     await self.clients.claim();
+
+    const clients = await self.clients.matchAll({ includeUncontrolled: true });
+    clients.forEach(client => {
+      client.postMessage({
+        type: 'SW_ACTIVATED',
+        version: cacheVersion,
+        release: releaseInfo
+      });
+    });
   },
 
   async handleFetch(request, cacheNames, logPrefix = '[SW]', useNetworkFirstForHTML = false) {
@@ -413,25 +422,12 @@ const ServiceWorkerCore = {
     }
   },
 
-  async handleMessage(event, cacheName, cacheVersion, logPrefix = '[SW]') {
+  async handleMessage(event, cacheName, cacheVersion, releaseInfo, logPrefix = '[SW]') {
     console.log(`${logPrefix} Received message:`, event.data);
     
     if (event.data && event.data.type === 'SKIP_WAITING') {
       console.log(`${logPrefix} Skipping waiting and activating immediately...`);
       await self.skipWaiting();
-      console.log(`${logPrefix} Service worker activated, claiming clients...`);
-      
-      await self.clients.claim();
-      
-      const clients = await self.clients.matchAll({ includeUncontrolled: true });
-      console.log(`${logPrefix} Claimed ${clients.length} client(s), ready for new version`);
-      
-      clients.forEach(client => {
-        client.postMessage({
-          type: 'SW_ACTIVATED',
-          version: cacheVersion
-        });
-      });
     }
     
     if (event.data && event.data.type === 'GET_CACHE_INFO') {
@@ -439,6 +435,10 @@ const ServiceWorkerCore = {
         cacheName: cacheName,
         version: cacheVersion
       });
+    }
+
+    if (event.data && event.data.type === 'GET_RELEASE_INFO') {
+      event.ports[0].postMessage(releaseInfo);
     }
   }
 };

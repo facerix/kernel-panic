@@ -29,6 +29,7 @@ const files = [
   'sw.js',
   'sw-dev.js',
   'sw-core.js',
+  'sw-release.js',
   // Debug harness pages (their scripts are compiled by tsc into dist/debug/).
   'debug/index.html',
   'debug/map.html',

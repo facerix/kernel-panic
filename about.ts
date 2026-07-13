@@ -1,4 +1,8 @@
 import { serviceWorkerManager } from './src/ServiceWorkerManager.js';
+import type {
+  UpdateAvailableDetail,
+  UpdateRestartRequiredDetail,
+} from './src/ServiceWorkerManager.js';
 import '/components/UpdateNotification.js';
 import '/components/ConfirmationModal.js';
 
@@ -10,8 +14,11 @@ interface ConfirmationModal extends HTMLElement {
 }
 
 interface UpdateNotification extends HTMLElement {
-  show(pendingWorker: ServiceWorker | null): void;
-  pendingWorkerInstance: ServiceWorker | null;
+  show(update: UpdateAvailableDetail): void;
+  showRestartRequired(release: UpdateRestartRequiredDetail['release']): void;
+  showUnavailable(message: string): void;
+  showUpdating(status?: string): void;
+  showFailure(message: string): void;
 }
 
 const whenLoaded = Promise.all([
@@ -25,7 +32,30 @@ whenLoaded.then(async () => {
 
   window.addEventListener('sw-update-available', event => {
     console.log('Service worker update available, showing notification');
-    updateNotification?.show((event as CustomEvent).detail.pendingWorker);
+    updateNotification?.show((event as CustomEvent<UpdateAvailableDetail>).detail);
+  });
+  window.addEventListener('sw-update-restart-required', event => {
+    const detail = (event as CustomEvent<UpdateRestartRequiredDetail>).detail;
+    updateNotification?.showRestartRequired(detail.release);
+  });
+  window.addEventListener('sw-update-error', event => {
+    const detail = (event as CustomEvent<{ message: string }>).detail;
+    updateNotification?.showUnavailable(detail.message);
+  });
+  window.addEventListener('sw-update-progress', event => {
+    const detail = (event as CustomEvent<{ status: string }>).detail;
+    updateNotification?.showUpdating(detail.status);
+  });
+  updateNotification?.addEventListener('update-accepted', event => {
+    const pendingWorker = (event as CustomEvent<{ pendingWorker: ServiceWorker }>).detail
+      .pendingWorker;
+    serviceWorkerManager.handleUpdateNow(pendingWorker).catch(error => {
+      console.error('[about] Update failed:', error);
+      updateNotification.showFailure('Update failed. The current version remains active.');
+    });
+  });
+  updateNotification?.addEventListener('update-restart-requested', () => {
+    window.location.reload();
   });
 
   await serviceWorkerManager.register();
@@ -60,13 +90,7 @@ whenLoaded.then(async () => {
   }
 
   btnUpdate?.addEventListener('click', () => {
-    const pendingWorker =
-      updateNotification?.pendingWorkerInstance || serviceWorkerManager.getRegistration()?.waiting;
-    if (pendingWorker) {
-      serviceWorkerManager.handleUpdateNow(pendingWorker);
-    } else {
-      serviceWorkerManager.checkForUpdates();
-    }
+    serviceWorkerManager.checkForUpdates();
   });
 
   const btnClearCache = document.getElementById('btnClearCache') as HTMLButtonElement;
