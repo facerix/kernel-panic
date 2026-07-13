@@ -1,0 +1,366 @@
+# Phase 3.5 Plan — Status Effects & Three New Archetypes
+
+Living plan for the Phase 3.5 slice of Kernel Panic: a generic status-effect channel, a reworked Decker perk, three new player archetypes (Berserk, Adept, Chimera), and an inverted crew-generation model where core stats are rolled first and the archetype is derived from the result. Phase 3 (campaign arc, Cyberspace, the Decker, the Score) shipped as `v0.3.0`; this phase builds on top of it while the project is in balance/QoL patching (`3.3-inventory`). See [phase-3-plan.md](phase-3-plan.md) for the prior phase and [kernel-panic-v1-blueprint.md](kernel-panic-v1-blueprint.md) for the overall design vision.
+
+**Phase prefix:** `P3.5` — use `P3.5.MN` (e.g. `P3.5.M2.1`) when referencing milestones from this phase in other documents.
+
+## Design vision
+
+The Decker's **Override** perk (hijack a corp drone's allegiance) reads oddly now that factions deliberately blur organic/mechanical enemy skins and most higher-tier hostiles are humanoid — hijacking a "drone" doesn't fit the fiction as well as it used to, and its actual mechanic (flip a hostile's allegiance for a few turns via an aim-sector target picker) is a much more natural fit for a mind-control specialist than a hacker. That observation is the seed of this phase:
+
+1. **A generic status-effect channel** — today every timed effect (Razor's stealth, Override's countdown, shield HP) is a bespoke field with its own lifecycle idiom. Adding an EMP stun and a Berserk surge/crash pair on top of that is the point to de-duplicate instead of writing a third and fourth one-off.
+2. **Decker: Override → EMP stun** — an AOE neural-shock/EMP blast, self-centered, hits everyone alive in radius (friend and foe, no faction filter), replacing Override as the Decker's Meatspace signature perk.
+3. **Berserk** — a new archetype whose perk is a temporary self-buff (surge) that always chains into a matched self-debuff (crash) on expiry.
+4. **Adept** — a new archetype that inherits Override's exact mechanic wholesale, reflavored as **Influence**: psychically dominating a hostile's will for a few turns instead of hacking a drone's firmware. Same targeting, same risk shape, same countdown-and-revert lifecycle — renamed and re-fictionalized, with a new archetype shell around it.
+5. **Chimera** — a new sustain archetype (deliberately ambiguous fiction: nobody in-world knows for certain whether this is a human running a semi-sentient nanite swarm or an awakened AI in an android chassis; flavor text never resolves it) whose perk converts scrap into HP, mirroring Tech's improvised-turret resource-gate shape.
+6. **Inverted crew generation** — roll core stats first (hit chance, dodge chance, armor), derive the archetype from the resulting profile, instead of picking an archetype and getting fixed stats. No weighted archetype pool — pure RNG at both campaign start and mid-campaign recruiting. The old "one of each starter kit" guarantee is dropped; duplicates are allowed. Decker is unaffected — still a forced, narrative-only mid-campaign recruit, never rolled.
+
+End state: **seven playable archetypes** (Merc, Razor, Tech, Decker, Berserk, Adept, Chimera), a differentiated Decker perk, one shared effect-duration mechanism the roster can keep building on (e.g. a future control/support archetype), and less deterministic crew stats without breaking campaign-save compatibility.
+
+## Dependency graph
+
+```
+M1 (status-effect channel) ──> M2 (Decker EMP stun)
+                            └─> M3 (Berserk: surge/crash)
+
+M4 (Adept: Influence)   ── independent of M1; sequenced after M2
+                             (both touch the Override machinery — sequencing
+                             avoids overlapping edits to the same file)
+
+M5 (Chimera: scrap→HP)  ── fully independent (no duration effect at all)
+
+M3 + M4 + M5 ──> M6 (stat-roll → archetype derivation, needs all 6 profiles)
+```
+
+## Current status
+
+| Milestone | Status |
+|---|---|
+| P3.5.M1 — Generic status-effect subsystem | 🔲 Not started |
+| P3.5.M2 — Decker perk swap: Override → EMP AOE stun | 🔲 Not started |
+| P3.5.M3 — Berserk archetype (surge/crash) | 🔲 Not started |
+| P3.5.M4 — Adept archetype (Influence, renamed from Override) | 🔲 Not started |
+| P3.5.M5 — Chimera archetype (scrap-to-HP sustain) | 🔲 Not started |
+| P3.5.M6 — Inverted crew generation (roll stats, derive archetype) | 🔲 Not started |
+
+**Phase 3.5** is complete when:
+
+1. Every milestone in the table above is ✅.
+2. All seven archetypes (Merc, Razor, Tech, Decker, Berserk, Adept, Chimera) are playable end to end in a single campaign, including mixed-archetype recruiting.
+3. `npm test` passes with the new/updated coverage listed per milestone below.
+4. A pre-P3.5 save loads without error and without silently regenerating stats it never had (legacy defaults kick in instead).
+
+---
+
+## P3.5.M1 — Generic status-effect subsystem
+
+**Add to `src/game/Entity.ts`:**
+```ts
+effects: Map<string, number>;   // effect id -> turns of THIS entity's own refreshAp remaining
+
+hasEffect(id: string): boolean
+effectTurnsRemaining(id: string): number
+applyEffect(id: string, duration: number): void   // positive-integer guard; overwrite, no stacking
+clearEffect(id: string): void
+protected tickEffects(): void   // decrement every entry, delete at 0
+```
+Duration counts in "how many times this entity's own `refreshAp()` fires" — the same semantics `stealthed` already has (a duration of 1 clears by the entity's next refresh). No stacking; reapplying overwrites, mirroring the existing "second Slide re-arms `stealthed`" behavior (`Razor.ts:50-52`).
+
+**Critical ordering detail in `Entity.refreshAp()`** — check the effect *before* ticking it, so a duration of 1 covers the upcoming refresh, not the one that just happened:
+```ts
+refreshAp(): void {
+  this.ap = this.hasEffect(STATUS_EFFECT.STUN) ? 0 : this.maxAp;
+  this.shieldHp = 0;
+  this.tickEffects();
+}
+```
+Walk-through: Decker detonates EMP on the player's turn → `applyEffect('stun', 1)` on everyone in radius. Next corp `refreshAp()` sees the effect, sets `ap = 0` (that *is* the stun), then ticks it to 0/deletes it. The corp refresh after that is unaffected. **No separate skip-turn engine needed** — `PatrolHostile.takeTurnSteps` and `CorpTurret.ts:92` both loop on `while (alive && ap > 0/>= cost ...)` and already no-op cleanly at `ap === 0`.
+
+**One real gap this exposes:** `applyIntent.ts`'s move/attack handlers call `Entity.spendAp`, which throws if `cost > ap` (`Entity.ts:177-185`). Today that never fires because `gateOnApExhausted` always ends the turn the instant AP hits exactly 0 — the player is never handed another intent at `ap === 0`. A stunned player-faction entity *starts* its turn at 0, so the very next intent would crash. Fix: at the top of `applyIntent()`, right after the faction guard, add an early return mirroring `gateOnApExhausted`'s existing `concludeTurn ?? advanceTurn` fallback:
+```ts
+if (player.ap === 0 && intent.type !== 'end-turn' && intent.type !== 'cancel') {
+  log(`> ${entityLabel(player)} is STUNNED — no AP this turn.`);
+  (ctx.concludeTurn ?? ctx.advanceTurn)();
+  return;
+}
+```
+
+**Migrate `stealthed` onto this channel now** (cheapest proof it works, and a net simplification):
+- `Razor.slide()`: `this.stealthed = true` → `this.applyEffect('stealth', 1)`.
+- `Entity.isSpottableBy()`: `if (!this.stealthed)` → `if (!this.hasEffect('stealth'))`.
+- `Razor.ts`'s `override refreshAp()` (lines 101-104) **deletes entirely** — base `tickEffects()` now clears it. Existing Razor stealth tests should pass unmodified against the new channel; that's the regression check.
+
+**Do NOT migrate:**
+- `shieldHp` — a capacity, not a countdown; stays a dedicated numeric field.
+- `frozen` — a state-machine flag driven by explicit jack-in/out logic in `Run.ts`, not a countdown; stays dedicated.
+- Override/Influence's `overrideTurnsRemaining`/`factionBeforeOverride` (see M4) — stays on its own bespoke lifecycle. Its cadence (once per player-aftermath pass, coupled to a generator driving the influenced hostile's own actions) differs in kind from `refreshAp`'s cadence; migrating just the counter without the action-driving loop would desync it.
+
+**Persistence:** none needed. `CampaignCrewSnapshot` (`persistence.ts:907-931`) only saves at the Hub between runs; every effect in scope is combat-run-scoped and will have long since ticked to zero by save time. (If a future phase adds mid-combat save/resume, `effects` would need to serialize into the run snapshot then.)
+
+**Critical files:** `src/game/Entity.ts`, `src/game/archetypes/Razor.ts`, `src/input/applyIntent.ts`, `src/game/TurnQueue.ts`.
+
+**Tests:** `tests/unit/game/Entity.test.ts` (apply/has/clear/duration-1-clears-next-refresh/overwrite-not-stack/invalid-duration throws), `tests/unit/game/Razor.test.ts` (stealth via `hasEffect`, slide→wait→slide re-cloak regression), `tests/unit/game/TurnQueue.test.ts` (synthetic stunned entity: 0 AP on the stunned refresh, full AP the one after), `tests/unit/input/applyIntent.test.ts` (player at 0 AP with no legal action sends an intent, no throw, turn concludes).
+
+---
+
+## P3.5.M2 — Decker perk swap: Override → EMP AOE stun
+
+**Depends on M1.**
+
+Self-centered blast (no aim/UI plumbing — matches `Smoke.ts`'s `placeSmoke(grid, cx, cy, radius)` radius-loop template); hits *everyone* alive in radius, friend and foe, no faction filter (matches `breachBlast.ts`'s existing "blast hits everyone, no faction check" precedent) and no organic/mechanical branching (uniform stun, matching the deliberate blurred-faction theming).
+
+**New module `src/game/empBlast.ts`** (pure functions, mirrors `breachBlast.ts` + `Smoke.ts`):
+```ts
+export type EmpCheck = { ok: true } | { ok: false; reason: 'dead' | 'insufficient-ap' };
+export function canEmp(decker: Entity): EmpCheck { ... }
+export function isInEmpBlast(cx, cy, x, y): boolean {
+  return chebyshev(cx, cy, x, y) <= EMP_RADIUS;   // reuse Pathfinding.chebyshev, as breachBlast.ts does
+}
+export function detonateEmp(world: World, decker: Entity): { stunned: Entity[] } {
+  const check = canEmp(decker);
+  if (!check.ok) throw new Error(...);
+  decker.spendAp(AP_COST.EMP);
+  const stunned: Entity[] = [];
+  for (const entity of world.entities.values()) {
+    if (!entity.alive) continue;
+    if (!isInEmpBlast(decker.x, decker.y, entity.x, entity.y)) continue;
+    entity.applyEffect(STATUS_EFFECT.STUN, EMP_STUN_DURATION);
+    stunned.push(entity);
+  }
+  return { stunned };
+}
+```
+
+**`Decker.ts`:** remove `canOverride`/`overrideDrone` delegators and the `droneOverride.js` import; add `canEmp`/`detonateEmp` thin delegators to `empBlast.ts`, same shape as the perk it replaces. **Do not touch `droneOverride.ts` in this milestone** — M4 is what renames and rehomes it to Adept. Keeping M2 scoped to "remove Decker's delegation, add EMP" avoids two milestones editing the same file in overlapping ways.
+
+**`constants.ts`** — new block, following the existing one-line-justification-per-number convention (see `OVERRIDE_*`, `constants.ts:93-108`):
+```ts
+export const EMP_RADIUS = SMOKE_RADIUS;      // matches SMOKE_RADIUS (2) — "clears a room" footprint
+export const EMP_STUN_DURATION = 1;          // one skipped activation per hostile
+```
+`AP_COST` gains a new `EMP: 2` key (matches every other perk). `AP_COST.OVERRIDE` and `OVERRIDE_RANGE`/`OVERRIDE_DURATION`/`OVERRIDE_SUCCESS_CHANCE` are left in place for now — M4 renames them.
+
+**`applyIntent.ts`:** swap the `doSpecial` dispatch branch from `canOverride`/`doOverride` to `canEmp`/`doEmp`. **Do NOT delete `pickOverrideTarget`/`isInAimSector`** — M4's Adept perk claims them (Adept uses the same aim-sector single-target picker Override always used). Leave them in place with a short comment noting they're about to be repointed at Adept in M4.
+
+**`archetypes/index.ts`:** update the Decker's `perkName`/`perkLabel` copy to describe EMP.
+
+**Critical files:** `src/game/empBlast.ts` (new), `src/game/archetypes/Decker.ts`, `src/input/applyIntent.ts`, `src/game/constants.ts`.
+
+**Tests:** `tests/unit/game/empBlast.test.ts` (legality, radius geometry — mirror `breach.test.ts`'s `isInBlast` cases, mixed-faction stun, AP debited once, dead entities skipped), `tests/unit/game/Decker.test.ts` (Override assertions replaced with EMP assertions — Override's own test coverage moves wholesale to M4, not duplicated here), `tests/unit/input/applyIntent.test.ts` (`doSpecial` → EMP for a Decker; a same-faction crew member caught in radius ends up at 0 AP next refresh).
+
+---
+
+## P3.5.M3 — Berserk archetype: surge then crash
+
+**Depends on M1. Independent of M2/M4/M5.**
+
+**File structure**, mirroring the four existing archetypes exactly: `src/game/archetypes/Berserk.ts` (thin `Crew` subclass + `CALLSIGNS` pool, modeled on `Razor.ts`), `src/game/surge.ts` (pure `canSurge`/`doSurge`, modeled on `slide.ts`; tested through `Berserk.test.ts`, not standalone — matches how `slide.ts` has no dedicated test file today).
+
+**Proposed callsigns** (aggressive/feral tone, checked against existing pools for collisions): `Fury, Havoc, Grit, Maul, Wrath, Torque, Riptide, Ember, Thresh, Brawn, Ronin, Ashwalker`. (Avoid `Bruiser`/`Juggernaut` — those are corp enemy-class labels in `Entity.ts`'s `kindFromId`; a crew callsign matching an enemy kind would be confusing in the log.)
+
+**Surge→crash chain lives in `Berserk.refreshAp()`**, layering on the generic channel the same way `Razor.refreshAp()` layers stealth-clearing on `super.refreshAp()`:
+```ts
+override refreshAp(): void {
+  const wasSurging = this.hasEffect(STATUS_EFFECT.SURGE);
+  super.refreshAp();   // stun-gate, shield clear, tickEffects (decrements surge/crash too)
+  if (wasSurging && !this.hasEffect(STATUS_EFFECT.SURGE)) {
+    this.applyEffect(STATUS_EFFECT.CRASH, CRASH_DURATION);
+    // apply crash's hit-chance penalty
+  } else if (/* crash's own tick just expired */) {
+    // restore hit chance
+  }
+}
+```
+Guard against double-apply the same way `Crew.applyGear`'s clamps do (a small private "crash currently applied" flag).
+
+Where each number is read:
+- **Damage bonus** — `Berserk` overrides `meleeAttackDamage()`/`rangedAttackDamage()` to add `SURGE_DAMAGE_BONUS` while `hasEffect('surge')`, same pattern as `Razor.ts` overriding `meleeDamage`.
+- **AP bonus/penalty** — applied inside the `refreshAp()` override (surge: `+SURGE_AP_BONUS`; crash: `-CRASH_AP_PENALTY`), same shape as `Crew.refreshAp()` layering gear regen after `super.refreshAp()`.
+- **Accuracy penalty** — mutate the instance's `baseHitChance` directly and restore it on crash-expiry, the same "mutate the live stat, `Combat.ts` reads it raw" idiom `Crew.applyGear`'s `ADRENAL_SPIKE`/`SUBDERMAL_PLATING` cases already use (`Crew.ts:346-363`) — zero `Combat.ts` changes needed.
+
+**Proposed constants** (`constants.ts`, same "flat 1-2-3, tie to an existing constant" convention):
+```ts
+export const SURGE_DURATION = 2;          // shorter than OVERRIDE_DURATION(3): costs only AP, no roll/alarm risk
+export const SURGE_DAMAGE_BONUS = 1;      // mirrors MELEE_DAMAGE_BONUS/RANGED_DAMAGE_BONUS
+export const SURGE_AP_BONUS = 1;          // mirrors AP_BONUS, capped at 1 for the same turn-economy reason
+export const CRASH_DURATION = 2;          // symmetric payback window
+export const CRASH_AP_PENALTY = 1;        // symmetric with SURGE_AP_BONUS — nets to roughly even
+export const CRASH_HIT_PENALTY = 0.1;     // mirrors the existing 0.1-per-tier TARGETING_BONUS/DODGE_BONUS step
+// AP_COST.SURGE: 2, matches the "every perk costs 2 AP" convention
+```
+**Base stats: `baseHitChance = 0.75`, `baseDodgeChance = 0.20`** — generic baseline like Tech; differentiation lives entirely in the surge/crash swing. **Armor note for M6:** Berserk's centroid collides exactly with Tech's on the hit/dodge plane — M6 resolves this via the armor axis (`armor === 0 → Tech`, `armor > 0 → Berserk`).
+
+**Wiring surface** (every place a `CrewArchetypeId` fans out — this exact list is reused verbatim for M4 and M5, so it's spelled out once here):
+- `src/game/archetypes/index.ts` — `BUILDERS`, `ARCHETYPES`, `CALLSIGNS_BY_ARCHETYPE`, `ARCHETYPE_IDS`.
+- `src/game/Campaign.ts` — no manual pool-weight entry needed; M6 retires `RECRUIT_ARCHETYPE_POOL` entirely.
+- `src/game/Run.ts` — `CrewArchetypeId` type (~line 158), `archetypeOf`/`archetypeOfCrew`, `SNAPSHOT_EXTRACTORS`, `freshTelemetry`.
+- `src/game/persistence.ts` — `ARCHETYPE_FACTORY`, `KNOWN_ARCHETYPES_SET`, `archetypeOfCrew`.
+- `src/input/applyIntent.ts` — `doSpecial` dispatch gains a branch for the new perk, appended to the existing fixed order.
+
+Berserk is recruit-pool only — moot as a distinct decision once M6 lands, since M6 drops pool weighting and the starter-variety guarantee entirely (every non-Decker archetype, Berserk included, is reachable at campaign start or via recruiting purely through the stat roll).
+
+**Critical files:** `src/game/archetypes/Berserk.ts` (new), `src/game/surge.ts` (new), plus the wiring-surface files above.
+
+**Tests:** `tests/unit/game/Berserk.test.ts` (new — mirrors `Razor.test.ts`: legality/AP debit, damage+AP bonus while surging, crash auto-applies on surge expiry, hit-chance penalty applied/restored, base stats), `tests/unit/game/persistence.test.ts`, `tests/unit/game/Run.test.ts`, `tests/unit/input/applyIntent.test.ts` (each extended per the wiring-surface list).
+
+---
+
+## P3.5.M4 — Adept archetype: Influence (Override, renamed and rehomed)
+
+**Independent of M1/M3/M5. Sequenced after M2** (both M2 and M4 touch the Override machinery; doing M2 first means Decker's delegation is already gone before this milestone renames the file, avoiding overlapping edits).
+
+The Adept inherits Override's mechanic **wholesale, unchanged in behavior** — same aim-sector target picker, same range/duration/success-chance/alarm-on-fail risk shape, same countdown-and-revert lifecycle via its own bespoke generator (deliberately *not* migrated onto M1's channel — see M1's "do not migrate" list). Only the name and fictional framing change, because it now has a permanent owner instead of being reserved for later.
+
+**Rename:**
+| Old | New |
+|---|---|
+| `src/game/droneOverride.ts` | `src/game/mindInfluence.ts` |
+| `canOverride` | `canInfluence` |
+| `overrideDrone` | `influenceTarget` |
+| `stepOverriddenDrones` | `stepInfluencedHostiles` |
+| `OverrideResult` (type) | `InfluenceResult` |
+| `OVERRIDE_RANGE` | `INFLUENCE_RANGE` |
+| `OVERRIDE_DURATION` | `INFLUENCE_DURATION` |
+| `OVERRIDE_SUCCESS_CHANCE` | `INFLUENCE_SUCCESS_CHANCE` |
+| `AP_COST.OVERRIDE` | `AP_COST.INFLUENCE` |
+| `pickOverrideTarget` / `isInAimSector` (`applyIntent.ts`) | `pickInfluenceTarget` / `isInAimSector` (kept, still generic) |
+| `doOverride` (`applyIntent.ts`) | `doInfluence` |
+
+Doc comments reflavor from "hijack a corp drone's allegiance" to "psychically dominate a hostile's will for a few turns" throughout `mindInfluence.ts` and the constants block. Target eligibility (alive, `Hostile` instance, different faction, in range, LOS) stays exactly as-is — it was already faction-agnostic re: organic/mechanical, which is exactly what makes it transplant cleanly onto a psychic fiction.
+
+**New `src/game/archetypes/Adept.ts`:** thin `Crew` subclass, archetype `'Adept'`, `canInfluence`/`influenceTarget` delegators to `mindInfluence.ts` (same shape `Decker.ts` used to have). **Base stats: `baseHitChance = 0.70`, `baseDodgeChance = 0.20`** — a deliberately weaker combatant; you bring an Adept for Influence, not for their aim.
+
+**Proposed callsigns** (mentalist/psychic tone, checked against existing pools): `Oracle, Mirage, Sibyl, Whisper, Halo, Delphi, Thrall, Mendel, Wisp, Seer, Aura, Puppet`.
+
+**`applyIntent.ts`:** `doSpecial` dispatch gains a branch for Adept using `canInfluence`/`doInfluence`, reusing the renamed `pickInfluenceTarget`/`isInAimSector` that M2 deliberately left in place.
+
+**`stepInfluencedHostiles`** (renamed generator) keeps its exact existing call site and cadence (once per player-aftermath pass) — only the name changes.
+
+**Critical files:** `src/game/mindInfluence.ts` (renamed from `droneOverride.ts`), `src/game/archetypes/Adept.ts` (new), `src/game/constants.ts`, `src/input/applyIntent.ts`, plus the wiring-surface list from M3.
+
+**Tests:** rename the Override-specific coverage currently embedded in `Decker.test.ts` into a new standalone `tests/unit/game/mindInfluence.test.ts`, exercising the renamed pure functions directly against a generic `Hostile` fixture — this is the module's only coverage today (only reachable via `Decker.test.ts`), so it must move deliberately, not get silently dropped when `Decker.ts` stops calling it (M2) or renamed out from under it (M4). Add `tests/unit/game/Adept.test.ts` (mirrors `Decker.test.ts`'s old Override-legality assertions, now via `canInfluence`/`influenceTarget`). Extend `applyIntent.test.ts`, `Run.test.ts`, `persistence.test.ts` per the wiring-surface list.
+
+---
+
+## P3.5.M5 — Chimera archetype: scrap-to-HP sustain
+
+**Fully independent** — no duration effect, no dependency on M1.
+
+Fiction is deliberately unresolved: Chimera is a sustain operative built around a semi-sentient nanite swarm, or an awakened AI in an android chassis — the game (and possibly the character) never confirms which. Flavor/log text should preserve that ambiguity rather than pick a side.
+
+**New `src/game/archetypes/Chimera.ts`:** thin `Crew` subclass, archetype `'Chimera'`. **Base stats: `baseHitChance = 0.75`, `baseDodgeChance = 0.25`** — deliberately its own point on the hit/dodge plane (not shared with Tech/Berserk's `(0.75, 0.20)`), so M6's centroid table doesn't need a third collision resolved by armor; Tech/Berserk stay a clean 2-way armor tie-break.
+
+**New pure module `src/game/nanoRepair.ts`** (mirrors Tech's `improviseTurret` shape exactly — resource-gated, repeatable, no per-job cap):
+```ts
+export function canConvertScrap(chimera: Crew): CanCheck {
+  // alive, ap >= AP_COST.NANITE_HEAL, inventory.salvage.scrap >= SALVAGE_PER_NANITE_HEAL
+}
+export function convertScrapToHp(chimera: Crew): number {
+  const check = canConvertScrap(chimera);
+  if (!check.ok) throw new Error(...);
+  chimera.spendAp(AP_COST.NANITE_HEAL);
+  chimera.inventory!.salvage.scrap -= SALVAGE_PER_NANITE_HEAL;
+  return chimera.heal(NANITE_HEAL_AMOUNT);   // Entity.heal() already exists, already maxHp-clamped
+}
+```
+
+**New constants** (`constants.ts`, reusing the existing scrap-price convention rather than inventing a new number):
+```ts
+export const NANITE_HEAL_AMOUNT = 1;                              // +1 HP per activation
+export const SALVAGE_PER_NANITE_HEAL = SALVAGE_PER_IMPROVISED_TURRET; // same scrap price as an improvised turret
+// AP_COST.NANITE_HEAL: 2, matches the "every perk costs 2 AP" convention
+```
+Repeatable every turn as long as the shared scrap pool allows — same resource-gating shape as Tech's improvised turret, not a once-per-job cap like Tech's initial free turret.
+
+**Proposed callsigns** (deliberately unplaceable, human-or-machine): `Vessel, Husk, Chrysalis, Relic, Doll, Ghost, Null, Sigil, Mesh, Splice, Cocoon, Effigy`.
+
+**`applyIntent.ts`:** `doSpecial` dispatch gains a `canConvertScrap`/`doConvertScrap` branch.
+
+**Critical files:** `src/game/archetypes/Chimera.ts` (new), `src/game/nanoRepair.ts` (new), `src/game/constants.ts`, `src/input/applyIntent.ts`, plus the wiring-surface list from M3.
+
+**Tests:** `tests/unit/game/Chimera.test.ts` (new — mirrors `Tech.test.ts`'s improvised-turret cases: legality with/without sufficient scrap, AP + scrap debited, HP clamps at maxHp, repeatable across turns), extend `applyIntent.test.ts`/`Run.test.ts`/`persistence.test.ts` per the wiring-surface list.
+
+---
+
+## P3.5.M6 — Inverted crew generation: roll stats, derive archetype
+
+**Depends on M3 + M4 + M5** (the derivation table needs all six non-Decker profiles registered). **Independent of M2.**
+
+- **Decker stays exempt** — `#assignDecker()`/`#needsReplacementDecker()` keep calling `buildCrewMember('decker', ...)` directly with fixed stats; never part of the roll/derive path.
+- **No weighted pool, no starter-variety guarantee** — every non-Decker crew member (campaign-start trio *and* mid-campaign recruits) goes through the same roll-then-derive pipeline. `RECRUIT_ARCHETYPE_POOL`'s hand-weighted array is retired outright. Duplicates are allowed at campaign start (e.g. two Merc-flavored operatives is a legal, if unlucky, roll).
+
+**Mechanical refactor: `baseHitChance`/`baseDodgeChance` getter → field.** Convert each archetype's `override get baseHitChance(): number { return X; }` into a constructor-settable instance field:
+- Extract each literal into a named constant in `constants.ts` (`MERC_DEFAULT_HIT_CHANCE = 0.8`, `RAZOR_DEFAULT_HIT_CHANCE = 0.7` / `RAZOR_DEFAULT_DODGE_CHANCE = 0.35`, `TECH_DEFAULT_HIT_CHANCE = 0.75`, `DECKER_DEFAULT_HIT_CHANCE = 0.7`, `BERSERK_DEFAULT_HIT_CHANCE = 0.75`, `ADEPT_DEFAULT_HIT_CHANCE = 0.7`, `CHIMERA_DEFAULT_HIT_CHANCE = 0.75` / `CHIMERA_DEFAULT_DODGE_CHANCE = 0.25`).
+- `CrewInit` gains optional `baseHitChance?`/`baseDodgeChance?`; each constructor does `this.baseHitChance = baseHitChance ?? <ARCHETYPE>_DEFAULT_HIT_CHANCE;`, deleting the `override get` block.
+- **Explicit regression requirement:** `new Merc({...})` with no override must still yield `0.8`, etc. — keeps `tests/unit/game/Crew.test.ts:404-497`'s existing assertions passing *unmodified*, proving the refactor alone changes nothing.
+- `damageReduction`/HP/AP need no change — already constructor-settable instance fields.
+
+**Derivation rule — nearest-centroid** (`src/game/crewStatRoll.ts`, new pure module). Six centroids, reusing each archetype's current fixed `(hitChance, dodgeChance)`:
+
+| Archetype | hitChance | dodgeChance | armor tie-break |
+|---|---|---|---|
+| Merc | 0.80 | 0.20 | — |
+| Razor | 0.70 | 0.35 | — |
+| Adept | 0.70 | 0.20 | — |
+| Tech | 0.75 | 0.20 | `armor === 0` |
+| Berserk | 0.75 | 0.20 | `armor > 0` |
+| Chimera | 0.75 | 0.25 | — |
+
+Only Tech/Berserk collide on the hit/dodge plane (by design — see M3); resolved by the armor axis. Otherwise: squared Euclidean distance from the rolled tuple to each centroid, pick the minimum; break any remaining exact tie by fixed priority `merc > razor > adept > tech > berserk > chimera` for determinism.
+
+```ts
+export function rollCrewStats(rng: Rng): { hitChance: number; dodgeChance: number; armor: number }
+export function deriveArchetype(stats): CrewArchetypeId
+```
+Roll ranges, anchored to today's observed spread so day-one balance doesn't quietly widen:
+- `hitChance`: uniform pick from `{0.70, 0.75, 0.80}`.
+- `dodgeChance`: uniform pick from `{0.20, 0.25, 0.30, 0.35}`.
+- `armor`: `rng.chance(0.15) → 1, else 0` — conservative, since armor is a wholly new variance axis with no prior balance data.
+
+**Test requirement, exhaustive by design:** the roll domain is small and finite (`3 × 4 × 2 = 24` combinations) — table-test `deriveArchetype` against **all 24 discrete tuples**, not just the six exact centroids, to prove there's no accidental collision or dead zone anywhere in the grid.
+
+**RNG determinism:** every stat roll goes through `rng.fork('crew-stats')` (per `rng.ts:106-121`'s documented "add a mechanic without perturbing other rolls" use case), not the raw campaign `this.rng`. New wrapper, additive (doesn't touch `buildCrewMember`'s existing archetype-first signature, still used by `#assignDecker`/tests):
+```ts
+export function buildCrewMemberFromRoll(spawn, rng: Rng, options): Crew {
+  const statsRng = rng.fork('crew-stats');
+  const stats = rollCrewStats(statsRng);
+  const archetypeId = deriveArchetype(stats);
+  return buildCrewMember(archetypeId, spawn, rng, { ...options, baseHitChance: stats.hitChance, baseDodgeChance: stats.dodgeChance });
+  // armor applied post-construction via the already-settable `damageReduction` field
+}
+```
+`Campaign.buildCrew()`/`generateRecruits()`/`generateInitialCandidates()` switch to calling this instead of `buildCrewMember(archetypeId, ...)` directly, dropping their `rng.pick(RECRUIT_ARCHETYPE_POOL)` calls entirely.
+
+**`CampaignCrewSnapshot` schema addition** (`persistence.ts:907-931`), following the exact existing `damageReduction?` optional-field pattern (no version system in this repo):
+```ts
+/**
+ * P3.5.M6: rolled base stats. Absent on pre-P3.5 saves — restore to that
+ * archetype's historical fixed value so old saves keep their original
+ * balance instead of silently regenerating a new roll.
+ */
+baseHitChance?: number;
+baseDodgeChance?: number;
+```
+Restore: `baseHitChance: rec.baseHitChance ?? DEFAULT_HIT_CHANCE_BY_ARCHETYPE[rec.archetype]`.
+
+**Critical files:** `src/game/Crew.ts`, `src/game/crewStatRoll.ts` (new), `src/game/Campaign.ts`, `src/game/persistence.ts`.
+
+**Tests:** `tests/unit/game/Crew.test.ts` (extend, don't break, existing getter-value assertions; add constructor-override cases for all six archetypes), `tests/unit/game/crewStatRoll.test.ts` (new — the exhaustive 24-point table above, plus tie-break determinism), `tests/unit/game/Campaign.test.ts` (`buildCrew`/`generateRecruits` produce rolled stats; `rng.fork('crew-stats')` doesn't perturb existing callsign/combat rolls), `tests/unit/game/persistence.test.ts` (`CampaignCrewSnapshot` round-trip with/without the new optional fields; legacy-save defaults to old fixed constant).
+
+---
+
+## Out of scope, parked
+
+- Multi-floor maps, faction rep/NPC social, neural backups — existing Phase 4 deferrals per [phase-3-plan.md](phase-3-plan.md), unaffected by any of this.
+
+## Verification
+
+Per milestone: `npm test` (typecheck + build tests + `node --test`) must pass, including the new/updated unit tests listed above. Additional end-to-end checks:
+
+- **M1:** drive a combat run where a Razor slides, confirm stealth clears on schedule (regression); construct a synthetic stunned entity and confirm it takes 0 AP that turn via the actual `TurnQueue.endTurn` path, not just the unit-level `refreshAp` call.
+- **M2:** play a Decker to EMP with a teammate adjacent — confirm the ally is stunned too (0 AP next refresh) and a corp unit in radius is stunned.
+- **M3:** play a Berserk through a full surge→crash cycle — confirm damage/AP bonus during surge, confirm crash auto-applies on expiry with the accuracy penalty visible in the HUD hit-chance display, confirm crash itself expires cleanly back to baseline.
+- **M4:** play an Adept, confirm Influence behaves identically to the old Override (aim-sector targeting, success roll, alarm on failure, countdown-and-revert) end to end; confirm `mindInfluence.test.ts` covers the mechanic independent of any archetype wiring.
+- **M5:** play a Chimera, kill a hostile, collect its scrap drop, convert it to HP — confirm repeatable across turns as long as scrap lasts and HP clamps at max.
+- **M6:** start several fresh campaigns (different seeds) and confirm crew stats vary run-to-run but land only on the discrete roll values, and archetypes span all six non-Decker options across enough campaigns; save mid-campaign, reload, confirm rolled stats round-trip; load a pre-P3.5 save fixture (or a save snapshot lacking `baseHitChance`) and confirm it restores to the old fixed per-archetype constant rather than crashing or silently rerolling.
+- Full regression: `npm test` at the end of the phase, plus a manual playthrough covering all seven archetypes (Merc/Razor/Tech/Decker/Berserk/Adept/Chimera) in one run to catch any wiring gaps in the fan-out surfaces (`Run.ts`, `persistence.ts`, `applyIntent.ts`).
