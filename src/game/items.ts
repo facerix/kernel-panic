@@ -70,17 +70,17 @@ export const ITEM_SCOPE = Object.freeze({
 export const ITEM_ID = Object.freeze({
   STIM: 'stim',
   SMOKE_CHARGE: 'smoke-charge',
-  INCENDIARY: 'incendiary',
+  MOLOTOV: 'incendiary',
   BREACHING_CHARGE: 'breaching-charge',
-  ARMOUR_PLATING: 'armour-plating',
+  BONE_LACING: 'armour-plating',
   TARGETING_CHIP: 'targeting-chip',
-  REFLEX_WEAVE: 'reflex-weave',
-  BALLISTICS_COIL: 'ballistics-coil',
+  GHOST_WEAVE: 'reflex-weave',
+  RIP_ROUNDS: 'ballistics-coil',
   // Net-new scoreable gear (P3.M6.2) — each fills a previously-untouched stat
   // channel (melee dmg, flat armour, AP, shield regen, HP regen).
   MONOBLADE: 'monoblade',
   SUBDERMAL_PLATING: 'subdermal-plating',
-  REFLEX_BOOSTER: 'reflex-booster',
+  ADRENAL_SPIKE: 'reflex-booster',
   PHASE_SHIELD: 'phase-shield',
   REGEN_MESH: 'regen-mesh',
 });
@@ -120,10 +120,10 @@ export const DEFAULT_ITEMS: readonly Item[] = Object.freeze([
     needsTarget: true,
   }),
   Object.freeze({
-    id: ITEM_ID.INCENDIARY,
+    id: ITEM_ID.MOLOTOV,
     label: 'Molotov',
     scope: ITEM_SCOPE.JOB,
-    cost: SHOP_COST.INCENDIARY,
+    cost: SHOP_COST.MOLOTOV,
     description: `Throw ${INCENDIARY_THROW_DIST} tiles in a chosen direction; ignites a persistent hazard cluster. Single use.`,
     needsTarget: true,
     needsAim: true,
@@ -149,13 +149,13 @@ export const DEFAULT_ITEMS: readonly Item[] = Object.freeze([
  */
 export const SCOREABLE_ITEMS: readonly Item[] = Object.freeze([
   Object.freeze({
-    id: ITEM_ID.ARMOUR_PLATING,
-    label: 'Armour Plating',
+    id: ITEM_ID.BONE_LACING,
+    label: 'Bone Lacing',
     scope: ITEM_SCOPE.CAMPAIGN,
-    cost: SHOP_COST.ARMOUR_PLATING,
+    cost: SHOP_COST.BONE_LACING,
     description: "+1 max HP (Tech's turrets deploy at that max HP).",
     needsTarget: true,
-    flavor: 'Corp-issue trauma plating, lifted straight off a fabrication line.',
+    flavor: 'Black-clinic skeletal reinforcement, laced in straight off a fabrication line.',
   }),
   Object.freeze({
     id: ITEM_ID.TARGETING_CHIP,
@@ -167,22 +167,23 @@ export const SCOREABLE_ITEMS: readonly Item[] = Object.freeze([
     flavor: 'A smartgun targeting co-processor, pulled still-warm from a test rig.',
   }),
   Object.freeze({
-    id: ITEM_ID.REFLEX_WEAVE,
-    label: 'Reflex Weave',
+    id: ITEM_ID.GHOST_WEAVE,
+    label: 'Ghost Weave',
     scope: ITEM_SCOPE.CAMPAIGN,
-    cost: SHOP_COST.REFLEX_WEAVE,
+    cost: SHOP_COST.GHOST_WEAVE,
     description: `+${(DODGE_BONUS * 100).toFixed(0)}% melee dodge chance.`,
     needsTarget: true,
-    flavor: "Subdermal reflex mesh, cut from an exec's private medbay.",
+    flavor:
+      "Subdermal ghosting mesh, cut from an exec's private medbay — gone before the blow lands.",
   }),
   Object.freeze({
-    id: ITEM_ID.BALLISTICS_COIL,
-    label: 'Ballistics Coil',
+    id: ITEM_ID.RIP_ROUNDS,
+    label: 'RiP Rounds',
     scope: ITEM_SCOPE.CAMPAIGN,
-    cost: SHOP_COST.BALLISTICS_COIL,
+    cost: SHOP_COST.RIP_ROUNDS,
     description: `+${RANGED_DAMAGE_BONUS} ranged damage (Tech's turrets inherit the bonus).`,
     needsTarget: true,
-    flavor: 'An accelerator coil prised off a prototype railgun bench.',
+    flavor: 'Hand-loaded, overcharged rounds — factory spec be damned.',
   }),
   Object.freeze({
     id: ITEM_ID.MONOBLADE,
@@ -203,13 +204,13 @@ export const SCOREABLE_ITEMS: readonly Item[] = Object.freeze([
     flavor: 'Military subdermal armour, woven from layered impact ceramics.',
   }),
   Object.freeze({
-    id: ITEM_ID.REFLEX_BOOSTER,
-    label: 'Reflex Booster',
+    id: ITEM_ID.ADRENAL_SPIKE,
+    label: 'Adrenal Spike',
     scope: ITEM_SCOPE.CAMPAIGN,
-    cost: SHOP_COST.REFLEX_BOOSTER,
+    cost: SHOP_COST.ADRENAL_SPIKE,
     description: `+${AP_BONUS} max AP. One per operator.`,
     needsTarget: true,
-    flavor: 'A black-clinic adrenal booster — the world slows when it fires.',
+    flavor: 'A black-clinic adrenal spike — the world slows when it hits.',
   }),
   Object.freeze({
     id: ITEM_ID.PHASE_SHIELD,

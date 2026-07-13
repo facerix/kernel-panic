@@ -49,7 +49,7 @@ export type Gear = {
    *   - `meleeDamageBonus` — Monoblade; added in {@link Crew.meleeAttackDamage}.
    *   - `armorBonus`       — Subdermal Plating; tracks the value applied to
    *                          `damageReduction` (the live combat stat).
-   *   - `apBonus`          — Reflex Booster; tracks the value added to `maxAp`.
+   *   - `apBonus`          — Adrenal Spike; tracks the value added to `maxAp`.
    *   - `shieldRegen`      — Phase Shield; `shieldHp` re-granted each turn in
    *                          {@link Crew.refreshAp}.
    *   - `hpRegen`          — Regen Mesh; HP healed each turn in the same hook.
@@ -159,7 +159,7 @@ export class Crew extends Entity {
   /**
    * Archetype base ranged damage (gear excluded). Overridden on Merc; Tech and
    * Razor use {@link RANGED_DAMAGE}. Outgoing shot damage is
-   * {@link rangedAttackDamage} (base + Ballistics Coil).
+   * {@link rangedAttackDamage} (base + RiP Rounds).
    */
   get rangedDamage(): number {
     return RANGED_DAMAGE;
@@ -184,12 +184,12 @@ export class Crew extends Entity {
     return 1 - this.baseDodgeChance;
   }
 
-  /** Cap for {@link ITEM_ID.BALLISTICS_COIL} stacks on this operator. */
+  /** Cap for {@link ITEM_ID.RIP_ROUNDS} stacks on this operator. */
   get maxRangedDamageBonus(): number {
     return RANGED_MAX_DAMAGE_BONUS;
   }
 
-  /** Capped Ballistics Coil bonus for this operator's outgoing ranged damage. */
+  /** Capped RiP Rounds bonus for this operator's outgoing ranged damage. */
   get effectiveRangedDamageBonus(): number {
     return Math.min(this.gear?.rangedDamageBonus ?? 0, this.maxRangedDamageBonus);
   }
@@ -224,7 +224,7 @@ export class Crew extends Entity {
     return MAX_ARMOR_BONUS;
   }
 
-  /** Cap for the {@link ITEM_ID.REFLEX_BOOSTER} AP bonus. */
+  /** Cap for the {@link ITEM_ID.ADRENAL_SPIKE} AP bonus. */
   get maxApBonus(): number {
     return MAX_AP_BONUS;
   }
@@ -241,8 +241,8 @@ export class Crew extends Entity {
 
   /**
    * Stats for a player turret this crew member deploys (Tech). HP mirrors the
-   * owner's current max (includes Armour Plating); damage uses the same coil
-   * bonus on the turret base (`TURRET_DAMAGE`).
+   * owner's current max (includes Bone Lacing); damage uses the same Hot
+   * Rounds bonus on the turret base (`TURRET_DAMAGE`).
    */
   turretDeployProfile(): { maxHp: number; attackDamage: number } {
     return {
@@ -314,7 +314,7 @@ export class Crew extends Entity {
   applyGear(itemId: string) {
     this.initGear();
     switch (itemId) {
-      case ITEM_ID.ARMOUR_PLATING:
+      case ITEM_ID.BONE_LACING:
         this.gear!.maxHpBonus += 1;
         this.maxHp += 1;
         this.hp += 1; // immediate benefit — no need to heal it
@@ -322,36 +322,36 @@ export class Crew extends Entity {
       case ITEM_ID.TARGETING_CHIP:
         this.gear!.hitBonus = Math.min(this.gear!.hitBonus + TARGETING_BONUS, this.maxHitBonus);
         break;
-      case ITEM_ID.REFLEX_WEAVE:
+      case ITEM_ID.GHOST_WEAVE:
         this.gear!.dodgeBonus = Math.min(
           (this.gear!.dodgeBonus ?? 0) + DODGE_BONUS,
           this.maxDodgeBonus
         );
         break;
-      case ITEM_ID.BALLISTICS_COIL:
+      case ITEM_ID.RIP_ROUNDS:
         this.gear!.rangedDamageBonus = Math.min(
           (this.gear!.rangedDamageBonus ?? 0) + RANGED_DAMAGE_BONUS,
           this.maxRangedDamageBonus
         );
         break;
       case ITEM_ID.MONOBLADE:
-        // Tracking-only bonus, read via `meleeAttackDamage`. Capped like the coil.
+        // Tracking-only bonus, read via `meleeAttackDamage`. Capped like RiP Rounds.
         this.gear!.meleeDamageBonus = Math.min(
           (this.gear!.meleeDamageBonus ?? 0) + MELEE_DAMAGE_BONUS,
           this.maxMeleeDamageBonus
         );
         break;
       case ITEM_ID.SUBDERMAL_PLATING: {
-        // Mirror Armour Plating: `damageReduction` is the live stat, `armorBonus`
+        // Mirror Bone Lacing: `damageReduction` is the live stat, `armorBonus`
         // tracks it. Delta-apply so a capped second purchase is a no-op.
         const next = Math.min((this.gear!.armorBonus ?? 0) + ARMOR_BONUS, this.maxArmorBonus);
         this.damageReduction += next - (this.gear!.armorBonus ?? 0);
         this.gear!.armorBonus = next;
         break;
       }
-      case ITEM_ID.REFLEX_BOOSTER: {
+      case ITEM_ID.ADRENAL_SPIKE: {
         // `maxAp` is the live stat, `apBonus` tracks it. Immediate benefit: the
-        // extra AP is available this turn too (matches Armour Plating's +hp).
+        // extra AP is available this turn too (matches Bone Lacing's +hp).
         const next = Math.min((this.gear!.apBonus ?? 0) + AP_BONUS, this.maxApBonus);
         const delta = next - (this.gear!.apBonus ?? 0);
         this.maxAp += delta;
@@ -382,8 +382,8 @@ export class Crew extends Entity {
    * Creds) and the shop UI (which greys out an already-equipped operator).
    *
    * Every net-new P3.M6.2 item is limit-1 (`bonus === cap`), so one purchase
-   * saturates it; the older stacking gear (Targeting Chip, Reflex Weave) reports
-   * saturated only once fully stacked to its per-archetype cap. Armour Plating is
+   * saturates it; the older stacking gear (Targeting Chip, Ghost Weave) reports
+   * saturated only once fully stacked to its per-archetype cap. Bone Lacing is
    * unbounded (no cap) and therefore never saturates — it stays re-purchasable.
    *
    * Throws on a non-gear id: only CAMPAIGN-scope items reach here, and a typo
@@ -393,19 +393,19 @@ export class Crew extends Entity {
   gearAtCap(itemId: string): boolean {
     const g = this.gear;
     switch (itemId) {
-      case ITEM_ID.ARMOUR_PLATING:
+      case ITEM_ID.BONE_LACING:
         return false; // unbounded (+1 maxHp per purchase) — never saturates
       case ITEM_ID.TARGETING_CHIP:
         return (g?.hitBonus ?? 0) >= this.maxHitBonus;
-      case ITEM_ID.REFLEX_WEAVE:
+      case ITEM_ID.GHOST_WEAVE:
         return (g?.dodgeBonus ?? 0) >= this.maxDodgeBonus;
-      case ITEM_ID.BALLISTICS_COIL:
+      case ITEM_ID.RIP_ROUNDS:
         return (g?.rangedDamageBonus ?? 0) >= this.maxRangedDamageBonus;
       case ITEM_ID.MONOBLADE:
         return (g?.meleeDamageBonus ?? 0) >= this.maxMeleeDamageBonus;
       case ITEM_ID.SUBDERMAL_PLATING:
         return (g?.armorBonus ?? 0) >= this.maxArmorBonus;
-      case ITEM_ID.REFLEX_BOOSTER:
+      case ITEM_ID.ADRENAL_SPIKE:
         return (g?.apBonus ?? 0) >= this.maxApBonus;
       case ITEM_ID.PHASE_SHIELD:
         return (g?.shieldRegen ?? 0) >= this.maxShieldRegen;
@@ -487,7 +487,7 @@ export class Crew extends Entity {
     }
     // Validate aim/no-aim symmetry before mutating state — a mismatched call
     // is a wiring bug in the shell, not a recoverable runtime condition.
-    const isAimed = itemId === ITEM_ID.INCENDIARY || itemId === ITEM_ID.BREACHING_CHARGE;
+    const isAimed = itemId === ITEM_ID.MOLOTOV || itemId === ITEM_ID.BREACHING_CHARGE;
     if (isAimed && !aim) {
       throw new Error(`useConsumable: "${itemId}" requires aim direction`);
     }
@@ -522,7 +522,7 @@ export class Crew extends Entity {
         // shell can place SMOKE tiles on the grid. The crew member's position
         // is the center; radius comes from constants.
         return { type: 'smoke', cx: this.x, cy: this.y, radius: SMOKE_RADIUS };
-      case ITEM_ID.INCENDIARY: {
+      case ITEM_ID.MOLOTOV: {
         // Thrown: target tile is `thrower + dir * INCENDIARY_THROW_DIST`.
         // LOS-clear-target validation is the shell's job (it owns the Grid /
         // World refs); Crew just reports the intended center. The shell may

@@ -42,7 +42,7 @@ test('Finn.catalog returns the default consumable stock, no rep gate (P3.M6.2)',
   assert.equal(items.length, 4);
   assert.ok(ids.includes(ITEM_ID.STIM));
   assert.ok(ids.includes(ITEM_ID.SMOKE_CHARGE));
-  assert.ok(ids.includes(ITEM_ID.INCENDIARY));
+  assert.ok(ids.includes(ITEM_ID.MOLOTOV));
   assert.ok(ids.includes(ITEM_ID.BREACHING_CHARGE));
 });
 
@@ -50,19 +50,19 @@ test('Finn.catalog never surfaces a locked scoreable item', () => {
   const f = new Finn();
   const ids = f.catalog().map(i => i.id);
   // The former KNOWN-tier gear is now scoreable — locked until a Score unlock.
-  assert.ok(!ids.includes(ITEM_ID.ARMOUR_PLATING));
+  assert.ok(!ids.includes(ITEM_ID.BONE_LACING));
   assert.ok(!ids.includes(ITEM_ID.TARGETING_CHIP));
-  assert.ok(!ids.includes(ITEM_ID.REFLEX_WEAVE));
-  assert.ok(!ids.includes(ITEM_ID.BALLISTICS_COIL));
+  assert.ok(!ids.includes(ITEM_ID.GHOST_WEAVE));
+  assert.ok(!ids.includes(ITEM_ID.RIP_ROUNDS));
 });
 
 test('Finn.catalog folds in unlocked scoreable blueprints from the meta-store', () => {
   const f = new Finn();
-  const ids = f.catalog([ITEM_ID.ARMOUR_PLATING, ITEM_ID.MONOBLADE]).map(i => i.id);
+  const ids = f.catalog([ITEM_ID.BONE_LACING, ITEM_ID.MONOBLADE]).map(i => i.id);
   // Default stock still present.
   assert.ok(ids.includes(ITEM_ID.STIM));
   // Unlocked scoreable now stocked.
-  assert.ok(ids.includes(ITEM_ID.ARMOUR_PLATING));
+  assert.ok(ids.includes(ITEM_ID.BONE_LACING));
   assert.ok(ids.includes(ITEM_ID.MONOBLADE));
   // Still-locked scoreable stays hidden.
   assert.ok(!ids.includes(ITEM_ID.TARGETING_CHIP));
@@ -85,7 +85,7 @@ test('Finn.catalog surfaces no locked scoreable across any meta-store state', ()
     [ITEM_ID.MONOBLADE],
     allIds,
     ['ghost-blueprint', 'retired-mk1'],
-    [ITEM_ID.MONOBLADE, ITEM_ID.MONOBLADE, ITEM_ID.ARMOUR_PLATING],
+    [ITEM_ID.MONOBLADE, ITEM_ID.MONOBLADE, ITEM_ID.BONE_LACING],
   ];
   for (const unlocked of metaStates) {
     const unlockedSet = new Set(unlocked);
@@ -158,9 +158,9 @@ test('catalog item costs are priced in Creds', () => {
   assert.equal(getItemById(ITEM_ID.STIM).cost, 20);
   assert.equal(getItemById(ITEM_ID.SMOKE_CHARGE).cost, 30);
   assert.equal(getItemById(ITEM_ID.BREACHING_CHARGE).cost, SHOP_COST.BREACHING_CHARGE);
-  assert.equal(getItemById(ITEM_ID.ARMOUR_PLATING).cost, 60);
+  assert.equal(getItemById(ITEM_ID.BONE_LACING).cost, 60);
   assert.equal(getItemById(ITEM_ID.TARGETING_CHIP).cost, 80);
-  assert.equal(getItemById(ITEM_ID.REFLEX_WEAVE).cost, 80);
+  assert.equal(getItemById(ITEM_ID.GHOST_WEAVE).cost, 80);
 });
 
 // ---------------------------------------------------------------------------

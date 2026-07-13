@@ -127,17 +127,17 @@ test('Tech.deployTurret places a Turret on the target tile and debits AP', () =>
   assert.equal(world.entityAt(4, 3), turret);
 });
 
-test('Tech.deployTurret sets turret maxHp to owner maxHp (Armour Plating)', () => {
+test('Tech.deployTurret sets turret maxHp to owner maxHp (Bone Lacing)', () => {
   const { world, tech } = makeWorld();
-  tech.applyGear(ITEM_ID.ARMOUR_PLATING);
+  tech.applyGear(ITEM_ID.BONE_LACING);
   const turret = tech.deployTurret(world, 1, 0);
   assert.equal(turret.maxHp, tech.maxHp);
   assert.equal(turret.hp, tech.maxHp);
 });
 
-test('Tech.deployTurret applies Ballistics Coil to attackDamage', () => {
+test('Tech.deployTurret applies RiP Rounds to attackDamage', () => {
   const { world, tech } = makeWorld();
-  tech.applyGear(ITEM_ID.BALLISTICS_COIL);
+  tech.applyGear(ITEM_ID.RIP_ROUNDS);
   const turret = tech.deployTurret(world, 1, 0);
   assert.equal(turret.attackDamage, TURRET_DAMAGE + RANGED_DAMAGE_BONUS);
 });

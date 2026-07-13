@@ -18,7 +18,7 @@
  *   rosterEl.show();
  */
 
-import { h } from '/src/domUtils.js';
+import { CreateSvg, h } from '/src/domUtils.js';
 import CrewList from '/components/CrewList.js';
 import {
   emptySalvage,
@@ -28,7 +28,7 @@ import {
 } from '/src/game/salvage.js';
 import type { Crew as CrewMember } from '/src/game/Crew.js';
 import { ITEM_ID, type Item } from '/src/game/items.js';
-import { gearLabels, statDisplays } from '/src/game/crewDisplay.js';
+import { GEAR_LEADER_PATHS, gearLabels, statDisplays } from '/src/game/crewDisplay.js';
 
 function crewMemberHeader(crewMember: CrewMember): HTMLElement {
   const name = crewMember.callsign ?? crewMember.id;
@@ -88,7 +88,7 @@ function consumablesRow(items: Item[]): HTMLElement {
 
   const incendiary = h('div', { className: 'consumable-item' }, [
     h('img', { src: '/images/molotov.png', alt: 'Molotov' }),
-    h('span', { className: 'consumable-count', innerText: counts.get(ITEM_ID.INCENDIARY) ?? 0 }),
+    h('span', { className: 'consumable-count', innerText: counts.get(ITEM_ID.MOLOTOV) ?? 0 }),
     h('div', { className: 'consumable-caption', innerText: 'Molotov' }),
   ]);
 
@@ -109,6 +109,21 @@ function consumablesRow(items: Item[]): HTMLElement {
   ]);
 
   return consSection;
+}
+
+function gearLeaders(keys: string[]): SVGSVGElement {
+  const paths = keys
+    .map(key => {
+      const path = GEAR_LEADER_PATHS[key];
+      if (!path) throw new Error(`Missing crew-roster gear leader path for ${key}`);
+      return `<path class="gear-leader ${key}" d="${path}" />`;
+    })
+    .join('');
+  const svg = CreateSvg(paths, 250, 300, 'gear-leaders');
+  svg.setAttribute('viewBox', '0 0 250 300');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  return svg;
 }
 
 const CSS = `
@@ -281,6 +296,28 @@ crew-list {
   position: relative;
 }
 
+.gear-leaders {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 250px;
+  height: 300px;
+  transform: translateX(-50%);
+  overflow: visible;
+  color: var(--roster-border-secondary);
+  pointer-events: none;
+}
+
+.gear-leader {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+  vector-effect: non-scaling-stroke;
+  opacity: 0.85;
+}
+
 .gear-label {
   color: var(--roster-text);
   font-size: smaller;
@@ -292,59 +329,61 @@ crew-list {
   border-radius: 2px;
   border-bottom: 1px solid var(--roster-border-secondary);
   padding: 2px;
+  box-sizing: border-box;
+  z-index: 1;
 
   &.maxHpBonus {
-    top: 0.5rem;
-    left: 1.5rem;
-    width: 4.75rem;
+    top: 0.75rem;
+    left: calc(50% - 120px);
+    width: 92px;
   }
 
   &.hpRegen {
-    top: 5rem;
-    left: 0;
-    width: 5rem;
+    top: 8.25rem;
+    left: calc(50% + 45px);
+    width: 86px;
   }
 
   &.apBonus {
-    bottom: 1.5rem;
-    right: 1.75rem;
-    width: 4rem;
+    bottom: 0.5rem;
+    left: calc(50% + 51px);
+    width: 64px;
   }
 
   &.hitBonus {
     top: 0;
-    right: 0;
-    width: 6.5rem;
+    left: calc(50% + 21px);
+    width: 120px;
   }
 
   &.rangedDamageBonus {
-    top: 7.5rem;
-    right: 0;
-    width: 5.5rem;
+    top: 4rem;
+    left: calc(50% + 51px);
+    width: 88px;
   }
 
   &.meleeDamageBonus {
     top: 10rem;
-    left: 0.5rem;
-    width: 5rem;
+    left: calc(50% - 117px);
+    width: 80px;
   }
 
   &.armorBonus {
-    top: 3rem;
-    right: 1rem;
-    width: 4.5rem;
+    top: 4.5rem;
+    left: calc(50% - 125px);
+    width: 72px;
   }
 
   &.shieldRegen {
-    top: 14rem;
-    left: 0.5rem;
-    width: 5.5rem;
+    top: 14.4rem;
+    left: calc(50% - 125px);
+    width: 88px;
   }
 
   &.dodgeBonus {
-    top: 11.5rem;
-    right: 0;
-    width: 6.5rem;
+    top: 11.75rem;
+    left: calc(50% + 43px);
+    width: 92px;
   }
 }
 
@@ -732,6 +771,8 @@ class CrewRoster extends HTMLElement {
     if (Object.keys(gLabels).length === 0) {
       gearSection.appendChild(h('p', { className: 'detail-none', textContent: '-No Gear-' }));
     } else {
+      const keys = Object.keys(gLabels);
+      gearSection.appendChild(gearLeaders(keys));
       for (const [key, label] of Object.entries(gLabels)) {
         gearSection.appendChild(h('p', { className: `gear-label ${key}`, textContent: label }));
       }

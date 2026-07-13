@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { gearLabels, statDisplays } from '../../../src/game/crewDisplay.js';
+import { GEAR_LEADER_PATHS, gearLabels, statDisplays } from '../../../src/game/crewDisplay.js';
 import { Merc } from '../../../src/game/archetypes/Merc.js';
 import { Razor } from '../../../src/game/archetypes/Razor.js';
 import { ITEM_ID } from '../../../src/game/items.js';
@@ -28,11 +28,11 @@ test('gearLabels surfaces the four pre-M6 channels', () => {
   });
   const { maxHpBonus: hp, hitBonus: hit, dodgeBonus: dodge, rangedDamageBonus: shot } = labels;
   assert.ok(
-    hp.includes('Armor Plating') && hp.includes('+2 HP'),
-    `expected Armor Plating line, got ${JSON.stringify(labels)}`
+    hp.includes('Bone Lacing') && hp.includes('+2 HP'),
+    `expected Bone Lacing line, got ${JSON.stringify(labels)}`
   );
-  assert.ok(shot.includes('Ballistics Coil') && shot.includes('+1'));
-  assert.ok(dodge.includes('Reflex Weave') && dodge.includes('10%'));
+  assert.ok(shot.includes('RiP Rounds') && shot.includes('+1'));
+  assert.ok(dodge.includes('Ghost Weave') && dodge.includes('10%'));
   assert.ok(hit.includes('Targeting Chip') && hit.includes('10%'));
 });
 
@@ -57,7 +57,7 @@ test('gearLabels surfaces the five P3.M6.2 channels', () => {
   } = labels;
   assert.ok(mb.includes('Monoblade'), `missing Monoblade in ${JSON.stringify(labels)}`);
   assert.ok(sp.includes('Subdermal Plating'));
-  assert.ok(rb.includes('Reflex Booster'));
+  assert.ok(rb.includes('Adrenal Spike'));
   assert.ok(ps.includes('Phase Shield'));
   assert.ok(rm.includes('Regen Mesh'));
 });
@@ -66,13 +66,13 @@ test('every applyGear item yields at least one roster line', () => {
   // Walk the live applyGear path so the readout can never silently drop a
   // channel a purchase can produce.
   for (const itemId of [
-    ITEM_ID.ARMOUR_PLATING,
+    ITEM_ID.BONE_LACING,
     ITEM_ID.TARGETING_CHIP,
-    ITEM_ID.REFLEX_WEAVE,
-    ITEM_ID.BALLISTICS_COIL,
+    ITEM_ID.GHOST_WEAVE,
+    ITEM_ID.RIP_ROUNDS,
     ITEM_ID.MONOBLADE,
     ITEM_ID.SUBDERMAL_PLATING,
-    ITEM_ID.REFLEX_BOOSTER,
+    ITEM_ID.ADRENAL_SPIKE,
     ITEM_ID.PHASE_SHIELD,
     ITEM_ID.REGEN_MESH,
   ]) {
@@ -83,6 +83,24 @@ test('every applyGear item yields at least one roster line', () => {
       `applyGear(${itemId}) produced no roster line`
     );
   }
+});
+
+test('every roster gear label has a silhouette leader path', () => {
+  const labels = gearLabels({
+    maxHpBonus: 1,
+    hitBonus: 0.1,
+    dodgeBonus: 0.1,
+    rangedDamageBonus: 1,
+    meleeDamageBonus: 1,
+    armorBonus: 1,
+    apBonus: 1,
+    shieldRegen: 1,
+    hpRegen: 1,
+  });
+
+  // Path syntax/shape is a visual concern, not a unit-test one — just require
+  // key parity so a newly surfaced gear channel can't ship without an anchor.
+  assert.deepEqual(Object.keys(GEAR_LEADER_PATHS).sort(), Object.keys(labels).sort());
 });
 
 // ---------------------------------------------------------------------------
@@ -120,10 +138,10 @@ test('statDisplays folds each gear bonus into its stat value, counted exactly on
 
   const crew = new Merc({ id: 'merc', x: 0, y: 0 });
   crew.applyGear(ITEM_ID.TARGETING_CHIP);
-  crew.applyGear(ITEM_ID.REFLEX_WEAVE);
-  crew.applyGear(ITEM_ID.BALLISTICS_COIL);
+  crew.applyGear(ITEM_ID.GHOST_WEAVE);
+  crew.applyGear(ITEM_ID.RIP_ROUNDS);
   crew.applyGear(ITEM_ID.MONOBLADE);
-  crew.applyGear(ITEM_ID.REFLEX_BOOSTER);
+  crew.applyGear(ITEM_ID.ADRENAL_SPIKE);
   crew.applyGear(ITEM_ID.SUBDERMAL_PLATING);
   const labels = statDisplays(crew);
 

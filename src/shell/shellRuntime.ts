@@ -1146,7 +1146,7 @@ function resolveAimedUseItem(aim: { dx: number; dy: number }, run: Run): void {
     throw new Error('[shell] use-item intent received without pendingAimItemId');
   }
   pendingAimItemId = null;
-  if (itemId === ITEM_ID.INCENDIARY) {
+  if (itemId === ITEM_ID.MOLOTOV) {
     // LOS-clear-target pre-check: the throw lands at
     // `player + dir * INCENDIARY_THROW_DIST`. If LOS from the thrower to
     // that tile is blocked (or the tile is out of bounds), refuse the

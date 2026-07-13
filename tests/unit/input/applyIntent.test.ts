@@ -417,14 +417,14 @@ test('slide onto a consumable pickup collects it', () => {
       id: 'consumable-pickup-0',
       x: 2,
       y: 4,
-      consumableId: ITEM_ID.INCENDIARY,
+      consumableId: ITEM_ID.MOLOTOV,
       label: 'Incendiary',
     })
   );
   applyIntent({ type: 'special', dx: 0, dy: 1 }, ctx);
   assert.equal(player.x, 2);
   assert.equal(player.y, 4);
-  assert.equal(player.inventory?.consumables[0]?.id, ITEM_ID.INCENDIARY);
+  assert.equal(player.inventory?.consumables[0]?.id, ITEM_ID.MOLOTOV);
   assert.equal(world.entities.has('consumable-pickup-0'), false);
   assert.ok(log.some(l => l.includes('picks up Incendiary')));
 });

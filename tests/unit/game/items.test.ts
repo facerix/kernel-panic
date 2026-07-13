@@ -33,23 +33,23 @@ import { Entity } from '../../../src/game/Entity.js';
 import { FACTION } from '../../../src/game/constants.js';
 
 // ---------------------------------------------------------------------------
-// Crew.applyGear — Armour Plating
+// Crew.applyGear — Bone Lacing
 // ---------------------------------------------------------------------------
 
-test('applyGear(ARMOUR_PLATING) increases maxHp and hp by 1', () => {
+test('applyGear(BONE_LACING) increases maxHp and hp by 1', () => {
   const crew = new Merc({ id: 'merc', x: 0, y: 0 });
   const origMaxHp = crew.maxHp;
   const origHp = crew.hp;
-  crew.applyGear(ITEM_ID.ARMOUR_PLATING);
+  crew.applyGear(ITEM_ID.BONE_LACING);
   assert.equal(crew.maxHp, origMaxHp + 1);
   assert.equal(crew.hp, origHp + 1);
   assert.equal(crew.gear.maxHpBonus, 1);
 });
 
-test('applyGear(ARMOUR_PLATING) stacks', () => {
+test('applyGear(BONE_LACING) stacks', () => {
   const crew = new Merc({ id: 'merc', x: 0, y: 0 });
-  crew.applyGear(ITEM_ID.ARMOUR_PLATING);
-  crew.applyGear(ITEM_ID.ARMOUR_PLATING);
+  crew.applyGear(ITEM_ID.BONE_LACING);
+  crew.applyGear(ITEM_ID.BONE_LACING);
   assert.equal(crew.gear.maxHpBonus, 2);
   assert.equal(crew.maxHp, DEFAULT_HP + 2);
 });
@@ -70,18 +70,18 @@ test('applyGear throws on unknown item', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Crew.applyGear — Reflex Weave
+// Crew.applyGear — Ghost Weave
 // ---------------------------------------------------------------------------
 
-test('applyGear(REFLEX_WEAVE) sets dodgeBonus', () => {
+test('applyGear(GHOST_WEAVE) sets dodgeBonus', () => {
   const crew = new Merc({ id: 'merc', x: 0, y: 0 });
-  crew.applyGear(ITEM_ID.REFLEX_WEAVE);
+  crew.applyGear(ITEM_ID.GHOST_WEAVE);
   assert.equal(crew.gear.dodgeBonus, DODGE_BONUS);
 });
 
-test('applyGear(BALLISTICS_COIL) sets rangedDamageBonus', () => {
+test('applyGear(RIP_ROUNDS) sets rangedDamageBonus', () => {
   const crew = new Merc({ id: 'merc', x: 0, y: 0 });
-  crew.applyGear(ITEM_ID.BALLISTICS_COIL);
+  crew.applyGear(ITEM_ID.RIP_ROUNDS);
   assert.equal(crew.gear.rangedDamageBonus, RANGED_DAMAGE_BONUS);
 });
 
@@ -95,7 +95,7 @@ test('applyGear(MONOBLADE) raises meleeAttackDamage by the bonus, capped', () =>
   razor.applyGear(ITEM_ID.MONOBLADE);
   assert.equal(razor.gear.meleeDamageBonus, MELEE_DAMAGE_BONUS);
   assert.equal(razor.meleeAttackDamage(), base + MELEE_DAMAGE_BONUS);
-  // Capped: a second install is a harmless no-op (mirrors Ballistics Coil).
+  // Capped: a second install is a harmless no-op (mirrors RiP Rounds).
   razor.applyGear(ITEM_ID.MONOBLADE);
   assert.equal(razor.gear.meleeDamageBonus, razor.maxMeleeDamageBonus);
   assert.equal(razor.meleeAttackDamage(), base + razor.maxMeleeDamageBonus);
@@ -148,15 +148,15 @@ test('subdermal plating mitigates incoming melee damage with a min-1 floor', () 
   assert.equal(target.hp, hpBefore - 1);
 });
 
-test('applyGear(REFLEX_BOOSTER) grants +AP immediately, capped at one', () => {
+test('applyGear(ADRENAL_SPIKE) grants +AP immediately, capped at one', () => {
   const merc = new Merc({ id: 'merc', x: 0, y: 0, maxAp: DEFAULT_AP });
   const apBefore = merc.ap;
-  merc.applyGear(ITEM_ID.REFLEX_BOOSTER);
+  merc.applyGear(ITEM_ID.ADRENAL_SPIKE);
   assert.equal(merc.maxAp, DEFAULT_AP + AP_BONUS);
   assert.equal(merc.ap, apBefore + AP_BONUS, 'extra AP is usable the same turn');
   assert.equal(merc.gear.apBonus, AP_BONUS);
   // One per operator — a second install is a no-op, no runaway AP.
-  merc.applyGear(ITEM_ID.REFLEX_BOOSTER);
+  merc.applyGear(ITEM_ID.ADRENAL_SPIKE);
   assert.equal(merc.maxAp, DEFAULT_AP + merc.maxApBonus);
   assert.equal(merc.gear.apBonus, merc.maxApBonus);
 });
@@ -242,7 +242,7 @@ test('resolveRanged incorporates gear rangedDamageBonus into damage', () => {
   const bus = new EventBus();
   const world = new World(grid, { events: bus });
   const attacker = new Merc({ id: 'merc', x: 2, y: 2, maxAp: 4 });
-  attacker.applyGear(ITEM_ID.BALLISTICS_COIL);
+  attacker.applyGear(ITEM_ID.RIP_ROUNDS);
   const target = new Skirmisher({ id: 'drone', x: 5, y: 2 });
   world.addEntity(attacker);
   world.addEntity(target);
@@ -267,7 +267,7 @@ test('resolveMelee incorporates gear dodgeBonus into threshold', () => {
     glyph: 'd',
   });
   const target = new Razor({ id: 'razor', x: 3, y: 2, callsign: 'Cipher' });
-  target.applyGear(ITEM_ID.REFLEX_WEAVE);
+  target.applyGear(ITEM_ID.GHOST_WEAVE);
   world.addEntity(attacker);
   world.addEntity(target);
   const rng = new Rng(42);
@@ -354,10 +354,10 @@ test('useConsumable(SMOKE_CHARGE) returns smoke descriptor', () => {
 // Crew.useConsumable — Incendiary
 // ---------------------------------------------------------------------------
 
-test('useConsumable(INCENDIARY) returns thrown hazard descriptor', () => {
+test('useConsumable(MOLOTOV) returns thrown hazard descriptor', () => {
   const crew = new Merc({ id: 'merc', x: 3, y: 3, maxAp: 4 });
-  crew.addConsumable(ITEM_ID.INCENDIARY);
-  const result = crew.useConsumable(ITEM_ID.INCENDIARY, { dx: 1, dy: 0 });
+  crew.addConsumable(ITEM_ID.MOLOTOV);
+  const result = crew.useConsumable(ITEM_ID.MOLOTOV, { dx: 1, dy: 0 });
   assert.equal(result.type, 'incendiary');
   assert.equal(result.cx, 3 + INCENDIARY_THROW_DIST);
   assert.equal(result.cy, 3);
@@ -376,10 +376,10 @@ test('useConsumable(BREACHING_CHARGE) returns adjacent breach descriptor', () =>
 
 test('useConsumable enforces aim shape for aimed items only', () => {
   const crew = new Merc({ id: 'merc', x: 3, y: 3, maxAp: 4 });
-  crew.addConsumable(ITEM_ID.INCENDIARY);
-  assert.throws(() => crew.useConsumable(ITEM_ID.INCENDIARY), /requires aim/i);
-  assert.throws(() => crew.useConsumable(ITEM_ID.INCENDIARY, { dx: 0, dy: 0 }), /invalid aim/i);
-  assert.throws(() => crew.useConsumable(ITEM_ID.INCENDIARY, { dx: 2, dy: 0 }), /invalid aim/i);
+  crew.addConsumable(ITEM_ID.MOLOTOV);
+  assert.throws(() => crew.useConsumable(ITEM_ID.MOLOTOV), /requires aim/i);
+  assert.throws(() => crew.useConsumable(ITEM_ID.MOLOTOV, { dx: 0, dy: 0 }), /invalid aim/i);
+  assert.throws(() => crew.useConsumable(ITEM_ID.MOLOTOV, { dx: 2, dy: 0 }), /invalid aim/i);
 
   const breachCrew = new Merc({ id: 'breach-merc', x: 3, y: 3, maxAp: 4 });
   breachCrew.addConsumable(ITEM_ID.BREACHING_CHARGE);

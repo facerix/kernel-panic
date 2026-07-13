@@ -36,6 +36,23 @@ export interface StatReadout {
 const pct = (n: number) => `${(n * 100).toFixed(0)}%`;
 
 /**
+ * Leader paths for the crew-roster gear diagram's centered 250 x 300 coordinate
+ * plane. Keeping this keyed beside `gearLabels` makes a newly surfaced gear
+ * channel fail a test until its anatomical anchor is deliberately chosen.
+ */
+export const GEAR_LEADER_PATHS: Readonly<Record<string, string>> = Object.freeze({
+  maxHpBonus: 'M 60 44.5 L 60 56 L 93 68',
+  hpRegen: 'M 170 142 L 162 142 L 138 68',
+  apBonus: 'M 176 260 L 169 260 L 150 245',
+  hitBonus: 'M 146 20 L 134 20 A 4,4 0 0 0 126 20 A 4,4 0 0 0 134 20',
+  rangedDamageBonus: 'M 230 64 L 230 58 L 210 46',
+  meleeDamageBonus: 'M 62 160 L 70 140 M 64 132 A 6,3 15 0 0 80 138',
+  armorBonus: 'M 72 90 L 94 90 L 124 96',
+  shieldRegen: 'M 88 250 L 94 250 L 125 140 A 10 15 0 1 0 125 50 A 10 15 0 0 0 125 140',
+  dodgeBonus: 'M 168 203 L 148 203 L 145 191.75 M 128 184 A 6,3 0 0 0 159 182',
+});
+
+/**
  * Map each combat stat to its display value with gear folded in. Keys `hp`,
  * `ap`, `aim`, `dodge`, `ranged`, `melee`, and `armor` are always present; the
  * `shield` and `regen` keys appear only when gear grants that per-turn effect.
@@ -59,7 +76,7 @@ export function statDisplays(stats: StatReadout): Record<string, string> {
 
   const labels: Record<string, string> = {
     hp: `${stats.hp}/${stats.maxHp}`,
-    // `maxAp` is the live stat — the Reflex Booster delta is already baked in.
+    // `maxAp` is the live stat — the Adrenal Spike delta is already baked in.
     ap: `${stats.maxAp}`,
     aim: `${pct(aim)}`,
     dodge: `${pct(dodge)}`,
@@ -83,17 +100,17 @@ export function statDisplays(stats: StatReadout): Record<string, string> {
 export function gearLabels(gear: Gear | null | undefined): Record<string, string> {
   const labels: Record<string, string> = {};
   if (!gear) return labels;
-  if (gear.maxHpBonus > 0) labels.maxHpBonus = `Armor Plating  +${gear.maxHpBonus} HP`;
+  if (gear.maxHpBonus > 0) labels.maxHpBonus = `Bone Lacing  +${gear.maxHpBonus} HP`;
   if (gear.hitBonus > 0) labels.hitBonus = `Targeting Chip  +${pct(gear.hitBonus)} aim`;
   if ((gear.dodgeBonus ?? 0) > 0)
-    labels.dodgeBonus = `Reflex Weave  +${pct(gear.dodgeBonus ?? 0)} dodge`;
+    labels.dodgeBonus = `Ghost Weave  +${pct(gear.dodgeBonus ?? 0)} dodge`;
   if ((gear.rangedDamageBonus ?? 0) > 0)
-    labels.rangedDamageBonus = `Ballistics Coil  +${gear.rangedDamageBonus} ranged dmg`;
+    labels.rangedDamageBonus = `RiP Rounds  +${gear.rangedDamageBonus} damage`;
   if ((gear.meleeDamageBonus ?? 0) > 0)
-    labels.meleeDamageBonus = `Monoblade  +${gear.meleeDamageBonus} melee dmg`;
+    labels.meleeDamageBonus = `Monoblade  +${gear.meleeDamageBonus} damage`;
   if ((gear.armorBonus ?? 0) > 0)
     labels.armorBonus = `Subdermal Plating  +${gear.armorBonus} armor`;
-  if ((gear.apBonus ?? 0) > 0) labels.apBonus = `Reflex Booster  +${gear.apBonus} AP`;
+  if ((gear.apBonus ?? 0) > 0) labels.apBonus = `Adrenal Spike  +${gear.apBonus} AP`;
   if ((gear.shieldRegen ?? 0) > 0)
     labels.shieldRegen = `Phase Shield  +${gear.shieldRegen} shield/turn`;
   if ((gear.hpRegen ?? 0) > 0) labels.hpRegen = `Regen Mesh  +${gear.hpRegen} HP/turn`;

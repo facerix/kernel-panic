@@ -141,14 +141,14 @@ export const JACK_OUT_SHOCK_DAMAGE = 3;
  *     drones but doesn't dominate the engagement.
  *   - `TURRET_DAMAGE` — flat 2; matches the Merc's heavy sidearm (see `MERC_RANGED_DAMAGE`).
  *   - `TURRET_SHOTS_PER_AFTERMATH` — two resolve passes per turret each player yield (2.6.5).
- * Deployed turrets copy the owner's {@link Crew.maxHp} at drop time (Armour Plating applies).
+ * Deployed turrets copy the owner's {@link Crew.maxHp} at drop time (Bone Lacing applies).
  */
 export const TURRET_MAX_HP = 3;
 export const TURRET_RANGE = 4;
 export const TURRET_DAMAGE = 2;
 /** Autofire passes per live player turret during {@link runPlayerAftermathSteps}. */
 export const TURRET_SHOTS_PER_AFTERMATH = 2;
-/** Per Ballistics Coil purchase — applies to owner ranged shots and deployed turrets. */
+/** Per RiP Rounds purchase — applies to owner ranged shots and deployed turrets. */
 export const RANGED_DAMAGE_BONUS = 1;
 export const RANGED_MAX_DAMAGE_BONUS = 1;
 
@@ -372,7 +372,7 @@ export const DODGE_BONUS = 0.1;
  *     gear path. +1 melee damage, applied via {@link Crew.meleeAttackDamage}.
  *   - **Subdermal Plating** (`ARMOR_BONUS`) — flat `damageReduction` (min-1 floor
  *     in `Combat.applyDamageReduction`); the channel existed but no crew gear set it.
- *   - **Reflex Booster** (`AP_BONUS`) — +1 `maxAp`, the master action resource.
+ *   - **Adrenal Spike** (`AP_BONUS`) — +1 `maxAp`, the master action resource.
  *     Capped hard at 1: two extra AP would warp the turn economy.
  *   - **Phase Shield** (`SHIELD_REGEN`) — re-grants `shieldHp` at the start of each
  *     crew turn via {@link Crew.refreshAp}. Free and uncontested (unlike the
@@ -416,18 +416,18 @@ export const SALVAGE_SELL_RATE = Object.freeze({
 export const SHOP_COST = Object.freeze({
   STIM: 20,
   SMOKE_CHARGE: 30,
-  INCENDIARY: 40,
+  MOLOTOV: 40,
   BREACHING_CHARGE: 45,
-  ARMOUR_PLATING: 60,
+  BONE_LACING: 60,
   TARGETING_CHIP: 80,
-  REFLEX_WEAVE: 80,
-  BALLISTICS_COIL: 80,
+  GHOST_WEAVE: 80,
+  RIP_ROUNDS: 80,
   // Net-new scoreable gear (P3.M6.2) — priced above baseline KNOWN gear; the
-  // reward is the unlock, the Cred cost is the install. Reflex Booster (+1 AP)
+  // reward is the unlock, the Cred cost is the install. Adrenal Spike (+1 AP)
   // is the priciest, matching its outsized impact on the turn economy.
   MONOBLADE: 90,
   SUBDERMAL_PLATING: 100,
-  REFLEX_BOOSTER: 150,
+  ADRENAL_SPIKE: 150,
   PHASE_SHIELD: 110,
   REGEN_MESH: 120,
 });
