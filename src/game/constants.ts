@@ -75,6 +75,25 @@ export function factionForPrincipalGroups(groups: readonly string[]): FactionId 
 }
 
 /**
+ * Status-effect ids for the generic duration-effect channel (`Entity.effects`,
+ * P3.5.M1). Duration counts in "how many times the owning entity's own
+ * `refreshAp()` fires" — a duration of 1 clears by that entity's next refresh,
+ * the same semantics Razor's stealth cloak always had. No stacking; reapplying
+ * overwrites. New effects are added here as their milestones land.
+ *
+ *   - `STEALTH` — Razor's slide cloak (migrated onto this channel in M1).
+ *   - `STUN` — EMP neural-shock: the entity takes 0 AP on its stunned refresh
+ *     (M2). Gated in `Entity.refreshAp` *before* the tick, so a duration of 1
+ *     covers the upcoming refresh, not the one that just passed.
+ */
+export const STATUS_EFFECT = Object.freeze({
+  STEALTH: 'stealth',
+  STUN: 'stun',
+});
+
+export type StatusEffectId = (typeof STATUS_EFFECT)[keyof typeof STATUS_EFFECT];
+
+/**
  * Action Point costs from the V1 blueprint. Centralised so tuning is one edit.
  */
 export const AP_COST = Object.freeze({

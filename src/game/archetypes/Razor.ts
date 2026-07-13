@@ -38,9 +38,9 @@ export const CALLSIGNS = Object.freeze([
  * post-slide state — but no NOISE event, so a sentry doesn't latch onto the
  * tiles she passed through. That asymmetry is the whole point of the perk.
  *
- * Stealth lifecycle:
- *   slide() → this.stealthed = true
- *   refreshAp() → this.stealthed = false   (turn rotation clears it)
+ * Stealth lifecycle (P3.5.M1: now on the generic effect channel):
+ *   slide() → this.stealthed = true   (arms STATUS_EFFECT.STEALTH, duration 1)
+ *   refreshAp() → base Entity.tickEffects() clears it one refresh later
  *
  * `refreshAp` runs on the incoming-faction's entities at `TurnQueue.endTurn`,
  * so stealth holds through the corp turn that immediately follows a Slide and
@@ -90,16 +90,5 @@ export class Razor extends Crew {
     }
     slideTwoTiles(world, this, dx, dy);
     this.stealthed = true;
-  }
-
-  /**
-   * Override AP refresh to also clear the slide stealth flag. Called by
-   * `TurnQueue.endTurn` on the incoming faction's entities, so stealth set
-   * on the player's turn N persists through the corp turn between N and N+1
-   * and clears as turn N+1 begins.
-   */
-  override refreshAp() {
-    super.refreshAp();
-    this.stealthed = false;
   }
 }

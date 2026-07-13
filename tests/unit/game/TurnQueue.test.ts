@@ -5,7 +5,7 @@ import { Grid } from '../../../src/game/Grid.js';
 import { Entity } from '../../../src/game/Entity.js';
 import { World } from '../../../src/game/World.js';
 import { TurnQueue } from '../../../src/game/TurnQueue.js';
-import { FACTION } from '../../../src/game/constants.js';
+import { FACTION, STATUS_EFFECT } from '../../../src/game/constants.js';
 
 test('TurnQueue requires a non-empty faction order', () => {
   assert.throws(() => new TurnQueue([]), TypeError);
@@ -67,6 +67,22 @@ test('TurnQueue.turnNumber increments after a full round', () => {
   assert.equal(q.turnNumber, 1);
   q.endTurn(w); // CORP -> PLAYER, new round
   assert.equal(q.turnNumber, 2);
+});
+
+test('TurnQueue.endTurn refreshes a stunned entity to 0 AP, then full AP next round', () => {
+  const w = new World(new Grid(3, 3));
+  const drone = new Entity({ id: 'd', x: 2, y: 2, faction: FACTION.CORP, glyph: 'd', maxAp: 3 });
+  w.addEntity(drone);
+  drone.applyEffect(STATUS_EFFECT.STUN, 1);
+  const q = new TurnQueue([FACTION.PLAYER, FACTION.CORP]);
+  // PLAYER -> CORP: the stunned drone refreshes into its own turn at 0 AP.
+  q.endTurn(w);
+  assert.equal(drone.ap, 0, 'stunned drone gets 0 AP on the stunned refresh');
+  assert.equal(drone.hasEffect(STATUS_EFFECT.STUN), false, 'stun ticked away that same refresh');
+  // CORP -> PLAYER -> CORP again: the refresh after the stun is unaffected.
+  q.endTurn(w); // -> PLAYER
+  q.endTurn(w); // -> CORP
+  assert.equal(drone.ap, 3, 'full AP the activation after the stun');
 });
 
 test('TurnQueue.endTurn emits turn:ended with previous/next/turn when bus attached', async () => {

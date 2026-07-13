@@ -207,6 +207,18 @@ export function applyIntent(intent: Intent, ctx: ApplyIntentContext) {
     return;
   }
 
+  // P3.5.M1: a stunned (EMP'd) player-faction entity starts its turn at 0 AP.
+  // Every action intent would immediately trip `Entity.spendAp`'s overspend
+  // crash, since the AP-exhaustion gate normally ends the turn *before* the
+  // player is handed an intent at exactly 0. Conclude the turn here instead —
+  // same `concludeTurn ?? advanceTurn` fallback the exhaustion gate uses.
+  // `end-turn` (Wait) and `cancel` already no-op cleanly at 0 AP.
+  if (player.ap === 0 && intent.type !== 'end-turn' && intent.type !== 'cancel') {
+    log(`> ${entityLabel(player)} is STUNNED — no AP this turn.`);
+    (ctx.concludeTurn ?? advanceTurn)();
+    return;
+  }
+
   switch (intent.type) {
     case 'move':
       return doMove(intent, ctx);

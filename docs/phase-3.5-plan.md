@@ -36,7 +36,7 @@ M3 + M4 + M5 ──> M6 (stat-roll → archetype derivation, needs all 6 profile
 
 | Milestone | Status |
 |---|---|
-| P3.5.M1 — Generic status-effect subsystem | 🔲 Not started |
+| P3.5.M1 — Generic status-effect subsystem | ✅ Complete |
 | P3.5.M2 — Decker perk swap: Override → EMP AOE stun | 🔲 Not started |
 | P3.5.M3 — Berserk archetype (surge/crash) | 🔲 Not started |
 | P3.5.M4 — Adept archetype (Influence, renamed from Override) | 🔲 Not started |
@@ -96,6 +96,8 @@ if (player.ap === 0 && intent.type !== 'end-turn' && intent.type !== 'cancel') {
 - Override/Influence's `overrideTurnsRemaining`/`factionBeforeOverride` (see M4) — stays on its own bespoke lifecycle. Its cadence (once per player-aftermath pass, coupled to a generator driving the influenced hostile's own actions) differs in kind from `refreshAp`'s cadence; migrating just the counter without the action-driving loop would desync it.
 
 **Persistence:** none needed. `CampaignCrewSnapshot` (`persistence.ts:907-931`) only saves at the Hub between runs; every effect in scope is combat-run-scoped and will have long since ticked to zero by save time. (If a future phase adds mid-combat save/resume, `effects` would need to serialize into the run snapshot then.)
+
+**Implementation note (as-built):** `stealthed` turned out to be read/written in ~8 files beyond `Entity`/`Razor` (Combat stealth-break, `Run` snapshot/reset, `persistence` save/restore, HUD snapshot+render). Rather than fan the migration across all of them, `Entity.stealthed` became a getter/setter alias backed by `STATUS_EFFECT.STEALTH` on the effects Map — one source of truth, zero changes to those call sites or their tests. `Razor.slide()` still assigns `this.stealthed = true` (now routed through the setter), and Razor's `refreshAp` override was deleted as planned.
 
 **Critical files:** `src/game/Entity.ts`, `src/game/archetypes/Razor.ts`, `src/input/applyIntent.ts`, `src/game/TurnQueue.ts`.
 

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { Entity } from '../../../src/game/Entity.js';
-import { FACTION, DEFAULT_AP } from '../../../src/game/constants.js';
+import { FACTION, DEFAULT_AP, STATUS_EFFECT } from '../../../src/game/constants.js';
 
 const baseProps = () => ({
   id: 'e1',
@@ -177,6 +177,81 @@ test('Entity.heal and addShield reject corrupt inputs loudly', () => {
   e.damage(e.hp);
   assert.throws(() => e.heal(1), /already dead/);
   assert.throws(() => e.addShield(1), /already dead/);
+});
+
+// ---------------------------------------------------------------------------
+// P3.5.M1 — generic status-effect channel
+// ---------------------------------------------------------------------------
+
+test('Entity has no effects by default', () => {
+  const e = new Entity(baseProps());
+  assert.equal(e.hasEffect(STATUS_EFFECT.STUN), false);
+  assert.equal(e.effectTurnsRemaining(STATUS_EFFECT.STUN), 0);
+});
+
+test('Entity.applyEffect arms an effect with its duration', () => {
+  const e = new Entity(baseProps());
+  e.applyEffect(STATUS_EFFECT.STUN, 2);
+  assert.equal(e.hasEffect(STATUS_EFFECT.STUN), true);
+  assert.equal(e.effectTurnsRemaining(STATUS_EFFECT.STUN), 2);
+});
+
+test('Entity.clearEffect removes an effect immediately', () => {
+  const e = new Entity(baseProps());
+  e.applyEffect(STATUS_EFFECT.STUN, 2);
+  e.clearEffect(STATUS_EFFECT.STUN);
+  assert.equal(e.hasEffect(STATUS_EFFECT.STUN), false);
+});
+
+test('Entity.applyEffect overwrites, it does not stack', () => {
+  const e = new Entity(baseProps());
+  e.applyEffect(STATUS_EFFECT.STEALTH, 1);
+  e.applyEffect(STATUS_EFFECT.STEALTH, 3);
+  assert.equal(e.effectTurnsRemaining(STATUS_EFFECT.STEALTH), 3, 'reapply overwrites remaining duration');
+});
+
+test('Entity.applyEffect rejects a non-positive-integer duration (data-corruption guard)', () => {
+  const e = new Entity(baseProps());
+  assert.throws(() => e.applyEffect(STATUS_EFFECT.STUN, 0), RangeError);
+  assert.throws(() => e.applyEffect(STATUS_EFFECT.STUN, -1), RangeError);
+  assert.throws(() => e.applyEffect(STATUS_EFFECT.STUN, 1.5), RangeError);
+});
+
+test('Entity effect of duration 1 clears on the very next refresh', () => {
+  const e = new Entity(baseProps());
+  e.applyEffect(STATUS_EFFECT.STEALTH, 1);
+  assert.equal(e.hasEffect(STATUS_EFFECT.STEALTH), true, 'active before the refresh');
+  e.refreshAp();
+  assert.equal(e.hasEffect(STATUS_EFFECT.STEALTH), false, 'ticked to 0 and dropped');
+});
+
+test('Entity effect of duration 2 survives one refresh, clears on the second', () => {
+  const e = new Entity(baseProps());
+  e.applyEffect(STATUS_EFFECT.STEALTH, 2);
+  e.refreshAp();
+  assert.equal(e.effectTurnsRemaining(STATUS_EFFECT.STEALTH), 1, 'one refresh consumed');
+  e.refreshAp();
+  assert.equal(e.hasEffect(STATUS_EFFECT.STEALTH), false, 'cleared on the second refresh');
+});
+
+test('Entity.refreshAp yields 0 AP on a stunned refresh, full AP the one after', () => {
+  const e = new Entity({ ...baseProps(), maxAp: 4 });
+  e.applyEffect(STATUS_EFFECT.STUN, 1);
+  e.refreshAp();
+  assert.equal(e.ap, 0, 'stun consumes this activation (0 AP)');
+  assert.equal(e.hasEffect(STATUS_EFFECT.STUN), false, 'stun ticked away');
+  e.refreshAp();
+  assert.equal(e.ap, 4, 'the refresh after the stun is unaffected');
+});
+
+test('Entity.stealthed is backed by the STEALTH effect channel', () => {
+  const e = new Entity(baseProps());
+  assert.equal(e.stealthed, false);
+  e.stealthed = true;
+  assert.equal(e.hasEffect(STATUS_EFFECT.STEALTH), true, 'setter arms the effect');
+  assert.equal(e.stealthed, true, 'getter reads the effect');
+  e.stealthed = false;
+  assert.equal(e.hasEffect(STATUS_EFFECT.STEALTH), false, 'setter clears the effect');
 });
 
 test('Entity.stealthed defaults to false', () => {

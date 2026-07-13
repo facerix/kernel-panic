@@ -450,6 +450,30 @@ test('special intent routes to Slide on a Razor (moves 2 tiles, engages stealth)
   assert.equal(player.stealthed, true);
 });
 
+test('a stunned (0-AP) player concludes its turn instead of crashing on spendAp', () => {
+  const { ctx, log, calls, player } = buildCtx();
+  // Simulate an EMP'd body: refreshed into its turn at 0 AP.
+  player.ap = 0;
+  const advanceBefore = calls.advanceTurn;
+  // A move intent would otherwise trip Entity.spendAp's overspend crash.
+  assert.doesNotThrow(() => applyIntent({ type: 'move', dx: 1, dy: 0 }, ctx));
+  assert.equal(player.x, 2, 'no move committed while stunned');
+  assert.equal(calls.advanceTurn, advanceBefore + 1, 'turn concluded via advanceTurn fallback');
+  assert.ok(
+    log.some(line => line.includes('STUNNED')),
+    'legibility line names the stun'
+  );
+});
+
+test('a stunned player can still cancel without ending the turn', () => {
+  const { ctx, calls, player } = buildCtx();
+  player.ap = 0;
+  const advanceBefore = calls.advanceTurn;
+  applyIntent({ type: 'cancel' }, ctx);
+  assert.equal(calls.advanceTurn, advanceBefore, 'cancel does not conclude the turn');
+  assert.equal(calls.resetInputModes, 1, 'cancel still clears aim modes');
+});
+
 test('special intent routes CyberAvatar Override against Probe ICE', () => {
   const grid = new Grid(8, 5);
   const bus = new EventBus();
