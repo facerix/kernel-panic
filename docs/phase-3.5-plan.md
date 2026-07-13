@@ -37,7 +37,7 @@ M3 + M4 + M5 ──> M6 (stat-roll → archetype derivation, needs all 6 profile
 | Milestone | Status |
 |---|---|
 | P3.5.M1 — Generic status-effect subsystem | ✅ Complete |
-| P3.5.M2 — Decker perk swap: Override → EMP AOE stun | 🔲 Not started |
+| P3.5.M2 — Decker perk swap: Override → EMP AOE stun | ✅ Complete |
 | P3.5.M3 — Berserk archetype (surge/crash) | 🔲 Not started |
 | P3.5.M4 — Adept archetype (Influence, renamed from Override) | 🔲 Not started |
 | P3.5.M5 — Chimera archetype (scrap-to-HP sustain) | 🔲 Not started |
@@ -145,6 +145,13 @@ export const EMP_STUN_DURATION = 1;          // one skipped activation per hosti
 **`applyIntent.ts`:** swap the `doSpecial` dispatch branch from `canOverride`/`doOverride` to `canEmp`/`doEmp`. **Do NOT delete `pickOverrideTarget`/`isInAimSector`** — M4's Adept perk claims them (Adept uses the same aim-sector single-target picker Override always used). Leave them in place with a short comment noting they're about to be repointed at Adept in M4.
 
 **`archetypes/index.ts`:** update the Decker's `perkName`/`perkLabel` copy to describe EMP.
+
+**Implementation notes (as-built):**
+- **No self-stun (revised after review).** The blast now exempts the firing Decker (`entity === decker` skip). Self-stun read as a pure negative-play footgun. EMP costs 2 AP and stuns everyone *else* in radius; the caster is shielded from their own discharge.
+- **EMP (Meatspace) + Override (Cyberspace) split — already true.** The CyberAvatar (the jacked-in Decker's form) always kept its own `canOverride`/`overrideDrone` for the cyber grid. So the Decker fires EMP in Meatspace and Override on the cyber grid with no extra code — `doSpecial` gained a `canEmp` branch and *kept* the `canOverride` branch (now reaching only the CyberAvatar); `OverrideActor` retyped to `CyberAvatar`.
+- **Directionless perks (new infra).** `keymap.PerkAim` (`'directional' | 'self'`) threads through `dispatch` → `KeyboardController.getSpecialAim` / `TouchPad.setSpecialAim`, resolved from the live archetype via `perkAimForArchetype` (new, in `archetypes/index.ts`) and `ARCHETYPES[*].perkAim`. A `'self'` perk fires the `special` intent immediately (no aim step); EMP is the first, and **Berserk / Chimera self-buffs will reuse it in M3/M5**. The CyberAvatar (Override) resolves to `'directional'`.
+- **Stun visuals (new).** (a) Stunned entities render **electric cyan** (`STUNNED_FG`), overriding faction hue, in `frame.glyphForEntityCell`. (b) `detonateEmp` emits `EVENT.EMP_DETONATED`; `sceneListeners` fires `triggerEmpFlash` — a cyan full-screen discharge pulse (reuses the parametrized colored-vignette primitive). (c) `formatIdentityHud` appends `[STUNNED]` (parallels `[CLOAKED]`); it triggers when you flip to a partner caught in your own EMP.
+- **Override module coverage relocated, not dropped.** The Override *module* tests (previously reachable only through `Decker.test.ts`) moved to a standalone `tests/unit/game/droneOverride.test.ts` exercising the pure functions against a generic PLAYER operator. M4 renames that file to `mindInfluence.test.ts`.
 
 **Critical files:** `src/game/empBlast.ts` (new), `src/game/archetypes/Decker.ts`, `src/input/applyIntent.ts`, `src/game/constants.ts`.
 

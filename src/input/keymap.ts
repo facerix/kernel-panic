@@ -56,6 +56,17 @@ export const AIM_KIND = Object.freeze({
 
 export type AimKind = (typeof AIM_KIND)[keyof typeof AIM_KIND];
 
+/**
+ * How the active archetype's `special` perk resolves its target:
+ *   - `'directional'` — needs a direction; the perk key enters `MODE.AIM`
+ *     (Merc Vault, Razor Slide, Tech Deploy, CyberAvatar Override).
+ *   - `'self'` — self-centered, no direction; the perk key fires immediately
+ *     (Decker EMP, and future Berserk / Chimera self-buffs).
+ * Supplied per-press by the input owner (which knows the live archetype); the
+ * keymap itself stays archetype-agnostic and just honours the flag.
+ */
+export type PerkAim = 'directional' | 'self';
+
 export type DispatchResult = {
   intent: Intent | null;
   nextMode: Mode;
@@ -90,7 +101,7 @@ const stayAim = (aimKind: AimKind): DispatchResult => ({
 
 const stayLook = (): DispatchResult => ({ intent: null, nextMode: MODE.LOOK, aimKind: null });
 
-function dispatchIdle(key: string): DispatchResult {
+function dispatchIdle(key: string, specialAim: PerkAim): DispatchResult {
   const dir = directionFor(key);
   if (dir) {
     return {
@@ -133,8 +144,13 @@ function dispatchIdle(key: string): DispatchResult {
       return stayAim(AIM_KIND.FIRE);
     case 'x':
       // Unified archetype perk. The intent layer dispatches by class —
-      // Merc → vault, Razor → slide, Tech → deploy. `x` is unused elsewhere
-      // and avoids the WASD collision that would block `d` for deploy.
+      // Merc → vault, Razor → slide, Tech → deploy, Decker → EMP. `x` is
+      // unused elsewhere and avoids the WASD collision that would block `d`
+      // for deploy. A `'self'` perk (EMP, and future self-buffs) needs no
+      // direction, so it fires immediately instead of entering aim mode.
+      if (specialAim === 'self') {
+        return { intent: { type: 'special', dx: 0, dy: 0 }, nextMode: MODE.IDLE, aimKind: null };
+      }
       return stayAim(AIM_KIND.SPECIAL);
     default:
       return idle();
@@ -194,10 +210,15 @@ export function aimKindLabel(aimKind: AimKind): string {
   }
 }
 
-export function dispatch(key: string, mode: Mode, aimKind: AimKind | null = null): DispatchResult {
+export function dispatch(
+  key: string,
+  mode: Mode,
+  aimKind: AimKind | null = null,
+  specialAim: PerkAim = 'directional'
+): DispatchResult {
   switch (mode) {
     case MODE.IDLE:
-      return dispatchIdle(key);
+      return dispatchIdle(key, specialAim);
     case MODE.AIM:
       if (!aimKind) {
         throw new Error('keymap: MODE.AIM requires an aimKind');

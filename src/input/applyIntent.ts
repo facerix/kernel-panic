@@ -382,9 +382,11 @@ function collectTileLoot(ctx: ApplyIntentContext) {
 /**
  * Archetype dispatcher for the unified `special` intent. Picks the perk verb
  * by capability check on the live player:
- *   - `canDeploy` → Tech's Deploy Turret
- *   - `canVault`  → Merc's Vault
- *   - `canSlide`  → Razor's Slide
+ *   - `canDeploy`   → Tech's Deploy Turret
+ *   - `canVault`    → Merc's Vault
+ *   - `canSlide`    → Razor's Slide
+ *   - `canEmp`      → Decker's EMP neural-shock (self-centered AOE stun)
+ *   - `canOverride` → CyberAvatar's ICE override (cyber grid only)
  *
  * Capability sniffing (vs. a class `instanceof` check) keeps this module free
  * of the archetype-class imports — applyIntent stays a thin glue layer. A
@@ -411,10 +413,36 @@ function doSpecial(intent: Intent, ctx: ApplyIntentContext) {
   if (typeof (player as Razor).canSlide === 'function') {
     return doSlide(intent, ctx);
   }
-  if (typeof (player as Decker).canOverride === 'function') {
+  if (typeof (player as Decker).canEmp === 'function') {
+    return doEmp(ctx);
+  }
+  // Only the CyberAvatar still exposes canOverride (P3.5.M2 moved the Decker's
+  // Meatspace perk to EMP; M4 repoints this picker at the Adept's Influence).
+  if (typeof (player as CyberAvatar).canOverride === 'function') {
     return doOverride(intent, ctx);
   }
   log('> SPECIAL: this archetype has no perk action.');
+}
+
+/**
+ * Detonate the Decker's self-centered EMP: no aim, stuns everyone alive in
+ * radius (friend, foe, and the Decker). Reports the stun count for legibility.
+ */
+function doEmp(ctx: ApplyIntentContext) {
+  const { world, player, log } = ctx;
+  const decker = player as Decker;
+  const playerLabel = entityLabel(player);
+  const check = decker.canEmp();
+  if (!check.ok) {
+    log(`> ${playerLabel} EMP DENIED: ${check.reason}`);
+    return;
+  }
+  const { stunned } = decker.detonateEmp(world);
+  log(
+    `> ${playerLabel} detonates an EMP — ${stunned.length} caught in the blast ` +
+      `(${player.ap} AP left).`
+  );
+  gateOnApExhausted(ctx);
 }
 
 /**
@@ -423,8 +451,8 @@ function doSpecial(intent: Intent, ctx: ApplyIntentContext) {
  * a failed roll trips the alarm, while an empty sector yields a legible deny.
  */
 type OverrideActor = ApplyIntentContext['player'] & {
-  canOverride(world: World, target: Entity | null): ReturnType<Decker['canOverride']>;
-  overrideDrone(world: World, target: Entity, rng: Rng): ReturnType<Decker['overrideDrone']>;
+  canOverride(world: World, target: Entity | null): ReturnType<CyberAvatar['canOverride']>;
+  overrideDrone(world: World, target: Entity, rng: Rng): ReturnType<CyberAvatar['overrideDrone']>;
 };
 
 function doOverride(intent: Intent, ctx: ApplyIntentContext) {

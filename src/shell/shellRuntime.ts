@@ -97,6 +97,7 @@ import {
   pickActiveVisionField,
 } from '/src/shell/activeView.js';
 import { buildCombatHudSnapshot } from '/src/shell/combatHudSnapshot.js';
+import { perkAimForArchetype, type PerkAim } from '/src/game/archetypes/index.js';
 import { buildHubHudRows, currentLocationLabel } from '/src/shell/locationHud.js';
 import { SceneListenerController } from '/src/shell/sceneListeners.js';
 import { isRun, resolveSceneView, type ShellScene } from '/src/shell/sceneView.js';
@@ -423,6 +424,7 @@ export async function boot() {
       paint();
     },
     isBlocked: () => animLock.isLocked() || isAnyBlockingModalOpen(),
+    getSpecialAim: currentSpecialAim,
   });
   keyboard.attach();
 
@@ -505,6 +507,7 @@ export async function boot() {
     paint();
   });
   touchPadEl.setBlocked(() => animLock.isLocked() || isAnyBlockingModalOpen());
+  touchPadEl.setSpecialAim(currentSpecialAim);
 
   logHeaderEl.addEventListener('click', () => {
     logEl.classList.toggle('collapsed');
@@ -1330,6 +1333,20 @@ function handleResult({ outcome, telemetry }: RunResult) {
 function currentScene(): ShellScene | null {
   if (!campaign) return null;
   return campaign.activeRun ?? campaign;
+}
+
+/**
+ * Resolve the live archetype's perk-aim for the keymap so `x` fires a
+ * self-centered perk (Decker EMP, future self-buffs) immediately. The active
+ * actor changes with simstim flips and partner swaps, so this reads it fresh
+ * each press. Only a Crew carries an `archetype` string; the CyberAvatar (its
+ * Override perk is aimed) and any non-combat scene fall back to `'directional'`.
+ */
+function currentSpecialAim(): PerkAim {
+  const scene = currentScene();
+  if (!scene || !isRun(scene)) return 'directional';
+  const archetype = (activeActorOf(scene) as { archetype?: unknown } | null)?.archetype;
+  return typeof archetype === 'string' ? perkAimForArchetype(archetype) : 'directional';
 }
 
 /**

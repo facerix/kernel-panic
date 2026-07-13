@@ -64,6 +64,7 @@ export const ARCHETYPES = Object.freeze({
     perks: Object.freeze(['vault']),
     perkName: 'BREAK',
     perkLabel: 'Mercs can BREAK: hop cover / knock enemies back',
+    perkAim: 'directional',
   }),
   razor: Object.freeze({
     id: 'razor',
@@ -72,6 +73,7 @@ export const ARCHETYPES = Object.freeze({
     perks: Object.freeze(['slide']),
     perkName: 'SLIDE',
     perkLabel: 'Razors can SLIDE: dash 2 tiles and go silent for a turn',
+    perkAim: 'directional',
   }),
   tech: Object.freeze({
     id: 'tech',
@@ -80,18 +82,39 @@ export const ARCHETYPES = Object.freeze({
     perks: Object.freeze(['deploy']),
     perkName: 'DEPLOY',
     perkLabel: 'Techs can DEPLOY: place a turret that will fire on enemies',
+    perkAim: 'directional',
   }),
   decker: Object.freeze({
     id: 'decker',
     name: 'DECKER',
-    blurb: 'Console cowboy. Hijacks corp drones; jacks into Cyberspace.',
-    perks: Object.freeze(['override']),
-    perkName: 'OVERRIDE',
-    perkLabel: 'Deckers can OVERRIDE: hijack a corp drone to fight for you',
+    blurb: 'Console cowboy. Fries a room with an EMP; jacks into Cyberspace.',
+    perks: Object.freeze(['emp']),
+    perkName: 'EMP',
+    perkLabel: 'Deckers can EMP: stun everyone around you for a turn',
+    // Self-centered blast — the perk key fires it immediately, no aim step.
+    perkAim: 'self',
   }),
 });
 
 export type ArchetypeInfo = (typeof ARCHETYPES)[keyof typeof ARCHETYPES];
+
+/** Per-archetype perk aim requirement — see `keymap.PerkAim`. */
+export type PerkAim = 'directional' | 'self';
+
+/**
+ * Resolve how an archetype's `special` perk aims. Accepts either the lowercase
+ * registry id (`'decker'`) or the class-cased `Crew.archetype` (`'Decker'`).
+ * Throws on an unknown archetype — a crew member always has a registered
+ * archetype, so an unknown one is a wiring bug, not a value to paper over.
+ */
+export function perkAimForArchetype(archetype: string): PerkAim {
+  const key = archetype.toLowerCase();
+  const info = ARCHETYPES[key as keyof typeof ARCHETYPES];
+  if (!info) {
+    throw new Error(`perkAimForArchetype: unknown archetype "${archetype}"`);
+  }
+  return info.perkAim as PerkAim;
+}
 
 const BUILDERS = Object.freeze({
   merc: Merc,

@@ -16,6 +16,7 @@ import { makeSalvage, totalSalvage } from '../../../src/game/salvage.js';
 import { Merc } from '../../../src/game/archetypes/Merc.js';
 import { Razor } from '../../../src/game/archetypes/Razor.js';
 import { Tech } from '../../../src/game/archetypes/Tech.js';
+import { Decker } from '../../../src/game/archetypes/Decker.js';
 import { CyberAvatar } from '../../../src/game/cyber/CyberAvatar.js';
 import { ProbeIce } from '../../../src/game/cyber/ProbeIce.js';
 import { Turret } from '../../../src/game/Turret.js';
@@ -472,6 +473,43 @@ test('a stunned player can still cancel without ending the turn', () => {
   applyIntent({ type: 'cancel' }, ctx);
   assert.equal(calls.advanceTurn, advanceBefore, 'cancel does not conclude the turn');
   assert.equal(calls.resetInputModes, 1, 'cancel still clears aim modes');
+});
+
+test('special intent routes to EMP on a Decker and stuns a same-faction ally in radius', () => {
+  const grid = new Grid(10, 6);
+  const bus = new EventBus();
+  const world = new World(grid, { events: bus });
+  const decker = new Decker({ id: 'decker', x: 4, y: 2, maxAp: 4 });
+  const ally = new Merc({ id: 'ally', x: 5, y: 2, maxAp: 4 }); // adjacent, PLAYER faction
+  const corp = new Skirmisher({ id: 'c1', x: 3, y: 2, maxAp: 3 }); // adjacent, CORP faction
+  world.addEntity(decker);
+  world.addEntity(ally);
+  world.addEntity(corp);
+  corp.bindToBus(bus);
+
+  const queue = new TurnQueue([FACTION.PLAYER, FACTION.CORP]);
+  const log = [];
+  const ctx = {
+    world,
+    player: decker,
+    queue,
+    rng: new Rng(1),
+    log: line => log.push(line),
+    advanceTurn: () => queue.endTurn(world),
+    resetInputModes: () => {},
+    onPlayerAction: () => {},
+  };
+
+  const apBefore = decker.ap;
+  applyIntent({ type: 'special', dx: 0, dy: 0 }, ctx);
+
+  assert.equal(decker.ap, apBefore - AP_COST.EMP, 'EMP debited once');
+  // The ally is same-faction but the blast ignores faction — it gets stunned.
+  ally.refreshAp();
+  assert.equal(ally.ap, 0, 'same-faction ally caught in the EMP is at 0 AP next refresh');
+  corp.refreshAp();
+  assert.equal(corp.ap, 0, 'corp unit in radius is stunned too');
+  assert.ok(log.some(line => line.includes('EMP')));
 });
 
 test('special intent routes CyberAvatar Override against Probe ICE', () => {

@@ -1,4 +1,4 @@
-import { TILE } from '../game/constants.js';
+import { TILE, STATUS_EFFECT } from '../game/constants.js';
 import {
   glyphForTile,
   glyphForEntity,
@@ -10,6 +10,7 @@ import {
   CORPSE_GLYPH_CHAR,
   MEMORY_DIM,
   INTERACTABLE_SECURED_FG,
+  STUNNED_FG,
 } from './palette.js';
 import { Interactable } from '../game/entities/Interactable.js';
 import type { World } from '../game/World.js';
@@ -232,6 +233,12 @@ function glyphForEntityCell(entity: Entity): Glyph {
   if (!entity.alive) return glyphForCorpse(entity);
   if (entity instanceof Interactable && entity.secured) {
     return { char: entity.glyph, fg: INTERACTABLE_SECURED_FG };
+  }
+  // A stunned (EMP'd) entity glows electric cyan, overriding its faction hue —
+  // it reads as "short-circuited, skipping its turn". Wins over faction colour
+  // but not over the corpse/secured states resolved above.
+  if (entity.hasEffect(STATUS_EFFECT.STUN)) {
+    return { char: entity.glyph, fg: STUNNED_FG };
   }
   return glyphForEntity(entity);
 }

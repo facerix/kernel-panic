@@ -6,7 +6,7 @@ import type { Item } from '../game/items.js';
 import type { CampaignSummary } from '../game/campaignSummary.js';
 import type { TypedSalvage } from '../game/salvage.js';
 import type { KeyItem, Telemetry } from '../types.js';
-import type { AimKind, Mode } from '../input/keymap.js';
+import type { AimKind, Mode, PerkAim } from '../input/keymap.js';
 import type {
   UpdateAvailableDetail,
   UpdateRestartRequiredDetail,
@@ -124,6 +124,7 @@ export type TouchPadElement = HTMLElement & {
   aimKind: AimKind | null;
   setMode(mode: Mode, aimKind?: AimKind | null): void;
   setBlocked(predicate: (() => boolean) | null): void;
+  setSpecialAim(resolver: (() => PerkAim) | null): void;
   setFlipAvailable(available: boolean): void;
 };
 

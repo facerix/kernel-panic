@@ -106,7 +106,8 @@ export const AP_COST = Object.freeze({
   VAULT: 2, // Merc — hop a cover tile while firing
   SLIDE: 2, // Razor — 2-tile reposition with stealth bonus
   DEPLOY: 2, // Tech — place a turret on an adjacent tile
-  OVERRIDE: 2, // Decker — hijack a corp drone's allegiance
+  OVERRIDE: 2, // CyberAvatar — flip ICE allegiance on the cyber grid (M4 renames -> INFLUENCE for the Adept)
+  EMP: 2, // Decker — self-centered AOE neural-shock stun (P3.5.M2)
 });
 
 /**
@@ -367,6 +368,20 @@ export const SALVAGE_PER_IMPROVISED_TURRET = 2;
 export const STIM_HEAL = 2;
 export const SMOKE_RADIUS = 2;
 export const SMOKE_DURATION_TURNS = 1;
+
+/**
+ * Decker EMP blast parameters (P3.5.M2). The Decker's Meatspace signature: a
+ * self-centered neural-shock/EMP that stuns *everyone* alive in radius — friend
+ * and foe alike, excepting only the Decker themselves. (matches the deliberately
+ * blurred organic/mechanical enemy theming). A stunned entity takes 0 AP on its
+ * next refresh (see `STATUS_EFFECT.STUN`).
+ *
+ *   - `EMP_RADIUS` — Chebyshev reach, matched to {@link SMOKE_RADIUS} (2): a
+ *     "clears a room" footprint.
+ *   - `EMP_STUN_DURATION` — one skipped activation per caught entity.
+ */
+export const EMP_RADIUS = SMOKE_RADIUS;
+export const EMP_STUN_DURATION = 1;
 /**
  * Incendiary bomb: thrown along an aim direction (dx, dy) selected via
  * `MODE.AIM` with `aimKind: 'use-item'`. The target tile is `thrower + dir *

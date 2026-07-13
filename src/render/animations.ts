@@ -31,11 +31,14 @@
 
 import type { AsciiRenderer } from './AsciiRenderer.js';
 import { COMBAT_HUD_COLORS } from './combatHud.js';
+import { STUNNED_FG } from './palette.js';
 
 export const ANIMATION_DURATIONS = Object.freeze({
   SHAKE: 150,
   DAMAGE_FLASH: 300,
   MITIGATION_FLASH: 300,
+  /** Cyan discharge pulse when a Decker detonates an EMP (P3.5.M2). */
+  EMP_FLASH: 220,
   // Original plan suggested "~80ms" but at 60fps that's ~5 frames — perceptually
   // borderline, especially with the shooter's own glyph sitting underneath.
   // 120ms (~7 frames) is still snappy and reads clearly as a burst.
@@ -94,6 +97,18 @@ export function triggerDamageFlash(stageEl: HTMLElement, timers = defaultTimers)
   stageEl.classList.remove(MITIGATION_FLASH_CLASS);
   stageEl.style.removeProperty(IMPACT_FLASH_COLOR_PROPERTY);
   return restartCssAnimation(stageEl, DAMAGE_CLASS, ANIMATION_DURATIONS.DAMAGE_FLASH, timers);
+}
+
+/**
+ * Cyan full-screen discharge pulse for a Decker EMP (P3.5.M2). Reuses the
+ * parametrized colored-vignette primitive (the same class + color property the
+ * mitigation flash drives) tinted electric cyan — the same hue a stunned glyph
+ * takes, so the blast and its aftermath read as one effect.
+ */
+export function triggerEmpFlash(stageEl: HTMLElement, timers = defaultTimers) {
+  stageEl.classList.remove(DAMAGE_CLASS);
+  stageEl.style.setProperty(IMPACT_FLASH_COLOR_PROPERTY, `${STUNNED_FG}8c`);
+  return restartCssAnimation(stageEl, MITIGATION_FLASH_CLASS, ANIMATION_DURATIONS.EMP_FLASH, timers);
 }
 
 export type MitigationFlashKind = 'armor' | 'shield';

@@ -20,7 +20,7 @@
  */
 
 import { dispatch } from './keymap.js';
-import type { AimKind, DispatchResult, Mode } from './keymap.js';
+import type { AimKind, DispatchResult, Mode, PerkAim } from './keymap.js';
 
 const DIRECTION_KEYS = Object.freeze({
   N: 'ArrowUp',
@@ -77,7 +77,8 @@ export function syntheticKeyFor(buttonId: string): string {
 export function dispatchTouchAction(
   buttonId: string,
   mode: Mode,
-  aimKind: AimKind | null = null
+  aimKind: AimKind | null = null,
+  specialAim: PerkAim = 'directional'
 ): DispatchResult {
-  return dispatch(syntheticKeyFor(buttonId), mode, aimKind);
+  return dispatch(syntheticKeyFor(buttonId), mode, aimKind, specialAim);
 }

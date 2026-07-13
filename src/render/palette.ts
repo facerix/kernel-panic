@@ -41,6 +41,14 @@ const FACTION_FG = {
 export const INTERACTABLE_SECURED_FG = FACTION_FG[FACTION.PLAYER];
 
 /**
+ * Electric cyan for a stunned (EMP'd) entity glyph (P3.5.M2). Overrides the
+ * faction hue so a shocked hostile reads as "short-circuited, skipping its
+ * turn" at a glance. Shared with the EMP screen-flash tint so the discharge and
+ * its aftermath are the same colour.
+ */
+export const STUNNED_FG = '#8be9ff';
+
+/**
  * Sentinel glyph for cells outside the world (camera near the map edge).
  * We render *something* rather than leaving holes so the playfield always
  * fills the canvas — easier on the eyes and on the CRT post-pass. Stays a

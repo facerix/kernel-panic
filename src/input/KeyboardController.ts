@@ -1,6 +1,6 @@
 import { dispatch, MODE } from './keymap.js';
 import type { Intent } from './applyIntent.js';
-import type { AimKind, Mode } from './keymap.js';
+import type { AimKind, Mode, PerkAim } from './keymap.js';
 
 /**
  * DOM-side input wrapper. Listens for keydown on a target element (defaults
@@ -24,28 +24,46 @@ type KeyboardControllerInit = {
   onIntent: (intent: Intent) => void;
   onModeChange: (mode: Mode) => void;
   isBlocked?: () => boolean;
+  /**
+   * Resolve the *current* archetype's perk-aim so the `x` key fires a
+   * self-centered perk (EMP, self-buffs) immediately instead of entering aim
+   * mode. Called per keypress — the active archetype can change (simstim flip,
+   * partner swap). Defaults to `'directional'` (the historical behavior).
+   */
+  getSpecialAim?: () => PerkAim;
 };
 export class KeyboardController {
   target: Document;
   onIntent: (intent: Intent) => void;
   onModeChange: (mode: Mode) => void;
   isBlocked: () => boolean;
+  getSpecialAim: () => PerkAim;
   mode: Mode;
   /** Active when `mode === MODE.AIM`; selects fire / special / use-item. */
   aimKind: AimKind | null;
   attached: boolean;
 
-  constructor({ target = document, onIntent, onModeChange, isBlocked }: KeyboardControllerInit) {
+  constructor({
+    target = document,
+    onIntent,
+    onModeChange,
+    isBlocked,
+    getSpecialAim,
+  }: KeyboardControllerInit) {
     if (typeof onIntent !== 'function') {
       throw new TypeError('KeyboardController requires an onIntent callback');
     }
     if (isBlocked !== undefined && typeof isBlocked !== 'function') {
       throw new TypeError('KeyboardController: isBlocked must be a function when supplied');
     }
+    if (getSpecialAim !== undefined && typeof getSpecialAim !== 'function') {
+      throw new TypeError('KeyboardController: getSpecialAim must be a function when supplied');
+    }
     this.target = target;
     this.onIntent = onIntent;
     this.onModeChange = onModeChange ?? (() => {});
     this.isBlocked = isBlocked ?? (() => false);
+    this.getSpecialAim = getSpecialAim ?? (() => 'directional');
     this.mode = MODE.IDLE;
     this.aimKind = null;
     this.attached = false;
@@ -71,7 +89,12 @@ export class KeyboardController {
     if (this.isBlocked()) return;
     const previousMode = this.mode;
     const previousAimKind = this.aimKind;
-    const { intent, nextMode, aimKind } = dispatch(evt.key, this.mode, this.aimKind);
+    const { intent, nextMode, aimKind } = dispatch(
+      evt.key,
+      this.mode,
+      this.aimKind,
+      this.getSpecialAim()
+    );
     if (intent || nextMode !== previousMode || aimKind !== previousAimKind) evt.preventDefault();
     if (nextMode !== previousMode || aimKind !== previousAimKind) {
       this.mode = nextMode;

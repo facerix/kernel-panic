@@ -11,9 +11,11 @@ import {
   runInteractSecuredFlash,
   runMuzzleFlash,
   triggerDamageFlash,
+  triggerEmpFlash,
   triggerMitigationFlash,
   triggerShake,
 } from '../../../src/render/animations.js';
+import { STUNNED_FG } from '../../../src/render/palette.js';
 
 /**
  * Minimal DOM-element stub — enough surface for restartCssAnimation to
@@ -147,6 +149,17 @@ test('triggerMitigationFlash keys the vignette color to the defense that stopped
 
   triggerMitigationFlash(el, 'armor', timers);
   assert.equal(el.style.getPropertyValue('--kp-impact-flash-color'), '#d49a3a8c');
+});
+
+test('triggerEmpFlash drives a cyan vignette pulse on the shared flash class', () => {
+  const el = makeElement();
+  const timers = makeTimers();
+  triggerEmpFlash(el, timers);
+  assert.equal(el.classList.contains(MITIGATION_FLASH_CLASS), true, 'reuses the colored-flash class');
+  assert.equal(el.classList.contains(DAMAGE_CLASS), false, 'not the red damage flash');
+  assert.equal(el.style.getPropertyValue('--kp-impact-flash-color'), `${STUNNED_FG}8c`);
+  timers.advance(ANIMATION_DURATIONS.EMP_FLASH + 1);
+  assert.equal(el.classList.contains(MITIGATION_FLASH_CLASS), false, 'clears after its duration');
 });
 
 test('createAnimationLock: isLocked is false before any push', () => {

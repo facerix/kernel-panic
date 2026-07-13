@@ -1,4 +1,5 @@
 import { RUN_STATE } from '../game/Run.js';
+import { STATUS_EFFECT } from '../game/constants.js';
 import type { Run } from '../game/Run.js';
 import type { CombatHudDefenseInput, CombatHudSummaryInput } from '../render/combatHud.js';
 import { CyberAvatar } from '../game/cyber/CyberAvatar.js';
@@ -49,6 +50,7 @@ export function combatHudBodyPanes(
         callsign: actor.callsign,
         archetype: 'Avatar',
         stealthed: actor.stealthed,
+        stunned: actor.hasEffect(STATUS_EFFECT.STUN),
       },
       hp: { hp: actor.hp, maxHp: actor.maxHp, label: 'RAM' },
       ap: { ap: actor.ap, maxAp: actor.maxAp },
@@ -62,6 +64,7 @@ export function combatHudBodyPanes(
       // The active meat crew may be the partner — show its own archetype.
       archetype: crew === scene.player ? scene.archetype : crew.archetype,
       stealthed: crew.stealthed,
+      stunned: crew.hasEffect(STATUS_EFFECT.STUN),
     },
     hp: { hp: crew.hp, maxHp: crew.maxHp },
     ...(defense ? { defense } : {}),

@@ -19,6 +19,7 @@ import {
   RECRUIT_ARCHETYPE_POOL,
   buildCrewMember,
   isArchetypeId,
+  perkAimForArchetype,
   pickCallsign,
 } from '../../../src/game/archetypes/index.js';
 import { Decker } from '../../../src/game/archetypes/Decker.js';
@@ -149,14 +150,34 @@ test('buildCrewMember rejects a missing or invalid rng', () => {
 
 // --- Decker (P3.M2): registered, buildable, but not a starter/recruit pick ---
 
-test('Decker is registered in ARCHETYPES with its OVERRIDE perk metadata', () => {
+test('Decker is registered in ARCHETYPES with its EMP perk metadata', () => {
   const a = ARCHETYPES.decker;
   assert.ok(a, 'missing decker archetype');
   assert.equal(a.id, 'decker');
   assert.equal(a.name, 'DECKER');
-  assert.deepEqual(a.perks, ['override']);
-  assert.equal(a.perkName, 'OVERRIDE');
+  assert.deepEqual(a.perks, ['emp']);
+  assert.equal(a.perkName, 'EMP');
   assert.ok(a.perkLabel.length > 0);
+  assert.equal(a.perkAim, 'self', 'EMP is self-centered — no aim step');
+});
+
+test('perkAim metadata: only self-centered perks are tagged "self"', () => {
+  assert.equal(ARCHETYPES.merc.perkAim, 'directional');
+  assert.equal(ARCHETYPES.razor.perkAim, 'directional');
+  assert.equal(ARCHETYPES.tech.perkAim, 'directional');
+  assert.equal(ARCHETYPES.decker.perkAim, 'self');
+});
+
+test('perkAimForArchetype resolves lowercase id and class-cased Crew.archetype', () => {
+  assert.equal(perkAimForArchetype('decker'), 'self');
+  assert.equal(perkAimForArchetype('Decker'), 'self', 'accepts class-cased archetype');
+  assert.equal(perkAimForArchetype('merc'), 'directional');
+  assert.equal(perkAimForArchetype('Razor'), 'directional');
+});
+
+test('perkAimForArchetype throws on an unknown archetype (no silent fallback)', () => {
+  assert.throws(() => perkAimForArchetype('Avatar'), /unknown archetype/);
+  assert.throws(() => perkAimForArchetype('nope'), /unknown archetype/);
 });
 
 test('Decker is excluded from the starter selector and the random recruit pool', () => {

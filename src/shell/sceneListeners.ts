@@ -5,6 +5,7 @@ import {
   ANIMATION_DURATIONS,
   runMuzzleFlash,
   triggerDamageFlash,
+  triggerEmpFlash,
   triggerMitigationFlash,
   triggerShake,
 } from '../render/animations.js';
@@ -148,6 +149,12 @@ export class SceneListenerController {
       run.bus.on(EVENT.DOOR_UNLOCKED, payload => {
         const { label = 'Door' } = (payload ?? {}) as DoorUnlockPayload;
         effects.flash(`${label} unlocked — passage open.`);
+      }),
+      run.bus.on(EVENT.EMP_DETONATED, () => {
+        // Cyan discharge pulse on the shared stage. EMP is a Meatspace-only
+        // perk; the flash reads whether or not the meat view is in the PIP.
+        triggerEmpFlash(dom.stageEl);
+        animLock.push(ANIMATION_DURATIONS.EMP_FLASH);
       })
     );
   }

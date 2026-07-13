@@ -39,6 +39,8 @@ export const EVENT = Object.freeze({
   JACK_IN: 'cyber:jack-in',
   /** P3.M3: the Decker left the grid (voluntary or forced). */
   JACK_OUT: 'cyber:jack-out',
+  /** P3.5.M2: a Decker detonated an EMP. Payload `{ origin: {x,y}, stunned }`. */
+  EMP_DETONATED: 'emp:detonated',
 });
 
 const KNOWN_TYPES = new Set<string>(Object.values(EVENT));

@@ -17,7 +17,9 @@ import {
   glyphForTile,
   glyphForEntity,
   INTERACTABLE_SECURED_FG,
+  STUNNED_FG,
 } from '../../../src/render/palette.js';
+import { STATUS_EFFECT } from '../../../src/game/constants.js';
 import { ConsumablePickup } from '../../../src/game/entities/ConsumablePickup.js';
 import { Terminal } from '../../../src/game/entities/Terminal.js';
 import { SyncPad } from '../../../src/game/entities/SyncPad.js';
@@ -97,6 +99,16 @@ test('buildFrame renders dead entities as a dimmed corpse glyph (faction-coloure
   // assertion follows whatever palette tweaks happen later — the contract is
   // "faction colour, dimmed by the corpse factor".
   assert.equal(cell.fg, dimColor('#ff4d6d', CORPSE_DIM));
+});
+
+test('buildFrame renders a stunned entity in electric cyan, overriding faction hue', () => {
+  const { world, drone } = fixture();
+  drone.applyEffect(STATUS_EFFECT.STUN, 1);
+  const frame = buildFrame(world, { x: 0, y: 0, width: 6, height: 4 });
+  const cell = cellAt(frame, 4, 2);
+  assert.equal(cell.char, 'd', 'live glyph kept — not a corpse');
+  assert.equal(cell.fg, STUNNED_FG, 'stunned overrides the CORP faction colour');
+  assert.notEqual(cell.fg, glyphForEntity(drone).fg, 'differs from the un-stunned faction hue');
 });
 
 test('buildFrame: a live entity standing on a corpse tile renders the live entity', () => {

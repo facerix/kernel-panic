@@ -34,7 +34,7 @@
 import { h } from '/src/domUtils.js';
 import { AIM_KIND, MODE, aimKindLabel } from '/src/input/keymap.js';
 import { dispatchTouchAction, TOUCHPAD_DIRECTIONS } from '/src/input/touchpad.js';
-import type { AimKind, Mode } from '/src/input/keymap.js';
+import type { AimKind, Mode, PerkAim } from '/src/input/keymap.js';
 
 const FORCE_SHOW_PARAM = 'touch';
 const FORCE_SHOW_VALUE = 'force';
@@ -308,6 +308,14 @@ class TouchPad extends HTMLElement {
    */
   #isBlocked: IsBlockedPredicate = () => false;
 
+  /**
+   * Resolve the live archetype's perk-aim so the SPECIAL button fires a
+   * self-centered perk (Decker EMP, future self-buffs) immediately instead of
+   * entering aim mode — mirrors `KeyboardController.getSpecialAim`. Defaults to
+   * `'directional'` so tests and non-combat callers need not wire it.
+   */
+  #getSpecialAim: () => PerkAim = () => 'directional';
+
   static get observedAttributes() {
     return ['force-show'];
   }
@@ -397,6 +405,21 @@ class TouchPad extends HTMLElement {
       throw new TypeError('<touch-pad>.setBlocked: expected a function or null');
     }
     this.#isBlocked = predicate;
+  }
+
+  /**
+   * Install (or replace) the perk-aim resolver. Pass `null` to reset to the
+   * default `'directional'`. Validated so a typo'd assignment crashes loudly.
+   */
+  setSpecialAim(resolver: (() => PerkAim) | null): void {
+    if (resolver === null || resolver === undefined) {
+      this.#getSpecialAim = () => 'directional';
+      return;
+    }
+    if (typeof resolver !== 'function') {
+      throw new TypeError('<touch-pad>.setSpecialAim: expected a function or null');
+    }
+    this.#getSpecialAim = resolver;
   }
 
   #shouldForceShow() {
@@ -566,7 +589,12 @@ class TouchPad extends HTMLElement {
   #dispatchButtonPress(buttonId: string) {
     const previousMode = this.#mode;
     const previousAimKind = this.#aimKind;
-    const { intent, nextMode, aimKind } = dispatchTouchAction(buttonId, this.#mode, this.#aimKind);
+    const { intent, nextMode, aimKind } = dispatchTouchAction(
+      buttonId,
+      this.#mode,
+      this.#aimKind,
+      this.#getSpecialAim()
+    );
 
     if (nextMode !== previousMode || aimKind !== previousAimKind) {
       this.#mode = nextMode;
