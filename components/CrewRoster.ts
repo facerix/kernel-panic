@@ -18,7 +18,7 @@
  *   rosterEl.show();
  */
 
-import { h } from '/src/domUtils.js';
+import { CreateSvg, h } from '/src/domUtils.js';
 import CrewList from '/components/CrewList.js';
 import {
   emptySalvage,
@@ -28,7 +28,7 @@ import {
 } from '/src/game/salvage.js';
 import type { Crew as CrewMember } from '/src/game/Crew.js';
 import { ITEM_ID, type Item } from '/src/game/items.js';
-import { gearLines, statDisplays } from '/src/game/crewDisplay.js';
+import { GEAR_LEADER_PATHS, gearLabels, statDisplays } from '/src/game/crewDisplay.js';
 
 function crewMemberHeader(crewMember: CrewMember): HTMLElement {
   const name = crewMember.callsign ?? crewMember.id;
@@ -87,9 +87,9 @@ function consumablesRow(items: Item[]): HTMLElement {
   ]);
 
   const incendiary = h('div', { className: 'consumable-item' }, [
-    h('img', { src: '/images/incind.png', alt: 'Firebomb' }),
-    h('span', { className: 'consumable-count', innerText: counts.get(ITEM_ID.INCENDIARY) ?? 0 }),
-    h('div', { className: 'consumable-caption', innerText: 'Fire' }),
+    h('img', { src: '/images/molotov.png', alt: 'Molotov' }),
+    h('span', { className: 'consumable-count', innerText: counts.get(ITEM_ID.MOLOTOV) ?? 0 }),
+    h('div', { className: 'consumable-caption', innerText: 'Molotov' }),
   ]);
 
   const charge = h('div', { className: 'consumable-item' }, [
@@ -111,6 +111,21 @@ function consumablesRow(items: Item[]): HTMLElement {
   return consSection;
 }
 
+function gearLeaders(keys: string[]): SVGSVGElement {
+  const paths = keys
+    .map(key => {
+      const path = GEAR_LEADER_PATHS[key];
+      if (!path) throw new Error(`Missing crew-roster gear leader path for ${key}`);
+      return `<path class="gear-leader ${key}" d="${path}" />`;
+    })
+    .join('');
+  const svg = CreateSvg(paths, 250, 300, 'gear-leaders');
+  svg.setAttribute('viewBox', '0 0 250 300');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  return svg;
+}
+
 const CSS = `
 :host {
   --roster-bg: rgba(7, 18, 16, 0.96);
@@ -121,6 +136,7 @@ const CSS = `
   --roster-danger: #ff5d73;
   --roster-shadow: 0 0 28px rgba(0, 217, 165, 0.18), 0 12px 36px rgba(0, 0, 0, 0.5);
   --roster-border-secondary: #a4d1cc;
+  --gear-label-bg: rgba(0, 217, 165, 0.18);
 
   display: none;
   position: fixed;
@@ -265,15 +281,110 @@ crew-list {
   margin-bottom: 0.15rem;
 }
 
-.detail-stat {
-  color: var(--roster-text);
-  margin: 0.1rem 0;
-}
-
 .detail-none {
   color: var(--roster-dim);
   font-style: italic;
   margin: 0.1rem;
+}
+
+.gear {
+  height: 300px;
+  margin: 0.5rem 0;
+  background: no-repeat center url('/images/gear.png');
+  background-size: contain;
+
+  position: relative;
+}
+
+.gear-leaders {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 250px;
+  height: 300px;
+  transform: translateX(-50%);
+  overflow: visible;
+  color: var(--roster-border-secondary);
+  pointer-events: none;
+}
+
+.gear-leader {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+  vector-effect: non-scaling-stroke;
+  opacity: 0.85;
+}
+
+.gear-label {
+  color: var(--roster-text);
+  font-size: smaller;
+  margin: 0;
+  max-width: 115px;
+  text-align: center;
+  position: absolute;
+  background: var(--gear-label-bg);
+  border-radius: 2px;
+  border-bottom: 1px solid var(--roster-border-secondary);
+  padding: 2px;
+  box-sizing: border-box;
+  z-index: 1;
+
+  &.maxHpBonus {
+    top: 0.75rem;
+    left: calc(50% - 120px);
+    width: 92px;
+  }
+
+  &.hpRegen {
+    top: 8.25rem;
+    left: calc(50% + 45px);
+    width: 86px;
+  }
+
+  &.apBonus {
+    bottom: 0.5rem;
+    left: calc(50% + 51px);
+    width: 64px;
+  }
+
+  &.hitBonus {
+    top: 0;
+    left: calc(50% + 21px);
+    width: 120px;
+  }
+
+  &.rangedDamageBonus {
+    top: 4rem;
+    left: calc(50% + 51px);
+    width: 88px;
+  }
+
+  &.meleeDamageBonus {
+    top: 10rem;
+    left: calc(50% - 117px);
+    width: 80px;
+  }
+
+  &.armorBonus {
+    top: 4.5rem;
+    left: calc(50% - 125px);
+    width: 72px;
+  }
+
+  &.shieldRegen {
+    top: 14.4rem;
+    left: calc(50% - 125px);
+    width: 88px;
+  }
+
+  &.dodgeBonus {
+    top: 11.75rem;
+    left: calc(50% + 43px);
+    width: 92px;
+  }
 }
 
 .consumables {
@@ -654,14 +765,16 @@ class CrewRoster extends HTMLElement {
     this.#detailEl!.appendChild(statsTable(full));
 
     // Gear
-    const gLines = gearLines(full.gear);
-    const gearSection = h('div', { className: 'detail-section' });
-    gearSection.appendChild(h('p', { className: 'detail-section-title', textContent: 'GEAR' }));
-    if (gLines.length === 0) {
-      gearSection.appendChild(h('p', { className: 'detail-none', textContent: '-None-' }));
+    const gLabels = gearLabels(full.gear);
+    const gearSection = h('div', { className: 'detail-section gear' });
+    // gearSection.appendChild(h('p', { className: 'detail-section-title', textContent: 'GEAR' }));
+    if (Object.keys(gLabels).length === 0) {
+      gearSection.appendChild(h('p', { className: 'detail-none', textContent: '-No Gear-' }));
     } else {
-      for (const line of gLines) {
-        gearSection.appendChild(h('p', { className: 'detail-stat', textContent: line }));
+      const keys = Object.keys(gLabels);
+      gearSection.appendChild(gearLeaders(keys));
+      for (const [key, label] of Object.entries(gLabels)) {
+        gearSection.appendChild(h('p', { className: `gear-label ${key}`, textContent: label }));
       }
     }
     this.#detailEl!.appendChild(gearSection);

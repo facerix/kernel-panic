@@ -5,7 +5,7 @@
  * and every {@link Crew.applyGear} channel has a single, audited place to
  * surface.
  *
- * `gearLines` names the equipment (what the player bought from Finn);
+ * `gearLabels` names the equipment (what the player bought from Finn);
  * `statDisplays` maps each combat stat to its resulting display value (with any
  * gear contribution already folded in). The two are complementary: GEAR is the
  * loadout, STATS is the effect.
@@ -36,6 +36,23 @@ export interface StatReadout {
 const pct = (n: number) => `${(n * 100).toFixed(0)}%`;
 
 /**
+ * Leader paths for the crew-roster gear diagram's centered 250 x 300 coordinate
+ * plane. Keeping this keyed beside `gearLabels` makes a newly surfaced gear
+ * channel fail a test until its anatomical anchor is deliberately chosen.
+ */
+export const GEAR_LEADER_PATHS: Readonly<Record<string, string>> = Object.freeze({
+  maxHpBonus: 'M 60 44.5 L 60 56 L 93 68',
+  hpRegen: 'M 170 142 L 162 142 L 138 68',
+  apBonus: 'M 176 260 L 169 260 L 150 245',
+  hitBonus: 'M 146 20 L 134 20 A 4,4 0 0 0 126 20 A 4,4 0 0 0 134 20',
+  rangedDamageBonus: 'M 230 64 L 230 58 L 210 46',
+  meleeDamageBonus: 'M 62 160 L 70 140 M 64 132 A 6,3 15 0 0 80 138',
+  armorBonus: 'M 72 90 L 94 90 L 124 96',
+  shieldRegen: 'M 88 250 L 94 250 L 125 140 A 10 15 0 1 0 125 50 A 10 15 0 0 0 125 140',
+  dodgeBonus: 'M 168 203 L 148 203 L 145 191.75 M 128 184 A 6,3 0 0 0 159 182',
+});
+
+/**
  * Map each combat stat to its display value with gear folded in. Keys `hp`,
  * `ap`, `aim`, `dodge`, `ranged`, `melee`, and `armor` are always present; the
  * `shield` and `regen` keys appear only when gear grants that per-turn effect.
@@ -59,7 +76,7 @@ export function statDisplays(stats: StatReadout): Record<string, string> {
 
   const labels: Record<string, string> = {
     hp: `${stats.hp}/${stats.maxHp}`,
-    // `maxAp` is the live stat — the Reflex Booster delta is already baked in.
+    // `maxAp` is the live stat — the Adrenal Spike delta is already baked in.
     ap: `${stats.maxAp}`,
     aim: `${pct(aim)}`,
     dodge: `${pct(dodge)}`,
@@ -73,27 +90,29 @@ export function statDisplays(stats: StatReadout): Record<string, string> {
 }
 
 /**
- * Format the active gear bonuses on `gear` as display lines. A channel only
+ * Format the active gear bonuses on `gear`, keyed by the gear ID. A channel only
  * appears when its bonus is positive, so a fresh operator (or one that maxed a
- * stat at 0) shows nothing for it. Returns `[]` for null/absent gear.
+ * stat at 0) shows nothing for it. Returns `{}` for null/absent gear.
  *
- * Every branch here must mirror a case in {@link Crew.applyGear}; a purchase
- * that lands a bonus with no line is the bug this module exists to prevent
- * (P3.M6 gear was invisible on the roster).
+ * Every branch here must mirror a case in {Crew.applyGear}; a purchase
+ * that lands a bonus with no entry is the bug this module exists to prevent.
  */
-export function gearLines(gear: Gear | null | undefined): string[] {
-  if (!gear) return [];
-  const lines: string[] = [];
-  if (gear.maxHpBonus > 0) lines.push(`Armor Plating  +${gear.maxHpBonus} HP`);
-  if (gear.hitBonus > 0) lines.push(`Targeting Chip  +${pct(gear.hitBonus)}`);
-  if ((gear.dodgeBonus ?? 0) > 0) lines.push(`Reflex Weave  +${pct(gear.dodgeBonus ?? 0)}`);
+export function gearLabels(gear: Gear | null | undefined): Record<string, string> {
+  const labels: Record<string, string> = {};
+  if (!gear) return labels;
+  if (gear.maxHpBonus > 0) labels.maxHpBonus = `Bone Lacing  +${gear.maxHpBonus} HP`;
+  if (gear.hitBonus > 0) labels.hitBonus = `Targeting Chip  +${pct(gear.hitBonus)} aim`;
+  if ((gear.dodgeBonus ?? 0) > 0)
+    labels.dodgeBonus = `Ghost Weave  +${pct(gear.dodgeBonus ?? 0)} dodge`;
   if ((gear.rangedDamageBonus ?? 0) > 0)
-    lines.push(`Ballistics Coil  +${gear.rangedDamageBonus} ranged dmg`);
+    labels.rangedDamageBonus = `RiP Rounds  +${gear.rangedDamageBonus} damage`;
   if ((gear.meleeDamageBonus ?? 0) > 0)
-    lines.push(`Monoblade  +${gear.meleeDamageBonus} melee dmg`);
-  if ((gear.armorBonus ?? 0) > 0) lines.push(`Subdermal Plating  +${gear.armorBonus} armor`);
-  if ((gear.apBonus ?? 0) > 0) lines.push(`Reflex Booster  +${gear.apBonus} AP`);
-  if ((gear.shieldRegen ?? 0) > 0) lines.push(`Phase Shield  +${gear.shieldRegen} shield/turn`);
-  if ((gear.hpRegen ?? 0) > 0) lines.push(`Regen Mesh  +${gear.hpRegen} HP/turn`);
-  return lines;
+    labels.meleeDamageBonus = `Monoblade  +${gear.meleeDamageBonus} damage`;
+  if ((gear.armorBonus ?? 0) > 0)
+    labels.armorBonus = `Subdermal Plating  +${gear.armorBonus} armor`;
+  if ((gear.apBonus ?? 0) > 0) labels.apBonus = `Adrenal Spike  +${gear.apBonus} AP`;
+  if ((gear.shieldRegen ?? 0) > 0)
+    labels.shieldRegen = `Phase Shield  +${gear.shieldRegen} shield/turn`;
+  if ((gear.hpRegen ?? 0) > 0) labels.hpRegen = `Regen Mesh  +${gear.hpRegen} HP/turn`;
+  return labels;
 }

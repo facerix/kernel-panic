@@ -1,6 +1,6 @@
 import { RUN_STATE } from '../game/Run.js';
 import type { Run } from '../game/Run.js';
-import type { CombatHudSummaryInput } from '../render/combatHud.js';
+import type { CombatHudDefenseInput, CombatHudSummaryInput } from '../render/combatHud.js';
 import { CyberAvatar } from '../game/cyber/CyberAvatar.js';
 import { Crew } from '../game/Crew.js';
 import { activeActorOf, isCyberView } from './activeView.js';
@@ -41,7 +41,7 @@ export function buildCombatHudSnapshot(scene: ShellScene | null): CombatHudSumma
  */
 export function combatHudBodyPanes(
   scene: Run
-): Pick<CombatHudSummaryInput, 'identity' | 'hp' | 'ap'> {
+): Pick<CombatHudSummaryInput, 'identity' | 'hp' | 'defense' | 'ap'> {
   const actor = activeActorOf(scene);
   if (isCyberView(scene) && actor instanceof CyberAvatar) {
     return {
@@ -55,6 +55,7 @@ export function combatHudBodyPanes(
     };
   }
   const crew = actor instanceof Crew ? actor : scene.player!;
+  const defense = crewDefense(crew);
   return {
     identity: {
       callsign: crew.callsign,
@@ -63,6 +64,17 @@ export function combatHudBodyPanes(
       stealthed: crew.stealthed,
     },
     hp: { hp: crew.hp, maxHp: crew.maxHp },
+    ...(defense ? { defense } : {}),
     ap: { ap: crew.ap, maxAp: crew.maxAp },
+  };
+}
+
+function crewDefense(crew: Crew): CombatHudDefenseInput | undefined {
+  const armor = crew.damageReduction;
+  const shieldCapacity = crew.gear?.shieldRegen ?? 0;
+  if (armor <= 0 && shieldCapacity <= 0) return undefined;
+  return {
+    ...(armor > 0 ? { armor } : {}),
+    ...(shieldCapacity > 0 ? { shield: { current: crew.shieldHp, capacity: shieldCapacity } } : {}),
   };
 }

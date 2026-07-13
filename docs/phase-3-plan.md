@@ -516,6 +516,18 @@ duplicate purchase is a harmless no-op). **Known transitional state:** between M
 the shop shows only `DEFAULT_ITEMS`, so the former KNOWN gear is temporarily unbuyable until
 the M6.3 unlocked-item merge lands.
 
+**Defense HUD follow-up (2026-07-13):** the active Meatspace HUD now groups defenses beside
+HP: Phase Shield is a live `SH ◆` / spent `SH ◇` resource, while Subdermal Plating remains a
+persistent numeric `ARM 1` modifier. Unequipped channels are omitted, so absent and spent
+shield states cannot be confused. Connected ranged/melee hits now carry an explicit damage
+resolution (`incomingDamage`, armor absorbed, shield absorbed, real HP damage); hostile-turn
+copy surfaces the layers only when armor or shield actually changes the outcome. Combat entry
+runs the normal first-player-turn refresh, so an equipped Phase Shield begins charged rather
+than appearing spent until round two. The HUD's screen-reader summary exposes the same states;
+fully absorbed body hits retain the impact shake and replace the red damage vignette/PIP pulse
+with the stopping defense's HUD color (shield takes precedence when both layers contribute).
+SW cache **`0.3.2b`**.
+
 **Follow-up (kaizen, tabled):** a **revive** path — un-flatline a crew member at the Hub for
 a steep Cred cost, zeroing their gear (and resetting the derived maxHp/maxAp/damageReduction
 to archetype base). Pure Hub economy + narrative, no combat-mechanics implications. Needs a

@@ -71,10 +71,10 @@ test('the two catalogs are disjoint (no item is both default and scoreable)', ()
 test('scoreable pool has at least 5 net-new items beyond the original KNOWN gear', () => {
   // The original rep-gated KNOWN gear that became scoreable.
   const ORIGINAL_KNOWN = new Set([
-    ITEM_ID.ARMOUR_PLATING,
+    ITEM_ID.BONE_LACING,
     ITEM_ID.TARGETING_CHIP,
-    ITEM_ID.REFLEX_WEAVE,
-    ITEM_ID.BALLISTICS_COIL,
+    ITEM_ID.GHOST_WEAVE,
+    ITEM_ID.RIP_ROUNDS,
   ]);
   const netNew = SCOREABLE_ITEMS.filter(i => !ORIGINAL_KNOWN.has(i.id));
   assert.ok(netNew.length >= 5, `expected >= 5 net-new scoreable items, found ${netNew.length}`);
@@ -126,9 +126,9 @@ test('getShopCatalog folds in unlocked scoreable items as they accrue', () => {
   assert.ok(ids.includes(ITEM_ID.MONOBLADE));
   assert.equal(oneUnlock.length, DEFAULT_ITEMS.length + 1);
 
-  const twoUnlocks = getShopCatalog([ITEM_ID.MONOBLADE, ITEM_ID.ARMOUR_PLATING]);
+  const twoUnlocks = getShopCatalog([ITEM_ID.MONOBLADE, ITEM_ID.BONE_LACING]);
   assert.equal(twoUnlocks.length, DEFAULT_ITEMS.length + 2);
-  assert.ok(twoUnlocks.some(i => i.id === ITEM_ID.ARMOUR_PLATING));
+  assert.ok(twoUnlocks.some(i => i.id === ITEM_ID.BONE_LACING));
 });
 
 test('getShopCatalog never renders a locked scoreable item', () => {
@@ -165,6 +165,6 @@ test('getShopCatalog stock depends only on unlocks, never on rep (no rep param)'
 test('getItemById resolves across both catalogs and throws on unknown', () => {
   assert.equal(getItemById(ITEM_ID.STIM).id, ITEM_ID.STIM); // default
   assert.equal(getItemById(ITEM_ID.MONOBLADE).id, ITEM_ID.MONOBLADE); // scoreable net-new
-  assert.equal(getItemById(ITEM_ID.ARMOUR_PLATING).id, ITEM_ID.ARMOUR_PLATING); // scoreable original
+  assert.equal(getItemById(ITEM_ID.BONE_LACING).id, ITEM_ID.BONE_LACING); // scoreable original
   assert.throws(() => getItemById('unobtanium'), /unknown item/i);
 });

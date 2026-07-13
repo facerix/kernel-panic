@@ -22,6 +22,7 @@ import {
   AP_COST,
   SALVAGE_PER_IMPROVISED_TURRET,
   TURRET_DAMAGE,
+  TURRET_MAX_HP,
   RANGED_DAMAGE_BONUS,
 } from '../../../src/game/constants.js';
 import { ITEM_ID } from '../../../src/game/items.js';
@@ -127,17 +128,20 @@ test('Tech.deployTurret places a Turret on the target tile and debits AP', () =>
   assert.equal(world.entityAt(4, 3), turret);
 });
 
-test('Tech.deployTurret sets turret maxHp to owner maxHp (Armour Plating)', () => {
+test('Tech.deployTurret does not inherit owner Bone Lacing HP', () => {
   const { world, tech } = makeWorld();
-  tech.applyGear(ITEM_ID.ARMOUR_PLATING);
+  tech.applyGear(ITEM_ID.BONE_LACING);
+  assert.ok(tech.maxHp > TURRET_MAX_HP, 'Bone Lacing must raise owner maxHp above turret base');
   const turret = tech.deployTurret(world, 1, 0);
-  assert.equal(turret.maxHp, tech.maxHp);
-  assert.equal(turret.hp, tech.maxHp);
+  // Turret is a machine: it deploys at its own base, ignoring the owner's body augment.
+  assert.equal(turret.maxHp, TURRET_MAX_HP);
+  assert.equal(turret.hp, TURRET_MAX_HP);
+  assert.ok(turret.maxHp < tech.maxHp, 'turret must not inherit the owner HP bonus');
 });
 
-test('Tech.deployTurret applies Ballistics Coil to attackDamage', () => {
+test('Tech.deployTurret applies RiP Rounds to attackDamage', () => {
   const { world, tech } = makeWorld();
-  tech.applyGear(ITEM_ID.BALLISTICS_COIL);
+  tech.applyGear(ITEM_ID.RIP_ROUNDS);
   const turret = tech.deployTurret(world, 1, 0);
   assert.equal(turret.attackDamage, TURRET_DAMAGE + RANGED_DAMAGE_BONUS);
 });

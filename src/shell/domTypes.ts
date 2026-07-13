@@ -142,6 +142,7 @@ export type EntityDamagedPayload = {
   damage?: number;
   killed?: boolean;
   source?: string;
+  damageResolution?: import('../types.js').DamageResolution;
 };
 
 export type NoisePayload = {

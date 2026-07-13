@@ -217,6 +217,34 @@ test('formatCorpTurnStep narrates melee knockback when present', () => {
   assert.match(line, /Patch is shoved to \(4, 2\)/);
 });
 
+test('formatCorpTurnStep surfaces armor and shield mitigation on an incoming hit', () => {
+  const line = formatCorpTurnStep(
+    '[Corp]Bruiser',
+    {
+      type: 'melee',
+      target: 'crew-merc',
+      result: {
+        hit: true,
+        dodged: false,
+        roll: 0.99,
+        dodgeThreshold: 0.2,
+        inCover: false,
+        damage: 0,
+        killed: false,
+        damageResolution: {
+          incomingDamage: 2,
+          armorAbsorbed: 1,
+          shieldAbsorbed: 1,
+          hpDamage: 0,
+        },
+      },
+    },
+    id => (id === 'crew-merc' ? 'Patch' : id)
+  );
+
+  assert.match(line, /2 → ARMOR -1 → SHIELD -1 · HP SAFE/);
+});
+
 test('isCorpTurnStepLogVisibleToPlayer: a lookout mark on the player is felt even when unseen', () => {
   const { world } = makeDroneWorld();
   const step = { type: 'spot' as const, target: 'p1' };

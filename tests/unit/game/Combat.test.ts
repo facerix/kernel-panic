@@ -384,6 +384,28 @@ test('resolveMelee applies damageReduction after dodge with a 1-damage floor', (
   assert.equal(target.hp, target.maxHp - (MELEE_DAMAGE - 1));
 });
 
+test('resolveMelee reports armor, shield, and actual HP damage as separate layers', async () => {
+  const { EventBus, EVENT } = await import('../../../src/game/events.js');
+  const { world, attacker, target } = makeMeleeFight();
+  const bus = new EventBus();
+  world.events = bus;
+  target.damageReduction = 1;
+  target.addShield(1);
+  const damaged = [];
+  bus.on(EVENT.ENTITY_DAMAGED, payload => damaged.push(payload));
+
+  const result = resolveMelee(world, attacker, target, new StubRng([0.99]), { damage: 3 });
+
+  assert.equal(result.damage, 2, 'legacy damage remains the post-armor attack value');
+  assert.deepEqual(result.damageResolution, {
+    incomingDamage: 3,
+    armorAbsorbed: 1,
+    shieldAbsorbed: 1,
+    hpDamage: 1,
+  });
+  assert.deepEqual(damaged[0].damageResolution, result.damageResolution);
+});
+
 test('zero-armor melee damage is unchanged', () => {
   const { world, attacker, target } = makeMeleeFight();
 

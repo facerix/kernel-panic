@@ -1,6 +1,8 @@
 import {
+  COMBAT_HUD_COLORS,
   COMBAT_HUD_GLYPHS,
   formatApPips,
+  formatDefenseHud,
   formatHpSegments,
   formatIdentityHud,
   fitObjectiveHudLine,
@@ -22,7 +24,7 @@ import type { Viewport, Camera, BuildFrameOptions, Frame } from './frame.js';
  */
 import type { World } from '../game/World.js';
 import type { Entity } from '../game/Entity.js';
-import type { CombatHudSummaryInput } from './combatHud.js';
+import type { CombatHudDefenseInput, CombatHudSummaryInput } from './combatHud.js';
 
 type NowFn = () => number;
 type AsciiRendererOptions = {
@@ -307,11 +309,18 @@ export class AsciiRenderer {
       ...palette,
     });
     const hpText = formatHpSegments(hud.hp);
+    const defenseText = formatDefenseHud(hud.defense);
+    const vitalsText = defenseText ? `${hpText}  ${defenseText}` : hpText;
+    const vitalSegments = hpSegments(hpText, palette);
+    if (defenseText && hud.defense) {
+      vitalSegments.push({ text: '  ', color: palette.color, glowColor: palette.glowColor });
+      vitalSegments.push(...defenseSegments(hud.defense, palette));
+    }
     this.#drawHudRow({
-      text: hpText,
+      text: vitalsText,
       anchor: 'top-right',
       row: 1,
-      segments: hpSegments(hpText, palette),
+      segments: vitalSegments,
       ...palette,
     });
     const apText = formatApPips(hud.ap);
@@ -499,6 +508,38 @@ function apSegments(
     } else {
       segments.push({ text: char, color, glowColor });
     }
+  }
+  return segments;
+}
+
+function defenseSegments(
+  defense: CombatHudDefenseInput,
+  palette: { color: string; glowColor: string }
+): HudTextSegment[] {
+  const segments: HudTextSegment[] = [];
+  if (defense.shield) {
+    segments.push({ text: 'SH ', color: palette.color, glowColor: palette.glowColor });
+    const pips = `${COMBAT_HUD_GLYPHS.SHIELD_SPENT.repeat(
+      defense.shield.capacity - defense.shield.current
+    )}${COMBAT_HUD_GLYPHS.SHIELD_CHARGED.repeat(defense.shield.current)}`;
+    for (const pip of pips) {
+      const charged = pip === COMBAT_HUD_GLYPHS.SHIELD_CHARGED;
+      segments.push({
+        text: pip,
+        color: charged ? COMBAT_HUD_COLORS.SHIELD_CHARGED : COMBAT_HUD_COLORS.SHIELD_SPENT,
+        glowColor: charged ? COMBAT_HUD_COLORS.SHIELD_CHARGED : undefined,
+      });
+    }
+  }
+  if (defense.shield && defense.armor !== undefined) {
+    segments.push({ text: '  ', color: palette.color, glowColor: palette.glowColor });
+  }
+  if (defense.armor !== undefined) {
+    segments.push({
+      text: `ARM ${defense.armor}`,
+      color: COMBAT_HUD_COLORS.ARMOR,
+      glowColor: COMBAT_HUD_COLORS.ARMOR,
+    });
   }
   return segments;
 }

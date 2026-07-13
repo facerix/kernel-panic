@@ -22,6 +22,7 @@ import { buildCrewMember } from '../../../src/game/archetypes/index.js';
 import { findPath } from '../../../src/game/Pathfinding.js';
 import { Rng } from '../../../src/rng.js';
 import { testContractContext } from './contractTestUtils.js';
+import { ITEM_ID } from '../../../src/game/items.js';
 
 const fakeContract = (overrides = {}) => ({
   seed: 12345,
@@ -92,6 +93,17 @@ test('legal transition chain: BRIEFING → COMBAT → RESULT', () => {
   assert.ok(run.world && run.player && run.exitTile);
   run.enterResult({ outcome: OUTCOME.DEATH });
   assert.equal(run.state, RUN_STATE.RESULT);
+});
+
+test('enterCombat starts the first player turn with an equipped phase shield charged', () => {
+  const crewMember = makeCrew('razor');
+  crewMember.applyGear(ITEM_ID.PHASE_SHIELD);
+  const run = new Run({ crewMember, seed: 42 });
+  run.enterBriefing(fakeContract());
+
+  run.enterCombat();
+
+  assert.equal(run.player!.shieldHp, 1);
 });
 
 test('enterCombat uses persisted contract map dimensions', () => {

@@ -241,6 +241,7 @@ test('draw() paints structured combat HUD rows in the planned canvas corners', (
       objective: { title: 'Sentinel window', done: false, turnsRemaining: 4 },
       identity: { callsign: 'Patch', archetype: 'tech', stealthed: true },
       hp: { hp: 2, maxHp: 3 },
+      defense: { armor: 1, shield: { current: 1, capacity: 1 } },
       ap: { ap: 2, maxAp: 4 },
       turn: { currentFaction: FACTION.PLAYER, turnNumber: 12 },
     },
@@ -250,6 +251,8 @@ test('draw() paints structured combat HUD rows in the planned canvas corners', (
   const objective = textOps.find(c => c.char === 'OBJ Sentinel window [TODO] [TURN:4]');
   const identity = textOps.find(c => c.char === 'Patch [TECH] [CLOAKED]');
   const hpPrefix = textOps.find(c => c.char === 'HP ');
+  const shield = textOps.find(c => c.char === '◆');
+  const armor = textOps.find(c => c.char === 'ARM 1');
   const turn = textOps.find(c => c.char === 'TURN 12');
 
   assert.equal(objective?.px, 6, 'objective row sits left');
@@ -258,6 +261,8 @@ test('draw() paints structured combat HUD rows in the planned canvas corners', (
   assert.equal(identity?.py, 5, 'identity row is the top-right first row');
   assert.equal(identity?.textAlign, 'right');
   assert.equal(hpPrefix?.py, 30, 'HP row shares top-right row 1');
+  assert.equal(shield?.py, 30, 'charged shield shares the HP row');
+  assert.equal(armor?.py, 30, 'persistent armor shares the HP row');
   assert.equal(turn?.px, 30, 'turn row sits bottom-left clear of the canvas frame corner');
   assert.equal(turn?.py, canvas.height - 18);
 });
@@ -274,6 +279,7 @@ test('draw() paints combat HUD HP and AP glyphs with per-state colors', () => {
       objective: { title: 'Sentinel window', done: false },
       identity: { callsign: 'Patch', archetype: 'tech', stealthed: false },
       hp: { hp: 1, maxHp: 3 },
+      defense: { armor: 1, shield: { current: 0, capacity: 1 } },
       ap: { ap: 2, maxAp: 4 },
       turn: { currentFaction: FACTION.CORP, turnNumber: 12 },
     },
@@ -289,6 +295,11 @@ test('draw() paints combat HUD HP and AP glyphs with per-state colors', () => {
       ['■', GLOW_COLOR],
     ]
   );
+
+  const spentShield = textOps.find(c => c.char === '◇' && c.py === 30);
+  const armor = textOps.find(c => c.char === 'ARM 1' && c.py === 30);
+  assert.ok(spentShield, 'spent shield remains visible as an empty diamond');
+  assert.ok(armor, 'armor remains a numeric modifier rather than a pip');
 
   const apGlyphs = textOps.filter(c => (c.char === '○' || c.char === '●') && c.py === 55);
   assert.deepEqual(

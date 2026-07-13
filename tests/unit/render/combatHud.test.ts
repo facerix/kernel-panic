@@ -6,6 +6,7 @@ import {
   fitObjectiveHudLine,
   formatApPips,
   formatCombatHudA11ySummary,
+  formatDefenseHud,
   formatHpSegments,
   formatIdentityHud,
   formatObjectiveHud,
@@ -96,6 +97,19 @@ test('formatHpSegments right-fills live HP segments', () => {
   assert.equal(formatHpSegments({ hp: 0, maxHp: 3 }), 'HP □□□');
 });
 
+test('formatDefenseHud distinguishes persistent armor from charged and spent shield', () => {
+  assert.equal(formatDefenseHud(undefined), '');
+  assert.equal(formatDefenseHud({ armor: 1 }), 'ARM 1');
+  assert.equal(formatDefenseHud({ shield: { current: 1, capacity: 1 } }), 'SH ◆');
+  assert.equal(formatDefenseHud({ shield: { current: 0, capacity: 1 } }), 'SH ◇');
+  assert.equal(formatDefenseHud({ armor: 1, shield: { current: 1, capacity: 1 } }), 'SH ◆  ARM 1');
+});
+
+test('formatDefenseHud rejects corrupt defense values', () => {
+  assert.throws(() => formatDefenseHud({ armor: -1 }), /armor/);
+  assert.throws(() => formatDefenseHud({ shield: { current: 2, capacity: 1 } }), /shield.current/);
+});
+
 test('formatApPips right-fills available AP pips', () => {
   assert.equal(formatApPips({ ap: 4, maxAp: 4 }), 'AP ●●●●');
   assert.equal(formatApPips({ ap: 2, maxAp: 4 }), 'AP ○○●●');
@@ -127,9 +141,10 @@ test('formatCombatHudA11ySummary preserves moved HUD facts in readable text', ()
       objective: { title: 'Sentinel window', done: false, turnsRemaining: 4 },
       identity: { callsign: 'Patch', archetype: 'tech', stealthed: false },
       hp: { hp: 2, maxHp: 3 },
+      defense: { armor: 1, shield: { current: 0, capacity: 1 } },
       ap: { ap: 2, maxAp: 4 },
       turn: { currentFaction: FACTION.PLAYER, turnNumber: 12 },
     }),
-    'Patch, TECH, 2 of 3 HP, 2 of 4 AP, turn 12, objective Sentinel window TODO, 4 turns remaining'
+    'Patch, TECH, 2 of 3 HP, shield spent, armor 1, 2 of 4 AP, turn 12, objective Sentinel window TODO, 4 turns remaining'
   );
 });

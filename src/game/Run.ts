@@ -1621,7 +1621,7 @@ export class Run {
 
   /**
    * Prep a crew member for the Meatspace grid — spawn position, full AP, combat
-   * inventory. HP persists across jobs (no reset; Armour Plating via Finn is the
+   * inventory. HP persists across jobs (no reset; Bone Lacing via Finn is the
    * only Hub-side HP recovery, stims are combat-only). Shared by the deployed
    * operator (`#makePlayer`) and the dual-deploy partner spawned at jack-in.
    */
@@ -1629,10 +1629,13 @@ export class Run {
     crew.x = spawn.x;
     crew.y = spawn.y;
     crew.maxAp = 4;
-    crew.ap = crew.maxAp;
     crew.alive = true;
     crew.stealthed = false;
     crew.frozen = false;
+    // Combat opens on the player's first turn. Use the normal turn boundary so
+    // AP and per-turn gear (notably Phase Shield) start in the same state they
+    // will have on every subsequent player activation.
+    crew.refreshAp();
     crew.initInventory();
     if (crew instanceof Tech) {
       crew.turretReady = true;
@@ -2368,7 +2371,7 @@ export class Run {
     const roll = this.rng.next();
     const count = roll < 0.25 ? 0 : roll < 0.75 ? 1 : 2;
     if (count === 0) return;
-    const pool = [ITEM_ID.STIM, ITEM_ID.SMOKE_CHARGE, ITEM_ID.INCENDIARY];
+    const pool = [ITEM_ID.STIM, ITEM_ID.SMOKE_CHARGE, ITEM_ID.MOLOTOV];
     for (let i = 0; i < count; i++) {
       const anchor = findConsumablePickupAnchor(this.world, this.player, this.exitTile, this.rng);
       if (!anchor) break; // No legal tile left — stop trying rather than throw.

@@ -58,6 +58,17 @@ export type TileDelta =
  * Outcome of a committed ranged shot (`resolveRanged`). Shared with turn logs
  * and any UI that replays combat ticks.
  */
+export type DamageResolution = {
+  /** Raw damage from the attack before defenses. */
+  incomingDamage: number;
+  /** Damage removed by flat armor. */
+  armorAbsorbed: number;
+  /** Post-armor damage consumed by temporary shield HP. */
+  shieldAbsorbed: number;
+  /** Damage that reached real HP. */
+  hpDamage: number;
+};
+
 export type RangedAttackResult = {
   hit: boolean;
   roll: number;
@@ -65,6 +76,8 @@ export type RangedAttackResult = {
   inCover: boolean;
   damage: number;
   killed: boolean;
+  /** Present on connected hits; omitted on misses. */
+  damageResolution?: DamageResolution;
 };
 
 /** Outcome of a committed melee strike (`resolveMelee`). */
@@ -76,6 +89,8 @@ export type MeleeAttackResult = {
   inCover: boolean;
   damage: number;
   killed: boolean;
+  /** Present on connected hits; omitted on dodges/misses. */
+  damageResolution?: DamageResolution;
 };
 
 /** Movement yields from `PatrolHostile` pathing (`stepToward`). */

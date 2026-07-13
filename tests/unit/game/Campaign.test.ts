@@ -489,7 +489,7 @@ test('purchase deducts Creds and adds a consumable to the target crew member', (
 });
 
 test('purchase applies campaign-scoped gear bonus (armour plating)', () => {
-  const campaign = new Campaign({ seed: 42, credits: SHOP_COST.ARMOUR_PLATING });
+  const campaign = new Campaign({ seed: 42, credits: SHOP_COST.BONE_LACING });
   const member = campaign.crew[0];
   const origMaxHp = member.maxHp;
   campaign.purchase({ itemId: 'armour-plating', targetMemberId: member.id });
@@ -506,16 +506,16 @@ test('purchase applies targeting chip gear bonus', () => {
 });
 
 test('purchase applies reflex weave gear bonus', () => {
-  const campaign = new Campaign({ seed: 42, credits: SHOP_COST.REFLEX_WEAVE });
+  const campaign = new Campaign({ seed: 42, credits: SHOP_COST.GHOST_WEAVE });
   const member = campaign.crew[0];
   campaign.purchase({ itemId: 'reflex-weave', targetMemberId: member.id });
   assert.equal(member.gear.dodgeBonus, 0.1);
 });
 
 test('purchase refuses limit-1 gear the target already has equipped, without charging', () => {
-  // Reflex Booster is limit-1 ("One per operator"): a second sale would silently
+  // Adrenal Spike is limit-1 ("One per operator"): a second sale would silently
   // clamp to a no-op in applyGear while still pocketing the Creds. Guard it.
-  const campaign = new Campaign({ seed: 42, credits: SHOP_COST.REFLEX_BOOSTER * 2 });
+  const campaign = new Campaign({ seed: 42, credits: SHOP_COST.ADRENAL_SPIKE * 2 });
   const member = campaign.crew[0];
   campaign.purchase({ itemId: 'reflex-booster', targetMemberId: member.id });
   const creditsAfterFirst = campaign.credits;
@@ -543,15 +543,15 @@ test('purchase refuses every net-new limit-1 gear item once equipped', () => {
   }
 });
 
-test('purchase still allows re-buying unbounded Armour Plating (not limit-1)', () => {
-  // Armour Plating has no cap (+1 maxHp each time), so it must stay re-purchasable.
-  const campaign = new Campaign({ seed: 42, credits: SHOP_COST.ARMOUR_PLATING * 2 });
+test('purchase still allows re-buying unbounded Bone Lacing (not limit-1)', () => {
+  // Bone Lacing has no cap (+1 maxHp each time), so it must stay re-purchasable.
+  const campaign = new Campaign({ seed: 42, credits: SHOP_COST.BONE_LACING * 2 });
   const member = campaign.crew[0];
   const origMaxHp = member.maxHp;
   campaign.purchase({ itemId: 'armour-plating', targetMemberId: member.id });
   campaign.purchase({ itemId: 'armour-plating', targetMemberId: member.id });
-  assert.equal(member.maxHp, origMaxHp + 2, 'second Armour Plating stacks');
-  assert.equal(campaign.credits, 0, 'both Armour Platings charged');
+  assert.equal(member.maxHp, origMaxHp + 2, 'second Bone Lacing stacks');
+  assert.equal(campaign.credits, 0, 'both Bone Lacings charged');
 });
 
 // meta upgrades (expanded-catalog, better-contracts) removed — Rep
@@ -628,7 +628,7 @@ test('crew member HP persists across jobs — no free heal on deploy', () => {
 test('crew gear survives campaign snapshot/restore round-trip', () => {
   const campaign = new Campaign({
     seed: 42,
-    credits: SHOP_COST.ARMOUR_PLATING + SHOP_COST.TARGETING_CHIP,
+    credits: SHOP_COST.BONE_LACING + SHOP_COST.TARGETING_CHIP,
   });
   const member = campaign.crew[0];
   campaign.purchase({ itemId: 'armour-plating', targetMemberId: member.id });
@@ -658,7 +658,7 @@ test('net-new scoreable gear survives campaign round-trip', () => {
     seed: 42,
     credits:
       SHOP_COST.SUBDERMAL_PLATING +
-      SHOP_COST.REFLEX_BOOSTER +
+      SHOP_COST.ADRENAL_SPIKE +
       SHOP_COST.MONOBLADE +
       SHOP_COST.PHASE_SHIELD +
       SHOP_COST.REGEN_MESH,

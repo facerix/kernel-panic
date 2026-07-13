@@ -30,10 +30,12 @@
  */
 
 import type { AsciiRenderer } from './AsciiRenderer.js';
+import { COMBAT_HUD_COLORS } from './combatHud.js';
 
 export const ANIMATION_DURATIONS = Object.freeze({
   SHAKE: 150,
   DAMAGE_FLASH: 300,
+  MITIGATION_FLASH: 300,
   // Original plan suggested "~80ms" but at 60fps that's ~5 frames — perceptually
   // borderline, especially with the shooter's own glyph sitting underneath.
   // 120ms (~7 frames) is still snappy and reads clearly as a burst.
@@ -46,6 +48,8 @@ export const ANIMATION_DURATIONS = Object.freeze({
 
 export const SHAKE_CLASS = 'kp-shake';
 export const DAMAGE_CLASS = 'kp-damage-flash';
+export const MITIGATION_FLASH_CLASS = 'kp-mitigation-flash';
+const IMPACT_FLASH_COLOR_PROPERTY = '--kp-impact-flash-color';
 
 const defaultTimers = Object.freeze({
   now: () => (typeof performance !== 'undefined' ? performance.now() : Date.now()),
@@ -87,7 +91,31 @@ export function triggerShake(stageEl: HTMLElement, timers = defaultTimers) {
 }
 
 export function triggerDamageFlash(stageEl: HTMLElement, timers = defaultTimers) {
+  stageEl.classList.remove(MITIGATION_FLASH_CLASS);
+  stageEl.style.removeProperty(IMPACT_FLASH_COLOR_PROPERTY);
   return restartCssAnimation(stageEl, DAMAGE_CLASS, ANIMATION_DURATIONS.DAMAGE_FLASH, timers);
+}
+
+export type MitigationFlashKind = 'armor' | 'shield';
+
+/**
+ * Use the HUD's defense color for a hit that was fully stopped before HP.
+ * The alpha suffix keeps the vignette at the same intensity as damage red.
+ */
+export function triggerMitigationFlash(
+  stageEl: HTMLElement,
+  kind: MitigationFlashKind,
+  timers = defaultTimers
+) {
+  const color = kind === 'shield' ? COMBAT_HUD_COLORS.SHIELD_CHARGED : COMBAT_HUD_COLORS.ARMOR;
+  stageEl.classList.remove(DAMAGE_CLASS);
+  stageEl.style.setProperty(IMPACT_FLASH_COLOR_PROPERTY, `${color}8c`);
+  return restartCssAnimation(
+    stageEl,
+    MITIGATION_FLASH_CLASS,
+    ANIMATION_DURATIONS.MITIGATION_FLASH,
+    timers
+  );
 }
 
 /**

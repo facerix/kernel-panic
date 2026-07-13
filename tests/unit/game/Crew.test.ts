@@ -427,10 +427,10 @@ test('Crew.rangedDamage defaults to RANGED_DAMAGE; Merc overrides', () => {
 
 test('Crew.gearAtCap reports every limit-1 gear item saturated after one apply', () => {
   const limit1 = [
-    ITEM_ID.BALLISTICS_COIL,
+    ITEM_ID.RIP_ROUNDS,
     ITEM_ID.MONOBLADE,
     ITEM_ID.SUBDERMAL_PLATING,
-    ITEM_ID.REFLEX_BOOSTER,
+    ITEM_ID.ADRENAL_SPIKE,
     ITEM_ID.PHASE_SHIELD,
     ITEM_ID.REGEN_MESH,
   ];
@@ -442,12 +442,12 @@ test('Crew.gearAtCap reports every limit-1 gear item saturated after one apply',
   }
 });
 
-test('Crew.gearAtCap: unbounded Armour Plating never saturates', () => {
+test('Crew.gearAtCap: unbounded Bone Lacing never saturates', () => {
   const m = new Merc({ id: 'm', x: 0, y: 0 });
-  assert.equal(m.gearAtCap(ITEM_ID.ARMOUR_PLATING), false);
-  m.applyGear(ITEM_ID.ARMOUR_PLATING);
-  m.applyGear(ITEM_ID.ARMOUR_PLATING);
-  assert.equal(m.gearAtCap(ITEM_ID.ARMOUR_PLATING), false, 'still re-purchasable after stacking');
+  assert.equal(m.gearAtCap(ITEM_ID.BONE_LACING), false);
+  m.applyGear(ITEM_ID.BONE_LACING);
+  m.applyGear(ITEM_ID.BONE_LACING);
+  assert.equal(m.gearAtCap(ITEM_ID.BONE_LACING), false, 'still re-purchasable after stacking');
 });
 
 test('Crew.gearAtCap: stacking gear saturates only at its per-archetype cap', () => {
@@ -466,10 +466,10 @@ test('Crew.gearAtCap throws on a non-gear id (no silent false)', () => {
   assert.throws(() => m.gearAtCap('stim'), /unknown gear item/i);
 });
 
-test('Crew.rangedAttackDamage is archetype base plus capped Ballistics Coil', () => {
+test('Crew.rangedAttackDamage is archetype base plus capped RiP Rounds', () => {
   const m = new Merc({ id: 'm', x: 0, y: 0 });
   assert.equal(m.rangedAttackDamage(), MERC_RANGED_DAMAGE);
-  m.applyGear(ITEM_ID.BALLISTICS_COIL);
+  m.applyGear(ITEM_ID.RIP_ROUNDS);
   assert.equal(m.rangedAttackDamage(), MERC_RANGED_DAMAGE + RANGED_DAMAGE_BONUS);
 });
 
@@ -544,13 +544,13 @@ test('Crew.maxDodgeBonus is 1 − baseDodgeChance', () => {
 
 test('applyGear caps dodgeBonus so base + bonus cannot exceed 1.0 (Razor)', () => {
   const r = new Razor({ id: 'r', x: 0, y: 0 });
-  for (let i = 0; i < 7; i++) r.applyGear(ITEM_ID.REFLEX_WEAVE);
+  for (let i = 0; i < 7; i++) r.applyGear(ITEM_ID.GHOST_WEAVE);
   assert.equal(r.gear!.dodgeBonus, r.maxDodgeBonus);
   assert.ok(r.baseDodgeChance + r.gear!.dodgeBonus <= 1);
 });
 
-test('applyGear(REFLEX_WEAVE) sets dodgeBonus', () => {
+test('applyGear(GHOST_WEAVE) sets dodgeBonus', () => {
   const m = new Merc({ id: 'm', x: 0, y: 0 });
-  m.applyGear(ITEM_ID.REFLEX_WEAVE);
+  m.applyGear(ITEM_ID.GHOST_WEAVE);
   assert.equal(m.gear!.dodgeBonus, DODGE_BONUS);
 });

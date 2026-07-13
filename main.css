@@ -342,8 +342,8 @@ main {
 
 @keyframes pip-hit-pulse {
   0% {
-    border-color: #ff7a66;
-    box-shadow: 0 0 16px rgba(255, 122, 102, 0.55);
+    border-color: var(--kp-pip-impact-color, #ff7a66);
+    box-shadow: 0 0 16px var(--kp-pip-impact-color, rgba(255, 122, 102, 0.55));
   }
   100% {
     border-color: rgba(0, 217, 165, 0.45);
@@ -354,7 +354,7 @@ main {
 @media (prefers-reduced-motion: reduce) {
   .game-canvas-wrap > #pip-canvas.pip-hit {
     animation: none;
-    border-color: #ff7a66;
+    border-color: var(--kp-pip-impact-color, #ff7a66);
   }
 }
 
@@ -441,10 +441,10 @@ main {
 /* ---------------------------------------------------------------------------
  * M0 combat feedback animations.
  *
- * Shake translates the whole stage (canvas + any overlay); the damage
- * vignette is a pseudo-element radial gradient that fades in then out. Both
- * are restarted by the JS side via remove-then-re-add of the class so two
- * hits in a row replay rather than coalesce. Durations are mirrored in
+ * Shake translates the whole stage (canvas + any overlay); damage and fully
+ * mitigated hits share a pseudo-element radial vignette, keyed red or to the
+ * defense HUD color. Effects restart via remove-then-re-add of the class so
+ * two hits in a row replay rather than coalesce. Durations are mirrored in
  * `src/render/animations.js#ANIMATION_DURATIONS`.
  * ------------------------------------------------------------------------ */
 
@@ -479,8 +479,8 @@ main {
   inset: 0;
   background: radial-gradient(
     circle at center,
-    rgba(255, 30, 30, 0) 35%,
-    rgba(255, 30, 30, 0.55) 100%
+    transparent 35%,
+    var(--kp-impact-flash-color, rgba(255, 30, 30, 0.55)) 100%
   );
   opacity: 0;
   pointer-events: none;
@@ -488,6 +488,10 @@ main {
 }
 
 .game-stage.kp-damage-flash::after {
+  animation: kp-damage-flash 300ms ease-out;
+}
+
+.game-stage.kp-mitigation-flash::after {
   animation: kp-damage-flash 300ms ease-out;
 }
 
@@ -505,7 +509,8 @@ main {
 
 @media (prefers-reduced-motion: reduce) {
   .game-stage.kp-shake,
-  .game-stage.kp-damage-flash::after {
+  .game-stage.kp-damage-flash::after,
+  .game-stage.kp-mitigation-flash::after {
     animation: none;
   }
 }

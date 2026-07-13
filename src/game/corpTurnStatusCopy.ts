@@ -10,7 +10,7 @@ import { Flanker } from './ai/Flanker.js';
 import { Turret } from './Turret.js';
 import { isConcealedFromPlayer } from './playerPerception.js';
 import type { World } from './World.js';
-import type { TurnActionStep } from '../types.js';
+import type { DamageResolution, TurnActionStep } from '../types.js';
 
 type IsVisibleFn = (x: number, y: number) => boolean;
 
@@ -171,6 +171,7 @@ export function formatCorpTurnStep(
         `${actorLabel} fires at ${targetLabel} — ` +
         `${r.hit ? 'HIT' : 'miss'} (roll ${r.roll.toFixed(2)} vs ${r.threshold.toFixed(2)}` +
         `${r.inCover ? ', cover' : ''}).` +
+        formatDefenseResolution(r.damageResolution) +
         (r.killed ? ` ${targetLabel.toUpperCase()} DOWN.` : '')
       );
     }
@@ -181,6 +182,7 @@ export function formatCorpTurnStep(
         `${actorLabel} strikes ${targetLabel} — ` +
         `${r.hit ? 'HIT' : r.dodged ? 'dodged' : 'miss'} ` +
         `(roll ${r.roll.toFixed(2)} vs ${r.dodgeThreshold.toFixed(2)}${r.inCover ? ', cover' : ''}).` +
+        formatDefenseResolution(r.damageResolution) +
         (step.knockback
           ? ` ${targetLabel} is shoved to (${step.knockback.x}, ${step.knockback.y}).`
           : '') +
@@ -194,6 +196,7 @@ export function formatCorpTurnStep(
         `${actorLabel} lays down suppressing fire on ${targetLabel} — ` +
         `${r.hit ? 'HIT' : 'miss'} (roll ${r.roll.toFixed(2)} vs ${r.threshold.toFixed(2)}` +
         `${r.inCover ? ', cover' : ''}).` +
+        formatDefenseResolution(r.damageResolution) +
         (r.killed ? ` ${targetLabel.toUpperCase()} DOWN.` : '')
       );
     }
@@ -248,4 +251,15 @@ export function formatCorpTurnStep(
     default:
       return null;
   }
+}
+
+function formatDefenseResolution(resolution: DamageResolution | undefined): string {
+  if (!resolution || (resolution.armorAbsorbed === 0 && resolution.shieldAbsorbed === 0)) {
+    return '';
+  }
+  const layers = [`${resolution.incomingDamage}`];
+  if (resolution.armorAbsorbed > 0) layers.push(`ARMOR -${resolution.armorAbsorbed}`);
+  if (resolution.shieldAbsorbed > 0) layers.push(`SHIELD -${resolution.shieldAbsorbed}`);
+  const outcome = resolution.hpDamage > 0 ? `HP -${resolution.hpDamage}` : 'HP SAFE';
+  return ` ${layers.join(' → ')} · ${outcome}.`;
 }
