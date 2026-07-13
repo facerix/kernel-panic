@@ -77,6 +77,7 @@ test('P3.M4.5: meat body damage flashes the PIP only while viewing Cyberspace', 
   const flashes: string[] = [];
   let pipPaints = 0;
   const fakeClassList = { remove: () => {}, add: () => {}, toggle: () => {} };
+  const fakeStyle = { setProperty: () => {}, removeProperty: () => {} };
   const controller = new SceneListenerController({
     getScene: () => scene,
     getCampaign: () => null,
@@ -84,8 +85,16 @@ test('P3.M4.5: meat body damage flashes the PIP only while viewing Cyberspace', 
     getCyberVision: () => new VisionField(),
     resetCyberVision: () => new VisionField(),
     dom: {
-      stageEl: { classList: fakeClassList, offsetWidth: 0 } as unknown as HTMLElement,
-      pipCanvas: { classList: fakeClassList, offsetWidth: 0 } as unknown as HTMLCanvasElement,
+      stageEl: {
+        classList: fakeClassList,
+        style: fakeStyle,
+        offsetWidth: 0,
+      } as unknown as HTMLElement,
+      pipCanvas: {
+        classList: fakeClassList,
+        style: fakeStyle,
+        offsetWidth: 0,
+      } as unknown as HTMLCanvasElement,
     },
     // No flashCell ⇒ runMuzzleFlash is a no-op, so we exercise only the damage block.
     renderers: { main: {} as never, pip: {} as never },
@@ -121,6 +130,111 @@ test('P3.M4.5: meat body damage flashes the PIP only while viewing Cyberspace', 
   assert.equal(flashes.length, 1);
 });
 
+test('fully mitigated body hits still shake and flash with the stopping defense color', () => {
+  const bus = new EventBus();
+  const body = { id: 'body', x: 3, y: 4, hp: 4, maxHp: 8, alive: true };
+  const scene = {
+    bus,
+    world: { entities: new Map() },
+    player: body,
+    archetype: 'decker',
+    cyberspace: {
+      phase: 'active',
+      layer: { avatar: { id: 'avatar' }, bus: new EventBus(), mapSeenKeys: () => [] },
+    },
+    activeLayer: 'cyber',
+    state: 'combat',
+  } as unknown as ShellScene;
+
+  const classes = new Set<string>();
+  const properties = new Map<string, string>();
+  const pipClasses = new Set<string>();
+  const pipProperties = new Map<string, string>();
+  const flashes: string[] = [];
+  let pipPaints = 0;
+  const stage = {
+    classList: {
+      add: (name: string) => classes.add(name),
+      remove: (name: string) => classes.delete(name),
+    },
+    style: {
+      setProperty: (name: string, value: string) => properties.set(name, value),
+      removeProperty: (name: string) => properties.delete(name),
+    },
+    offsetWidth: 0,
+  } as unknown as HTMLElement;
+  const controller = new SceneListenerController({
+    getScene: () => scene,
+    getCampaign: () => null,
+    getMeatVision: () => new VisionField(),
+    getCyberVision: () => new VisionField(),
+    resetCyberVision: () => new VisionField(),
+    dom: {
+      stageEl: stage,
+      pipCanvas: {
+        classList: {
+          add: (name: string) => pipClasses.add(name),
+          remove: (name: string) => pipClasses.delete(name),
+        },
+        style: {
+          setProperty: (name: string, value: string) => pipProperties.set(name, value),
+          removeProperty: (name: string) => pipProperties.delete(name),
+        },
+        offsetWidth: 0,
+      } as unknown as HTMLCanvasElement,
+    },
+    renderers: { main: {} as never, pip: {} as never },
+    animLock: { push: () => {} },
+    effects: {
+      flash: (line: string) => flashes.push(line),
+      paint: () => {},
+      paintPip: () => {
+        pipPaints++;
+      },
+      recomputeVision: () => {},
+    },
+    onCivilianHarmReset: () => {},
+    onCivilianHarmed: () => {},
+    onRepAdjust: () => {},
+    onAlarmTransition: () => {},
+    onObjectiveTimerExpired: () => {},
+    memoriseMeatCorpse: () => {},
+    memoriseCyberCorpse: () => {},
+  });
+  controller.rewire();
+
+  bus.emit(EVENT.ENTITY_DAMAGED, {
+    target: body,
+    damage: 0,
+    damageResolution: {
+      incomingDamage: 2,
+      armorAbsorbed: 1,
+      shieldAbsorbed: 1,
+      hpDamage: 0,
+    },
+  });
+  assert.equal(classes.has('kp-shake'), true);
+  assert.equal(classes.has('kp-mitigation-flash'), true);
+  assert.equal(properties.get('--kp-impact-flash-color'), '#c8b6ff8c');
+  assert.equal(pipClasses.has('pip-hit'), true);
+  assert.equal(pipProperties.get('--kp-pip-impact-color'), '#c8b6ff8c');
+  assert.equal(pipPaints, 1);
+  assert.match(flashes[0] ?? '', /^BODY BLOCKED/);
+
+  bus.emit(EVENT.ENTITY_DAMAGED, {
+    target: body,
+    damage: 0,
+    damageResolution: {
+      incomingDamage: 1,
+      armorAbsorbed: 1,
+      shieldAbsorbed: 0,
+      hpDamage: 0,
+    },
+  });
+  assert.equal(properties.get('--kp-impact-flash-color'), '#d49a3a8c');
+  assert.equal(pipProperties.get('--kp-pip-impact-color'), '#d49a3a8c');
+});
+
 test('P3.M4.6: forced jack-out body repair is not memorised as a meat corpse', () => {
   const bus = new EventBus();
   const body = { id: 'body', x: 3, y: 4, hp: 1, maxHp: 8, alive: true };
@@ -136,6 +250,7 @@ test('P3.M4.6: forced jack-out body repair is not memorised as a meat corpse', (
 
   let memorised = 0;
   const fakeClassList = { remove: () => {}, add: () => {}, toggle: () => {} };
+  const fakeStyle = { setProperty: () => {}, removeProperty: () => {} };
   const controller = new SceneListenerController({
     getScene: () => scene,
     getCampaign: () => null,
@@ -143,8 +258,16 @@ test('P3.M4.6: forced jack-out body repair is not memorised as a meat corpse', (
     getCyberVision: () => new VisionField(),
     resetCyberVision: () => new VisionField(),
     dom: {
-      stageEl: { classList: fakeClassList, offsetWidth: 0 } as unknown as HTMLElement,
-      pipCanvas: { classList: fakeClassList, offsetWidth: 0 } as unknown as HTMLCanvasElement,
+      stageEl: {
+        classList: fakeClassList,
+        style: fakeStyle,
+        offsetWidth: 0,
+      } as unknown as HTMLElement,
+      pipCanvas: {
+        classList: fakeClassList,
+        style: fakeStyle,
+        offsetWidth: 0,
+      } as unknown as HTMLCanvasElement,
     },
     renderers: { main: {} as never, pip: {} as never },
     animLock: { push: () => {} },

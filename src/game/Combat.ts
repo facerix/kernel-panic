@@ -21,7 +21,7 @@
  * an illegal call it throws *before* mutating state.
  */
 
-import type { MeleeAttackResult, RangedAttackResult } from '../types.js';
+import type { DamageResolution, MeleeAttackResult, RangedAttackResult } from '../types.js';
 import type { Entity } from './Entity.js';
 import type { World } from './World.js';
 import type { Rng } from '../rng.js';
@@ -175,11 +175,17 @@ export function resolveRanged(
 
   let damage = 0;
   let killed = false;
+  let damageResolution: DamageResolution | undefined;
   if (hit) {
     const intendedDamage = attackerRangedDamage(attacker, options.damage);
-    const mitigatedDamage = applyDamageReduction(intendedDamage, target);
-    const appliedDamage = target.damage(mitigatedDamage);
-    damage = appliedDamage === 0 ? 0 : mitigatedDamage;
+    damageResolution = resolveConnectedDamage(intendedDamage, target);
+    // Preserve the established result/event `damage` contract: post-armor
+    // attack damage when any HP lands (including overkill). Consumers that
+    // need exact HP loss or shield breakdown use `damageResolution`.
+    damage =
+      damageResolution.hpDamage === 0
+        ? 0
+        : damageResolution.incomingDamage - damageResolution.armorAbsorbed;
     killed = !target.alive;
     // Emit only on a connected hit. Misses still tick the noise model below
     // (a shot is loud regardless) — that's a separate `noise` event.
@@ -187,6 +193,7 @@ export function resolveRanged(
       attacker,
       target,
       damage,
+      damageResolution,
       killed,
       source: 'ranged',
     });
@@ -201,7 +208,7 @@ export function resolveRanged(
     kind: 'ranged',
   });
 
-  return { hit, roll, threshold, inCover, damage, killed };
+  return { hit, roll, threshold, inCover, damage, killed, damageResolution };
 }
 
 /**
@@ -294,17 +301,21 @@ export function resolveMelee(
   const hit = !dodged;
   let damage = 0;
   let killed = false;
+  let damageResolution: DamageResolution | undefined;
   if (hit) {
     const intendedDamage = attackerMeleeDamage(attacker, options.damage);
-    const mitigatedDamage = applyDamageReduction(intendedDamage, target);
-    const appliedDamage = target.damage(mitigatedDamage);
-    damage = appliedDamage === 0 ? 0 : mitigatedDamage;
+    damageResolution = resolveConnectedDamage(intendedDamage, target);
+    damage =
+      damageResolution.hpDamage === 0
+        ? 0
+        : damageResolution.incomingDamage - damageResolution.armorAbsorbed;
     killed = !target.alive;
   }
   world.events?.emit(EVENT.ENTITY_DAMAGED, {
     attacker,
     target,
     damage,
+    damageResolution,
     killed,
     source: 'melee',
     dodged,
@@ -318,7 +329,16 @@ export function resolveMelee(
     source: attacker,
     kind: 'melee',
   });
-  return { hit, dodged, roll, dodgeThreshold, inCover, damage, killed };
+  return { hit, dodged, roll, dodgeThreshold, inCover, damage, killed, damageResolution };
+}
+
+function resolveConnectedDamage(intendedDamage: number, target: Entity): DamageResolution {
+  const mitigatedDamage = applyDamageReduction(intendedDamage, target);
+  const armorAbsorbed = intendedDamage - mitigatedDamage;
+  const shieldBefore = target.shieldHp;
+  const hpDamage = target.damage(mitigatedDamage);
+  const shieldAbsorbed = shieldBefore - target.shieldHp;
+  return { incomingDamage: intendedDamage, armorAbsorbed, shieldAbsorbed, hpDamage };
 }
 
 function applyDamageReduction(intendedDamage: number, target: Entity): number {

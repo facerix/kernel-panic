@@ -7,6 +7,15 @@ export const COMBAT_HUD_GLYPHS = Object.freeze({
   HP_EMPTY: '□',
   AP_AVAILABLE: '●',
   AP_SPENT: '○',
+  SHIELD_CHARGED: '◆',
+  SHIELD_SPENT: '◇',
+});
+
+/** Shared defense palette for HUD chrome and mitigation feedback. */
+export const COMBAT_HUD_COLORS = Object.freeze({
+  SHIELD_CHARGED: '#c8b6ff',
+  SHIELD_SPENT: '#68757b',
+  ARMOR: '#d49a3a',
 });
 
 export type CombatHudObjectiveInput = Readonly<{
@@ -34,6 +43,13 @@ export type CombatHudApInput = Readonly<{
   maxAp: number;
 }>;
 
+export type CombatHudDefenseInput = Readonly<{
+  /** Persistent flat damage reduction. Omitted when the actor has no armor. */
+  armor?: number;
+  /** Equipped shield capacity plus its current live charge. */
+  shield?: Readonly<{ current: number; capacity: number }>;
+}>;
+
 export type CombatHudTurnInput = Readonly<{
   currentFaction: FactionId;
   turnNumber: number;
@@ -43,6 +59,7 @@ export type CombatHudSummaryInput = Readonly<{
   objective?: CombatHudObjectiveInput | null;
   identity: CombatHudIdentityInput;
   hp: CombatHudVitalInput;
+  defense?: CombatHudDefenseInput;
   ap: CombatHudApInput;
   turn: CombatHudTurnInput;
   cyber: boolean;
@@ -127,6 +144,35 @@ export function formatHpSegments(vitals: CombatHudVitalInput): string {
   )}`;
 }
 
+export function formatDefenseHud(defense: CombatHudDefenseInput | null | undefined): string {
+  if (!defense) return '';
+  const parts: string[] = [];
+  if (defense.shield) {
+    validateCounter(
+      defense.shield.current,
+      defense.shield.capacity,
+      'shield.current',
+      'shield.capacity'
+    );
+    if (defense.shield.capacity <= 0) {
+      throw new RangeError(`shield.capacity must be >= 1, got ${defense.shield.capacity}`);
+    }
+    parts.push(
+      `SH ${rightFilledSegments(
+        defense.shield.current,
+        defense.shield.capacity,
+        COMBAT_HUD_GLYPHS.SHIELD_CHARGED,
+        COMBAT_HUD_GLYPHS.SHIELD_SPENT
+      )}`
+    );
+  }
+  if (defense.armor !== undefined) {
+    assertIntegerInRange(defense.armor, 'armor', { min: 1 });
+    parts.push(`ARM ${defense.armor}`);
+  }
+  return parts.join('  ');
+}
+
 export function formatApPips(vitals: CombatHudApInput): string {
   validateCounter(vitals.ap, vitals.maxAp, 'ap', 'maxAp');
   return `AP ${rightFilledSegments(
@@ -159,13 +205,31 @@ export function formatCombatHudA11ySummary(summary: CombatHudSummaryInput): stri
     name,
     archetype.toUpperCase(),
     `${summary.hp.hp} of ${summary.hp.maxHp} ${summary.hp.label ?? 'HP'}`,
-    `${summary.ap.ap} of ${summary.ap.maxAp} AP`,
-    turnA11yText(summary.turn),
   ];
+  const defenseText = defenseA11yText(summary.defense);
+  if (defenseText) parts.push(...defenseText);
+  parts.push(`${summary.ap.ap} of ${summary.ap.maxAp} AP`, turnA11yText(summary.turn));
   if (summary.identity.stealthed) parts.push('cloaked');
   const objectiveText = objectiveA11yText(summary.objective);
   if (objectiveText) parts.push(objectiveText);
   return parts.join(', ');
+}
+
+function defenseA11yText(defense: CombatHudDefenseInput | null | undefined): string[] {
+  if (!defense) return [];
+  // Reuse the visible formatter's validation so visual and screen-reader paths
+  // fail on the same corrupt input.
+  formatDefenseHud(defense);
+  const parts: string[] = [];
+  if (defense.shield) {
+    parts.push(
+      defense.shield.current === 0
+        ? 'shield spent'
+        : `shield ${defense.shield.current} of ${defense.shield.capacity}`
+    );
+  }
+  if (defense.armor !== undefined) parts.push(`armor ${defense.armor}`);
+  return parts;
 }
 
 function rightFilledSegments(count: number, max: number, filled: string, empty: string): string {

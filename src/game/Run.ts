@@ -1629,10 +1629,13 @@ export class Run {
     crew.x = spawn.x;
     crew.y = spawn.y;
     crew.maxAp = 4;
-    crew.ap = crew.maxAp;
     crew.alive = true;
     crew.stealthed = false;
     crew.frozen = false;
+    // Combat opens on the player's first turn. Use the normal turn boundary so
+    // AP and per-turn gear (notably Phase Shield) start in the same state they
+    // will have on every subsequent player activation.
+    crew.refreshAp();
     crew.initInventory();
     if (crew instanceof Tech) {
       crew.turretReady = true;

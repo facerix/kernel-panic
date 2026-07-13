@@ -5,8 +5,10 @@ import {
   ANIMATION_DURATIONS,
   runMuzzleFlash,
   triggerDamageFlash,
+  triggerMitigationFlash,
   triggerShake,
 } from '../render/animations.js';
+import { COMBAT_HUD_COLORS } from '../render/combatHud.js';
 import { cyberLayerOf, isCyberView } from './activeView.js';
 import { isRun } from './sceneView.js';
 import type {
@@ -69,19 +71,29 @@ export class SceneListenerController {
           attacker,
           target,
           damage = 0,
+          damageResolution,
           killed,
           source,
         } = (payload ?? {}) as EntityDamagedPayload;
+        const hpDamage = damageResolution?.hpDamage ?? damage;
+        const armorAbsorbed = damageResolution?.armorAbsorbed ?? 0;
+        const shieldAbsorbed = damageResolution?.shieldAbsorbed ?? 0;
         // P3.M4.5: the meat layer is in the PIP only while the player is
         // *viewing* Cyberspace; once flipped back to meat it is the main canvas.
         const meatInPip = isCyberView(run);
         const bodyHit = isRun(run) && !!run.player && target === run.player;
         const forcedBodyJackOut =
           bodyHit && killed === true && !!target?.alive && run.cyberspace?.phase === 'resolved';
-        if (bodyHit && damage > 0) {
+        const bodyImpact = bodyHit && (hpDamage > 0 || armorAbsorbed > 0 || shieldAbsorbed > 0);
+        if (bodyImpact) {
           triggerShake(dom.stageEl);
-          triggerDamageFlash(dom.stageEl);
-          animLock.push(ANIMATION_DURATIONS.DAMAGE_FLASH);
+          if (hpDamage > 0) {
+            triggerDamageFlash(dom.stageEl);
+            animLock.push(ANIMATION_DURATIONS.DAMAGE_FLASH);
+          } else {
+            triggerMitigationFlash(dom.stageEl, shieldAbsorbed > 0 ? 'shield' : 'armor');
+            animLock.push(ANIMATION_DURATIONS.MITIGATION_FLASH);
+          }
           if (meatInPip) {
             const attackerLabel = attacker
               ? resolveEntityLabel(attacker.id, run.world!.entities)
@@ -89,8 +101,23 @@ export class SceneListenerController {
             effects.flash(
               killed
                 ? `BODY CRITICAL — ${attackerLabel} forced an emergency jack-out.`
-                : `BODY HIT — ${attackerLabel} struck for ${damage} (meatspace).`
+                : hpDamage > 0
+                  ? `BODY HIT — ${attackerLabel} struck for ${hpDamage} (meatspace).`
+                  : `BODY BLOCKED — ${attackerLabel}'s hit stopped by ${
+                      shieldAbsorbed > 0 ? 'shield' : 'armor'
+                    } (meatspace).`
             );
+            const impactColor =
+              hpDamage > 0
+                ? ''
+                : `${
+                    shieldAbsorbed > 0 ? COMBAT_HUD_COLORS.SHIELD_CHARGED : COMBAT_HUD_COLORS.ARMOR
+                  }8c`;
+            if (impactColor) {
+              dom.pipCanvas.style.setProperty('--kp-pip-impact-color', impactColor);
+            } else {
+              dom.pipCanvas.style.removeProperty('--kp-pip-impact-color');
+            }
             dom.pipCanvas.classList.remove('pip-hit');
             void dom.pipCanvas.offsetWidth;
             dom.pipCanvas.classList.add('pip-hit');

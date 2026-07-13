@@ -4,12 +4,14 @@ import assert from 'node:assert/strict';
 import {
   ANIMATION_DURATIONS,
   DAMAGE_CLASS,
+  MITIGATION_FLASH_CLASS,
   SHAKE_CLASS,
   createAnimationLock,
   restartCssAnimation,
   runInteractSecuredFlash,
   runMuzzleFlash,
   triggerDamageFlash,
+  triggerMitigationFlash,
   triggerShake,
 } from '../../../src/render/animations.js';
 
@@ -21,6 +23,7 @@ import {
  */
 function makeElement() {
   const classes = new Set();
+  const properties = new Map();
   let offsetWidthReads = 0;
   return {
     classList: {
@@ -28,6 +31,11 @@ function makeElement() {
       remove: cls => classes.delete(cls),
       contains: cls => classes.has(cls),
       toString: () => Array.from(classes).join(' '),
+    },
+    style: {
+      setProperty: (name, value) => properties.set(name, value),
+      removeProperty: name => properties.delete(name),
+      getPropertyValue: name => properties.get(name) ?? '',
     },
     get offsetWidth() {
       offsetWidthReads += 1;
@@ -127,6 +135,18 @@ test('triggerShake / triggerDamageFlash apply the shared class constants', () =>
   assert.equal(el.classList.contains(DAMAGE_CLASS), true);
   timers.advance(ANIMATION_DURATIONS.DAMAGE_FLASH);
   assert.equal(el.classList.contains(DAMAGE_CLASS), false);
+});
+
+test('triggerMitigationFlash keys the vignette color to the defense that stopped the hit', () => {
+  const el = makeElement();
+  const timers = makeTimers();
+
+  triggerMitigationFlash(el, 'shield', timers);
+  assert.equal(el.classList.contains(MITIGATION_FLASH_CLASS), true);
+  assert.equal(el.style.getPropertyValue('--kp-impact-flash-color'), '#c8b6ff8c');
+
+  triggerMitigationFlash(el, 'armor', timers);
+  assert.equal(el.style.getPropertyValue('--kp-impact-flash-color'), '#d49a3a8c');
 });
 
 test('createAnimationLock: isLocked is false before any push', () => {
