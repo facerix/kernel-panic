@@ -10,12 +10,14 @@ import {
   restartCssAnimation,
   runInteractSecuredFlash,
   runMuzzleFlash,
+  triggerCrashFlash,
   triggerDamageFlash,
   triggerEmpFlash,
   triggerMitigationFlash,
   triggerShake,
+  triggerSurgeFlash,
 } from '../../../src/render/animations.js';
-import { STUNNED_FG } from '../../../src/render/palette.js';
+import { CRASH_FLASH_FG, STUNNED_FG, SURGE_FLASH_FG } from '../../../src/render/palette.js';
 
 /**
  * Minimal DOM-element stub — enough surface for restartCssAnimation to
@@ -155,10 +157,45 @@ test('triggerEmpFlash drives a cyan vignette pulse on the shared flash class', (
   const el = makeElement();
   const timers = makeTimers();
   triggerEmpFlash(el, timers);
-  assert.equal(el.classList.contains(MITIGATION_FLASH_CLASS), true, 'reuses the colored-flash class');
+  assert.equal(
+    el.classList.contains(MITIGATION_FLASH_CLASS),
+    true,
+    'reuses the colored-flash class'
+  );
   assert.equal(el.classList.contains(DAMAGE_CLASS), false, 'not the red damage flash');
   assert.equal(el.style.getPropertyValue('--kp-impact-flash-color'), `${STUNNED_FG}8c`);
   timers.advance(ANIMATION_DURATIONS.EMP_FLASH + 1);
+  assert.equal(el.classList.contains(MITIGATION_FLASH_CLASS), false, 'clears after its duration');
+});
+
+test('triggerSurgeFlash drives a blaze-orange vignette pulse on the shared flash class', () => {
+  const el = makeElement();
+  const timers = makeTimers();
+  triggerSurgeFlash(el, timers);
+  assert.equal(
+    el.classList.contains(MITIGATION_FLASH_CLASS),
+    true,
+    'reuses the colored-flash class'
+  );
+  assert.equal(el.classList.contains(DAMAGE_CLASS), false, 'not the red damage flash');
+  assert.equal(el.style.getPropertyValue('--kp-impact-flash-color'), `${SURGE_FLASH_FG}8c`);
+  timers.advance(ANIMATION_DURATIONS.SURGE_FLASH + 1);
+  assert.equal(el.classList.contains(MITIGATION_FLASH_CLASS), false, 'clears after its duration');
+});
+
+test('triggerCrashFlash drives an ashen vignette pulse distinct from the surge tint', () => {
+  const el = makeElement();
+  const timers = makeTimers();
+  triggerCrashFlash(el, timers);
+  assert.equal(
+    el.classList.contains(MITIGATION_FLASH_CLASS),
+    true,
+    'reuses the colored-flash class'
+  );
+  assert.equal(el.classList.contains(DAMAGE_CLASS), false, 'not the red damage flash');
+  assert.equal(el.style.getPropertyValue('--kp-impact-flash-color'), `${CRASH_FLASH_FG}8c`);
+  assert.notEqual(CRASH_FLASH_FG, SURGE_FLASH_FG, 'crash and surge read as different beats');
+  timers.advance(ANIMATION_DURATIONS.CRASH_FLASH + 1);
   assert.equal(el.classList.contains(MITIGATION_FLASH_CLASS), false, 'clears after its duration');
 });
 

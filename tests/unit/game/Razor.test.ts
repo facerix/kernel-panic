@@ -154,7 +154,11 @@ test('Razor.slide arms the generic STEALTH effect (P3.5.M1 channel)', () => {
   const { world, razor } = makeWorld();
   assert.equal(razor.hasEffect(STATUS_EFFECT.STEALTH), false);
   razor.slide(world, 1, 0);
-  assert.equal(razor.hasEffect(STATUS_EFFECT.STEALTH), true, 'slide sets STEALTH via the effect channel');
+  assert.equal(
+    razor.hasEffect(STATUS_EFFECT.STEALTH),
+    true,
+    'slide sets STEALTH via the effect channel'
+  );
   assert.equal(razor.effectTurnsRemaining(STATUS_EFFECT.STEALTH), 1, 'one own-refresh of cloak');
 });
 

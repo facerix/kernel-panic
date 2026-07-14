@@ -41,6 +41,16 @@ export const EVENT = Object.freeze({
   JACK_OUT: 'cyber:jack-out',
   /** P3.5.M2: a Decker detonated an EMP. Payload `{ origin: {x,y}, stunned }`. */
   EMP_DETONATED: 'emp:detonated',
+  /**
+   * P3.5.M3: a Berserk armed Surge. Presentation-only hook (gameplay already
+   * resolved by the caller). Payload `{ origin: {x,y} }`.
+   */
+  BERSERK_SURGED: 'berserk:surged',
+  /**
+   * P3.5.M3: a Berserk's Surge expired into Crash. Emitted at the refresh
+   * boundary where the transition happens. Payload `{ origin: {x,y}, entityId }`.
+   */
+  BERSERK_CRASHED: 'berserk:crashed',
 });
 
 const KNOWN_TYPES = new Set<string>(Object.values(EVENT));

@@ -34,9 +34,17 @@ test('isInEmpBlast covers the Chebyshev disc of EMP_RADIUS around the center', (
   const cx = 5;
   const cy = 5;
   assert.equal(isInEmpBlast(cx, cy, cx, cy), true, 'center is in the blast');
-  assert.equal(isInEmpBlast(cx, cy, cx + EMP_RADIUS, cy + EMP_RADIUS), true, 'far corner in radius');
+  assert.equal(
+    isInEmpBlast(cx, cy, cx + EMP_RADIUS, cy + EMP_RADIUS),
+    true,
+    'far corner in radius'
+  );
   assert.equal(isInEmpBlast(cx, cy, cx + EMP_RADIUS + 1, cy), false, 'one tile past radius is out');
-  assert.equal(isInEmpBlast(cx, cy, cx, cy - (EMP_RADIUS + 1)), false, 'one tile past radius (up) is out');
+  assert.equal(
+    isInEmpBlast(cx, cy, cx, cy - (EMP_RADIUS + 1)),
+    false,
+    'one tile past radius (up) is out'
+  );
 });
 
 // --- canEmp legality --------------------------------------------------------

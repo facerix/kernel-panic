@@ -31,7 +31,7 @@
 
 import type { AsciiRenderer } from './AsciiRenderer.js';
 import { COMBAT_HUD_COLORS } from './combatHud.js';
-import { STUNNED_FG } from './palette.js';
+import { CRASH_FLASH_FG, STUNNED_FG, SURGE_FLASH_FG } from './palette.js';
 
 export const ANIMATION_DURATIONS = Object.freeze({
   SHAKE: 150,
@@ -39,6 +39,10 @@ export const ANIMATION_DURATIONS = Object.freeze({
   MITIGATION_FLASH: 300,
   /** Cyan discharge pulse when a Decker detonates an EMP (P3.5.M2). */
   EMP_FLASH: 220,
+  /** Blaze-orange spike when a Berserk arms Surge (P3.5.M3). */
+  SURGE_FLASH: 220,
+  /** Ashen comedown pulse when a Berserk's Surge expires into Crash (P3.5.M3). */
+  CRASH_FLASH: 260,
   // Original plan suggested "~80ms" but at 60fps that's ~5 frames — perceptually
   // borderline, especially with the shooter's own glyph sitting underneath.
   // 120ms (~7 frames) is still snappy and reads clearly as a burst.
@@ -108,7 +112,44 @@ export function triggerDamageFlash(stageEl: HTMLElement, timers = defaultTimers)
 export function triggerEmpFlash(stageEl: HTMLElement, timers = defaultTimers) {
   stageEl.classList.remove(DAMAGE_CLASS);
   stageEl.style.setProperty(IMPACT_FLASH_COLOR_PROPERTY, `${STUNNED_FG}8c`);
-  return restartCssAnimation(stageEl, MITIGATION_FLASH_CLASS, ANIMATION_DURATIONS.EMP_FLASH, timers);
+  return restartCssAnimation(
+    stageEl,
+    MITIGATION_FLASH_CLASS,
+    ANIMATION_DURATIONS.EMP_FLASH,
+    timers
+  );
+}
+
+/**
+ * Blaze-orange discharge pulse when a Berserk arms Surge (P3.5.M3). Reuses the
+ * same parametrized colored-vignette primitive the EMP and mitigation flashes
+ * drive — the surge spike and its later Crash comedown share this one screen
+ * effect, tinted differently, so the ability reads as a single arc.
+ */
+export function triggerSurgeFlash(stageEl: HTMLElement, timers = defaultTimers) {
+  stageEl.classList.remove(DAMAGE_CLASS);
+  stageEl.style.setProperty(IMPACT_FLASH_COLOR_PROPERTY, `${SURGE_FLASH_FG}8c`);
+  return restartCssAnimation(
+    stageEl,
+    MITIGATION_FLASH_CLASS,
+    ANIMATION_DURATIONS.SURGE_FLASH,
+    timers
+  );
+}
+
+/**
+ * Ashen violet-grey pulse when a Berserk's Surge expires into Crash (P3.5.M3).
+ * The comedown twin of {@link triggerSurgeFlash} on the shared vignette class.
+ */
+export function triggerCrashFlash(stageEl: HTMLElement, timers = defaultTimers) {
+  stageEl.classList.remove(DAMAGE_CLASS);
+  stageEl.style.setProperty(IMPACT_FLASH_COLOR_PROPERTY, `${CRASH_FLASH_FG}8c`);
+  return restartCssAnimation(
+    stageEl,
+    MITIGATION_FLASH_CLASS,
+    ANIMATION_DURATIONS.CRASH_FLASH,
+    timers
+  );
 }
 
 export type MitigationFlashKind = 'armor' | 'shield';

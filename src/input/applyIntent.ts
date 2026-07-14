@@ -431,7 +431,7 @@ function doSpecial(intent: Intent, ctx: ApplyIntentContext) {
 
 /** Trigger the Berserk's self-targeted Surge. */
 function doSurge(ctx: ApplyIntentContext) {
-  const { player, log } = ctx;
+  const { world, player, log } = ctx;
   const berserk = player as Berserk;
   const playerLabel = entityLabel(player);
   const check = berserk.canSurge();
@@ -441,6 +441,9 @@ function doSurge(ctx: ApplyIntentContext) {
   }
   berserk.surge();
   log(`> ${playerLabel} SURGES — power spikes before the crash (${player.ap} AP left).`);
+  // Presentation hook (P3.5.M3): the shell listens for this to pulse the surge
+  // spike. Gameplay is already committed above — this carries no state.
+  world.events?.emit(EVENT.BERSERK_SURGED, { origin: { x: player.x, y: player.y } });
   gateOnApExhausted(ctx);
 }
 

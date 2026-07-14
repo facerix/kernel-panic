@@ -1,3 +1,4 @@
+import { STATUS_EFFECT } from './constants.js';
 import { EVENT } from './events.js';
 import type { FactionId } from './constants.js';
 import type { World } from './World.js';
@@ -41,7 +42,17 @@ export class TurnQueue {
     const incoming = this.currentFaction;
     for (const e of world.entities.values()) {
       if (e.alive && e.faction === incoming) {
+        // The refresh boundary is where timed effects tick — a Berserk's Surge
+        // expires into Crash here. Capture the rising edge so the shell can pulse
+        // the comedown (presentation only; the effect swap is owned by refreshAp).
+        const wasCrashing = e.hasEffect(STATUS_EFFECT.CRASH);
         e.refreshAp();
+        if (!wasCrashing && e.hasEffect(STATUS_EFFECT.CRASH)) {
+          world.events?.emit(EVENT.BERSERK_CRASHED, {
+            origin: { x: e.x, y: e.y },
+            entityId: e.id,
+          });
+        }
       }
     }
     if (advancedRound) {

@@ -5,6 +5,8 @@ import { Grid } from '../../../src/game/Grid.js';
 import { Entity } from '../../../src/game/Entity.js';
 import { World } from '../../../src/game/World.js';
 import { TurnQueue } from '../../../src/game/TurnQueue.js';
+import { Berserk } from '../../../src/game/archetypes/Berserk.js';
+import { EventBus, EVENT } from '../../../src/game/events.js';
 import { FACTION, STATUS_EFFECT } from '../../../src/game/constants.js';
 
 test('TurnQueue requires a non-empty faction order', () => {
@@ -83,6 +85,34 @@ test('TurnQueue.endTurn refreshes a stunned entity to 0 AP, then full AP next ro
   q.endTurn(w); // -> PLAYER
   q.endTurn(w); // -> CORP
   assert.equal(drone.ap, 3, 'full AP the activation after the stun');
+});
+
+test('TurnQueue.endTurn emits berserk:crashed once, on the surge→crash refresh boundary', () => {
+  const bus = new EventBus();
+  const w = new World(new Grid(3, 3), { events: bus });
+  const berserk = new Berserk({ id: 'b', x: 1, y: 1, maxAp: 4 });
+  berserk.faction = FACTION.PLAYER;
+  w.addEntity(berserk);
+  berserk.surge();
+
+  const crashes = [];
+  bus.on(EVENT.BERSERK_CRASHED, payload => crashes.push(payload));
+
+  const q = new TurnQueue([FACTION.PLAYER, FACTION.CORP]);
+  // Two player refreshes (each a full round) drive SURGE (duration 2) to expiry.
+  q.endTurn(w); // PLAYER -> CORP
+  q.endTurn(w); // CORP -> PLAYER: surge tick, still surging — no crash yet
+  assert.deepEqual(crashes, [], 'no crash while surge is still active');
+  q.endTurn(w); // PLAYER -> CORP
+  q.endTurn(w); // CORP -> PLAYER: surge expires into crash — event fires here
+
+  assert.equal(berserk.hasEffect(STATUS_EFFECT.CRASH), true);
+  assert.deepEqual(crashes, [{ origin: { x: 1, y: 1 }, entityId: 'b' }]);
+
+  // Crash persisting across further refreshes does not re-emit.
+  q.endTurn(w);
+  q.endTurn(w);
+  assert.equal(crashes.length, 1, 'crash edge fires exactly once');
 });
 
 test('TurnQueue.endTurn emits turn:ended with previous/next/turn when bus attached', async () => {

@@ -19,6 +19,7 @@ import {
 } from '../../../src/game/persistence.js';
 import {
   CONTRACT_DIFFICULTY,
+  CRASH_HIT_PENALTY,
   FACTION,
   SALVAGE_TO_CRED_RATE,
   STATUS_EFFECT,
@@ -130,20 +131,37 @@ test('snapshot/restore round-trips a Berserk deploy (P3.5.M3)', () => {
   assert.deepEqual(snapshot(restoredRun), rec);
 });
 
-test('snapshot/restore preserves an active Berserk Surge, including bonus AP', () => {
+test('snapshot/restore preserves an active Berserk Surge, including bonus AP and armor', () => {
   const run = freshCombatRun(0xb3e5e5, 'berserk');
   const berserk = run.player as Berserk;
+  const baseArmor = berserk.damageReduction;
   berserk.surge();
   berserk.refreshAp();
   assert.equal(berserk.ap, berserk.maxAp + 1);
+  assert.equal(berserk.effectiveDamageReduction, baseArmor + 1, 'surge armor live before save');
 
   const rec = snapshot(run);
+  // The record stores the pristine base armor — the +armor is a computed combat
+  // value derived from the SURGE effect, never a stored stat, so it can't leak.
+  assert.equal(rec.entities.find(e => e.id === berserk.id)?.damageReduction, baseArmor);
+
   const { run: restoredRun } = restore(rec);
   const restored = restoredRun.player as Berserk;
   assert.ok(restored instanceof Berserk);
   assert.equal(restored.hasEffect(STATUS_EFFECT.SURGE), true);
   assert.equal(restored.ap, restored.maxAp + 1);
+  assert.equal(restored.damageReduction, baseArmor, 'stored base armor round-trips clean');
+  assert.equal(
+    restored.effectiveDamageReduction,
+    baseArmor + 1,
+    'surge armor re-derived from effect'
+  );
   assert.deepEqual(snapshot(restoredRun), rec);
+
+  // Drive Surge to expiry on the restored Berserk — combat armor falls to base.
+  restored.refreshAp();
+  assert.equal(restored.hasEffect(STATUS_EFFECT.CRASH), true);
+  assert.equal(restored.effectiveDamageReduction, baseArmor, 'combat armor drops on surge expiry');
 });
 
 test('snapshot/restore preserves Berserk Crash and its derived hit penalty', () => {
@@ -159,7 +177,7 @@ test('snapshot/restore preserves Berserk Crash and its derived hit penalty', () 
   const restored = restoredRun.player as Berserk;
   assert.ok(restored instanceof Berserk);
   assert.equal(restored.hasEffect(STATUS_EFFECT.CRASH), true);
-  assert.equal(restored.baseHitChance, 0.65);
+  assert.equal(restored.baseHitChance, 0.78 - CRASH_HIT_PENALTY);
   assert.deepEqual(snapshot(restoredRun), rec);
 });
 

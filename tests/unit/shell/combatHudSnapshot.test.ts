@@ -69,5 +69,9 @@ test('combatHudBodyPanes exposes the Berserk Surge and Crash windows', () => {
   crew.refreshAp();
   assert.equal(combatHudBodyPanes(scene).identity.surging, false);
   assert.equal(combatHudBodyPanes(scene).identity.crashing, true);
-  assert.deepEqual(combatHudBodyPanes(scene).ap, { ap: 3, maxAp: 4 });
+  assert.deepEqual(
+    combatHudBodyPanes(scene).ap,
+    { ap: 2, maxAp: 4 },
+    'Crash docks CRASH_AP_PENALTY (2) from the 4-AP budget'
+  );
 });

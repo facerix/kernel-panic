@@ -5,6 +5,7 @@ import {
   CRASH_HIT_PENALTY,
   STATUS_EFFECT,
   SURGE_AP_BONUS,
+  SURGE_ARMOR_BONUS,
   SURGE_DAMAGE_BONUS,
 } from '../constants.js';
 import { canSurge, doSurge } from '../surge.js';
@@ -30,11 +31,22 @@ export class Berserk extends Crew {
   override archetype = 'Berserk';
 
   override get baseHitChance(): number {
-    return 0.75 - (this.hasEffect(STATUS_EFFECT.CRASH) ? CRASH_HIT_PENALTY : 0);
+    return 0.78 - (this.hasEffect(STATUS_EFFECT.CRASH) ? CRASH_HIT_PENALTY : 0);
   }
 
   override get baseDodgeChance(): number {
-    return 0.2;
+    return 0.36;
+  }
+
+  /**
+   * Live combat armor: base `damageReduction` plus Surge's flat bonus while it
+   * is active. Computed on read, never stored — `damageReduction` stays the
+   * pristine persisted base, so the transient buff cannot leak into a save even
+   * if a run ends mid-Surge (`run.player` *is* the campaign crew object). Combat
+   * mitigation and the HUD read this; snapshots keep reading `damageReduction`.
+   */
+  override get effectiveDamageReduction(): number {
+    return this.damageReduction + (this.hasEffect(STATUS_EFFECT.SURGE) ? SURGE_ARMOR_BONUS : 0);
   }
 
   constructor(props: CrewInit) {

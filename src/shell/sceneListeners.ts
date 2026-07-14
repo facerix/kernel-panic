@@ -4,10 +4,12 @@ import { resolveEntityLabel } from '../game/Entity.js';
 import {
   ANIMATION_DURATIONS,
   runMuzzleFlash,
+  triggerCrashFlash,
   triggerDamageFlash,
   triggerEmpFlash,
   triggerMitigationFlash,
   triggerShake,
+  triggerSurgeFlash,
 } from '../render/animations.js';
 import { COMBAT_HUD_COLORS } from '../render/combatHud.js';
 import { cyberLayerOf, isCyberView } from './activeView.js';
@@ -155,6 +157,17 @@ export class SceneListenerController {
         // perk; the flash reads whether or not the meat view is in the PIP.
         triggerEmpFlash(dom.stageEl);
         animLock.push(ANIMATION_DURATIONS.EMP_FLASH);
+      }),
+      run.bus.on(EVENT.BERSERK_SURGED, () => {
+        // Blaze-orange spike as Surge arms — a beat of feedback beyond the HUD
+        // status tag. Meatspace-only perk, so the shared stage flash suffices.
+        triggerSurgeFlash(dom.stageEl);
+        animLock.push(ANIMATION_DURATIONS.SURGE_FLASH);
+      }),
+      run.bus.on(EVENT.BERSERK_CRASHED, () => {
+        // Ashen comedown pulse the instant Surge expires into Crash.
+        triggerCrashFlash(dom.stageEl);
+        animLock.push(ANIMATION_DURATIONS.CRASH_FLASH);
       })
     );
   }

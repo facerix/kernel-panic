@@ -49,6 +49,15 @@ export const INTERACTABLE_SECURED_FG = FACTION_FG[FACTION.PLAYER];
 export const STUNNED_FG = '#8be9ff';
 
 /**
+ * Berserk Surge/Crash screen-pulse tints (P3.5.M3). Reused by the shared
+ * colored-vignette flash so the two halves of the ability read as one arc:
+ *   - `SURGE_FLASH_FG` — blaze orange for the power spike (rage, heat).
+ *   - `CRASH_FLASH_FG` — ashen violet-grey for the comedown (drained, burnt out).
+ */
+export const SURGE_FLASH_FG = '#ff6a1a';
+export const CRASH_FLASH_FG = '#6c6a8a';
+
+/**
  * Sentinel glyph for cells outside the world (camera near the map edge).
  * We render *something* rather than leaving holes so the playfield always
  * fills the canvas — easier on the eyes and on the CRT post-pass. Stays a

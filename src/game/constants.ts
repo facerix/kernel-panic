@@ -115,13 +115,24 @@ export const AP_COST = Object.freeze({
   SURGE: 2, // Berserk — self-buff that always chains into CRASH (P3.5.M3)
 });
 
-/** Berserk Surge/Crash tuning (P3.5.M3). */
+/**
+ * Berserk Surge/Crash tuning (P3.5.M3). Surge is a short, potent spike that
+ * always chains into a deliberately heavier Crash — the payback outweighs the
+ * high so the ability reads as a genuine gamble, not free value.
+ *
+ *   - `SURGE_ARMOR_BONUS` — flat `damageReduction` while SURGE is active. The
+ *     frenzy shrugs off hits mid-spike; the bonus is computed on Berserk's
+ *     `damageReduction` getter (never stored), so it can't leak into a save.
+ *   - Crash is longer (3 refreshes) and bites harder (−2 AP, −0.2 hit) than the
+ *     Surge it pays for — playtest-tuned so the comedown actually stings.
+ */
 export const SURGE_DURATION = 2;
 export const SURGE_DAMAGE_BONUS = 1;
 export const SURGE_AP_BONUS = 1;
-export const CRASH_DURATION = 2;
-export const CRASH_AP_PENALTY = 1;
-export const CRASH_HIT_PENALTY = 0.1;
+export const SURGE_ARMOR_BONUS = 1;
+export const CRASH_DURATION = 3;
+export const CRASH_AP_PENALTY = 2;
+export const CRASH_HIT_PENALTY = 0.2;
 
 /**
  * Decker drone-override parameters (P3.M2). The Decker's signature Meatspace

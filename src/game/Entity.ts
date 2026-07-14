@@ -167,6 +167,17 @@ export class Entity {
     }
   }
 
+  /**
+   * The armor value combat actually mitigates with — base `damageReduction`
+   * plus any live timed buff a subclass layers on (the Berserk's Surge armor).
+   * For a plain entity it equals `damageReduction`. Kept separate from the
+   * stored field so a transient buff is computed on read and never persisted:
+   * snapshots read `damageReduction` (pristine base), combat reads this.
+   */
+  get effectiveDamageReduction(): number {
+    return this.damageReduction;
+  }
+
   hasEffect(id: string): boolean {
     return this.effects.has(id);
   }

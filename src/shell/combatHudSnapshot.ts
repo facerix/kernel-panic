@@ -80,7 +80,8 @@ export function combatHudBodyPanes(
 }
 
 function crewDefense(crew: Crew): CombatHudDefenseInput | undefined {
-  const armor = crew.damageReduction;
+  // Live combat armor, so a surging Berserk's +armor shows in the HUD pane.
+  const armor = crew.effectiveDamageReduction;
   const shieldCapacity = crew.gear?.shieldRegen ?? 0;
   if (armor <= 0 && shieldCapacity <= 0) return undefined;
   return {

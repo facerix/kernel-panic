@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { Grid } from '../../../src/game/Grid.js';
 import { World } from '../../../src/game/World.js';
 import { TurnQueue } from '../../../src/game/TurnQueue.js';
-import { EventBus } from '../../../src/game/events.js';
+import { EventBus, EVENT } from '../../../src/game/events.js';
 import {
   TILE,
   FACTION,
@@ -517,13 +517,17 @@ test('special intent routes to EMP on a Decker and stuns a same-faction ally in 
 });
 
 test('special intent routes to Surge on a Berserk without entering directional movement', () => {
-  const { ctx, log, player } = buildCtx({ archetype: 'berserk', placeDrone: false });
+  const { ctx, log, player, world } = buildCtx({ archetype: 'berserk', placeDrone: false });
   const positionBefore = { x: player.x, y: player.y };
+  const surges = [];
+  world.events.on(EVENT.BERSERK_SURGED, payload => surges.push(payload));
   applyIntent({ type: 'special', dx: 0, dy: 0 }, ctx);
   assert.deepEqual({ x: player.x, y: player.y }, positionBefore);
   assert.equal(player.hasEffect(STATUS_EFFECT.SURGE), true);
   assert.equal(player.ap, player.maxAp - AP_COST.SURGE);
   assert.ok(log.some(line => line.includes('SURGES')));
+  // Presentation hook fires for the shell's surge pulse.
+  assert.deepEqual(surges, [{ origin: { x: player.x, y: player.y } }]);
 });
 
 test('special intent routes CyberAvatar Override against Probe ICE', () => {

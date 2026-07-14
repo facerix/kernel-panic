@@ -207,7 +207,11 @@ test('Entity.applyEffect overwrites, it does not stack', () => {
   const e = new Entity(baseProps());
   e.applyEffect(STATUS_EFFECT.STEALTH, 1);
   e.applyEffect(STATUS_EFFECT.STEALTH, 3);
-  assert.equal(e.effectTurnsRemaining(STATUS_EFFECT.STEALTH), 3, 'reapply overwrites remaining duration');
+  assert.equal(
+    e.effectTurnsRemaining(STATUS_EFFECT.STEALTH),
+    3,
+    'reapply overwrites remaining duration'
+  );
 });
 
 test('Entity.applyEffect rejects a non-positive-integer duration (data-corruption guard)', () => {

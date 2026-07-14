@@ -197,7 +197,8 @@ export const CRASH_AP_PENALTY = 1;        // symmetric with SURGE_AP_BONUS — n
 export const CRASH_HIT_PENALTY = 0.1;     // mirrors the existing 0.1-per-tier TARGETING_BONUS/DODGE_BONUS step
 // AP_COST.SURGE: 2, matches the "every perk costs 2 AP" convention
 ```
-**Base stats: `baseHitChance = 0.75`, `baseDodgeChance = 0.20`** — generic baseline like Tech; differentiation lives entirely in the surge/crash swing. **Armor note for M6:** Berserk's centroid collides exactly with Tech's on the hit/dodge plane — M6 resolves this via the armor axis (`armor === 0 → Tech`, `armor > 0 → Berserk`).
+> **Retuned in the M3 enrichment pass (see as-built notes):** playtest showed the "roughly even" Crash was too soft to make Surge a real gamble. Shipped values are `CRASH_DURATION = 3`, `CRASH_AP_PENALTY = 2`, `CRASH_HIT_PENALTY = 0.2`, and a new `SURGE_ARMOR_BONUS = 1` — the payback now outlasts and outweighs the spike it pays for.
+**Base stats: `baseHitChance = 0.78`, `baseDodgeChance = 0.36`** — the fast, high-melee frenzy identity (respecced from an initial `0.75/0.20` generic-baseline placeholder once M6 gave Berserk its high-dodge anchor); the surge/crash swing layers on top. **~~Armor note for M6:~~ (Superseded by M6.)** An earlier draft had Berserk share Tech's exact `(0.75, 0.20)` centroid and resolved the collision via the armor axis (`armor === 0 → Tech`, `armor > 0 → Berserk`). That made Berserk only ~1% rollable (gated behind the rare armor roll), so M6 instead gives Berserk its own high-dodge classification anchor `(0.78, 0.36)` and drops armor as a classifier entirely. Berserk's default base stats above were respecced to match that anchor exactly (`0.78/0.36`).
 
 **Wiring surface** (every place a `CrewArchetypeId` fans out — this exact list is reused verbatim for M4 and M5, so it's spelled out once here):
 - `src/game/archetypes/index.ts` — `BUILDERS`, `ARCHETYPES`, `CALLSIGNS_BY_ARCHETYPE`, `ARCHETYPE_IDS`.
@@ -214,12 +215,18 @@ Berserk is recruit-pool only — moot as a distinct decision once M6 lands, sinc
 
 **Implementation notes (as-built):**
 - `Berserk` and the pure `surge.ts` legality/commit module shipped with the proposed tuning and callsign pool. Surge is self-targeted, costs 2 AP, adds +1 ranged/melee damage while active, and grants +1 AP on an active Surge refresh. It cannot be re-armed during Surge or Crash, so the mandatory payback cannot be postponed indefinitely.
-- Surge expiry immediately arms a two-refresh Crash. Crash applies -1 AP and -0.1 base hit chance while active; accuracy is derived directly from `STATUS_EFFECT.CRASH` rather than tracked in a second mutable flag, so expiry and restore cannot over-/under-correct the stat.
+- Surge expiry immediately arms a Crash. Accuracy is derived directly from `STATUS_EFFECT.CRASH` rather than tracked in a second mutable flag, so expiry and restore cannot over-/under-correct the stat. *(Crash duration and penalties were retuned in the enrichment pass below — originally a two-refresh, -1 AP / -0.1 hit window.)*
 - **Run persistence correction:** the earlier phase-level assumption that timed effects never meet persistence was false for mid-combat autosaves. `RunEntitySnapshot.effects` now stores validated non-stealth timed effects (legacy `stealthed` stays byte-compatible), so Surge/Crash cannot be cleared by reload. Restore accepts Berserk's legitimate `maxAp + SURGE_AP_BONUS` snapshot only while Surge is present and fails loud on unknown/reserved/malformed effects.
 - Full archetype fan-out landed: registry/factory/callsigns/perk metadata, recruit pool, Run classification/telemetry/snapshot, campaign/run restore, capability-based input dispatch, and self-targeting keyboard/touch behavior. The interim weighted pool is now `2 Merc / 2 Razor / 1 Tech / 1 Berserk`; its tests include Berserk in the denominator instead of silently ignoring a new class. M6 still replaces this pool with stat-first derivation.
 - Player-facing state is explicit: combat HUD appends `[SURGING]` / `[CRASH]`, the log announces Surge/denials, and Key Help no longer tells self-targeted perks to pick a direction. Offline precache includes Berserk/Surge plus the previously omitted Decker/EMP modules; service-worker/release version is `0.3.4b`.
 - **Smoketest correction (`0.3.4b`):** the combat HUD now treats active Surge as a real `maxAp + 1` five-pip capacity, fixing the tier-1 `ap must be <= 4, got 5` paint fault and preserving the spent fifth pip. Berserk's refresh override also respects the base stun gate, so overlapping Stun cannot leak one AP back into a deliberately zero-AP activation.
 - Verification: focused Berserk/wiring/persistence tests, `npm run format`, `npm run lint`, and full `npm test` pass. Browser smoke at `http://localhost:8099/` resumed combat without console warnings/errors and installed the new service worker successfully.
+
+**M3 enrichment pass (playtest feedback, as-built):** three follow-ups from playing the Berserk — the surge/crash swing read as too weak and too invisible.
+- **+1 armor while surging (`SURGE_ARMOR_BONUS = 1`).** Deliberately *not* modelled by mutating `damageReduction` the way gear (Subdermal Plating) does: `run.player` **is** the campaign crew object, and `damageReduction` is a persisted stat, so a stored buff would leak permanently if a run ends mid-Surge (e.g. surge, then step onto the exit the same turn — the crew returns to the Hub carrying `base+1` with no effect left to remove it). Instead the buff is **computed, never stored**: a new `Entity.effectiveDamageReduction` getter defaults to `damageReduction`; `Berserk` overrides it to add the bonus while `hasEffect('surge')`. `Combat.applyDamageReduction` and the HUD defense pane read `effectiveDamageReduction`; every snapshot keeps reading the pristine `damageReduction`. Structurally impossible to leak — the persistence round-trip test asserts the record stores base armor mid-Surge and re-derives the buff from the restored effect.
+- **Harsher, longer Crash.** `CRASH_DURATION` 2→3, `CRASH_AP_PENALTY` 1→2, `CRASH_HIT_PENALTY` 0.1→0.2. Crash tests are duration-driven (loop over `CRASH_DURATION`) so a future retune can't rot them.
+- **Renderer pulses beyond the HUD tag.** New presentation-only bus events `BERSERK_SURGED` (emitted from `applyIntent.doSurge`, where `world` is in scope) and `BERSERK_CRASHED` (emitted from `TurnQueue.endTurn` on the exact surge→crash refresh edge, exactly once). `triggerSurgeFlash` (blaze orange) / `triggerCrashFlash` (ashen violet-grey) reuse the same colored-vignette primitive the Decker EMP flash drives, wired in `sceneListeners` beside the EMP listener. Palette tints live in `palette.ts` (`SURGE_FLASH_FG` / `CRASH_FLASH_FG`).
+- Verification: full `npm test` (2012 pass), `npm run lint`, `npm run format`. Visual pulse confirmation is a live-playtest observation (no node-testable surface); the flash triggers and both event emissions are unit-covered.
 
 ---
 
@@ -266,7 +273,7 @@ Doc comments reflavor from "hijack a corp drone's allegiance" to "psychically do
 
 Fiction is deliberately unresolved: Chimera is a sustain operative built around a semi-sentient nanite swarm, or an awakened AI in an android chassis — the game (and possibly the character) never confirms which. Flavor/log text should preserve that ambiguity rather than pick a side.
 
-**New `src/game/archetypes/Chimera.ts`:** thin `Crew` subclass, archetype `'Chimera'`. **Base stats: `baseHitChance = 0.75`, `baseDodgeChance = 0.25`** — deliberately its own point on the hit/dodge plane (not shared with Tech/Berserk's `(0.75, 0.20)`), so M6's centroid table doesn't need a third collision resolved by armor; Tech/Berserk stay a clean 2-way armor tie-break.
+**New `src/game/archetypes/Chimera.ts`:** thin `Crew` subclass, archetype `'Chimera'`. **Base stats: `baseHitChance = 0.75`, `baseDodgeChance = 0.25`** — its own identity point on the hit/dodge plane, distinct from Tech/Berserk's `(0.75, 0.20)`. (These are the *default* stats / old-save fallback; M6 classifies rolled crew against a separate tuned anchor table — Chimera's classification anchor is `(0.79, 0.20)` — and no longer uses any armor tie-break. See M6.)
 
 **New pure module `src/game/nanoRepair.ts`** (mirrors Tech's `improviseTurret` shape exactly — resource-gated, repeatable, no per-job cap):
 ```ts
@@ -308,34 +315,42 @@ Repeatable every turn as long as the shared scrap pool allows — same resource-
 - **No weighted pool, no starter-variety guarantee** — every non-Decker crew member (campaign-start trio *and* mid-campaign recruits) goes through the same roll-then-derive pipeline. `RECRUIT_ARCHETYPE_POOL`'s hand-weighted array is retired outright. Duplicates are allowed at campaign start (e.g. two Merc-flavored operatives is a legal, if unlucky, roll).
 
 **Mechanical refactor: `baseHitChance`/`baseDodgeChance` getter → field.** Convert each archetype's `override get baseHitChance(): number { return X; }` into a constructor-settable instance field:
-- Extract each literal into a named constant in `constants.ts` (`MERC_DEFAULT_HIT_CHANCE = 0.8`, `RAZOR_DEFAULT_HIT_CHANCE = 0.7` / `RAZOR_DEFAULT_DODGE_CHANCE = 0.35`, `TECH_DEFAULT_HIT_CHANCE = 0.75`, `DECKER_DEFAULT_HIT_CHANCE = 0.7`, `BERSERK_DEFAULT_HIT_CHANCE = 0.75`, `ADEPT_DEFAULT_HIT_CHANCE = 0.7`, `CHIMERA_DEFAULT_HIT_CHANCE = 0.75` / `CHIMERA_DEFAULT_DODGE_CHANCE = 0.25`).
+- Extract each literal into a named constant in `constants.ts` (`MERC_DEFAULT_HIT_CHANCE = 0.8`, `RAZOR_DEFAULT_HIT_CHANCE = 0.7` / `RAZOR_DEFAULT_DODGE_CHANCE = 0.35`, `TECH_DEFAULT_HIT_CHANCE = 0.75`, `DECKER_DEFAULT_HIT_CHANCE = 0.7`, `BERSERK_DEFAULT_HIT_CHANCE = 0.78` / `BERSERK_DEFAULT_DODGE_CHANCE = 0.36`, `ADEPT_DEFAULT_HIT_CHANCE = 0.7`, `CHIMERA_DEFAULT_HIT_CHANCE = 0.75` / `CHIMERA_DEFAULT_DODGE_CHANCE = 0.25`).
 - `CrewInit` gains optional `baseHitChance?`/`baseDodgeChance?`; each constructor does `this.baseHitChance = baseHitChance ?? <ARCHETYPE>_DEFAULT_HIT_CHANCE;`, deleting the `override get` block.
 - **Explicit regression requirement:** `new Merc({...})` with no override must still yield `0.8`, etc. — keeps `tests/unit/game/Crew.test.ts:404-497`'s existing assertions passing *unmodified*, proving the refactor alone changes nothing.
 - `damageReduction`/HP/AP need no change — already constructor-settable instance fields.
 
-**Derivation rule — nearest-centroid** (`src/game/crewStatRoll.ts`, new pure module). Six centroids, reusing each archetype's current fixed `(hitChance, dodgeChance)`:
+**Derivation rule — nearest-anchor** (`src/game/crewStatRoll.ts`, new pure module). Six classification anchors on the `(hitChance, dodgeChance)` plane, tuned for an even partition (`CREW_STAT_ANCHORS`). **Armor plays no role in classification** — it's rolled purely as a combat stat (`damageReduction`). Agility is the primary spread axis: the "fast" pair (Berserk, Razor) owns the high-dodge region, Merc sits mid-dodge, and the "slow" trio (Chimera, Tech, Adept) fills the low-dodge band separated along the hit axis:
 
-| Archetype | hitChance | dodgeChance | armor tie-break |
+| Archetype | anchor hit | anchor dodge | fiction |
 |---|---|---|---|
-| Merc | 0.80 | 0.20 | — |
-| Razor | 0.70 | 0.35 | — |
-| Adept | 0.70 | 0.20 | — |
-| Tech | 0.75 | 0.20 | `armor === 0` |
-| Berserk | 0.75 | 0.20 | `armor > 0` |
-| Chimera | 0.75 | 0.25 | — |
+| Merc | 0.83 | 0.27 | ace shot, some mobility |
+| Berserk | 0.78 | 0.36 | fast, high-melee frenzy |
+| Razor | 0.68 | 0.36 | evasive melee/stealth |
+| Chimera | 0.79 | 0.20 | accurate, slow sustain |
+| Tech | 0.73 | 0.19 | slow generalist |
+| Adept | 0.67 | 0.20 | slow, weak shot (bring for Influence) |
 
-Only Tech/Berserk collide on the hit/dodge plane (by design — see M3); resolved by the armor axis. Otherwise: squared Euclidean distance from the rolled tuple to each centroid, pick the minimum; break any remaining exact tie by fixed priority `merc > razor > adept > tech > berserk > chimera` for determinism.
+Classification is squared Euclidean distance from the rolled `(hitChance, dodgeChance)` to each anchor; minimum wins; break any exact boundary tie by fixed priority `merc > razor > adept > tech > berserk > chimera` for determinism.
+
+**Resulting spawn distribution** (verified by the exhaustive sweep below, uniform roll over the widened ranges): Merc ~15%, Razor ~21%, Adept ~14%, Tech ~13%, Berserk ~21%, Chimera ~16% — every archetype lands in 13–21%. This replaces an earlier "anchors = each archetype's default stats + armor tie-break for Berserk" design that computed out to **Razor ~35% / Berserk ~1%** — Berserk was near-unrollable because it shared Tech's exact centroid and only won on the rare (15%) armor roll, contradicting the phase's "all seven archetypes reachable via the roll" completion criterion.
+
+**Why the anchors are a *separate table* from the archetype default stats (old-save safety):** the discarded design doubled the classification centroids as the archetype default base stats. But those defaults are also the pre-P3.5 old-save fallback (`DEFAULT_*_BY_ARCHETYPE`, below) — retuning them to fix the distribution would silently restore legacy saved crew (Merc/Razor/Tech) to stats they never had (violates completion criterion #4). So `CREW_STAT_ANCHORS` is its own table tuned only for the partition, while the fallback default constants for the three legacy archetypes stay **frozen** at their shipped values (`Merc 0.80/0.20`, `Razor 0.70/0.35`, `Tech 0.75/0.20`). The three P3.5-new archetypes (Berserk/Adept/Chimera) have no pre-P3.5 saves, so their defaults are free — but the anchor table above is what `deriveArchetype` reads regardless. The derived crew member always gets its *rolled* stats, not the anchor.
 
 ```ts
 export function rollCrewStats(rng: Rng): { hitChance: number; dodgeChance: number; armor: number }
-export function deriveArchetype(stats): CrewArchetypeId
+//   ^ hitChance/dodgeChance rolled as uniform floats then rounded to 0.01 inside this fn;
+//     deriveArchetype receives the already-rounded tuple.
+export function deriveArchetype(stats): CrewArchetypeId   // reads hitChance/dodgeChance only; armor is not a classifier
 ```
-Roll ranges, anchored to today's observed spread so day-one balance doesn't quietly widen:
-- `hitChance`: uniform pick from `{0.70, 0.75, 0.80}`.
-- `dodgeChance`: uniform pick from `{0.20, 0.25, 0.30, 0.35}`.
-- `armor`: `rng.chance(0.15) → 1, else 0` — conservative, since armor is a wholly new variance axis with no prior balance data.
+Roll ranges — continuous and **deliberately wider than today's discrete spread** (P3.5 refinement: the old `{0.70,0.75,0.80}` / `{0.20,0.25,0.30,0.35}` buckets clustered crew onto a handful of identical stat lines; continuous rolls over a widened range give every operative a distinct feel). Roll a uniform float, then **round to 0.01** so the HUD reads clean whole-percents and the derivation domain stays finite/enumerable:
+- `hitChance`: uniform in `[0.65, 0.85]`, rounded to 0.01 → 21 discrete values.
+- `dodgeChance`: uniform in `[0.15, 0.40]`, rounded to 0.01 → 26 discrete values.
+- `armor`: `rng.chance(0.15) → 1, else 0` — unchanged; conservative, since armor is a wholly new variance axis with no prior balance data.
 
-**Test requirement, exhaustive by design:** the roll domain is small and finite (`3 × 4 × 2 = 24` combinations) — table-test `deriveArchetype` against **all 24 discrete tuples**, not just the six exact centroids, to prove there's no accidental collision or dead zone anywhere in the grid.
+**These ranges overrun the anchor hull on purpose** (anchor hit spans 0.67–0.83, dodge 0.19–0.36). Rolls in the outer margins — e.g. hit 0.85 / dodge 0.15 → Chimera, hit 0.85 / dodge 0.40 → Berserk, hit 0.65 / dodge 0.40 → Razor, hit 0.65 / dodge 0.15 → Adept — have no anchor of their own and saturate to the nearest corner archetype, so the widened tails read as "an unusually sharp/evasive operative of an existing archetype," not a new class. **Balance caveat:** this widening is a deliberate difficulty change — genuine stat extremes (a 0.65-hit or 0.40-dodge crew member) now occur that the old buckets never produced. Needs a fresh playtest eyeball, not just green tests.
+
+**Test requirement, exhaustive by design:** classification reads only `(hitChance, dodgeChance)`, and rounding to 0.01 keeps that domain finite (`21 × 26 = 546` tuples) — sweep `deriveArchetype` across **every hit/dodge tuple on the rounded grid** and assert each resolves to a registered `CrewArchetypeId` (no dead zones, no throw) *and* that all six archetypes appear (no starved anchor). Layer targeted assertions on top of the sweep: (a) each of the six anchors maps to its own archetype; (b) Voronoi-boundary points equidistant between two anchors resolve deterministically via the fixed priority tie-break; (c) the four widened corners saturate as tabled above (0.85/0.15→Chimera, 0.85/0.40→Berserk, 0.65/0.40→Razor, 0.65/0.15→Adept); (d) the measured distribution over the full grid stays within the ~13–21% spread above — a guard so a future anchor edit can't silently re-skew back toward the discarded 35/1.
 
 **RNG determinism:** every stat roll goes through `rng.fork('crew-stats')` (per `rng.ts:106-121`'s documented "add a mechanic without perturbing other rolls" use case), not the raw campaign `this.rng`. New wrapper, additive (doesn't touch `buildCrewMember`'s existing archetype-first signature, still used by `#assignDecker`/tests):
 ```ts
@@ -363,7 +378,7 @@ Restore: `baseHitChance: rec.baseHitChance ?? DEFAULT_HIT_CHANCE_BY_ARCHETYPE[re
 
 **Critical files:** `src/game/Crew.ts`, `src/game/crewStatRoll.ts` (new), `src/game/Campaign.ts`, `src/game/persistence.ts`.
 
-**Tests:** `tests/unit/game/Crew.test.ts` (extend, don't break, existing getter-value assertions; add constructor-override cases for all six archetypes), `tests/unit/game/crewStatRoll.test.ts` (new — the exhaustive 24-point table above, plus tie-break determinism), `tests/unit/game/Campaign.test.ts` (`buildCrew`/`generateRecruits` produce rolled stats; `rng.fork('crew-stats')` doesn't perturb existing callsign/combat rolls), `tests/unit/game/persistence.test.ts` (`CampaignCrewSnapshot` round-trip with/without the new optional fields; legacy-save defaults to old fixed constant).
+**Tests:** `tests/unit/game/Crew.test.ts` (extend, don't break, existing getter-value assertions; add constructor-override cases for all six archetypes), `tests/unit/game/crewStatRoll.test.ts` (new — the exhaustive 546-tuple hit/dodge grid sweep above, the anchor/boundary/corner-saturation + distribution-spread assertions, tie-break determinism, and a property check that `rollCrewStats` only ever emits values on the 0.01 grid within `[0.65,0.85]`/`[0.15,0.40]`), `tests/unit/game/Campaign.test.ts` (`buildCrew`/`generateRecruits` produce rolled stats; `rng.fork('crew-stats')` doesn't perturb existing callsign/combat rolls), `tests/unit/game/persistence.test.ts` (`CampaignCrewSnapshot` round-trip with/without the new optional fields; legacy-save defaults to old fixed constant).
 
 ---
 
@@ -377,8 +392,8 @@ Per milestone: `npm test` (typecheck + build tests + `node --test`) must pass, i
 
 - **M1:** drive a combat run where a Razor slides, confirm stealth clears on schedule (regression); construct a synthetic stunned entity and confirm it takes 0 AP that turn via the actual `TurnQueue.endTurn` path, not just the unit-level `refreshAp` call.
 - **M2:** play a Decker to EMP with a teammate adjacent — confirm the ally is stunned too (0 AP next refresh) and a corp unit in radius is stunned.
-- **M3:** play a Berserk through a full surge→crash cycle — confirm damage/AP bonus during surge, confirm crash auto-applies on expiry with the accuracy penalty visible in the HUD hit-chance display, confirm crash itself expires cleanly back to baseline.
+- **M3:** play a Berserk through a full surge→crash cycle — confirm damage/AP bonus **and +1 armor** during surge (the armor pane shows in the HUD), confirm the **surge and crash screen pulses** fire, confirm crash auto-applies on expiry with the accuracy penalty visible in the HUD hit-chance display, confirm crash itself expires cleanly back to baseline after its (now longer) window.
 - **M4:** play an Adept, confirm Influence behaves identically to the old Override (aim-sector targeting, success roll, alarm on failure, countdown-and-revert) end to end; confirm `mindInfluence.test.ts` covers the mechanic independent of any archetype wiring.
 - **M5:** play a Chimera, kill a hostile, collect its scrap drop, convert it to HP — confirm repeatable across turns as long as scrap lasts and HP clamps at max.
-- **M6:** start several fresh campaigns (different seeds) and confirm crew stats vary run-to-run but land only on the discrete roll values, and archetypes span all six non-Decker options across enough campaigns; save mid-campaign, reload, confirm rolled stats round-trip; load a pre-P3.5 save fixture (or a save snapshot lacking `baseHitChance`) and confirm it restores to the old fixed per-archetype constant rather than crashing or silently rerolling.
+- **M6:** start several fresh campaigns (different seeds) and confirm crew stats vary run-to-run, land on the 0.01 grid within the widened `[0.65,0.85]`/`[0.15,0.40]` ranges (no clustering onto a few repeated values like the old discrete buckets), and archetypes span all six non-Decker options across enough campaigns; save mid-campaign, reload, confirm rolled stats round-trip; load a pre-P3.5 save fixture (or a save snapshot lacking `baseHitChance`) and confirm it restores to the old fixed per-archetype constant rather than crashing or silently rerolling.
 - Full regression: `npm test` at the end of the phase, plus a manual playthrough covering all seven archetypes (Merc/Razor/Tech/Decker/Berserk/Adept/Chimera) in one run to catch any wiring gaps in the fan-out surfaces (`Run.ts`, `persistence.ts`, `applyIntent.ts`).
