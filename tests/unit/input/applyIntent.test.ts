@@ -19,6 +19,7 @@ import { Razor } from '../../../src/game/archetypes/Razor.js';
 import { Tech } from '../../../src/game/archetypes/Tech.js';
 import { Decker } from '../../../src/game/archetypes/Decker.js';
 import { Berserk } from '../../../src/game/archetypes/Berserk.js';
+import { Adept } from '../../../src/game/archetypes/Adept.js';
 import { CyberAvatar } from '../../../src/game/cyber/CyberAvatar.js';
 import { ProbeIce } from '../../../src/game/cyber/ProbeIce.js';
 import { Turret } from '../../../src/game/Turret.js';
@@ -55,7 +56,9 @@ function buildCtx({ archetype = 'merc', placeDrone = true } = {}) {
         ? new Tech({ id: 'tech', x: 2, y: 2, maxAp: 4 })
         : archetype === 'berserk'
           ? new Berserk({ id: 'berserk', x: 2, y: 2, maxAp: 4 })
-          : new Razor({ id: 'razor', x: 2, y: 2, maxAp: 4 });
+          : archetype === 'adept'
+            ? new Adept({ id: 'adept', x: 2, y: 2, maxAp: 4 })
+            : new Razor({ id: 'razor', x: 2, y: 2, maxAp: 4 });
   world.addEntity(player);
 
   let drone = null;
@@ -561,7 +564,7 @@ test('special intent routes CyberAvatar Override against Probe ICE', () => {
   applyIntent({ type: 'special', dx: 1, dy: 0 }, ctx);
 
   assert.equal(probe.faction, FACTION.PLAYER);
-  assert.equal(avatar.ap, avatar.maxAp - AP_COST.OVERRIDE);
+  assert.equal(avatar.ap, avatar.maxAp - AP_COST.INFLUENCE);
   assert.ok(log.some(line => line.includes('OVERRIDES Probe')));
 });
 
@@ -596,8 +599,47 @@ test('CyberAvatar Override acquires an off-axis Probe in the aimed direction', (
   applyIntent({ type: 'special', dx: 1, dy: 0 }, ctx);
 
   assert.equal(probe.faction, FACTION.PLAYER);
-  assert.equal(avatar.ap, avatar.maxAp - AP_COST.OVERRIDE);
+  assert.equal(avatar.ap, avatar.maxAp - AP_COST.INFLUENCE);
   assert.ok(log.some(line => line.includes('OVERRIDES Probe')));
+});
+
+test('special intent routes to Influence on an Adept and dominates the aimed hostile', () => {
+  const grid = new Grid(10, 6);
+  const bus = new EventBus();
+  const world = new World(grid, { events: bus });
+  const adept = new Adept({ id: 'adept', x: 2, y: 2, maxAp: 4 });
+  const drone = new Skirmisher({ id: 'd1', x: 5, y: 2, maxAp: 3 });
+  world.addEntity(adept);
+  world.addEntity(drone);
+  drone.bindToBus(bus);
+  const log = [];
+  const ctx = {
+    world,
+    player: adept,
+    queue: new TurnQueue([FACTION.PLAYER, FACTION.CORP]),
+    rng: { next: () => 0 }, // deterministic success
+    log: line => log.push(line),
+    advanceTurn: () => {},
+    resetInputModes: () => {},
+    onPlayerAction: () => {},
+  };
+  const apBefore = adept.ap;
+
+  applyIntent({ type: 'special', dx: 1, dy: 0 }, ctx);
+
+  assert.equal(drone.faction, FACTION.PLAYER);
+  assert.equal(adept.ap, apBefore - AP_COST.INFLUENCE);
+  assert.ok(log.some(line => line.includes('DOMINATES')));
+});
+
+test('special intent on an Adept with no legal target logs a denial without spending AP', () => {
+  const { ctx, log, player } = buildCtx({ archetype: 'adept', placeDrone: false });
+  const apBefore = player.ap;
+
+  applyIntent({ type: 'special', dx: 1, dy: 0 }, ctx);
+
+  assert.equal(player.ap, apBefore, 'no AP spent on an empty sector');
+  assert.ok(log.some(line => line.includes('INFLUENCE DENIED')));
 });
 
 test('end-turn drains AP to 0, logs wait, and invokes advanceTurn once', () => {

@@ -1586,8 +1586,8 @@ test('generateRecruits returns empty when Rep < threshold', () => {
   assert.equal(campaign.availableRecruits.length, 0);
 });
 
-test('generateRecruits follows the 2/2/1/1 archetype pool over many seeds', () => {
-  const counts: Record<string, number> = { Merc: 0, Razor: 0, Tech: 0, Berserk: 0 };
+test('generateRecruits follows the 2/2/1/1/1 archetype pool over many seeds', () => {
+  const counts: Record<string, number> = { Merc: 0, Razor: 0, Tech: 0, Berserk: 0, Adept: 0 };
   const total = 1000;
   for (let i = 0; i < total; i++) {
     const campaign = new Campaign({ seed: i, rep: 80 });
@@ -1595,13 +1595,13 @@ test('generateRecruits follows the 2/2/1/1 archetype pool over many seeds', () =
       counts[recruit.constructor.name]++;
     }
   }
-  const sum = counts.Merc + counts.Razor + counts.Tech + counts.Berserk;
-  // Merc/Razor ~33%; Tech/Berserk ~17%. Allow ±8% tolerance.
+  const sum = counts.Merc + counts.Razor + counts.Tech + counts.Berserk + counts.Adept;
+  // Merc/Razor ~29%; Tech/Berserk/Adept ~14%. Allow generous tolerance.
   for (const id of ['Merc', 'Razor']) {
     const ratio = counts[id] / sum;
     assert.ok(ratio > 0.25 && ratio < 0.41, `${id} ${(ratio * 100).toFixed(1)}% out of range`);
   }
-  for (const id of ['Tech', 'Berserk']) {
+  for (const id of ['Tech', 'Berserk', 'Adept']) {
     const ratio = counts[id] / sum;
     assert.ok(ratio > 0.09 && ratio < 0.25, `${id} ${(ratio * 100).toFixed(1)}% out of range`);
   }
@@ -1762,7 +1762,7 @@ test('generateInitialCandidates returns RECRUIT.INITIAL_CANDIDATES (3) candidate
 });
 
 test('generateInitialCandidates uses weighted archetype pool', () => {
-  const counts: Record<string, number> = { Merc: 0, Razor: 0, Tech: 0, Berserk: 0 };
+  const counts: Record<string, number> = { Merc: 0, Razor: 0, Tech: 0, Berserk: 0, Adept: 0 };
   const total = 500;
   for (let i = 0; i < total; i++) {
     const campaign = new Campaign({ seed: i, crew: [] });
@@ -1771,11 +1771,13 @@ test('generateInitialCandidates uses weighted archetype pool', () => {
       counts[c.constructor.name]++;
     }
   }
-  const sum = counts.Merc + counts.Razor + counts.Tech + counts.Berserk;
+  const sum = counts.Merc + counts.Razor + counts.Tech + counts.Berserk + counts.Adept;
   assert.ok(counts.Berserk > 0, 'Berserk must be reachable in the starter candidate pool');
+  assert.ok(counts.Adept > 0, 'Adept must be reachable in the starter candidate pool');
   assert.ok(counts.Merc / sum > 0.23 && counts.Merc / sum < 0.43);
   assert.ok(counts.Tech / sum > 0.07 && counts.Tech / sum < 0.27);
   assert.ok(counts.Berserk / sum > 0.07 && counts.Berserk / sum < 0.27);
+  assert.ok(counts.Adept / sum > 0.07 && counts.Adept / sum < 0.27);
 });
 
 test('recruitInitial validates exactly RECRUIT.INITIAL_PICKS (2) IDs', () => {

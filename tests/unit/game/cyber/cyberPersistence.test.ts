@@ -16,7 +16,7 @@ import { EntryPort } from '../../../../src/game/cyber/EntryPort.js';
 import { JackInPoint } from '../../../../src/game/entities/JackInPoint.js';
 import { Decker } from '../../../../src/game/archetypes/Decker.js';
 import { ProbeIce } from '../../../../src/game/cyber/ProbeIce.js';
-import { applyOverride } from '../../../../src/game/droneOverride.js';
+import { applyOverride } from '../../../../src/game/mindInfluence.js';
 import { Campaign } from '../../../../src/game/Campaign.js';
 import { EVENT } from '../../../../src/game/events.js';
 import {

@@ -21,12 +21,16 @@ export abstract class Hostile extends Entity {
   sightRange: number;
 
   /**
-   * Decker drone-override state (P3.M2). While `overrideTurnsRemaining > 0`
-   * this hostile has been hijacked: its `faction` is temporarily the
-   * overrider's (PLAYER) and `factionBeforeOverride` records the allegiance to
-   * restore when the override lapses. Both default to the not-overridden state
-   * so every existing hostile is unaffected. The countdown is ticked once per
-   * player turn by `stepOverriddenDrones` (see `droneOverride.ts`).
+   * Mind-influence/override state (P3.M2; renamed/rehomed P3.5.M4). While
+   * `overrideTurnsRemaining > 0` this hostile has been dominated: its
+   * `faction` is temporarily the operator's (PLAYER) and
+   * `factionBeforeOverride` records the allegiance to restore when the
+   * influence lapses. Both default to the not-overridden state so every
+   * existing hostile is unaffected. Field names are deliberately unchanged by
+   * the M4 rename — they're shared bookkeeping for both the Adept's Meatspace
+   * Influence and the CyberAvatar's cyber-grid Override against ICE. The
+   * countdown is ticked once per player turn by `stepInfluencedHostiles` (see
+   * `mindInfluence.ts`).
    */
   overrideTurnsRemaining: number;
   factionBeforeOverride: FactionId | null;

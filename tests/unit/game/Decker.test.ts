@@ -3,9 +3,9 @@
  *
  * The Decker's Meatspace signature is now **EMP** — a self-centered AOE stun.
  * The old Drone Override Hack moved off the Decker in M2 (its module coverage
- * lives in `droneOverride.test.ts`, and it becomes the Adept's Influence perk
- * in M4). Here we cover the class basics and the thin `canEmp`/`detonateEmp`
- * delegators to `empBlast.ts`.
+ * lives in `mindInfluence.test.ts`, and it became the Adept's Influence perk
+ * in M4 — see `Adept.test.ts`). Here we cover the class basics and the thin
+ * `canEmp`/`detonateEmp` delegators to `empBlast.ts`.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

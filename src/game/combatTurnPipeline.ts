@@ -7,7 +7,7 @@ import { EVENT } from './events.js';
 import { chebyshev, findPath } from './Pathfinding.js';
 import { detonateBreachingCharge } from './breachBlast.js';
 import { BreachingCharge } from './entities/BreachingCharge.js';
-import { stepOverriddenDrones, type OverriddenDroneAction } from './droneOverride.js';
+import { stepInfluencedHostiles, type InfluencedHostileAction } from './mindInfluence.js';
 import type { Hostile } from './Hostile.js';
 import type { BlastCasualty } from './breachBlast.js';
 import type { Entity } from './Entity.js';
@@ -70,7 +70,7 @@ export type BreachDetonateAftermathStep = {
 export type OverriddenDroneAftermathStep = {
   type: 'overridden-drone';
   entity: Hostile;
-  action: OverriddenDroneAction;
+  action: InfluencedHostileAction;
 };
 
 export type PlayerAftermathStep =
@@ -332,10 +332,13 @@ export function* runPlayerAftermathSteps(
       };
     }
   }
-  // Phase 1b: overridden drones act on the player's side, then their hijack
-  // countdown ticks and they revert when it lapses (P3.M2). They are
-  // player-aligned automated combatants — same aftermath slot as turrets.
-  for (const { entity, action } of stepOverriddenDrones(world, rng)) {
+  // Phase 1b: influenced/overridden hostiles act on the player's side, then
+  // their domination countdown ticks and they revert when it lapses. Shared
+  // by the Adept's Meatspace Influence (P3.5.M4) and the CyberAvatar's
+  // cyber-grid Override against ICE — both flip `faction` through the same
+  // `mindInfluence.ts` bookkeeping. They are player-aligned automated
+  // combatants — same aftermath slot as turrets.
+  for (const { entity, action } of stepInfluencedHostiles(world, rng)) {
     yield { type: 'overridden-drone', entity, action };
   }
 

@@ -24,11 +24,12 @@ import { Razor, CALLSIGNS as RAZOR_CALLSIGNS } from './Razor.js';
 import { Tech, CALLSIGNS as TECH_CALLSIGNS } from './Tech.js';
 import { Decker, CALLSIGNS as DECKER_CALLSIGNS } from './Decker.js';
 import { Berserk, CALLSIGNS as BERSERK_CALLSIGNS } from './Berserk.js';
+import { Adept, CALLSIGNS as ADEPT_CALLSIGNS } from './Adept.js';
 import type { Rng } from '../../rng.js';
 import type { FactionId } from '../constants.js';
 import type { CrewInit } from '../Crew.js';
 
-export type Archetype = Merc | Razor | Tech | Decker | Berserk;
+export type Archetype = Merc | Razor | Tech | Decker | Berserk | Adept;
 
 /**
  * Display order is also the starter crew order in `Campaign.buildCrew`.
@@ -43,10 +44,13 @@ export type Archetype = Merc | Razor | Tech | Decker | Berserk;
 export const ARCHETYPE_IDS = Object.freeze(['merc', 'razor', 'tech']);
 
 /**
- * Weighted archetype pool for recruitment. 40% Merc, 40% Razor, 20% Tech.
- * Expressed as a flat array so `rng.pick()` gives the correct distribution.
- * The Decker is **not** in this pool — normal random recruitment must never
- * roll one; it joins only through the Act-2 narrative beat (P3.M2 / P3.M1).
+ * Weighted archetype pool for recruitment: 2 Merc / 2 Razor / 1 Tech / 1
+ * Berserk / 1 Adept. Expressed as a flat array so `rng.pick()` gives the
+ * correct distribution. This is an interim hand-weighted pool — P3.5.M6
+ * retires it entirely in favor of rolling core stats first and deriving the
+ * archetype from the result. The Decker is **not** in this pool — normal
+ * random recruitment must never roll one; it joins only through the Act-2
+ * narrative beat (P3.M2 / P3.M1).
  */
 export const RECRUIT_ARCHETYPE_POOL = Object.freeze([
   'merc',
@@ -55,6 +59,7 @@ export const RECRUIT_ARCHETYPE_POOL = Object.freeze([
   'razor',
   'tech',
   'berserk',
+  'adept',
 ]);
 
 /**
@@ -111,6 +116,16 @@ export const ARCHETYPES = Object.freeze({
     perkLabel: 'Berserks can SURGE: gain damage and AP before crashing',
     perkAim: 'self',
   }),
+  adept: Object.freeze({
+    id: 'adept',
+    name: 'ADEPT',
+    blurb: 'Weak shot, strong will. Bends a hostile mind to your side.',
+    perks: Object.freeze(['influence']),
+    perkName: 'INFLUENCE',
+    perkLabel: 'Adepts can INFLUENCE: dominate a hostile mind for a few turns',
+    // Aim-sector target picker, same shape the old drone Override always used.
+    perkAim: 'directional',
+  }),
 });
 
 export type ArchetypeInfo = (typeof ARCHETYPES)[keyof typeof ARCHETYPES];
@@ -139,6 +154,7 @@ const BUILDERS = Object.freeze({
   tech: Tech,
   decker: Decker,
   berserk: Berserk,
+  adept: Adept,
 });
 
 /**
@@ -153,6 +169,7 @@ export const CALLSIGNS_BY_ARCHETYPE = Object.freeze({
   tech: TECH_CALLSIGNS,
   decker: DECKER_CALLSIGNS,
   berserk: BERSERK_CALLSIGNS,
+  adept: ADEPT_CALLSIGNS,
 });
 
 export function isArchetypeId(value: string) {

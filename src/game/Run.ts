@@ -58,6 +58,7 @@ import { Razor } from './archetypes/Razor.js';
 import { Tech } from './archetypes/Tech.js';
 import { Decker } from './archetypes/Decker.js';
 import { Berserk } from './archetypes/Berserk.js';
+import { Adept } from './archetypes/Adept.js';
 import { Turret } from './Turret.js';
 import { Skirmisher } from './ai/Skirmisher.js';
 import { Guard } from './ai/Guard.js';
@@ -157,7 +158,7 @@ const KNOWN_OUTCOMES = new Set(Object.values(OUTCOME));
 
 export type RunState = (typeof RUN_STATE)[keyof typeof RUN_STATE];
 export type Outcome = (typeof OUTCOME)[keyof typeof OUTCOME];
-export type CrewArchetypeId = 'merc' | 'razor' | 'tech' | 'decker' | 'berserk';
+export type CrewArchetypeId = 'merc' | 'razor' | 'tech' | 'decker' | 'berserk' | 'adept';
 export type EntityArchetypeId =
   | CrewArchetypeId
   | 'turret'
@@ -2694,6 +2695,7 @@ const SNAPSHOT_EXTRACTORS: Partial<Record<EntityArchetypeId, (e: Entity) => Enti
     merc: e => crewSnapshotExtra(e as Crew) as unknown as EntitySnapshotExtra,
     razor: e => crewSnapshotExtra(e as Crew) as unknown as EntitySnapshotExtra,
     berserk: e => crewSnapshotExtra(e as Crew) as unknown as EntitySnapshotExtra,
+    adept: e => crewSnapshotExtra(e as Crew) as unknown as EntitySnapshotExtra,
     decker: e => {
       const d = e as Decker;
       return {
@@ -2894,6 +2896,7 @@ function archetypeOf(entity: Entity): EntityArchetypeId {
   if (entity instanceof Tech) return 'tech';
   if (entity instanceof Decker) return 'decker';
   if (entity instanceof Berserk) return 'berserk';
+  if (entity instanceof Adept) return 'adept';
   if (entity instanceof Turret) return 'turret';
   if (entity instanceof Bruiser) return 'bruiser';
   if (entity instanceof Juggernaut) return 'juggernaut';
@@ -3472,6 +3475,7 @@ function archetypeOfCrew(entity: Entity): CrewArchetypeId {
   if (entity instanceof Tech) return 'tech';
   if (entity instanceof Decker) return 'decker';
   if (entity instanceof Berserk) return 'berserk';
+  if (entity instanceof Adept) return 'adept';
   throw new Error(
     `archetypeOfCrew: cannot classify crew member ${(entity as Entity | undefined)?.id}`
   );

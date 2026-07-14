@@ -24,6 +24,7 @@ import { Rng } from '../../../src/rng.js';
 import { testContractContext } from './contractTestUtils.js';
 import { ITEM_ID } from '../../../src/game/items.js';
 import { Berserk } from '../../../src/game/archetypes/Berserk.js';
+import { Adept } from '../../../src/game/archetypes/Adept.js';
 
 const fakeContract = (overrides = {}) => ({
   seed: 12345,
@@ -91,6 +92,14 @@ test('Run classifies a Berserk and seeds matching telemetry', () => {
   assert.ok(crewMember instanceof Berserk);
   assert.equal(run.archetype, 'berserk');
   assert.equal(run.telemetry.archetype, 'berserk');
+});
+
+test('Run classifies an Adept and seeds matching telemetry', () => {
+  const crewMember = makeCrew('adept');
+  const run = new Run({ crewMember, seed: 44 });
+  assert.ok(crewMember instanceof Adept);
+  assert.equal(run.archetype, 'adept');
+  assert.equal(run.telemetry.archetype, 'adept');
 });
 
 test('legal transition chain: BRIEFING → COMBAT → RESULT', () => {

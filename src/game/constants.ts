@@ -110,7 +110,7 @@ export const AP_COST = Object.freeze({
   VAULT: 2, // Merc — hop a cover tile while firing
   SLIDE: 2, // Razor — 2-tile reposition with stealth bonus
   DEPLOY: 2, // Tech — place a turret on an adjacent tile
-  OVERRIDE: 2, // CyberAvatar — flip ICE allegiance on the cyber grid (M4 renames -> INFLUENCE for the Adept)
+  INFLUENCE: 2, // Adept (Meatspace) + CyberAvatar (cyber grid) — flip a hostile's/ICE's allegiance (renamed from OVERRIDE, P3.5.M4)
   EMP: 2, // Decker — self-centered AOE neural-shock stun (P3.5.M2)
   SURGE: 2, // Berserk — self-buff that always chains into CRASH (P3.5.M3)
 });
@@ -135,21 +135,24 @@ export const CRASH_AP_PENALTY = 2;
 export const CRASH_HIT_PENALTY = 0.2;
 
 /**
- * Decker drone-override parameters (P3.M2). The Decker's signature Meatspace
- * ability flips a corp drone to the player's side for a few turns by reusing
- * the existing drone AI with a faction swap (the AI targets by faction, so a
- * flipped drone fights its former allies for free).
+ * Mind Influence parameters (renamed from Decker drone-override, P3.M2 →
+ * P3.5.M4). The Adept's signature Meatspace ability psychically dominates a
+ * hostile's will for a few turns by reusing the existing hostile AI with a
+ * faction swap (the AI targets by faction, so a dominated hostile fights its
+ * former allies for free). The CyberAvatar's cyber-grid Override against ICE
+ * shares this exact same machinery (`mindInfluence.ts`) — only the fiction
+ * differs between the two consumers, not the numbers.
  *
- *   - `OVERRIDE_RANGE` — reach for the intrusion, matched to baseline SIGHT so
- *     the Decker must have a clean LOS lane like a ranged shot.
- *   - `OVERRIDE_DURATION` — turns the drone stays player-aligned before its
- *     firmware reasserts control and it reverts to its original faction.
- *   - `OVERRIDE_SUCCESS_CHANCE` — probability the intrusion takes. A failed
+ *   - `INFLUENCE_RANGE` — reach for the intrusion, matched to baseline SIGHT
+ *     so the operator must have a clean LOS lane like a ranged shot.
+ *   - `INFLUENCE_DURATION` — turns the target stays player-aligned before its
+ *     own will reasserts control and it reverts to its original faction.
+ *   - `INFLUENCE_SUCCESS_CHANCE` — probability the intrusion takes. A failed
  *     attempt still burns AP and trips the facility alarm.
  */
-export const OVERRIDE_RANGE = 5;
-export const OVERRIDE_DURATION = 3;
-export const OVERRIDE_SUCCESS_CHANCE = 0.6;
+export const INFLUENCE_RANGE = 5;
+export const INFLUENCE_DURATION = 3;
+export const INFLUENCE_SUCCESS_CHANCE = 0.6;
 
 /**
  * Decker cyber stats (P3.M3.3). Named stats with real effects from day one

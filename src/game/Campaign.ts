@@ -1129,8 +1129,8 @@ export class Campaign {
   /**
    * Generate the starter candidate pool for a fresh campaign. Returns
    * `RECRUIT.INITIAL_CANDIDATES` (3) candidates with weighted archetype
-   * distribution (2 Merc / 2 Razor / 1 Tech / 1 Berserk). Stores them on
-   * `initialCandidates` for
+   * distribution (2 Merc / 2 Razor / 1 Tech / 1 Berserk / 1 Adept). Stores
+   * them on `initialCandidates` for
    * `recruitInitial()` to consume. Does NOT require Rep gate — this is
    * the campaign-start exception.
    */

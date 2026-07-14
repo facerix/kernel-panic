@@ -29,8 +29,9 @@ import { makeSalvage, totalSalvage } from '../../../src/game/salvage.js';
 import { buildCrewMember } from '../../../src/game/archetypes/index.js';
 import { Decker } from '../../../src/game/archetypes/Decker.js';
 import { Berserk } from '../../../src/game/archetypes/Berserk.js';
+import { Adept } from '../../../src/game/archetypes/Adept.js';
 import { PatrolHostile } from '../../../src/game/ai/PatrolHostile.js';
-import { applyOverride } from '../../../src/game/droneOverride.js';
+import { applyOverride } from '../../../src/game/mindInfluence.js';
 import { Rng } from '../../../src/rng.js';
 import { testContractContext } from './contractTestUtils.js';
 
@@ -127,6 +128,16 @@ test('snapshot/restore round-trips a Berserk deploy (P3.5.M3)', () => {
   const rec = snapshot(run);
   const { run: restoredRun } = restore(rec);
   assert.ok(restoredRun.player instanceof Berserk, 'Berserk should restore as a Berserk');
+  assert.equal(restoredRun.player.callsign, run.player.callsign);
+  assert.deepEqual(snapshot(restoredRun), rec);
+});
+
+test('snapshot/restore round-trips an Adept deploy (P3.5.M4)', () => {
+  const run = freshCombatRun(0xadeb70, 'adept');
+  assert.ok(run.player instanceof Adept, 'fixture should deploy an Adept');
+  const rec = snapshot(run);
+  const { run: restoredRun } = restore(rec);
+  assert.ok(restoredRun.player instanceof Adept, 'Adept should restore as an Adept');
   assert.equal(restoredRun.player.callsign, run.player.callsign);
   assert.deepEqual(snapshot(restoredRun), rec);
 });

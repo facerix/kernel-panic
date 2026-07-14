@@ -18,13 +18,15 @@
  * automation can commit a melee strike without synthesizing a walk intent.
  *
  * The archetype-specific perks (Merc's Vault, Razor's Slide, Tech's Deploy
- * Turret, Decker's Override) collapse into a single `special` intent at the
- * keymap layer. The `doSpecial` dispatcher below routes it to the right verb
- * based on which methods the active player class exposes — `canVault` → vault,
- * `canSlide` → slide, `canDeploy` → deploy, `canOverride` → override (the
- * Decker resolves the nearest visible drone in the aimed eight-way sector).
- * This keeps the input surface symmetric across archetypes (one key, one touch
- * button) and stays out of the player's way:
+ * Turret, Decker's EMP, Berserk's Surge, Adept's Influence, the CyberAvatar's
+ * cyber-grid Override) collapse into a single `special` intent at the keymap
+ * layer. The `doSpecial` dispatcher below routes it to the right verb based on
+ * which methods the active player class exposes — `canVault` → vault,
+ * `canSlide` → slide, `canDeploy` → deploy, `canEmp` → EMP, `canSurge` →
+ * surge, `canInfluence` → influence (the Adept resolves the nearest visible
+ * hostile in the aimed eight-way sector), `canOverride` → override (same
+ * picker, cyber grid only). This keeps the input surface symmetric across
+ * archetypes (one key, one touch button) and stays out of the player's way:
  * the keymap doesn't need to know which class is in play, and the intent
  * dispatcher doesn't need an explicit archetype switch.
  *
@@ -46,7 +48,7 @@ import {
   SIGHT_RANGE,
   VAULT_DAMAGE,
   NOISE_RADIUS,
-  OVERRIDE_RANGE,
+  INFLUENCE_RANGE,
 } from '../game/constants.js';
 import { totalSalvage, formatSalvageCompact } from '../game/salvage.js';
 import { canFireRanged, resolveRanged, canMelee, resolveMelee } from '../game/Combat.js';
@@ -71,6 +73,7 @@ import type { Merc } from '../game/archetypes/Merc.js';
 import type { Razor } from '../game/archetypes/Razor.js';
 import type { Decker } from '../game/archetypes/Decker.js';
 import type { Berserk } from '../game/archetypes/Berserk.js';
+import type { Adept } from '../game/archetypes/Adept.js';
 
 export type Intent = {
   type: string;
@@ -383,12 +386,13 @@ function collectTileLoot(ctx: ApplyIntentContext) {
 /**
  * Archetype dispatcher for the unified `special` intent. Picks the perk verb
  * by capability check on the live player:
- *   - `canDeploy`   → Tech's Deploy Turret
- *   - `canVault`    → Merc's Vault
- *   - `canSlide`    → Razor's Slide
- *   - `canEmp`      → Decker's EMP neural-shock (self-centered AOE stun)
- *   - `canSurge`    → Berserk's Surge self-buff
- *   - `canOverride` → CyberAvatar's ICE override (cyber grid only)
+ *   - `canDeploy`    → Tech's Deploy Turret
+ *   - `canVault`     → Merc's Vault
+ *   - `canSlide`     → Razor's Slide
+ *   - `canEmp`       → Decker's EMP neural-shock (self-centered AOE stun)
+ *   - `canSurge`     → Berserk's Surge self-buff
+ *   - `canInfluence` → Adept's Influence (Meatspace mind control)
+ *   - `canOverride`  → CyberAvatar's ICE override (cyber grid only)
  *
  * Capability sniffing (vs. a class `instanceof` check) keeps this module free
  * of the archetype-class imports — applyIntent stays a thin glue layer. A
@@ -421,8 +425,13 @@ function doSpecial(intent: Intent, ctx: ApplyIntentContext) {
   if (typeof (player as Berserk).canSurge === 'function') {
     return doSurge(ctx);
   }
+  if (typeof (player as Adept).canInfluence === 'function') {
+    return doInfluence(intent, ctx);
+  }
   // Only the CyberAvatar still exposes canOverride (P3.5.M2 moved the Decker's
-  // Meatspace perk to EMP; M4 repoints this picker at the Adept's Influence).
+  // Meatspace perk to EMP; P3.5.M4 gave the Adept the renamed Influence perk
+  // — the CyberAvatar keeps its own "Override" name/fiction for the cyber
+  // grid, delegating to the same underlying mindInfluence.ts machinery).
   if (typeof (player as CyberAvatar).canOverride === 'function') {
     return doOverride(intent, ctx);
   }
@@ -469,9 +478,13 @@ function doEmp(ctx: ApplyIntentContext) {
 }
 
 /**
- * Acquire a drone in the Decker's aimed eight-way sector and attempt the
- * hijack. Range, LOS, and perception match the resolver and combat targeting;
- * a failed roll trips the alarm, while an empty sector yields a legible deny.
+ * Acquire a hostile in the CyberAvatar's aimed eight-way sector and attempt
+ * the ICE hijack. Range, LOS, and perception match the resolver and combat
+ * targeting; a failed roll trips the alarm, while an empty sector yields a
+ * legible deny. Shares `pickInfluenceTarget`/`isInAimSector` with the Adept's
+ * `doInfluence` below — same picker, same underlying `mindInfluence.ts`
+ * mechanic, different fiction (ICE vs. a hostile mind) and different method
+ * names on the acting class.
  */
 type OverrideActor = ApplyIntentContext['player'] & {
   canOverride(world: World, target: Entity | null): ReturnType<CyberAvatar['canOverride']>;
@@ -480,15 +493,15 @@ type OverrideActor = ApplyIntentContext['player'] & {
 
 function doOverride(intent: Intent, ctx: ApplyIntentContext) {
   const { world, player, log } = ctx;
-  const decker = player as OverrideActor;
+  const avatar = player as OverrideActor;
   const playerLabel = entityLabel(player);
-  const target = pickOverrideTarget(ctx, intent.dx!, intent.dy!);
-  const check = decker.canOverride(world, target);
+  const target = pickInfluenceTarget(ctx, intent.dx!, intent.dy!);
+  const check = avatar.canOverride(world, target);
   if (!check.ok) {
     log(`> ${playerLabel} OVERRIDE DENIED: ${check.reason}`);
     return;
   }
-  const result = decker.overrideDrone(world, target!, ctx.rng);
+  const result = avatar.overrideDrone(world, target!, ctx.rng);
   const targetLabel = entityLabel(target!);
   if (result.success) {
     log(`> ${playerLabel} OVERRIDES ${targetLabel} — it fights for you! (${player.ap} AP left).`);
@@ -502,12 +515,50 @@ function doOverride(intent: Intent, ctx: ApplyIntentContext) {
 }
 
 /**
- * Nearest live hostile in the aimed eight-way sector within `OVERRIDE_RANGE`
+ * Acquire a hostile in the Adept's aimed eight-way sector and attempt to
+ * dominate its will. Same picker/range/LOS/perception as the CyberAvatar's
+ * `doOverride` above — a failed roll trips the alarm, an empty sector yields
+ * a legible deny.
+ */
+type InfluenceActor = ApplyIntentContext['player'] & {
+  canInfluence(world: World, target: Entity | null): ReturnType<Adept['canInfluence']>;
+  influenceTarget(world: World, target: Entity, rng: Rng): ReturnType<Adept['influenceTarget']>;
+};
+
+function doInfluence(intent: Intent, ctx: ApplyIntentContext) {
+  const { world, player, log } = ctx;
+  const adept = player as InfluenceActor;
+  const playerLabel = entityLabel(player);
+  const target = pickInfluenceTarget(ctx, intent.dx!, intent.dy!);
+  const check = adept.canInfluence(world, target);
+  if (!check.ok) {
+    log(`> ${playerLabel} INFLUENCE DENIED: ${check.reason}`);
+    return;
+  }
+  const result = adept.influenceTarget(world, target!, ctx.rng);
+  const targetLabel = entityLabel(target!);
+  if (result.success) {
+    log(
+      `> ${playerLabel} DOMINATES ${targetLabel}'s will — it fights for you! (${player.ap} AP left).`
+    );
+  } else {
+    log(
+      `> ${playerLabel} INFLUENCE FAILED on ${targetLabel}` +
+        `${result.alarm ? ' — ALARM TRIPPED' : ''} (${player.ap} AP left).`
+    );
+  }
+  gateOnApExhausted(ctx);
+}
+
+/**
+ * Nearest live hostile in the aimed eight-way sector within `INFLUENCE_RANGE`
  * and LOS. The 22.5-degree half-angle partitions arbitrary target offsets
  * across the eight directions supplied by keyboard and touch controls, so a
- * moving Probe does not need to be perfectly collinear with the avatar.
+ * moving target does not need to be perfectly collinear with the operator.
+ * Shared by the CyberAvatar's cyber-grid Override and the Adept's Influence —
+ * the picker itself has no archetype-specific behavior.
  */
-function pickOverrideTarget(ctx: ApplyIntentContext, dx: number, dy: number) {
+function pickInfluenceTarget(ctx: ApplyIntentContext, dx: number, dy: number) {
   const { world, player } = ctx;
   const blockers = world.blockerKeys();
   let best: Hostile | null = null;
@@ -519,7 +570,7 @@ function pickOverrideTarget(ctx: ApplyIntentContext, dx: number, dy: number) {
     const offsetX = entity.x - player.x;
     const offsetY = entity.y - player.y;
     if (!isInAimSector(dx, dy, offsetX, offsetY)) continue;
-    if (!withinRange(player.x, player.y, entity.x, entity.y, OVERRIDE_RANGE)) continue;
+    if (!withinRange(player.x, player.y, entity.x, entity.y, INFLUENCE_RANGE)) continue;
     if (
       !hasLineOfSight(world.grid, player.x, player.y, entity.x, entity.y, {
         blockers,

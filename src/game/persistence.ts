@@ -51,6 +51,7 @@ import { Razor } from './archetypes/Razor.js';
 import { Tech } from './archetypes/Tech.js';
 import { Decker } from './archetypes/Decker.js';
 import { Berserk } from './archetypes/Berserk.js';
+import { Adept } from './archetypes/Adept.js';
 import { Turret } from './Turret.js';
 import { Skirmisher, type SkirmisherProps } from './ai/Skirmisher.js';
 import { Guard, type GuardProps } from './ai/Guard.js';
@@ -217,6 +218,7 @@ const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) =
     tech: (props: RestoreEntityProps) => new Tech(props as CrewInit),
     decker: (props: RestoreEntityProps) => new Decker(props as DeckerInit),
     berserk: (props: RestoreEntityProps) => new Berserk(props as CrewInit),
+    adept: (props: RestoreEntityProps) => new Adept(props as CrewInit),
     turret: (props: RestoreEntityProps) => new Turret(props as TurretInit),
     drone: (props: RestoreEntityProps) => new Skirmisher(props as SkirmisherProps),
     guard: (props: RestoreEntityProps) => new Guard(props as GuardProps),
@@ -633,12 +635,12 @@ function restorePatrolState(
 }
 
 /**
- * Re-apply Decker drone-override bookkeeping (P3.M2). The two fields travel as
- * a pair: a live hijack has a positive countdown *and* a recorded prior
- * faction. Either one present without the other — or a countdown that isn't a
- * positive integer, or a prior faction that isn't a known faction — is corrupt
- * mid-override state and throws, rather than silently restoring a drone that
- * can never revert.
+ * Re-apply mind-influence/override bookkeeping (P3.M2; renamed P3.5.M4 — see
+ * `mindInfluence.ts`). The two fields travel as a pair: a live domination has
+ * a positive countdown *and* a recorded prior faction. Either one present
+ * without the other — or a countdown that isn't a positive integer, or a
+ * prior faction that isn't a known faction — is corrupt mid-override state
+ * and throws, rather than silently restoring a hostile that can never revert.
  */
 function restoreOverrideState(
   entity: PatrolHostile,
@@ -1755,6 +1757,7 @@ const KNOWN_ARCHETYPES_SET = new Set<CrewArchetypeId>([
   'tech',
   'decker',
   'berserk',
+  'adept',
 ]);
 
 /** Clamp gear bonuses to archetype caps after restore. */
@@ -2368,6 +2371,7 @@ function archetypeOfCrew(member: Crew): CrewArchetypeId {
   if (member instanceof Tech) return 'tech';
   if (member instanceof Decker) return 'decker';
   if (member instanceof Berserk) return 'berserk';
+  if (member instanceof Adept) return 'adept';
   throw new Error(`snapshotCampaign: cannot classify crew member ${member?.id}`);
 }
 
