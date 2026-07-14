@@ -14,8 +14,9 @@ The Decker's **Override** perk (hijack a corp drone's allegiance) reads oddly no
 4. **Adept** — a new archetype that inherits Override's exact mechanic wholesale, reflavored as **Influence**: psychically dominating a hostile's will for a few turns instead of hacking a drone's firmware. Same targeting, same risk shape, same countdown-and-revert lifecycle — renamed and re-fictionalized, with a new archetype shell around it.
 5. **Chimera** — a new sustain archetype (deliberately ambiguous fiction: nobody in-world knows for certain whether this is a human running a semi-sentient nanite swarm or an awakened AI in an android chassis; flavor text never resolves it) whose perk converts scrap into HP, mirroring Tech's improvised-turret resource-gate shape.
 6. **Inverted crew generation** — roll core stats first (hit chance, dodge chance, armor), derive the archetype from the resulting profile, instead of picking an archetype and getting fixed stats. No weighted archetype pool — pure RNG at both campaign start and mid-campaign recruiting. The old "one of each starter kit" guarantee is dropped; duplicates are allowed. Decker is unaffected — still a forced, narrative-only mid-campaign recruit, never rolled.
+7. **Archetype unlocks via Score rewards (M7, added 2026-07-13)** — Berserk/Adept/Chimera start locked for every meta-crew and join the existing `SCOREABLE_ITEMS` meta-progression pool (P3.M6 "Stolen Blueprints"): a clean Score win draws one reward, item or archetype, from whatever's still unacquired. A locked archetype's anchor is simply absent from M6's nearest-anchor derivation table, so rolls that would've landed there saturate to the nearest unlocked neighbor — same mechanism M6 already uses for rolls that overrun the anchor hull, no new logic required.
 
-End state: **seven playable archetypes** (Merc, Razor, Tech, Decker, Berserk, Adept, Chimera), a differentiated Decker perk, one shared effect-duration mechanism the roster can keep building on (e.g. a future control/support archetype), and less deterministic crew stats without breaking campaign-save compatibility.
+End state: **seven playable archetypes** (Merc, Razor, Tech, Decker, Berserk, Adept, Chimera) — Merc/Razor/Tech reachable via the roll from turn one, Decker via forced narrative recruit, and Berserk/Adept/Chimera progressively unlocked via Score rewards across a save's campaign history — a differentiated Decker perk, one shared effect-duration mechanism the roster can keep building on (e.g. a future control/support archetype), and less deterministic crew stats without breaking campaign-save compatibility.
 
 ## Dependency graph
 
@@ -30,6 +31,8 @@ M4 (Adept: Influence)   ── independent of M1; sequenced after M2
 M5 (Chimera: scrap→HP)  ── fully independent (no duration effect at all)
 
 M3 + M4 + M5 ──> M6 (stat-roll → archetype derivation, needs all 6 profiles)
+
+M6 ──> M7 (archetype unlocks via Score rewards — needs M6's anchor table to gate)
 ```
 
 ## Current status
@@ -42,13 +45,15 @@ M3 + M4 + M5 ──> M6 (stat-roll → archetype derivation, needs all 6 profile
 | P3.5.M4 — Adept archetype (Influence, renamed from Override) | 🔲 Not started |
 | P3.5.M5 — Chimera archetype (scrap-to-HP sustain) | 🔲 Not started |
 | P3.5.M6 — Inverted crew generation (roll stats, derive archetype) | 🔲 Not started |
+| P3.5.M7 — Archetype unlocks via Score rewards | 🔲 Not started |
 
 **Phase 3.5** is complete when:
 
 1. Every milestone in the table above is ✅.
-2. All seven archetypes (Merc, Razor, Tech, Decker, Berserk, Adept, Chimera) are playable end to end in a single campaign, including mixed-archetype recruiting.
-3. `npm test` passes with the new/updated coverage listed per milestone below.
-4. A pre-P3.5 save loads without error and without silently regenerating stats it never had (legacy defaults kick in instead).
+2. `npm test` passes with the new/updated coverage listed per milestone below.
+3. A pre-P3.5 save loads without error and without silently regenerating stats it never had (legacy defaults kick in instead).
+
+> **Note on "all seven archetypes in one campaign" (dropped as a phase-level gate, 2026-07-13):** M7 makes Berserk/Adept/Chimera Score-unlocked, and `THE SCORE` ends the campaign it's completed in — so no fresh save can ever be *mid-campaign, recruiting,* and *fully unlocked* at the same time. Each archetype (including the three gated ones) is instead validated end-to-end during its own milestone's playtest pass — see Verification below — and mixed-archetype recruiting is covered by a test fixture that pre-seeds `unlockedArchetypes`, not a blank-slate single-campaign requirement.
 
 ---
 
@@ -343,6 +348,7 @@ export function rollCrewStats(rng: Rng): { hitChance: number; dodgeChance: numbe
 //     deriveArchetype receives the already-rounded tuple.
 export function deriveArchetype(stats): CrewArchetypeId   // reads hitChance/dodgeChance only; armor is not a classifier
 ```
+> **Amended by M7:** `deriveArchetype` gains an optional third `anchors: readonly CrewStatAnchor[] = CREW_STAT_ANCHORS` parameter so M7 can pass a lock-filtered subset without M6 needing any awareness of the unlock system. Implement the parameter now (even though nothing supplies a non-default value until M7 lands) so M6's own signature doesn't need a follow-up edit.
 Roll ranges — continuous and **deliberately wider than today's discrete spread** (P3.5 refinement: the old `{0.70,0.75,0.80}` / `{0.20,0.25,0.30,0.35}` buckets clustered crew onto a handful of identical stat lines; continuous rolls over a widened range give every operative a distinct feel). Roll a uniform float, then **round to 0.01** so the HUD reads clean whole-percents and the derivation domain stays finite/enumerable:
 - `hitChance`: uniform in `[0.65, 0.85]`, rounded to 0.01 → 21 discrete values.
 - `dodgeChance`: uniform in `[0.15, 0.40]`, rounded to 0.01 → 26 discrete values.
@@ -382,6 +388,80 @@ Restore: `baseHitChance: rec.baseHitChance ?? DEFAULT_HIT_CHANCE_BY_ARCHETYPE[re
 
 ---
 
+## P3.5.M7 — Archetype unlocks via Score rewards
+
+**Depends on M6** (needs `CREW_STAT_ANCHORS` to gate). **Also depends on the already-shipped P3.M6 "Stolen Blueprints"** meta-progression system (`phase-3-plan.md`) — this milestone extends that system rather than building a new one.
+
+**Design decisions locked in by discussion (2026-07-13):** Berserk/Adept/Chimera join `SCOREABLE_ITEMS` in a single **merged draw pool** — a completed Score nets *either* a new item *or* a new archetype, drawn uniformly from whatever's still unacquired (not a separate/additive reward track, not a fixed unlock order). This means early campaigns (12 candidates: 9 items + 3 archetypes) have roughly a 25% chance per clean Score of drawing an archetype instead of gear, rising as items deplete first. All three new archetypes start **locked** for every meta-crew, including saves that already unlocked every item under the pre-M7 system — `unlockedArchetypes` is a wholly new, independently-empty store key; nothing grandfathers in from item-unlock history.
+
+**New module `src/game/archetypeUnlocks.ts`** (mirrors `scoreableUnlocks.ts` exactly — same validation contract, same "absent → `[]`, malformed → throw, idempotent archive" shape):
+```ts
+export function normalizeUnlockedArchetypes(value: unknown): string[]
+export function archiveUnlockedArchetype(list: readonly string[], id: string): { list: string[]; added: boolean }
+```
+
+**New descriptor table `src/game/archetypeRewards.ts`** (sibling to `items.ts`'s `SCOREABLE_ITEMS`, not folded into it — an archetype reward has no `cost`/`scope`/`needsTarget`, it isn't a shop purchase):
+```ts
+export type ArchetypeReward = { id: CrewArchetypeId; label: string; flavor: string };
+export const SCOREABLE_ARCHETYPES: readonly ArchetypeReward[] = Object.freeze([
+  { id: 'berserk', label: 'Combat-Stim Rig', flavor: '<proposed — refine>' },
+  { id: 'adept',   label: 'Psychic Interface Cradle', flavor: '<proposed — refine>' },
+  { id: 'chimera', label: 'Nanite Culture Sample', flavor: '<proposed — refine, keep ambiguous per Chimera fiction>' },
+]);
+export const SCOREABLE_ARCHETYPE_IDS: ReadonlySet<CrewArchetypeId> = Object.freeze(new Set(SCOREABLE_ARCHETYPES.map(r => r.id)));
+```
+Flavor lines are placeholders for the as-built pass — should read as "what got reverse-engineered," matching the `SCOREABLE_ITEMS` convention (e.g. Monoblade's "a monomolecular blade schematic"), not as a description of the archetype's kit.
+
+**`DataStore.ts`:** add `unlockedArchetypes: string[]` following the exact `unlockedScoreableItems` pattern at every site that field touches (`KPData`, private field + default, `save`/`restore`, `get unlockedArchetypes()`, `archiveUnlockedArchetype(id)` → emits a change event). Same file, same shape, new key — no shared plumbing beyond copy-paste-adapt.
+
+**`Campaign.ts` — merged payload draw.** `pickScorePayload` (`Campaign.ts:140-146`) becomes payload-kind-aware:
+```ts
+export type ScorePayload =
+  | { kind: 'item'; item: Item }
+  | { kind: 'archetype'; reward: ArchetypeReward };
+
+function pickScorePayload(
+  seed: number,
+  acquiredItemIds: readonly string[],
+  acquiredArchetypeIds: readonly string[]
+): ScorePayload | null {
+  const items = SCOREABLE_ITEMS.filter(i => !acquiredItemIds.includes(i.id))
+    .map((item): ScorePayload => ({ kind: 'item', item }));
+  const archetypes = SCOREABLE_ARCHETYPES.filter(r => !acquiredArchetypeIds.includes(r.id))
+    .map((reward): ScorePayload => ({ kind: 'archetype', reward }));
+  const pool = [...items, ...archetypes];
+  if (pool.length === 0) return null;   // exhausted — both catalogs fully acquired
+  const rng = new Rng(((seed >>> 0) ^ SCORE_PAYLOAD_SALT) >>> 0);
+  return pool[Math.floor(rng.next() * pool.length)] ?? null;
+}
+```
+Pool exhaustion (→ `ABSTRACT_SCORE_TARGETS` fallback, `Campaign.ts:148-` ) now requires **both** catalogs fully acquired, not just items.
+
+`buildScoreContract` (`Campaign.ts:899`) gains a second parameter `unlockedArchetypeIds: readonly string[] = []` alongside the existing `unlockedScoreableIds`, threaded into `pickScorePayload`. Briefing/objective copy composition needs an archetype-flavored branch (frame the heist around reverse-engineering an operative-class technology, not a specific weapon/implant) alongside the existing item-flavored copy.
+
+**Settlement (`Campaign.ts:847-860`):** the `completedScoreRun` branch currently does `this.meta.scoreUnlockedItemId = payloadId`. Rework to read the drawn `ScorePayload`'s kind and set exactly one of `this.meta.scoreUnlockedItemId` / `this.meta.scoreUnlockedArchetypeId` (never both — one Score, one reward). New getter `scoreUnlockedArchetypeId` mirrors `scoreUnlockedItemId` (`Campaign.ts:872-875`): validates against `SCOREABLE_ARCHETYPE_IDS`, returns `null` for stale/foreign/absent.
+
+**`shellRuntime.ts` (mirror every `unlockedScoreableItems`/`archiveScoreableItem` site — `shellRuntime.ts:764,784,820,897,1271-1272`):** each `dataStore.unlockedScoreableItems` read that feeds `buildScoreContract` also reads `dataStore.unlockedArchetypes` and passes it through; the settlement block (`shellRuntime.ts:1271-1272`) grows a parallel `if (unlockedArchetypeId) dataStore.archiveUnlockedArchetype(unlockedArchetypeId)`.
+
+**`campaignSummary.ts` (`:49,88`):** `scoreUnlockedItemId?: string | null` gains a sibling `scoreUnlockedArchetypeId?: string | null`; `resolveScoreReward` grows an archetype-reward branch for the chronicle/history view.
+
+**Gating the derivation table (the M6 tie-in).** `crewStatRoll.ts`'s `deriveArchetype` gains an optional anchor-subset parameter rather than M6 needing any awareness of locks:
+```ts
+export function deriveArchetype(
+  stats: { hitChance: number; dodgeChance: number },
+  anchors: readonly CrewStatAnchor[] = CREW_STAT_ANCHORS
+): CrewArchetypeId
+```
+M7 supplies a filtered table — `CREW_STAT_ANCHORS.filter(a => !SCOREABLE_ARCHETYPE_IDS.has(a.archetype) || unlockedArchetypes.has(a.archetype))` — so a locked archetype's anchor is simply absent from the nearest-anchor search and every roll that would've landed there saturates to its nearest *unlocked* neighbor, exactly the same mechanism M6 already uses for rolls that overrun the anchor hull (documented corner-saturation behavior, M6). No new derivation logic — a locked Berserk/Adept/Chimera is structurally identical to "outside the widened roll range."
+
+**Threading unlock state into crew generation.** Because a completed Score both grants exactly one reward *and* ends the campaign in the same step, `unlockedArchetypeIds` **cannot change mid-campaign** — unlike `unlockedScoreableIds` (read live from `DataStore` at each of several call sites via `shellRuntime.ts`), it's safe and simpler to capture once as **Campaign construction-time state** rather than threading it as a parameter through every `buildCrew`/`generateRecruits`/`generateInitialCandidates` call site (some of which are called from inside `Campaign` itself, not just from `shellRuntime` — `Campaign.ts:451,608,629`). Proposed: `Campaign`'s constructor/restore path accepts `unlockedArchetypeIds: readonly string[]` (from `dataStore.unlockedArchetypes` at Campaign creation, same lifecycle moment `rng` is set), stores it as a readonly instance field, and `buildCrew`/`generateRecruits`/`generateInitialCandidates` read that field when calling `buildCrewMemberFromRoll`. **Flag for implementer confirmation:** this assumes Campaign construction is the only place unlock state needs to enter — verify no code path calls these three generation methods before Campaign is fully constructed from a fresh `DataStore` read.
+
+**Critical files:** `src/game/archetypeUnlocks.ts` (new), `src/game/archetypeRewards.ts` (new), `src/game/crewStatRoll.ts` (amend M6's `deriveArchetype` signature), `src/game/Campaign.ts`, `src/DataStore.ts`, `src/shell/shellRuntime.ts`, `src/game/campaignSummary.ts`.
+
+**Tests:** `tests/unit/game/archetypeUnlocks.test.ts` (new, mirrors `scoreableUnlocks.test.ts`), extend `tests/unit/game/crewStatRoll.test.ts` (locked-anchor sweep: with only `{merc, razor, tech}` unlocked, every one of the 546 tuples still resolves to a registered *unlocked* archetype, no dead zones, no throw; each locked archetype's own anchor point resolves to a different, unlocked archetype), extend `tests/unit/game/Campaign.test.ts` (`pickScorePayload` draws from the merged pool; exhaustion requires both catalogs empty; settlement sets exactly one of the two meta fields, never both), extend `tests/unit/game/persistence.test.ts`/`DataStore.test.ts` (`unlockedArchetypes` round-trip, legacy-absent → `[]`, malformed → throw, idempotent archive), extend `tests/unit/game/campaignSummary.test.ts` (archetype-reward chronicle line).
+
+---
+
 ## Out of scope, parked
 
 - Multi-floor maps, faction rep/NPC social, neural backups — existing Phase 4 deferrals per [phase-3-plan.md](phase-3-plan.md), unaffected by any of this.
@@ -395,5 +475,6 @@ Per milestone: `npm test` (typecheck + build tests + `node --test`) must pass, i
 - **M3:** play a Berserk through a full surge→crash cycle — confirm damage/AP bonus **and +1 armor** during surge (the armor pane shows in the HUD), confirm the **surge and crash screen pulses** fire, confirm crash auto-applies on expiry with the accuracy penalty visible in the HUD hit-chance display, confirm crash itself expires cleanly back to baseline after its (now longer) window.
 - **M4:** play an Adept, confirm Influence behaves identically to the old Override (aim-sector targeting, success roll, alarm on failure, countdown-and-revert) end to end; confirm `mindInfluence.test.ts` covers the mechanic independent of any archetype wiring.
 - **M5:** play a Chimera, kill a hostile, collect its scrap drop, convert it to HP — confirm repeatable across turns as long as scrap lasts and HP clamps at max.
-- **M6:** start several fresh campaigns (different seeds) and confirm crew stats vary run-to-run, land on the 0.01 grid within the widened `[0.65,0.85]`/`[0.15,0.40]` ranges (no clustering onto a few repeated values like the old discrete buckets), and archetypes span all six non-Decker options across enough campaigns; save mid-campaign, reload, confirm rolled stats round-trip; load a pre-P3.5 save fixture (or a save snapshot lacking `baseHitChance`) and confirm it restores to the old fixed per-archetype constant rather than crashing or silently rerolling.
-- Full regression: `npm test` at the end of the phase, plus a manual playthrough covering all seven archetypes (Merc/Razor/Tech/Decker/Berserk/Adept/Chimera) in one run to catch any wiring gaps in the fan-out surfaces (`Run.ts`, `persistence.ts`, `applyIntent.ts`).
+- **M6:** start several fresh campaigns (different seeds) and confirm crew stats vary run-to-run, land on the 0.01 grid within the widened `[0.65,0.85]`/`[0.15,0.40]` ranges (no clustering onto a few repeated values like the old discrete buckets), and archetypes span all six non-Decker options across enough campaigns; save mid-campaign, reload, confirm rolled stats round-trip; load a pre-P3.5 save fixture (or a save snapshot lacking `baseHitChance`) and confirm it restores to the old fixed per-archetype constant rather than crashing or silently rerolling. **Run this check against a fixture with all three M7 archetypes pre-unlocked** (M7 will otherwise have shrunk the live anchor table to `{merc, razor, tech}` by the time M7 ships) so M6's own "all six reachable" claim stays independently verifiable.
+- **M7:** play a fresh meta-crew (empty `unlockedArchetypes`) through a full campaign to a clean Score win and confirm the reward is drawn from the merged pool (item or archetype, never both, matches what settlement recorded); confirm a won archetype reward persists in `DataStore` across a new campaign and that a subsequent crew roll can now land the newly-unlocked archetype (a fixture forcing a roll onto its exact anchor point is the deterministic way to prove this, rather than replaying rolls until one lands); confirm a **locked** archetype's anchor point saturates to its documented nearest unlocked neighbor instead of dead-zoning or throwing; confirm a `score-partial` outcome writes nothing to either meta-store key.
+- Full regression: `npm test` at the end of the phase, plus a manual playthrough covering all seven archetypes (Merc/Razor/Tech/Decker/Berserk/Adept/Chimera) in one run **using a save fixture with `unlockedArchetypes` pre-seeded to all three** (per the dropped single-campaign gate above, a truly blank-slate save can't reach this state) to catch any wiring gaps in the fan-out surfaces (`Run.ts`, `persistence.ts`, `applyIntent.ts`).
