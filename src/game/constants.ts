@@ -240,6 +240,29 @@ export const MELEE_DAMAGE = 2;
 export const HEAVY_MELEE_DAMAGE = 3;
 
 /**
+ * Archetype base hit/dodge defaults (P3.5.M6). Used two ways: (1) each
+ * archetype constructor's un-rolled default when no `baseHitChance`/
+ * `baseDodgeChance` override is supplied, and (2) `crewStatRoll.ts`'s
+ * `DEFAULT_*_BY_ARCHETYPE` old-save fallback for `CampaignCrewSnapshot`
+ * records written before P3.5.M6. These are a *separate* table from
+ * `CREW_STAT_ANCHORS` (`crewStatRoll.ts`) — the anchors are tuned only for
+ * an even roll-classification partition, while Merc/Razor/Tech here stay
+ * frozen at their pre-P3.5 shipped values so an old save never silently
+ * regenerates stats it never had.
+ */
+export const MERC_DEFAULT_HIT_CHANCE = 0.8;
+export const RAZOR_DEFAULT_HIT_CHANCE = 0.7;
+export const RAZOR_DEFAULT_DODGE_CHANCE = 0.35;
+export const TECH_DEFAULT_HIT_CHANCE = 0.75;
+export const DECKER_DEFAULT_HIT_CHANCE = 0.7;
+export const BERSERK_DEFAULT_HIT_CHANCE = 0.78;
+export const BERSERK_DEFAULT_DODGE_CHANCE = 0.36;
+export const ADEPT_DEFAULT_HIT_CHANCE = 0.7;
+export const ADEPT_DEFAULT_DODGE_CHANCE = 0.2;
+export const CHIMERA_DEFAULT_HIT_CHANCE = 0.75;
+export const CHIMERA_DEFAULT_DODGE_CHANCE = 0.25;
+
+/**
  * Vault (Merc perk). Breach-and-clear slam in two modes:
  *   - **Hop:** vault over cover; body-check a hostile on the landing tile.
  *   - **Shove:** adjacent body-check; knock the target back and step away when clear.
@@ -670,8 +693,11 @@ export const REP = Object.freeze({
 });
 
 /**
- * Recruitment parameters. Controls candidate pool size, campaign-start picks,
- * and archetype weight distribution.
+ * Recruitment parameters. Controls candidate pool size and campaign-start
+ * picks. Archetype is no longer chosen by weighted pool (P3.5.M6 retired
+ * `RECRUIT_ARCHETYPE_POOL`) — see `crewStatRoll.ts` for the roll-then-derive
+ * pipeline every non-Decker crew member (starter trio and mid-campaign
+ * recruits alike) now goes through.
  */
 export const RECRUIT = Object.freeze({
   /** Mid-campaign: minimum recruits offered per hub visit (when Rep gate met). */
@@ -683,6 +709,23 @@ export const RECRUIT = Object.freeze({
   /** Campaign start: number the player must pick. */
   INITIAL_PICKS: 2,
 });
+
+/**
+ * P3.5.M6: crew stat roll ranges — continuous and deliberately wider than the
+ * old fixed per-archetype stats, so every rolled operative reads as distinct
+ * rather than clustering onto a handful of identical stat lines. Rolled
+ * floats are rounded to 0.01 (`crewStatRoll.ts`) so the derivation domain
+ * stays finite/enumerable and the HUD reads clean whole percents. The ranges
+ * deliberately overrun `CREW_STAT_ANCHORS`' hull (hit 0.67–0.83, dodge
+ * 0.19–0.36) — outer-margin rolls saturate to the nearest corner archetype
+ * rather than dead-zoning (see `deriveArchetype`).
+ */
+export const CREW_HIT_CHANCE_ROLL_MIN = 0.65;
+export const CREW_HIT_CHANCE_ROLL_MAX = 0.85;
+export const CREW_DODGE_CHANCE_ROLL_MIN = 0.15;
+export const CREW_DODGE_CHANCE_ROLL_MAX = 0.4;
+/** Conservative — armor is a wholly new variance axis with no prior balance data. */
+export const CREW_ARMOR_ROLL_CHANCE = 0.15;
 
 /**
  * Rep tier definitions — each tier carries a label, a lower bound, and a

@@ -16,6 +16,10 @@ import { Entity } from '../../../src/game/Entity.js';
 import { Merc } from '../../../src/game/archetypes/Merc.js';
 import { Razor } from '../../../src/game/archetypes/Razor.js';
 import { Tech } from '../../../src/game/archetypes/Tech.js';
+import { Decker } from '../../../src/game/archetypes/Decker.js';
+import { Berserk } from '../../../src/game/archetypes/Berserk.js';
+import { Adept } from '../../../src/game/archetypes/Adept.js';
+import { Chimera } from '../../../src/game/archetypes/Chimera.js';
 import { Grid } from '../../../src/game/Grid.js';
 import { World } from '../../../src/game/World.js';
 import {
@@ -495,6 +499,61 @@ test('Razor.baseDodgeChance is 0.35', () => {
 test('Merc.baseDodgeChance uses the crew default', () => {
   const m = new Merc({ id: 'm', x: 0, y: 0 });
   assert.equal(m.baseDodgeChance, DODGE_CHANCE);
+});
+
+// --- P3.5.M6: constructor-settable baseHitChance/baseDodgeChance ---------
+
+test('every archetype falls back to its own default when no override is given', () => {
+  const cases: Array<{ ctor: new (props: never) => Crew; hit: number; dodge: number }> = [
+    { ctor: Merc, hit: 0.8, dodge: DODGE_CHANCE },
+    { ctor: Razor, hit: 0.7, dodge: 0.35 },
+    { ctor: Tech, hit: 0.75, dodge: DODGE_CHANCE },
+    { ctor: Decker, hit: 0.7, dodge: DODGE_CHANCE },
+    { ctor: Berserk, hit: 0.78, dodge: 0.36 },
+    { ctor: Adept, hit: 0.7, dodge: 0.2 },
+    { ctor: Chimera, hit: 0.75, dodge: 0.25 },
+  ];
+  for (const { ctor, hit, dodge } of cases) {
+    const member = new ctor({ id: 'x', x: 0, y: 0 } as never);
+    assert.equal(member.baseHitChance, hit, `${ctor.name} default baseHitChance`);
+    assert.equal(member.baseDodgeChance, dodge, `${ctor.name} default baseDodgeChance`);
+  }
+});
+
+test('every archetype constructor accepts a rolled baseHitChance/baseDodgeChance override', () => {
+  const ctors: Array<new (props: never) => Crew> = [
+    Merc,
+    Razor,
+    Tech,
+    Decker,
+    Berserk,
+    Adept,
+    Chimera,
+  ];
+  for (const Ctor of ctors) {
+    const member = new Ctor({
+      id: 'x',
+      x: 0,
+      y: 0,
+      baseHitChance: 0.71,
+      baseDodgeChance: 0.29,
+    } as never);
+    assert.equal(member.baseHitChance, 0.71, `${Ctor.name} rolled baseHitChance`);
+    assert.equal(member.baseDodgeChance, 0.29, `${Ctor.name} rolled baseDodgeChance`);
+  }
+});
+
+test('Crew constructor rejects an out-of-range baseHitChance/baseDodgeChance', () => {
+  assert.throws(() => new Crew({ ...baseProps, baseHitChance: 1.1 }), /baseHitChance/);
+  assert.throws(() => new Crew({ ...baseProps, baseHitChance: -0.1 }), /baseHitChance/);
+  assert.throws(() => new Crew({ ...baseProps, baseDodgeChance: 1.1 }), /baseDodgeChance/);
+  assert.throws(() => new Crew({ ...baseProps, baseDodgeChance: -0.1 }), /baseDodgeChance/);
+});
+
+test("Berserk's dynamic baseHitChance getter reads the rolled pristine value (not a fixed 0.78)", () => {
+  const berserk = new Berserk({ id: 'b', x: 0, y: 0, baseHitChance: 0.81 });
+  assert.equal(berserk.baseHitChance, 0.81);
+  assert.equal(berserk.pristineBaseHitChance, 0.81);
 });
 
 test('Crew.maxHitBonus is 1 − baseHitChance', () => {

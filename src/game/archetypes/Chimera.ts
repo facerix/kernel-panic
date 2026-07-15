@@ -1,5 +1,6 @@
 import { Crew } from '../Crew.js';
 import { canConvertScrap, convertScrapToHp } from '../nanoRepair.js';
+import { CHIMERA_DEFAULT_HIT_CHANCE, CHIMERA_DEFAULT_DODGE_CHANCE } from '../constants.js';
 import type { CrewInit } from '../Crew.js';
 import type { NaniteHealCheck } from '../nanoRepair.js';
 
@@ -38,16 +39,13 @@ export const CALLSIGNS = Object.freeze([
 export class Chimera extends Crew {
   override archetype = 'Chimera';
 
-  override get baseHitChance(): number {
-    return 0.75;
-  }
-
-  override get baseDodgeChance(): number {
-    return 0.25;
-  }
-
   constructor(props: CrewInit) {
-    super({ ...props, glyph: '@' });
+    super({
+      baseHitChance: CHIMERA_DEFAULT_HIT_CHANCE,
+      baseDodgeChance: CHIMERA_DEFAULT_DODGE_CHANCE,
+      ...props,
+      glyph: '@',
+    });
   }
 
   /**

@@ -1,5 +1,9 @@
 import { Crew } from '../Crew.js';
-import { HEAVY_MELEE_DAMAGE } from '../constants.js';
+import {
+  HEAVY_MELEE_DAMAGE,
+  RAZOR_DEFAULT_HIT_CHANCE,
+  RAZOR_DEFAULT_DODGE_CHANCE,
+} from '../constants.js';
 import { canSlideTwoTiles, slideTwoTiles } from '../slide.js';
 import type { CrewInit } from '../Crew.js';
 import type { World } from '../World.js';
@@ -53,20 +57,18 @@ export const CALLSIGNS = Object.freeze([
  */
 export class Razor extends Crew {
   override archetype = 'Razor';
-  override get baseHitChance(): number {
-    return 0.7;
-  }
-
-  override get baseDodgeChance(): number {
-    return 0.35;
-  }
 
   override get meleeDamage(): number {
     return HEAVY_MELEE_DAMAGE;
   }
 
   constructor(props: CrewInit) {
-    super({ ...props, glyph: '@' });
+    super({
+      baseHitChance: RAZOR_DEFAULT_HIT_CHANCE,
+      baseDodgeChance: RAZOR_DEFAULT_DODGE_CHANCE,
+      ...props,
+      glyph: '@',
+    });
   }
 
   /**

@@ -4,6 +4,7 @@ import {
   DECKER_BASE_ICE_RESISTANCE,
   DECKER_BASE_INTRUSION,
   DECKER_BASE_RAM,
+  DECKER_DEFAULT_HIT_CHANCE,
 } from '../constants.js';
 import type { CrewInit, CrewSnapshot } from '../Crew.js';
 import type { World } from '../World.js';
@@ -74,17 +75,13 @@ export class Decker extends Crew {
   /** Avatar `damageReduction` against ICE (P3.M3.3). */
   iceResistance: number;
 
-  override get baseHitChance(): number {
-    return 0.7;
-  }
-
   constructor({
     ram = DECKER_BASE_RAM,
     intrusionStrength = DECKER_BASE_INTRUSION,
     iceResistance = DECKER_BASE_ICE_RESISTANCE,
     ...props
   }: DeckerInit) {
-    super({ ...props, glyph: '@' });
+    super({ baseHitChance: DECKER_DEFAULT_HIT_CHANCE, ...props, glyph: '@' });
     if (!Number.isInteger(ram) || ram <= 0) {
       throw new RangeError(`Decker ram must be a positive integer, got ${ram}`);
     }

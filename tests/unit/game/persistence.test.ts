@@ -31,6 +31,10 @@ import { Decker } from '../../../src/game/archetypes/Decker.js';
 import { Berserk } from '../../../src/game/archetypes/Berserk.js';
 import { Adept } from '../../../src/game/archetypes/Adept.js';
 import { Chimera } from '../../../src/game/archetypes/Chimera.js';
+import {
+  DEFAULT_HIT_CHANCE_BY_ARCHETYPE,
+  DEFAULT_DODGE_CHANCE_BY_ARCHETYPE,
+} from '../../../src/game/crewStatRoll.js';
 import { PatrolHostile } from '../../../src/game/ai/PatrolHostile.js';
 import { applyOverride } from '../../../src/game/mindInfluence.js';
 import { Rng } from '../../../src/rng.js';
@@ -734,6 +738,63 @@ test('restoreCampaign preserves valid hitBonus below cap', () => {
   rec.crew[0].gear = { maxHpBonus: 0, hitBonus: 0.1 };
   const restored = restoreCampaign(rec);
   assert.equal(restored.crew[0].gear!.hitBonus, 0.1);
+});
+
+// --- P3.5.M6: rolled base stats round-trip -------------------------------
+
+test('CampaignCrewSnapshot round-trips rolled baseHitChance/baseDodgeChance', () => {
+  const campaign = new Campaign({ seed: 0xc0ffee });
+  const rec = snapshotCampaign(campaign);
+  for (const crewRec of rec.crew) {
+    assert.equal(typeof crewRec.baseHitChance, 'number');
+    assert.equal(typeof crewRec.baseDodgeChance, 'number');
+  }
+  const restored = restoreCampaign(rec);
+  for (const member of campaign.crew) {
+    const restoredMember = restored.crew.find(m => m.id === member.id)!;
+    assert.equal(restoredMember.baseHitChance, member.baseHitChance);
+    assert.equal(restoredMember.baseDodgeChance, member.baseDodgeChance);
+  }
+});
+
+test('restoreCampaign falls back to the archetype default when baseHitChance/baseDodgeChance are absent (pre-P3.5 save)', () => {
+  const campaign = new Campaign({ seed: 0xfeed });
+  const rec = snapshotCampaign(campaign);
+  for (const crewRec of rec.crew) {
+    delete (crewRec as Record<string, unknown>).baseHitChance;
+    delete (crewRec as Record<string, unknown>).baseDodgeChance;
+  }
+  const restored = restoreCampaign(rec);
+  for (const crewRec of rec.crew) {
+    const member = restored.crew.find(m => m.id === crewRec.id)!;
+    assert.equal(member.baseHitChance, DEFAULT_HIT_CHANCE_BY_ARCHETYPE[crewRec.archetype]);
+    assert.equal(member.baseDodgeChance, DEFAULT_DODGE_CHANCE_BY_ARCHETYPE[crewRec.archetype]);
+  }
+});
+
+test('CampaignCrewSnapshot persists the pristine baseHitChance, not a live Berserk Crash penalty', () => {
+  const berserk = buildCrewMember('berserk', { x: 0, y: 0 }, new Rng(3), {
+    id: 'crew-berserk',
+  }) as Berserk;
+  berserk.applyEffect(STATUS_EFFECT.CRASH, 2);
+  const pristine = berserk.pristineBaseHitChance;
+  assert.ok(berserk.baseHitChance < pristine, 'precondition: Crash penalty is live');
+
+  const campaign = new Campaign({ seed: 1, crew: [berserk] });
+  const rec = snapshotCampaign(campaign);
+  const crewRec = rec.crew.find(c => c.id === 'crew-berserk')!;
+  assert.equal(
+    crewRec.baseHitChance,
+    pristine,
+    'snapshot stores the pristine roll, not the live value'
+  );
+
+  const restored = restoreCampaign(rec);
+  const restoredMember = restored.crew.find(m => m.id === 'crew-berserk')!;
+  // Restored fresh — no Crash effect carried over via CampaignCrewSnapshot
+  // (combat-run-scoped effects are out of scope for the Hub-level snapshot;
+  // see P3.5.M1) — so the live getter now reads the pristine value back.
+  assert.equal(restoredMember.baseHitChance, pristine);
 });
 
 test('restore normalizes over-capped hitBonus in run entity gear', () => {

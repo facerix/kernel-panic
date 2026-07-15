@@ -33,6 +33,15 @@ import type { LocationSite } from '../../../src/types.js';
 
 const SCORE_DOOR_ID = 'score-door-0';
 
+/**
+ * P3.5.M7: `buildScoreContract` now draws from a merged item+archetype pool.
+ * This file's tests predate that merge and assert deterministic seed→item
+ * mappings — passing every archetype as already-"acquired" keeps the pool
+ * item-only, preserving those assertions untouched. Archetype-specific draw
+ * behavior is covered separately (Campaign.test.ts, § P3.5.M7).
+ */
+const ALL_ARCHETYPES_ACQUIRED = ['berserk', 'adept', 'chimera'];
+
 function scoreContract(seed = 100, mapWidth = 28, mapHeight = 18): Contract {
   return {
     seed,
@@ -362,7 +371,7 @@ function scoreReadyCampaign() {
 
 test('buildScoreContract embeds an unacquired scoreable blueprint id + frames briefing', () => {
   const campaign = scoreReadyCampaign();
-  const contract = campaign.buildScoreContract([]);
+  const contract = campaign.buildScoreContract([], ALL_ARCHETYPES_ACQUIRED);
   const itemId = contract.objective.params!.scoreItemId as string;
   assert.ok(SCOREABLE_ITEM_IDS.has(itemId), `payload "${itemId}" must be a known scoreable`);
   const item = SCOREABLE_ITEMS.find(i => i.id === itemId)!;
@@ -372,16 +381,18 @@ test('buildScoreContract embeds an unacquired scoreable blueprint id + frames br
 
 test('buildScoreContract payload selection is deterministic for a campaign', () => {
   const campaign = scoreReadyCampaign();
-  const a = campaign.buildScoreContract([]).objective.params!.scoreItemId;
-  const b = campaign.buildScoreContract([]).objective.params!.scoreItemId;
+  const a = campaign.buildScoreContract([], ALL_ARCHETYPES_ACQUIRED).objective.params!.scoreItemId;
+  const b = campaign.buildScoreContract([], ALL_ARCHETYPES_ACQUIRED).objective.params!.scoreItemId;
   assert.equal(a, b, 'same seed + same acquired set → same payload');
 });
 
 test('buildScoreContract excludes already-acquired blueprints', () => {
   const campaign = scoreReadyCampaign();
-  const firstPick = campaign.buildScoreContract([]).objective.params!.scoreItemId as string;
+  const firstPick = campaign.buildScoreContract([], ALL_ARCHETYPES_ACQUIRED).objective.params!
+    .scoreItemId as string;
   // Acquire the would-be pick — the Score must now target a different blueprint.
-  const nextPick = campaign.buildScoreContract([firstPick]).objective.params!.scoreItemId as string;
+  const nextPick = campaign.buildScoreContract([firstPick], ALL_ARCHETYPES_ACQUIRED).objective
+    .params!.scoreItemId as string;
   assert.notEqual(nextPick, firstPick);
   assert.ok(SCOREABLE_ITEM_IDS.has(nextPick));
 });
@@ -391,15 +402,18 @@ test('buildScoreContract targets the sole remaining blueprint when all others ar
   const allIds = SCOREABLE_ITEMS.map(i => i.id);
   const remaining = allIds[3]!; // arbitrary survivor
   const acquired = allIds.filter(id => id !== remaining);
-  const pick = campaign.buildScoreContract(acquired).objective.params!.scoreItemId;
+  const pick = campaign.buildScoreContract(acquired, ALL_ARCHETYPES_ACQUIRED).objective.params!
+    .scoreItemId;
   assert.equal(pick, remaining);
 });
 
 test('buildScoreContract never rolls a retired/foreign id passed as acquired', () => {
   const campaign = scoreReadyCampaign();
   // A ghost id isn't in the pool, so it can't shrink it — selection is unchanged.
-  const baseline = campaign.buildScoreContract([]).objective.params!.scoreItemId;
-  const withGhost = campaign.buildScoreContract(['ghost-blueprint']).objective.params!.scoreItemId;
+  const baseline = campaign.buildScoreContract([], ALL_ARCHETYPES_ACQUIRED).objective.params!
+    .scoreItemId;
+  const withGhost = campaign.buildScoreContract(['ghost-blueprint'], ALL_ARCHETYPES_ACQUIRED)
+    .objective.params!.scoreItemId;
   assert.equal(withGhost, baseline);
   assert.ok(SCOREABLE_ITEM_IDS.has(withGhost as string));
 });
@@ -411,7 +425,7 @@ test('buildScoreContract never rolls a retired/foreign id passed as acquired', (
 test('buildScoreContract on an exhausted pool drops the blueprint id and frames an abstract target', () => {
   const campaign = scoreReadyCampaign();
   const allAcquired = SCOREABLE_ITEMS.map(i => i.id);
-  const contract = campaign.buildScoreContract(allAcquired);
+  const contract = campaign.buildScoreContract(allAcquired, ALL_ARCHETYPES_ACQUIRED);
   // No blueprint id — a clean completion must not write the meta-store.
   assert.equal(contract.objective.params!.scoreItemId, undefined);
   // Briefing is framed from exactly one abstract category.
@@ -422,8 +436,8 @@ test('buildScoreContract on an exhausted pool drops the blueprint id and frames 
 test('abstract Score category selection is deterministic for a campaign', () => {
   const campaign = scoreReadyCampaign();
   const allAcquired = SCOREABLE_ITEMS.map(i => i.id);
-  const a = campaign.buildScoreContract(allAcquired).objective.briefing;
-  const b = campaign.buildScoreContract(allAcquired).objective.briefing;
+  const a = campaign.buildScoreContract(allAcquired, ALL_ARCHETYPES_ACQUIRED).objective.briefing;
+  const b = campaign.buildScoreContract(allAcquired, ALL_ARCHETYPES_ACQUIRED).objective.briefing;
   assert.equal(a, b, 'same seed + exhausted pool → same abstract briefing');
 });
 
@@ -443,7 +457,10 @@ test('different Score seeds can draw different abstract categories', () => {
         scoreSite({ id: 'case-4', tier: 'roster', scoreTarget: false, seed: `${seed}04` }),
       ],
     });
-    const briefing = campaign.buildScoreContract(SCOREABLE_ITEMS.map(i => i.id)).objective.briefing;
+    const briefing = campaign.buildScoreContract(
+      SCOREABLE_ITEMS.map(i => i.id),
+      ALL_ARCHETYPES_ACQUIRED
+    ).objective.briefing;
     for (const t of ABSTRACT_SCORE_TARGETS) {
       if (briefing.includes(t.label)) labels.add(t.id);
     }
@@ -458,7 +475,11 @@ test('a clean abstract Score settles the arc but writes no meta-store unlock', (
   const partner = campaign.crew.find(member => member.archetype !== 'Decker')!;
   const beforeCredits = campaign.credits;
   campaign
-    .deployCrewMember(decker.id, campaign.buildScoreContract(allAcquired), partner.id)
+    .deployCrewMember(
+      decker.id,
+      campaign.buildScoreContract(allAcquired, ALL_ARCHETYPES_ACQUIRED),
+      partner.id
+    )
     .enterCombat();
 
   campaign.onJobEnd({ outcome: OUTCOME.EXIT, completed: true });
@@ -474,7 +495,7 @@ test('clean Score completion records the stolen blueprint for the meta-store', (
   const campaign = scoreReadyCampaign();
   const decker = campaign.crew.find(member => member.archetype === 'Decker')!;
   const partner = campaign.crew.find(member => member.archetype !== 'Decker')!;
-  const contract = campaign.buildScoreContract([]);
+  const contract = campaign.buildScoreContract([], ALL_ARCHETYPES_ACQUIRED);
   const expectedId = contract.objective.params!.scoreItemId as string;
   campaign.deployCrewMember(decker.id, contract, partner.id).enterCombat();
 
@@ -487,7 +508,13 @@ test('partial Score records no blueprint unlock (prototype not secured)', () => 
   const campaign = scoreReadyCampaign();
   const decker = campaign.crew.find(member => member.archetype === 'Decker')!;
   const partner = campaign.crew.find(member => member.archetype !== 'Decker')!;
-  campaign.deployCrewMember(decker.id, campaign.buildScoreContract([]), partner.id).enterCombat();
+  campaign
+    .deployCrewMember(
+      decker.id,
+      campaign.buildScoreContract([], ALL_ARCHETYPES_ACQUIRED),
+      partner.id
+    )
+    .enterCombat();
 
   campaign.onJobEnd({ outcome: OUTCOME.EXIT, completed: false });
   assert.equal(campaign.endReason, 'score-partial');
@@ -531,7 +558,7 @@ test('recorded Score unlock survives campaign snapshot/restore (resume can still
   const campaign = scoreReadyCampaign();
   const decker = campaign.crew.find(member => member.archetype === 'Decker')!;
   const partner = campaign.crew.find(member => member.archetype !== 'Decker')!;
-  const contract = campaign.buildScoreContract([]);
+  const contract = campaign.buildScoreContract([], ALL_ARCHETYPES_ACQUIRED);
   const expectedId = contract.objective.params!.scoreItemId as string;
   campaign.deployCrewMember(decker.id, contract, partner.id).enterCombat();
   campaign.onJobEnd({ outcome: OUTCOME.EXIT, completed: true });

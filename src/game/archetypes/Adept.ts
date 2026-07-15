@@ -1,5 +1,6 @@
 import { Crew } from '../Crew.js';
 import { canInfluence, influenceTarget } from '../mindInfluence.js';
+import { ADEPT_DEFAULT_HIT_CHANCE, ADEPT_DEFAULT_DODGE_CHANCE } from '../constants.js';
 import type { CrewInit } from '../Crew.js';
 import type { World } from '../World.js';
 import type { Entity } from '../Entity.js';
@@ -41,16 +42,13 @@ export const CALLSIGNS = Object.freeze([
 export class Adept extends Crew {
   override archetype = 'Adept';
 
-  override get baseHitChance(): number {
-    return 0.7;
-  }
-
-  override get baseDodgeChance(): number {
-    return 0.2;
-  }
-
   constructor(props: CrewInit) {
-    super({ ...props, glyph: '@' });
+    super({
+      baseHitChance: ADEPT_DEFAULT_HIT_CHANCE,
+      baseDodgeChance: ADEPT_DEFAULT_DODGE_CHANCE,
+      ...props,
+      glyph: '@',
+    });
   }
 
   /**

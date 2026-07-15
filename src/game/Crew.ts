@@ -129,6 +129,14 @@ export interface CrewInit extends Omit<EntityInit, 'faction'> {
   flatlined?: boolean;
   inventory?: Inventory | null;
   gear?: Gear | null;
+  /**
+   * P3.5.M6: rolled (or archetype-default) base ranged hit probability.
+   * Each archetype constructor supplies its own default when this is
+   * omitted — see `<Archetype>_DEFAULT_HIT_CHANCE` in `constants.ts`.
+   */
+  baseHitChance?: number;
+  /** P3.5.M6: rolled (or archetype-default) base melee dodge probability. */
+  baseDodgeChance?: number;
 }
 
 export class Crew extends Entity {
@@ -140,21 +148,48 @@ export class Crew extends Entity {
   archetype: string = 'CrewMember';
 
   /**
+   * P3.5.M6: backing field for {@link baseHitChance}, settable at
+   * construction (`CrewInit.baseHitChance`) so `crewStatRoll.ts` can hand a
+   * rolled value straight to the constructor instead of every archetype
+   * hard-coding a fixed getter. Each archetype subclass supplies its own
+   * default via its `super()` call — see `<Archetype>_DEFAULT_HIT_CHANCE`.
+   * Falls back to `BASE_HIT_CHANCE` for a bare `Crew` (tests only; no
+   * archetype ships without its own default).
+   */
+  #baseHitChance: number;
+
+  /** P3.5.M6: backing field for {@link baseDodgeChance}. See {@link #baseHitChance}. */
+  #baseDodgeChance: number;
+
+  /**
    * Base ranged hit probability for this crew member, before gear bonuses.
-   * Overridden per archetype: Merc 0.8, Tech 0.75, Razor 0.7. Falls back to
-   * `BASE_HIT_CHANCE` (the universal drone/turret default) so a bare `Crew`
-   * in tests behaves sensibly.
+   * Read from the constructor-settable {@link #baseHitChance} field. Berserk
+   * overrides this getter (not the field) to layer a live Crash penalty on
+   * top of the stored pristine value — see `Berserk.baseHitChance`.
    */
   get baseHitChance(): number {
-    return BASE_HIT_CHANCE;
+    return this.#baseHitChance;
+  }
+
+  /**
+   * P3.5.M6: the pristine constructor-set value, unaffected by any live
+   * modifier layered on top of {@link baseHitChance} (e.g. Berserk's Crash
+   * penalty). `persistence.ts` snapshots *this*, not the live getter — so a
+   * `CampaignCrewSnapshot` taken mid-Crash can't permanently bake a
+   * transient penalty into the restored baseline. Mirrors how
+   * `damageReduction` (pristine, persisted) and `effectiveDamageReduction`
+   * (live, combat/HUD-facing) already split for Berserk's Surge armor bonus.
+   */
+  get pristineBaseHitChance(): number {
+    return this.#baseHitChance;
   }
 
   /**
    * Base melee dodge probability for this crew member (before cover bonus).
-   * Overridden on Razor; other archetypes use {@link DODGE_CHANCE}.
+   * Read from the constructor-settable {@link #baseDodgeChance} field.
    */
   get baseDodgeChance(): number {
-    return DODGE_CHANCE;
+    return this.#baseDodgeChance;
   }
 
   /**
@@ -258,6 +293,8 @@ export class Crew extends Entity {
     flatlined = false,
     inventory = null,
     gear = null,
+    baseHitChance = BASE_HIT_CHANCE,
+    baseDodgeChance = DODGE_CHANCE,
     ...rest
   }: CrewInit) {
     super({
@@ -270,8 +307,18 @@ export class Crew extends Entity {
     if (typeof flatlined !== 'boolean') {
       throw new TypeError(`Crew flatlined must be a boolean, got ${typeof flatlined}`);
     }
+    if (typeof baseHitChance !== 'number' || baseHitChance < 0 || baseHitChance > 1) {
+      throw new RangeError(`Crew baseHitChance must be a number in [0, 1], got ${baseHitChance}`);
+    }
+    if (typeof baseDodgeChance !== 'number' || baseDodgeChance < 0 || baseDodgeChance > 1) {
+      throw new RangeError(
+        `Crew baseDodgeChance must be a number in [0, 1], got ${baseDodgeChance}`
+      );
+    }
     this.callsign = callsign;
     this.flatlined = flatlined;
+    this.#baseHitChance = baseHitChance;
+    this.#baseDodgeChance = baseDodgeChance;
     /**
      * Inventory — `{ salvage: number, consumables: Item[] }` once
      * `initInventory()` has been called (at job deploy time in `Run`).

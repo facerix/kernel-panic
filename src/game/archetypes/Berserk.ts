@@ -7,6 +7,8 @@ import {
   SURGE_AP_BONUS,
   SURGE_ARMOR_BONUS,
   SURGE_DAMAGE_BONUS,
+  BERSERK_DEFAULT_HIT_CHANCE,
+  BERSERK_DEFAULT_DODGE_CHANCE,
 } from '../constants.js';
 import { canSurge, doSurge } from '../surge.js';
 import type { CrewInit } from '../Crew.js';
@@ -30,12 +32,14 @@ export const CALLSIGNS = Object.freeze([
 export class Berserk extends Crew {
   override archetype = 'Berserk';
 
+  /**
+   * P3.5.M6: `super.baseHitChance` reads the constructor-settable pristine
+   * value (rolled or `BERSERK_DEFAULT_HIT_CHANCE`) — this getter layers the
+   * live Crash penalty on top without a second mutable field, so expiry and
+   * restore can never over-/under-correct the stat (see the M3 as-built note).
+   */
   override get baseHitChance(): number {
-    return 0.78 - (this.hasEffect(STATUS_EFFECT.CRASH) ? CRASH_HIT_PENALTY : 0);
-  }
-
-  override get baseDodgeChance(): number {
-    return 0.36;
+    return super.baseHitChance - (this.hasEffect(STATUS_EFFECT.CRASH) ? CRASH_HIT_PENALTY : 0);
   }
 
   /**
@@ -50,7 +54,12 @@ export class Berserk extends Crew {
   }
 
   constructor(props: CrewInit) {
-    super({ ...props, glyph: '@' });
+    super({
+      baseHitChance: BERSERK_DEFAULT_HIT_CHANCE,
+      baseDodgeChance: BERSERK_DEFAULT_DODGE_CHANCE,
+      ...props,
+      glyph: '@',
+    });
   }
 
   canSurge() {

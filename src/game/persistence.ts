@@ -53,6 +53,10 @@ import { Decker } from './archetypes/Decker.js';
 import { Berserk } from './archetypes/Berserk.js';
 import { Adept } from './archetypes/Adept.js';
 import { Chimera } from './archetypes/Chimera.js';
+import {
+  DEFAULT_HIT_CHANCE_BY_ARCHETYPE,
+  DEFAULT_DODGE_CHANCE_BY_ARCHETYPE,
+} from './crewStatRoll.js';
 import { Turret } from './Turret.js';
 import { Skirmisher, type SkirmisherProps } from './ai/Skirmisher.js';
 import { Guard, type GuardProps } from './ai/Guard.js';
@@ -931,6 +935,12 @@ type RestoreOptions = {
 type RestoreCampaignOptions = {
   onPersist?: (campaign: Campaign) => void;
   onResult?: (result: RunResult) => void;
+  /**
+   * P3.5.M7: live archetype-unlock state from `DataStore.unlockedArchetypes`
+   * at restore time. Omitted → ungated (matches pre-M7 test/API behavior);
+   * the shell always supplies this from the meta-store on a real load.
+   */
+  unlockedArchetypeIds?: readonly string[];
 };
 
 type CampaignCrewSnapshot = {
@@ -948,6 +958,13 @@ type CampaignCrewSnapshot = {
    * only tracks it for cap-clamping. Absent on pre-M6.2 saves → restores to 0.
    */
   damageReduction?: number;
+  /**
+   * P3.5.M6: rolled base stats. Absent on pre-P3.5 saves — restore to that
+   * archetype's historical fixed value (`DEFAULT_HIT_CHANCE_BY_ARCHETYPE`)
+   * instead of silently regenerating a new roll.
+   */
+  baseHitChance?: number;
+  baseDodgeChance?: number;
   alive: boolean;
   inventory: Inventory | null;
   gear: Gear | null;
@@ -1502,6 +1519,7 @@ export function restoreCampaign(record: unknown, options: RestoreCampaignOptions
     pendingChronicleRun: record.pendingChronicleRun,
     onPersist: options.onPersist,
     onResult: options.onResult,
+    unlockedArchetypeIds: options.unlockedArchetypeIds,
   });
   campaign.rng = new Rng(record.rng.seed);
   campaign.rng.setState(record.rng.state);
@@ -1815,6 +1833,11 @@ function snapshotCrewMember(member: Crew): CampaignCrewSnapshot {
     ap: member.ap,
     maxAp: member.maxAp,
     damageReduction: member.damageReduction,
+    // P3.5.M6: pristine, not the live `baseHitChance` getter — Berserk's
+    // Crash penalty is transient and must never get baked into a save
+    // (mirrors how `damageReduction` here is pristine, not `effectiveDamageReduction`).
+    baseHitChance: member.pristineBaseHitChance,
+    baseDodgeChance: member.baseDodgeChance,
     alive: !!member.alive,
     inventory: member.inventory,
     gear: member.gear,
@@ -1901,6 +1924,10 @@ function restoreCrewMember(rec: CampaignCrewSnapshot): Crew {
     maxHp: rec.maxHp,
     maxAp: rec.maxAp,
     damageReduction: rec.damageReduction ?? 0,
+    // P3.5.M6: absent on pre-P3.5 saves — fall back to that archetype's
+    // historical fixed value rather than silently regenerating a new roll.
+    baseHitChance: rec.baseHitChance ?? DEFAULT_HIT_CHANCE_BY_ARCHETYPE[rec.archetype],
+    baseDodgeChance: rec.baseDodgeChance ?? DEFAULT_DODGE_CHANCE_BY_ARCHETYPE[rec.archetype],
     // P3.M3.3: Decker cyber stats (validated; throws on a non-decker record).
     ...readCampaignCrewCyber(rec),
   });

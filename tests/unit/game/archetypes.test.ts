@@ -16,7 +16,6 @@ import {
   ARCHETYPES,
   ARCHETYPE_IDS,
   CALLSIGNS_BY_ARCHETYPE,
-  RECRUIT_ARCHETYPE_POOL,
   buildCrewMember,
   isArchetypeId,
   perkAimForArchetype,
@@ -195,14 +194,12 @@ test('perkAimForArchetype throws on an unknown archetype (no silent fallback)', 
   assert.throws(() => perkAimForArchetype('nope'), /unknown archetype/);
 });
 
-test('Decker is excluded from the starter selector and the random recruit pool', () => {
+test('Decker is excluded from the starter selector', () => {
   // The Decker joins only via the Act-2 narrative beat — never as a starter
-  // pick or a random recruit roll (P3.M2 design constraint).
+  // pick or a random recruit roll (P3.M2 design constraint). P3.5.M6:
+  // `deriveArchetype` never resolves to 'decker' — see crewStatRoll.test.ts —
+  // so exclusion from the roll pipeline is proven there, not here.
   assert.ok(!ARCHETYPE_IDS.includes('decker'), 'Decker must not be a selectable starter');
-  assert.ok(
-    !RECRUIT_ARCHETYPE_POOL.includes('decker'),
-    'Decker must not be in the random recruit pool'
-  );
 });
 
 test('buildCrewMember can still construct a Decker by id (recruitment path)', () => {
@@ -218,7 +215,6 @@ test('Berserk is registered, recruitable, and self-targeted', () => {
   assert.equal(a.perkName, 'SURGE');
   assert.equal(a.perkAim, 'self');
   assert.ok(!ARCHETYPE_IDS.includes('berserk'));
-  assert.ok(RECRUIT_ARCHETYPE_POOL.includes('berserk'));
 
   const berserk = buildCrewMember('berserk', { x: 1, y: 2 }, new Rng(10));
   assert.ok(berserk instanceof Berserk);
@@ -232,7 +228,6 @@ test('Adept is registered, recruitable, and directionally aimed', () => {
   assert.equal(a.perkName, 'INFLUENCE');
   assert.equal(a.perkAim, 'directional');
   assert.ok(!ARCHETYPE_IDS.includes('adept'));
-  assert.ok(RECRUIT_ARCHETYPE_POOL.includes('adept'));
 
   const adept = buildCrewMember('adept', { x: 1, y: 2 }, new Rng(10));
   assert.ok(adept instanceof Adept);
@@ -246,7 +241,6 @@ test('Chimera is registered, recruitable, and self-targeted', () => {
   assert.equal(a.perkName, 'NANITE REPAIR');
   assert.equal(a.perkAim, 'self');
   assert.ok(!ARCHETYPE_IDS.includes('chimera'));
-  assert.ok(RECRUIT_ARCHETYPE_POOL.includes('chimera'));
 
   const chimera = buildCrewMember('chimera', { x: 1, y: 2 }, new Rng(10));
   assert.ok(chimera instanceof Chimera);

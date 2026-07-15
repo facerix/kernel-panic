@@ -7,6 +7,8 @@ import {
   type CampaignSummary,
 } from './game/campaignSummary.js';
 import { archiveScoreableItem, normalizeUnlockedScoreableItems } from './game/scoreableUnlocks.js';
+import { archiveUnlockedArchetype, normalizeUnlockedArchetypes } from './game/archetypeUnlocks.js';
+import { normalizePendingArchetypeShowcase } from './game/archetypeShowcase.js';
 
 const STORAGE_KEY = 'kp:data';
 let instance: DataStore | null = null;
@@ -25,6 +27,15 @@ type KPData = {
   campaign: Campaign | null;
   campaignHistory: CampaignSummary[];
   unlockedScoreableItems: string[];
+  /** P3.5.M7: cross-campaign archetype unlocks (Berserk/Adept/Chimera). */
+  unlockedArchetypes: string[];
+  /**
+   * Showcase-slot follow-up (2026-07-14): the archetype id, if any, the next
+   * campaign start should reserve crew candidate slot 0 for. Set atomically
+   * alongside `unlockedArchetypes` by `archiveUnlockedArchetype`; cleared by
+   * `clearPendingArchetypeShowcase` once a campaign-start recruitment commits.
+   */
+  pendingArchetypeShowcase: string | null;
 };
 type KPDataObject =
   | string
@@ -42,6 +53,8 @@ class DataStore extends EventTarget {
   #campaign: KPData['campaign'] = null;
   #campaignHistory: KPData['campaignHistory'] = [];
   #unlockedScoreableItems: KPData['unlockedScoreableItems'] = [];
+  #unlockedArchetypes: KPData['unlockedArchetypes'] = [];
+  #pendingArchetypeShowcase: KPData['pendingArchetypeShowcase'] = null;
 
   constructor() {
     if (instance) {
@@ -72,6 +85,8 @@ class DataStore extends EventTarget {
             campaign: null,
             campaignHistory: [],
             unlockedScoreableItems: [],
+            unlockedArchetypes: [],
+            pendingArchetypeShowcase: null,
           })
         );
       } catch (storageError) {
@@ -83,6 +98,8 @@ class DataStore extends EventTarget {
         campaign: null,
         campaignHistory: [],
         unlockedScoreableItems: [],
+        unlockedArchetypes: [],
+        pendingArchetypeShowcase: null,
       };
     }
     // The meta-progression store crashes loudly on structural corruption — a
@@ -95,6 +112,8 @@ class DataStore extends EventTarget {
       campaign: (data.campaign as KPData['campaign']) ?? null,
       campaignHistory,
       unlockedScoreableItems: normalizeUnlockedScoreableItems(data.unlockedScoreableItems),
+      unlockedArchetypes: normalizeUnlockedArchetypes(data.unlockedArchetypes),
+      pendingArchetypeShowcase: normalizePendingArchetypeShowcase(data.pendingArchetypeShowcase),
     };
   }
 
@@ -107,27 +126,47 @@ class DataStore extends EventTarget {
         campaign: null,
         campaignHistory: [],
         unlockedScoreableItems: [],
+        unlockedArchetypes: [],
+        pendingArchetypeShowcase: null,
       });
       window.localStorage.setItem(STORAGE_KEY, savedDataJson);
     }
-    const { prefs, runs, campaign, campaignHistory, unlockedScoreableItems } =
-      this.#loadDataFromJson(savedDataJson);
+    const {
+      prefs,
+      runs,
+      campaign,
+      campaignHistory,
+      unlockedScoreableItems,
+      unlockedArchetypes,
+      pendingArchetypeShowcase,
+    } = this.#loadDataFromJson(savedDataJson);
     this.#prefs = prefs;
     this.#runs = runs;
     this.#campaign = campaign;
     this.#campaignHistory = campaignHistory;
     this.#unlockedScoreableItems = unlockedScoreableItems;
+    this.#unlockedArchetypes = unlockedArchetypes;
+    this.#pendingArchetypeShowcase = pendingArchetypeShowcase;
     this.#emitChangeEvent('init', '*');
   }
 
   import(jsonData: string): void {
-    const { prefs, runs, campaign, campaignHistory, unlockedScoreableItems } =
-      this.#loadDataFromJson(jsonData);
+    const {
+      prefs,
+      runs,
+      campaign,
+      campaignHistory,
+      unlockedScoreableItems,
+      unlockedArchetypes,
+      pendingArchetypeShowcase,
+    } = this.#loadDataFromJson(jsonData);
     this.#prefs = prefs;
     this.#runs = runs;
     this.#campaign = campaign;
     this.#campaignHistory = campaignHistory;
     this.#unlockedScoreableItems = unlockedScoreableItems;
+    this.#unlockedArchetypes = unlockedArchetypes;
+    this.#pendingArchetypeShowcase = pendingArchetypeShowcase;
     this.#emitChangeEvent('import', '*');
   }
 
@@ -140,6 +179,8 @@ class DataStore extends EventTarget {
         campaign: this.#campaign,
         campaignHistory: this.#campaignHistory,
         unlockedScoreableItems: this.#unlockedScoreableItems,
+        unlockedArchetypes: this.#unlockedArchetypes,
+        pendingArchetypeShowcase: this.#pendingArchetypeShowcase,
       })
     );
   }
@@ -199,6 +240,61 @@ class DataStore extends EventTarget {
       this.#saveData();
     }
     return { added };
+  }
+
+  /**
+   * Cross-campaign meta-progression store (P3.5.M7): archetype IDs
+   * (Berserk/Adept/Chimera) unlocked via clean Score heists, in acquisition
+   * order. Wholly independent of `unlockedScoreableItems` — a save that
+   * unlocked every item under the pre-M7 system starts with an empty
+   * archetype list. Returns a defensive copy.
+   */
+  get unlockedArchetypes(): string[] {
+    return [...this.#unlockedArchetypes];
+  }
+
+  /**
+   * Record an archetype as unlocked. Idempotent: re-archiving an
+   * already-unlocked id is a no-op (no event, no save). Returns whether the
+   * store changed. Written only on `score-complete` when the drawn payload
+   * is an archetype reward.
+   *
+   * A genuinely new unlock also arms `pendingArchetypeShowcase` with the same
+   * id, atomically — the next campaign start reserves crew candidate slot 0
+   * for it (see `archetypeShowcase.ts`). A duplicate/no-op archive leaves any
+   * already-pending showcase untouched.
+   */
+  archiveUnlockedArchetype(id: string): { added: boolean } {
+    const { list, added } = archiveUnlockedArchetype(this.#unlockedArchetypes, id);
+    if (added) {
+      this.#unlockedArchetypes = list;
+      this.#pendingArchetypeShowcase = id;
+      this.#emitChangeEvent('add', 'unlockedArchetypes', [...list]);
+      this.#saveData();
+    }
+    return { added };
+  }
+
+  /**
+   * The archetype id, if any, the next campaign start should showcase in
+   * crew candidate slot 0 (see `archetypeShowcase.ts`). `null` when nothing
+   * is pending.
+   */
+  get pendingArchetypeShowcase(): string | null {
+    return this.#pendingArchetypeShowcase;
+  }
+
+  /**
+   * Clear the pending showcase. Idempotent (no event, no save if already
+   * `null`). Called once a campaign-start recruitment actually commits
+   * (`Campaign.recruitInitial`) — regardless of which candidate was picked,
+   * the showcase's job (guaranteeing the player *saw* the option) is done.
+   */
+  clearPendingArchetypeShowcase(): void {
+    if (this.#pendingArchetypeShowcase === null) return;
+    this.#pendingArchetypeShowcase = null;
+    this.#emitChangeEvent('delete', 'pendingArchetypeShowcase');
+    this.#saveData();
   }
 
   archiveCampaign(summary: CampaignSummary): CampaignSummary {
