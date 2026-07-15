@@ -1,6 +1,6 @@
 // Service Worker for Kernel Panic - Production Version
 // Import shared caching core with cache-busting query parameter
-const VERSION = '0.3.5c';
+const VERSION = '0.3.5';
 importScripts(`/sw-release.js?v=${VERSION}`);
 importScripts(`/sw-core.js?v=${VERSION}`);
 
