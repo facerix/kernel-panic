@@ -2,11 +2,11 @@
 // Increment shellEpoch only when the new app shell cannot safely coexist with
 // the previous worker (for example, removed or renamed runtime modules).
 self.KernelPanicRelease = Object.freeze({
-  version: '0.3.4b',
+  version: '0.3.5',
   shellEpoch: 2,
-  title: 'Berserk archetype online',
+  title: 'Chimera archetype online',
   highlights: Object.freeze([
-    'Recruit Berserk operators and trigger their Surge perk.',
-    'Surge boosts damage and AP before an unavoidable Crash.',
+    'Recruit Chimera operators and trigger their Nanite Repair perk.',
+    'Nanite Repair converts scrap salvage into HP, repeatable while it lasts.',
   ]),
 });

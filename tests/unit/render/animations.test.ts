@@ -13,11 +13,17 @@ import {
   triggerCrashFlash,
   triggerDamageFlash,
   triggerEmpFlash,
+  triggerHealFlash,
   triggerMitigationFlash,
   triggerShake,
   triggerSurgeFlash,
 } from '../../../src/render/animations.js';
-import { CRASH_FLASH_FG, STUNNED_FG, SURGE_FLASH_FG } from '../../../src/render/palette.js';
+import {
+  CRASH_FLASH_FG,
+  HEAL_FLASH_FG,
+  STUNNED_FG,
+  SURGE_FLASH_FG,
+} from '../../../src/render/palette.js';
 
 /**
  * Minimal DOM-element stub — enough surface for restartCssAnimation to
@@ -196,6 +202,23 @@ test('triggerCrashFlash drives an ashen vignette pulse distinct from the surge t
   assert.equal(el.style.getPropertyValue('--kp-impact-flash-color'), `${CRASH_FLASH_FG}8c`);
   assert.notEqual(CRASH_FLASH_FG, SURGE_FLASH_FG, 'crash and surge read as different beats');
   timers.advance(ANIMATION_DURATIONS.CRASH_FLASH + 1);
+  assert.equal(el.classList.contains(MITIGATION_FLASH_CLASS), false, 'clears after its duration');
+});
+
+test('triggerHealFlash drives a green vignette pulse distinct from surge/crash, shared by Nanite Repair and STIM', () => {
+  const el = makeElement();
+  const timers = makeTimers();
+  triggerHealFlash(el, timers);
+  assert.equal(
+    el.classList.contains(MITIGATION_FLASH_CLASS),
+    true,
+    'reuses the colored-flash class'
+  );
+  assert.equal(el.classList.contains(DAMAGE_CLASS), false, 'not the red damage flash');
+  assert.equal(el.style.getPropertyValue('--kp-impact-flash-color'), `${HEAL_FLASH_FG}8c`);
+  assert.notEqual(HEAL_FLASH_FG, SURGE_FLASH_FG, 'heal reads as a different beat than surge');
+  assert.notEqual(HEAL_FLASH_FG, CRASH_FLASH_FG, 'heal reads as a different beat than crash');
+  timers.advance(ANIMATION_DURATIONS.HEAL_FLASH + 1);
   assert.equal(el.classList.contains(MITIGATION_FLASH_CLASS), false, 'clears after its duration');
 });
 

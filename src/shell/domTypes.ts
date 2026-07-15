@@ -164,6 +164,16 @@ export type DoorUnlockPayload = {
   label?: string;
 };
 
+export type MindInfluencedPayload = {
+  actor?: import('../game/Entity.js').Entity;
+  target?: import('../game/Entity.js').Entity;
+  success?: boolean;
+};
+
+export type RazorCloakedPayload = {
+  actor?: import('../game/Entity.js').Entity;
+};
+
 export type ShellDomRefs = {
   stageEl: HTMLElement;
   pipCanvas: HTMLCanvasElement;

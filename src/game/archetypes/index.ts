@@ -25,11 +25,12 @@ import { Tech, CALLSIGNS as TECH_CALLSIGNS } from './Tech.js';
 import { Decker, CALLSIGNS as DECKER_CALLSIGNS } from './Decker.js';
 import { Berserk, CALLSIGNS as BERSERK_CALLSIGNS } from './Berserk.js';
 import { Adept, CALLSIGNS as ADEPT_CALLSIGNS } from './Adept.js';
+import { Chimera, CALLSIGNS as CHIMERA_CALLSIGNS } from './Chimera.js';
 import type { Rng } from '../../rng.js';
 import type { FactionId } from '../constants.js';
 import type { CrewInit } from '../Crew.js';
 
-export type Archetype = Merc | Razor | Tech | Decker | Berserk | Adept;
+export type Archetype = Merc | Razor | Tech | Decker | Berserk | Adept | Chimera;
 
 /**
  * Display order is also the starter crew order in `Campaign.buildCrew`.
@@ -45,12 +46,12 @@ export const ARCHETYPE_IDS = Object.freeze(['merc', 'razor', 'tech']);
 
 /**
  * Weighted archetype pool for recruitment: 2 Merc / 2 Razor / 1 Tech / 1
- * Berserk / 1 Adept. Expressed as a flat array so `rng.pick()` gives the
- * correct distribution. This is an interim hand-weighted pool — P3.5.M6
- * retires it entirely in favor of rolling core stats first and deriving the
- * archetype from the result. The Decker is **not** in this pool — normal
- * random recruitment must never roll one; it joins only through the Act-2
- * narrative beat (P3.M2 / P3.M1).
+ * Berserk / 1 Adept / 1 Chimera. Expressed as a flat array so `rng.pick()`
+ * gives the correct distribution. This is an interim hand-weighted pool —
+ * P3.5.M6 retires it entirely in favor of rolling core stats first and
+ * deriving the archetype from the result. The Decker is **not** in this
+ * pool — normal random recruitment must never roll one; it joins only
+ * through the Act-2 narrative beat (P3.M2 / P3.M1).
  */
 export const RECRUIT_ARCHETYPE_POOL = Object.freeze([
   'merc',
@@ -60,6 +61,7 @@ export const RECRUIT_ARCHETYPE_POOL = Object.freeze([
   'tech',
   'berserk',
   'adept',
+  'chimera',
 ]);
 
 /**
@@ -126,6 +128,16 @@ export const ARCHETYPES = Object.freeze({
     // Aim-sector target picker, same shape the old drone Override always used.
     perkAim: 'directional',
   }),
+  chimera: Object.freeze({
+    id: 'chimera',
+    name: 'CHIMERA',
+    blurb: 'Human, machine, or both — nobody is sure. Turns scrap into scar tissue.',
+    perks: Object.freeze(['nanite-repair']),
+    perkName: 'NANITE REPAIR',
+    perkLabel: 'Chimeras can NANITE REPAIR: convert scrap into HP',
+    // Self-targeted like EMP/Surge — no direction to pick.
+    perkAim: 'self',
+  }),
 });
 
 export type ArchetypeInfo = (typeof ARCHETYPES)[keyof typeof ARCHETYPES];
@@ -155,6 +167,7 @@ const BUILDERS = Object.freeze({
   decker: Decker,
   berserk: Berserk,
   adept: Adept,
+  chimera: Chimera,
 });
 
 /**
@@ -170,6 +183,7 @@ export const CALLSIGNS_BY_ARCHETYPE = Object.freeze({
   decker: DECKER_CALLSIGNS,
   berserk: BERSERK_CALLSIGNS,
   adept: ADEPT_CALLSIGNS,
+  chimera: CHIMERA_CALLSIGNS,
 });
 
 export function isArchetypeId(value: string) {

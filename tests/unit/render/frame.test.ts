@@ -18,6 +18,9 @@ import {
   glyphForEntity,
   INTERACTABLE_SECURED_FG,
   STUNNED_FG,
+  SURGE_FLASH_FG,
+  CRASH_FLASH_FG,
+  CLOAK_FLASH_FG,
 } from '../../../src/render/palette.js';
 import { STATUS_EFFECT } from '../../../src/game/constants.js';
 import { ConsumablePickup } from '../../../src/game/entities/ConsumablePickup.js';
@@ -109,6 +112,45 @@ test('buildFrame renders a stunned entity in electric cyan, overriding faction h
   assert.equal(cell.char, 'd', 'live glyph kept — not a corpse');
   assert.equal(cell.fg, STUNNED_FG, 'stunned overrides the CORP faction colour');
   assert.notEqual(cell.fg, glyphForEntity(drone).fg, 'differs from the un-stunned faction hue');
+});
+
+test('buildFrame renders a surged entity in blaze orange, overriding faction hue', () => {
+  const { world, player } = fixture();
+  player.applyEffect(STATUS_EFFECT.SURGE, 1);
+  const frame = buildFrame(world, { x: 0, y: 0, width: 6, height: 4 });
+  const cell = cellAt(frame, 1, 1);
+  assert.equal(cell.char, '@', 'live glyph kept');
+  assert.equal(cell.fg, SURGE_FLASH_FG, 'sustained Surge tint matches the arming flash colour');
+});
+
+test('buildFrame renders a crashed entity in ashen violet-grey, distinct from surge', () => {
+  const { world, player } = fixture();
+  player.applyEffect(STATUS_EFFECT.CRASH, 1);
+  const frame = buildFrame(world, { x: 0, y: 0, width: 6, height: 4 });
+  const cell = cellAt(frame, 1, 1);
+  assert.equal(cell.fg, CRASH_FLASH_FG);
+  assert.notEqual(cell.fg, SURGE_FLASH_FG, 'crash reads differently from surge');
+});
+
+test('buildFrame renders a stealthed entity in the cloak tint, overriding faction hue', () => {
+  const { world, player } = fixture();
+  player.stealthed = true;
+  const frame = buildFrame(world, { x: 0, y: 0, width: 6, height: 4 });
+  const cell = cellAt(frame, 1, 1);
+  assert.equal(cell.char, '@');
+  assert.equal(cell.fg, CLOAK_FLASH_FG);
+  assert.notEqual(cell.fg, glyphForEntity(player).fg, 'differs from the un-cloaked faction hue');
+});
+
+test('buildFrame: a stunned entity wins over a simultaneous altered-state tint', () => {
+  // Not reachable through any single archetype today, but locks the render
+  // priority contract: losing your turn is the most urgent thing to read.
+  const { world, player } = fixture();
+  player.applyEffect(STATUS_EFFECT.SURGE, 1);
+  player.applyEffect(STATUS_EFFECT.STUN, 1);
+  const frame = buildFrame(world, { x: 0, y: 0, width: 6, height: 4 });
+  const cell = cellAt(frame, 1, 1);
+  assert.equal(cell.fg, STUNNED_FG, 'stun wins over the Surge tint');
 });
 
 test('buildFrame: a live entity standing on a corpse tile renders the live entity', () => {

@@ -51,6 +51,29 @@ export const EVENT = Object.freeze({
    * boundary where the transition happens. Payload `{ origin: {x,y}, entityId }`.
    */
   BERSERK_CRASHED: 'berserk:crashed',
+  /**
+   * P3.5.M5: a Chimera converted scrap into HP via Nanite Repair.
+   * Presentation-only hook (gameplay already resolved by the caller), mirrors
+   * `BERSERK_SURGED`. Payload `{ origin: {x,y}, healed }`.
+   */
+  NANITE_HEALED: 'nanite:healed',
+  /**
+   * P3.5.M5: a mind-influence roll resolved — the Adept's Influence
+   * (Meatspace) or the CyberAvatar's Override (cyber grid), both backed by
+   * `mindInfluence.ts`. Presentation-only hook, fired whether the roll
+   * succeeded or not so the shell can pulse the target's own tile either way
+   * (log copy carries the success/fail nuance, same as every other perk
+   * hook). Payload `{ actor, target, success }`.
+   */
+  MIND_INFLUENCED: 'mind:influenced',
+  /**
+   * P3.5.M5: a Razor slid and cloaked. Presentation-only hook (gameplay
+   * already resolved by the caller), mirrors `MIND_INFLUENCED`'s shape but
+   * self-targeted like `BERSERK_SURGED` — a single-cell pulse centered on
+   * the Razor's own landing tile rather than a screen-wide wash. Payload
+   * `{ actor }`.
+   */
+  RAZOR_CLOAKED: 'razor:cloaked',
 });
 
 const KNOWN_TYPES = new Set<string>(Object.values(EVENT));

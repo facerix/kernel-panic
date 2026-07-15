@@ -25,6 +25,7 @@ import {
 import { Decker } from '../../../src/game/archetypes/Decker.js';
 import { Berserk, CALLSIGNS as BERSERK_CALLSIGNS } from '../../../src/game/archetypes/Berserk.js';
 import { Adept, CALLSIGNS as ADEPT_CALLSIGNS } from '../../../src/game/archetypes/Adept.js';
+import { Chimera, CALLSIGNS as CHIMERA_CALLSIGNS } from '../../../src/game/archetypes/Chimera.js';
 import { FACTION } from '../../../src/game/constants.js';
 import { Merc, CALLSIGNS as MERC_CALLSIGNS } from '../../../src/game/archetypes/Merc.js';
 import { CALLSIGNS as RAZOR_CALLSIGNS } from '../../../src/game/archetypes/Razor.js';
@@ -76,6 +77,7 @@ test('CALLSIGNS_BY_ARCHETYPE mirrors the per-archetype module exports', () => {
   assert.deepEqual(CALLSIGNS_BY_ARCHETYPE.razor, RAZOR_CALLSIGNS);
   assert.deepEqual(CALLSIGNS_BY_ARCHETYPE.berserk, BERSERK_CALLSIGNS);
   assert.deepEqual(CALLSIGNS_BY_ARCHETYPE.adept, ADEPT_CALLSIGNS);
+  assert.deepEqual(CALLSIGNS_BY_ARCHETYPE.chimera, CHIMERA_CALLSIGNS);
 });
 
 test('pickCallsign returns a name from the archetype pool', () => {
@@ -172,6 +174,7 @@ test('perkAim metadata: only self-centered perks are tagged "self"', () => {
   assert.equal(ARCHETYPES.decker.perkAim, 'self');
   assert.equal(ARCHETYPES.berserk.perkAim, 'self');
   assert.equal(ARCHETYPES.adept.perkAim, 'directional');
+  assert.equal(ARCHETYPES.chimera.perkAim, 'self');
 });
 
 test('perkAimForArchetype resolves lowercase id and class-cased Crew.archetype', () => {
@@ -183,6 +186,8 @@ test('perkAimForArchetype resolves lowercase id and class-cased Crew.archetype',
   assert.equal(perkAimForArchetype('Berserk'), 'self');
   assert.equal(perkAimForArchetype('adept'), 'directional');
   assert.equal(perkAimForArchetype('Adept'), 'directional');
+  assert.equal(perkAimForArchetype('chimera'), 'self');
+  assert.equal(perkAimForArchetype('Chimera'), 'self');
 });
 
 test('perkAimForArchetype throws on an unknown archetype (no silent fallback)', () => {
@@ -233,6 +238,20 @@ test('Adept is registered, recruitable, and directionally aimed', () => {
   assert.ok(adept instanceof Adept);
   assert.equal(isArchetypeId('adept'), true);
   assert.ok(ADEPT_CALLSIGNS.includes(adept.callsign));
+});
+
+test('Chimera is registered, recruitable, and self-targeted', () => {
+  const a = ARCHETYPES.chimera;
+  assert.deepEqual(a.perks, ['nanite-repair']);
+  assert.equal(a.perkName, 'NANITE REPAIR');
+  assert.equal(a.perkAim, 'self');
+  assert.ok(!ARCHETYPE_IDS.includes('chimera'));
+  assert.ok(RECRUIT_ARCHETYPE_POOL.includes('chimera'));
+
+  const chimera = buildCrewMember('chimera', { x: 1, y: 2 }, new Rng(10));
+  assert.ok(chimera instanceof Chimera);
+  assert.equal(isArchetypeId('chimera'), true);
+  assert.ok(CHIMERA_CALLSIGNS.includes(chimera.callsign));
 });
 
 test('isArchetypeId is a string-set membership check', () => {

@@ -52,6 +52,7 @@ import { Tech } from './archetypes/Tech.js';
 import { Decker } from './archetypes/Decker.js';
 import { Berserk } from './archetypes/Berserk.js';
 import { Adept } from './archetypes/Adept.js';
+import { Chimera } from './archetypes/Chimera.js';
 import { Turret } from './Turret.js';
 import { Skirmisher, type SkirmisherProps } from './ai/Skirmisher.js';
 import { Guard, type GuardProps } from './ai/Guard.js';
@@ -219,6 +220,7 @@ const ARCHETYPE_FACTORY: Record<EntityArchetypeId, (props: RestoreEntityProps) =
     decker: (props: RestoreEntityProps) => new Decker(props as DeckerInit),
     berserk: (props: RestoreEntityProps) => new Berserk(props as CrewInit),
     adept: (props: RestoreEntityProps) => new Adept(props as CrewInit),
+    chimera: (props: RestoreEntityProps) => new Chimera(props as CrewInit),
     turret: (props: RestoreEntityProps) => new Turret(props as TurretInit),
     drone: (props: RestoreEntityProps) => new Skirmisher(props as SkirmisherProps),
     guard: (props: RestoreEntityProps) => new Guard(props as GuardProps),
@@ -1758,6 +1760,7 @@ const KNOWN_ARCHETYPES_SET = new Set<CrewArchetypeId>([
   'decker',
   'berserk',
   'adept',
+  'chimera',
 ]);
 
 /** Clamp gear bonuses to archetype caps after restore. */
@@ -2372,6 +2375,7 @@ function archetypeOfCrew(member: Crew): CrewArchetypeId {
   if (member instanceof Decker) return 'decker';
   if (member instanceof Berserk) return 'berserk';
   if (member instanceof Adept) return 'adept';
+  if (member instanceof Chimera) return 'chimera';
   throw new Error(`snapshotCampaign: cannot classify crew member ${member?.id}`);
 }
 

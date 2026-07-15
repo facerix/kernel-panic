@@ -18,17 +18,18 @@
  * automation can commit a melee strike without synthesizing a walk intent.
  *
  * The archetype-specific perks (Merc's Vault, Razor's Slide, Tech's Deploy
- * Turret, Decker's EMP, Berserk's Surge, Adept's Influence, the CyberAvatar's
- * cyber-grid Override) collapse into a single `special` intent at the keymap
- * layer. The `doSpecial` dispatcher below routes it to the right verb based on
- * which methods the active player class exposes — `canVault` → vault,
- * `canSlide` → slide, `canDeploy` → deploy, `canEmp` → EMP, `canSurge` →
- * surge, `canInfluence` → influence (the Adept resolves the nearest visible
- * hostile in the aimed eight-way sector), `canOverride` → override (same
- * picker, cyber grid only). This keeps the input surface symmetric across
- * archetypes (one key, one touch button) and stays out of the player's way:
- * the keymap doesn't need to know which class is in play, and the intent
- * dispatcher doesn't need an explicit archetype switch.
+ * Turret, Decker's EMP, Berserk's Surge, Adept's Influence, Chimera's Nanite
+ * Repair, the CyberAvatar's cyber-grid Override) collapse into a single
+ * `special` intent at the keymap layer. The `doSpecial` dispatcher below
+ * routes it to the right verb based on which methods the active player class
+ * exposes — `canVault` → vault, `canSlide` → slide, `canDeploy` → deploy,
+ * `canEmp` → EMP, `canSurge` → surge, `canInfluence` → influence (the Adept
+ * resolves the nearest visible hostile in the aimed eight-way sector),
+ * `canConvertScrap` → Nanite Repair, `canOverride` → override (same picker,
+ * cyber grid only). This keeps the input surface symmetric across archetypes
+ * (one key, one touch button) and stays out of the player's way: the keymap
+ * doesn't need to know which class is in play, and the intent dispatcher
+ * doesn't need an explicit archetype switch.
  *
  * The function is pure-ish: it mutates `ctx.world` / `ctx.player` /
  * `ctx.queue` and emits log lines via `ctx.log`, but doesn't touch the DOM.
@@ -74,6 +75,7 @@ import type { Razor } from '../game/archetypes/Razor.js';
 import type { Decker } from '../game/archetypes/Decker.js';
 import type { Berserk } from '../game/archetypes/Berserk.js';
 import type { Adept } from '../game/archetypes/Adept.js';
+import type { Chimera } from '../game/archetypes/Chimera.js';
 
 export type Intent = {
   type: string;
@@ -392,6 +394,7 @@ function collectTileLoot(ctx: ApplyIntentContext) {
  *   - `canEmp`       → Decker's EMP neural-shock (self-centered AOE stun)
  *   - `canSurge`     → Berserk's Surge self-buff
  *   - `canInfluence` → Adept's Influence (Meatspace mind control)
+ *   - `canConvertScrap` → Chimera's Nanite Repair (scrap-to-HP sustain)
  *   - `canOverride`  → CyberAvatar's ICE override (cyber grid only)
  *
  * Capability sniffing (vs. a class `instanceof` check) keeps this module free
@@ -428,6 +431,9 @@ function doSpecial(intent: Intent, ctx: ApplyIntentContext) {
   if (typeof (player as Adept).canInfluence === 'function') {
     return doInfluence(intent, ctx);
   }
+  if (typeof (player as Chimera).canConvertScrap === 'function') {
+    return doConvertScrap(ctx);
+  }
   // Only the CyberAvatar still exposes canOverride (P3.5.M2 moved the Decker's
   // Meatspace perk to EMP; P3.5.M4 gave the Adept the renamed Influence perk
   // — the CyberAvatar keeps its own "Override" name/fiction for the cyber
@@ -453,6 +459,35 @@ function doSurge(ctx: ApplyIntentContext) {
   // Presentation hook (P3.5.M3): the shell listens for this to pulse the surge
   // spike. Gameplay is already committed above — this carries no state.
   world.events?.emit(EVENT.BERSERK_SURGED, { origin: { x: player.x, y: player.y } });
+  gateOnApExhausted(ctx);
+}
+
+/**
+ * Trigger the Chimera's self-targeted Nanite Repair: convert scrap salvage
+ * into HP. Log copy stays deliberately ambiguous about the mechanism (nanite
+ * swarm vs. android self-repair) per the archetype's unresolved fiction.
+ */
+function doConvertScrap(ctx: ApplyIntentContext) {
+  const { world, player, log } = ctx;
+  const chimera = player as Chimera;
+  const playerLabel = entityLabel(player);
+  const check = chimera.canConvertScrap();
+  if (!check.ok) {
+    log(`> ${playerLabel} NANITE REPAIR DENIED: ${check.reason}`);
+    return;
+  }
+  const healed = chimera.convertScrapToHp();
+  log(
+    `> ${playerLabel} converts scrap into tissue — +${healed} HP ` +
+      `(${chimera.inventory!.salvage.scrap} scrap left, ${player.ap} AP left).`
+  );
+  // Presentation hook (P3.5.M5): the shell listens for this to pulse the
+  // nanite-heal flash. Gameplay is already committed above — this carries
+  // no state. Mirrors BERSERK_SURGED's shape exactly.
+  world.events?.emit(EVENT.NANITE_HEALED, {
+    origin: { x: player.x, y: player.y },
+    healed,
+  });
   gateOnApExhausted(ctx);
 }
 
@@ -511,6 +546,10 @@ function doOverride(intent: Intent, ctx: ApplyIntentContext) {
         `${result.alarm ? ' — ALARM TRIPPED' : ''} (${player.ap} AP left).`
     );
   }
+  // Presentation hook (P3.5.M5): the shell listens for this to pulse the
+  // target's tile whether the roll landed or not. Gameplay is already
+  // committed above — this carries no state.
+  world.events?.emit(EVENT.MIND_INFLUENCED, { actor: player, target, success: result.success });
   gateOnApExhausted(ctx);
 }
 
@@ -547,6 +586,10 @@ function doInfluence(intent: Intent, ctx: ApplyIntentContext) {
         `${result.alarm ? ' — ALARM TRIPPED' : ''} (${player.ap} AP left).`
     );
   }
+  // Presentation hook (P3.5.M5): the shell listens for this to pulse the
+  // target's tile whether the roll landed or not. Gameplay is already
+  // committed above — this carries no state.
+  world.events?.emit(EVENT.MIND_INFLUENCED, { actor: player, target, success: result.success });
   gateOnApExhausted(ctx);
 }
 
@@ -706,6 +749,10 @@ function doSlide(intent: Intent, ctx: ApplyIntentContext) {
     `> ${playerLabel} slid to (${player.x}, ${player.y}) — CLOAKED until next turn (` +
       `${player.ap} AP left).`
   );
+  // Presentation hook (P3.5.M5): the shell listens for this to pulse the
+  // Razor's own landing tile. Gameplay is already committed above — this
+  // carries no state.
+  world.events?.emit(EVENT.RAZOR_CLOAKED, { actor: player });
   collectTileLoot(ctx);
   gateOnApExhausted(ctx);
 }

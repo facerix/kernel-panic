@@ -61,7 +61,7 @@ export type AimKind = (typeof AIM_KIND)[keyof typeof AIM_KIND];
  *   - `'directional'` — needs a direction; the perk key enters `MODE.AIM`
  *     (Merc Vault, Razor Slide, Tech Deploy, CyberAvatar Override).
  *   - `'self'` — self-centered, no direction; the perk key fires immediately
- *     (Decker EMP, and future Berserk / Chimera self-buffs).
+ *     (Decker EMP, Berserk Surge, Chimera Nanite Repair).
  * Supplied per-press by the input owner (which knows the live archetype); the
  * keymap itself stays archetype-agnostic and just honours the flag.
  */

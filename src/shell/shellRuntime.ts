@@ -44,6 +44,7 @@ import {
   ANIMATION_DURATIONS,
   createAnimationLock,
   runInteractSecuredFlash,
+  triggerHealFlash,
   triggerShake,
 } from '/src/render/animations.js';
 import { Interactable } from '/src/game/entities/Interactable.js';
@@ -1098,6 +1099,11 @@ function applyUseConsumableResult(
     flash(
       `Used STIM — healed ${healed} HP (now ${operator.hp}/${operator.maxHp}). ${operator.ap} AP left.`
     );
+    // Same green heal pulse as the Chimera's Nanite Repair — shared "HP
+    // restored" beat, direct trigger since useConsumable doesn't route
+    // through the bus (see pulseSecuredInteractable for the same shape).
+    triggerHealFlash(stageEl);
+    animLock.push(ANIMATION_DURATIONS.HEAL_FLASH);
     return;
   }
   if (result.type === 'smoke') {

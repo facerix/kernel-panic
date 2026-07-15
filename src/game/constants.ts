@@ -113,6 +113,7 @@ export const AP_COST = Object.freeze({
   INFLUENCE: 2, // Adept (Meatspace) + CyberAvatar (cyber grid) — flip a hostile's/ICE's allegiance (renamed from OVERRIDE, P3.5.M4)
   EMP: 2, // Decker — self-centered AOE neural-shock stun (P3.5.M2)
   SURGE: 2, // Berserk — self-buff that always chains into CRASH (P3.5.M3)
+  NANITE_HEAL: 2, // Chimera — convert scrap salvage into HP (P3.5.M5)
 });
 
 /**
@@ -386,6 +387,21 @@ export const DENY_TARGET_HP = 2;
 export const SALVAGE_DROP_MIN = 1;
 export const SALVAGE_DROP_MAX = 3;
 export const SALVAGE_PER_IMPROVISED_TURRET = 2;
+
+/**
+ * Chimera nanite-repair parameters (P3.5.M5). The Chimera's signature sustain
+ * perk converts scrap salvage into HP — same resource-gate shape as Tech's
+ * improvised turret (repeatable every turn, no per-job cap), reusing that
+ * exact scrap price rather than inventing a new number.
+ *
+ *   - `NANITE_HEAL_AMOUNT` — flat HP restored per activation, clamped at
+ *     maxHp by `Entity.heal`.
+ *   - `SALVAGE_PER_NANITE_HEAL` — scrap cost, matched to
+ *     {@link SALVAGE_PER_IMPROVISED_TURRET} so both scrap-gated perks compete
+ *     for the same pool at the same price.
+ */
+export const NANITE_HEAL_AMOUNT = 1;
+export const SALVAGE_PER_NANITE_HEAL = SALVAGE_PER_IMPROVISED_TURRET;
 
 /**
  * Finn's shop — item tuning constants. Job-scoped consumables are lost on

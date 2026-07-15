@@ -43,7 +43,7 @@ M6 ──> M7 (archetype unlocks via Score rewards — needs M6's anchor table t
 | P3.5.M2 — Decker perk swap: Override → EMP AOE stun | ✅ Complete |
 | P3.5.M3 — Berserk archetype (surge/crash) | ✅ Complete |
 | P3.5.M4 — Adept archetype (Influence, renamed from Override) | ✅ Complete |
-| P3.5.M5 — Chimera archetype (scrap-to-HP sustain) | 🔲 Not started |
+| P3.5.M5 — Chimera archetype (scrap-to-HP sustain) | ✅ Complete |
 | P3.5.M6 — Inverted crew generation (roll stats, derive archetype) | 🔲 Not started |
 | P3.5.M7 — Archetype unlocks via Score rewards | 🔲 Not started |
 
@@ -317,6 +317,15 @@ Repeatable every turn as long as the shared scrap pool allows — same resource-
 **Critical files:** `src/game/archetypes/Chimera.ts` (new), `src/game/nanoRepair.ts` (new), `src/game/constants.ts`, `src/input/applyIntent.ts`, plus the wiring-surface list from M3.
 
 **Tests:** `tests/unit/game/Chimera.test.ts` (new — mirrors `Tech.test.ts`'s improvised-turret cases: legality with/without sufficient scrap, AP + scrap debited, HP clamps at maxHp, repeatable across turns), extend `applyIntent.test.ts`/`Run.test.ts`/`persistence.test.ts` per the wiring-surface list.
+
+**Implementation notes (as-built):**
+- Shipped with the proposed tuning verbatim: `NANITE_HEAL_AMOUNT = 1`, `SALVAGE_PER_NANITE_HEAL = SALVAGE_PER_IMPROVISED_TURRET`, `AP_COST.NANITE_HEAL = 2`, base stats `(0.75, 0.25)`.
+- **No "already at full HP" gate**, deliberately — mirrors the existing `ITEM_ID.STIM` precedent in `Crew.useConsumable` (`Math.min(STIM_HEAL, maxHp - hp)`), which also lets a player burn a heal at full health rather than crash or silently no-op. Wasting your own scrap is a player mistake, not a state the engine needs to police. `canConvertScrap`'s `NaniteHealCheck` reasons are `'dead' | 'insufficient-ap' | 'no-inventory' | 'insufficient-salvage'` — no `'already-full'` branch.
+- **`perkAim: 'self'`** — Nanite Repair has no target or direction, same self-fire shape as Decker's EMP and Berserk's Surge; `doSpecial` gained a `canConvertScrap` branch dispatching to a new `doConvertScrap`, appended after Adept's `canInfluence` check and before the CyberAvatar's `canOverride` fallback.
+- Full archetype fan-out landed per the M3 wiring-surface list: registry/factory/callsigns/perk metadata (`archetypes/index.ts`), recruit pool (interim weighted pool is now `2 Merc / 2 Razor / 1 Tech / 1 Berserk / 1 Adept / 1 Chimera`), `Run.ts` classification/telemetry/snapshot (`crewSnapshotExtra` reused as-is — Chimera carries no extra per-job state beyond the shared `inventory`/`gear` slice), `persistence.ts` factory/restore/classification, and capability-based input dispatch.
+- Log copy stays deliberately ambiguous ("converts scrap into tissue") rather than confirming nanite swarm vs. android self-repair, per the archetype's unresolved fiction.
+- Offline precache (`sw-core.js`) gained `Chimera.js` and `nanoRepair.js`; release metadata (`sw.js`/`sw-dev.js`/`sw-release.js`) bumped `0.3.4b → 0.3.5`. **Noted gap, not fixed here:** `sw-core.js` never gained `Adept.js`/`mindInfluence.js` (or anything under `src/game/cyber/`) when M4 shipped — a pre-existing precache omission from before this milestone, out of scope for M5 but worth a follow-up pass.
+- Verification: full `npm test` (2040 pass, 0 fail), `npm run lint`, `npm run format` all clean.
 
 ---
 
