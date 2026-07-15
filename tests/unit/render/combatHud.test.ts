@@ -90,6 +90,44 @@ test('formatIdentityHud falls back to archetype when callsign is missing', () =>
   assert.equal(formatIdentityHud({ archetype: 'tech', stealthed: true }), 'TECH [CLOAKED]');
 });
 
+test('formatIdentityHud appends [STUNNED] when the controlled actor is EMP-stunned', () => {
+  assert.equal(
+    formatIdentityHud({ callsign: 'Patch', archetype: 'tech', stealthed: false, stunned: true }),
+    'Patch [TECH] [STUNNED]'
+  );
+  // Cloak + stun can co-occur (a cloaked partner caught in an EMP) — show both.
+  assert.equal(
+    formatIdentityHud({ callsign: 'Ghost', archetype: 'razor', stealthed: true, stunned: true }),
+    'Ghost [RAZOR] [CLOAKED] [STUNNED]'
+  );
+  // Absent/false stunned changes nothing.
+  assert.equal(
+    formatIdentityHud({ callsign: 'Patch', archetype: 'tech', stealthed: false }),
+    'Patch [TECH]'
+  );
+});
+
+test('formatIdentityHud surfaces Berserk Surge and Crash states', () => {
+  assert.equal(
+    formatIdentityHud({
+      callsign: 'Fury',
+      archetype: 'berserk',
+      stealthed: false,
+      surging: true,
+    }),
+    'Fury [BERSERK] [SURGING]'
+  );
+  assert.equal(
+    formatIdentityHud({
+      callsign: 'Fury',
+      archetype: 'berserk',
+      stealthed: false,
+      crashing: true,
+    }),
+    'Fury [BERSERK] [CRASH]'
+  );
+});
+
 test('formatHpSegments right-fills live HP segments', () => {
   assert.equal(formatHpSegments({ hp: 3, maxHp: 3 }), 'HP ■■■');
   assert.equal(formatHpSegments({ hp: 2, maxHp: 3 }), 'HP □■■');
@@ -114,6 +152,8 @@ test('formatApPips right-fills available AP pips', () => {
   assert.equal(formatApPips({ ap: 4, maxAp: 4 }), 'AP ●●●●');
   assert.equal(formatApPips({ ap: 2, maxAp: 4 }), 'AP ○○●●');
   assert.equal(formatApPips({ ap: 0, maxAp: 4 }), 'AP ○○○○');
+  assert.equal(formatApPips({ ap: 5, maxAp: 5 }), 'AP ●●●●●');
+  assert.equal(formatApPips({ ap: 4, maxAp: 5 }), 'AP ○●●●●');
 });
 
 test('vital formatters reject invalid counts instead of hiding impossible state', () => {

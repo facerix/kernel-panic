@@ -4,18 +4,25 @@ import assert from 'node:assert/strict';
 import { Grid } from '../../../src/game/Grid.js';
 import { World } from '../../../src/game/World.js';
 import { TurnQueue } from '../../../src/game/TurnQueue.js';
-import { EventBus } from '../../../src/game/events.js';
+import { EventBus, EVENT } from '../../../src/game/events.js';
 import {
   TILE,
   FACTION,
   AP_COST,
   MELEE_DAMAGE,
   SALVAGE_PER_IMPROVISED_TURRET,
+  SALVAGE_PER_NANITE_HEAL,
+  NANITE_HEAL_AMOUNT,
+  STATUS_EFFECT,
 } from '../../../src/game/constants.js';
 import { makeSalvage, totalSalvage } from '../../../src/game/salvage.js';
 import { Merc } from '../../../src/game/archetypes/Merc.js';
 import { Razor } from '../../../src/game/archetypes/Razor.js';
 import { Tech } from '../../../src/game/archetypes/Tech.js';
+import { Decker } from '../../../src/game/archetypes/Decker.js';
+import { Berserk } from '../../../src/game/archetypes/Berserk.js';
+import { Adept } from '../../../src/game/archetypes/Adept.js';
+import { Chimera } from '../../../src/game/archetypes/Chimera.js';
 import { CyberAvatar } from '../../../src/game/cyber/CyberAvatar.js';
 import { ProbeIce } from '../../../src/game/cyber/ProbeIce.js';
 import { Turret } from '../../../src/game/Turret.js';
@@ -50,7 +57,13 @@ function buildCtx({ archetype = 'merc', placeDrone = true } = {}) {
       ? new Merc({ id: 'merc', x: 2, y: 2, maxAp: 4 })
       : archetype === 'tech'
         ? new Tech({ id: 'tech', x: 2, y: 2, maxAp: 4 })
-        : new Razor({ id: 'razor', x: 2, y: 2, maxAp: 4 });
+        : archetype === 'berserk'
+          ? new Berserk({ id: 'berserk', x: 2, y: 2, maxAp: 4 })
+          : archetype === 'adept'
+            ? new Adept({ id: 'adept', x: 2, y: 2, maxAp: 4 })
+            : archetype === 'chimera'
+              ? new Chimera({ id: 'chimera', x: 2, y: 2, maxAp: 4 })
+              : new Razor({ id: 'razor', x: 2, y: 2, maxAp: 4 });
   world.addEntity(player);
 
   let drone = null;
@@ -441,13 +454,92 @@ test('special intent routes to Deploy on a Tech and places a Turret adjacent', (
 });
 
 test('special intent routes to Slide on a Razor (moves 2 tiles, engages stealth)', () => {
-  const { ctx, player } = buildCtx({ archetype: 'razor' });
+  const { ctx, player, world } = buildCtx({ archetype: 'razor' });
+  const cloaks = [];
+  world.events.on(EVENT.RAZOR_CLOAKED, payload => cloaks.push(payload));
   // Player at (2,2). Special dy=1 wants to land at (2,4) — but (3,2) is cover
   // so dy=1 (down) avoids it: step (2,3), land (2,4). Both should be FLOOR.
   applyIntent({ type: 'special', dx: 0, dy: 1 }, ctx);
   assert.equal(player.x, 2);
   assert.equal(player.y, 4);
   assert.equal(player.stealthed, true);
+  // Presentation hook fires for the shell's cloak pulse, at the landing tile.
+  assert.deepEqual(cloaks, [{ actor: player }]);
+});
+
+test('a stunned (0-AP) player concludes its turn instead of crashing on spendAp', () => {
+  const { ctx, log, calls, player } = buildCtx();
+  // Simulate an EMP'd body: refreshed into its turn at 0 AP.
+  player.ap = 0;
+  const advanceBefore = calls.advanceTurn;
+  // A move intent would otherwise trip Entity.spendAp's overspend crash.
+  assert.doesNotThrow(() => applyIntent({ type: 'move', dx: 1, dy: 0 }, ctx));
+  assert.equal(player.x, 2, 'no move committed while stunned');
+  assert.equal(calls.advanceTurn, advanceBefore + 1, 'turn concluded via advanceTurn fallback');
+  assert.ok(
+    log.some(line => line.includes('STUNNED')),
+    'legibility line names the stun'
+  );
+});
+
+test('a stunned player can still cancel without ending the turn', () => {
+  const { ctx, calls, player } = buildCtx();
+  player.ap = 0;
+  const advanceBefore = calls.advanceTurn;
+  applyIntent({ type: 'cancel' }, ctx);
+  assert.equal(calls.advanceTurn, advanceBefore, 'cancel does not conclude the turn');
+  assert.equal(calls.resetInputModes, 1, 'cancel still clears aim modes');
+});
+
+test('special intent routes to EMP on a Decker and stuns a same-faction ally in radius', () => {
+  const grid = new Grid(10, 6);
+  const bus = new EventBus();
+  const world = new World(grid, { events: bus });
+  const decker = new Decker({ id: 'decker', x: 4, y: 2, maxAp: 4 });
+  const ally = new Merc({ id: 'ally', x: 5, y: 2, maxAp: 4 }); // adjacent, PLAYER faction
+  const corp = new Skirmisher({ id: 'c1', x: 3, y: 2, maxAp: 3 }); // adjacent, CORP faction
+  world.addEntity(decker);
+  world.addEntity(ally);
+  world.addEntity(corp);
+  corp.bindToBus(bus);
+
+  const queue = new TurnQueue([FACTION.PLAYER, FACTION.CORP]);
+  const log = [];
+  const ctx = {
+    world,
+    player: decker,
+    queue,
+    rng: new Rng(1),
+    log: line => log.push(line),
+    advanceTurn: () => queue.endTurn(world),
+    resetInputModes: () => {},
+    onPlayerAction: () => {},
+  };
+
+  const apBefore = decker.ap;
+  applyIntent({ type: 'special', dx: 0, dy: 0 }, ctx);
+
+  assert.equal(decker.ap, apBefore - AP_COST.EMP, 'EMP debited once');
+  // The ally is same-faction but the blast ignores faction — it gets stunned.
+  ally.refreshAp();
+  assert.equal(ally.ap, 0, 'same-faction ally caught in the EMP is at 0 AP next refresh');
+  corp.refreshAp();
+  assert.equal(corp.ap, 0, 'corp unit in radius is stunned too');
+  assert.ok(log.some(line => line.includes('EMP')));
+});
+
+test('special intent routes to Surge on a Berserk without entering directional movement', () => {
+  const { ctx, log, player, world } = buildCtx({ archetype: 'berserk', placeDrone: false });
+  const positionBefore = { x: player.x, y: player.y };
+  const surges = [];
+  world.events.on(EVENT.BERSERK_SURGED, payload => surges.push(payload));
+  applyIntent({ type: 'special', dx: 0, dy: 0 }, ctx);
+  assert.deepEqual({ x: player.x, y: player.y }, positionBefore);
+  assert.equal(player.hasEffect(STATUS_EFFECT.SURGE), true);
+  assert.equal(player.ap, player.maxAp - AP_COST.SURGE);
+  assert.ok(log.some(line => line.includes('SURGES')));
+  // Presentation hook fires for the shell's surge pulse.
+  assert.deepEqual(surges, [{ origin: { x: player.x, y: player.y } }]);
 });
 
 test('special intent routes CyberAvatar Override against Probe ICE', () => {
@@ -478,11 +570,16 @@ test('special intent routes CyberAvatar Override against Probe ICE', () => {
     onPlayerAction: () => {},
   };
 
+  const influenced = [];
+  world.events.on(EVENT.MIND_INFLUENCED, payload => influenced.push(payload));
+
   applyIntent({ type: 'special', dx: 1, dy: 0 }, ctx);
 
   assert.equal(probe.faction, FACTION.PLAYER);
-  assert.equal(avatar.ap, avatar.maxAp - AP_COST.OVERRIDE);
+  assert.equal(avatar.ap, avatar.maxAp - AP_COST.INFLUENCE);
   assert.ok(log.some(line => line.includes('OVERRIDES Probe')));
+  // Presentation hook fires on the cyber-grid bus for the shell's violet pulse.
+  assert.deepEqual(influenced, [{ actor: avatar, target: probe, success: true }]);
 });
 
 test('CyberAvatar Override acquires an off-axis Probe in the aimed direction', () => {
@@ -516,8 +613,81 @@ test('CyberAvatar Override acquires an off-axis Probe in the aimed direction', (
   applyIntent({ type: 'special', dx: 1, dy: 0 }, ctx);
 
   assert.equal(probe.faction, FACTION.PLAYER);
-  assert.equal(avatar.ap, avatar.maxAp - AP_COST.OVERRIDE);
+  assert.equal(avatar.ap, avatar.maxAp - AP_COST.INFLUENCE);
   assert.ok(log.some(line => line.includes('OVERRIDES Probe')));
+});
+
+test('special intent routes to Influence on an Adept and dominates the aimed hostile', () => {
+  const grid = new Grid(10, 6);
+  const bus = new EventBus();
+  const world = new World(grid, { events: bus });
+  const adept = new Adept({ id: 'adept', x: 2, y: 2, maxAp: 4 });
+  const drone = new Skirmisher({ id: 'd1', x: 5, y: 2, maxAp: 3 });
+  world.addEntity(adept);
+  world.addEntity(drone);
+  drone.bindToBus(bus);
+  const log = [];
+  const ctx = {
+    world,
+    player: adept,
+    queue: new TurnQueue([FACTION.PLAYER, FACTION.CORP]),
+    rng: { next: () => 0 }, // deterministic success
+    log: line => log.push(line),
+    advanceTurn: () => {},
+    resetInputModes: () => {},
+    onPlayerAction: () => {},
+  };
+  const apBefore = adept.ap;
+  const influenced = [];
+  world.events.on(EVENT.MIND_INFLUENCED, payload => influenced.push(payload));
+
+  applyIntent({ type: 'special', dx: 1, dy: 0 }, ctx);
+
+  assert.equal(drone.faction, FACTION.PLAYER);
+  assert.equal(adept.ap, apBefore - AP_COST.INFLUENCE);
+  assert.ok(log.some(line => line.includes('DOMINATES')));
+  // Presentation hook fires on the Meatspace bus for the shell's violet pulse.
+  assert.deepEqual(influenced, [{ actor: adept, target: drone, success: true }]);
+});
+
+test('a failed Influence roll still pulses the target tile — log copy carries the fail, not the flash', () => {
+  const grid = new Grid(10, 6);
+  const bus = new EventBus();
+  const world = new World(grid, { events: bus });
+  const adept = new Adept({ id: 'adept', x: 2, y: 2, maxAp: 4 });
+  const drone = new Skirmisher({ id: 'd1', x: 5, y: 2, maxAp: 3 });
+  world.addEntity(adept);
+  world.addEntity(drone);
+  drone.bindToBus(bus);
+  const log = [];
+  const ctx = {
+    world,
+    player: adept,
+    queue: new TurnQueue([FACTION.PLAYER, FACTION.CORP]),
+    rng: { next: () => 0.99 }, // deterministic failure (>= INFLUENCE_SUCCESS_CHANCE)
+    log: line => log.push(line),
+    advanceTurn: () => {},
+    resetInputModes: () => {},
+    onPlayerAction: () => {},
+  };
+  const influenced = [];
+  world.events.on(EVENT.MIND_INFLUENCED, payload => influenced.push(payload));
+
+  applyIntent({ type: 'special', dx: 1, dy: 0 }, ctx);
+
+  assert.notEqual(drone.faction, FACTION.PLAYER, 'domination did not take');
+  assert.ok(log.some(line => line.includes('INFLUENCE FAILED')));
+  assert.deepEqual(influenced, [{ actor: adept, target: drone, success: false }]);
+});
+
+test('special intent on an Adept with no legal target logs a denial without spending AP', () => {
+  const { ctx, log, player } = buildCtx({ archetype: 'adept', placeDrone: false });
+  const apBefore = player.ap;
+
+  applyIntent({ type: 'special', dx: 1, dy: 0 }, ctx);
+
+  assert.equal(player.ap, apBefore, 'no AP spent on an empty sector');
+  assert.ok(log.some(line => line.includes('INFLUENCE DENIED')));
 });
 
 test('end-turn drains AP to 0, logs wait, and invokes advanceTurn once', () => {
@@ -649,6 +819,8 @@ test('vault body-check deals VAULT_DAMAGE and knocks hostile back', () => {
   const drone = new Skirmisher({ id: 'd1', x: 4, y: 2, maxAp: 3 });
   world.addEntity(drone);
   const hpBefore = drone.hp;
+  const damaged = [];
+  world.events.on(EVENT.ENTITY_DAMAGED, payload => damaged.push(payload));
   applyIntent({ type: 'special', dx: 1, dy: 0 }, ctx);
   assert.equal(player.x, 4, 'Merc lands where the hostile was');
   assert.equal(drone.x, 5, 'hostile knocked back 1 tile east');
@@ -657,6 +829,11 @@ test('vault body-check deals VAULT_DAMAGE and knocks hostile back', () => {
     log.some(l => l.includes('SLAMMED')),
     'log mentions the slam'
   );
+  // Presentation hook: sceneListeners keys its gold "impact" flash off this
+  // source label, distinct from a melee strike (P3.5.M5).
+  assert.equal(damaged.length, 1);
+  assert.equal(damaged[0].source, 'vault');
+  assert.equal(damaged[0].target, drone);
 });
 
 test('vault body-check does not debit extra AP beyond the vault cost', () => {
@@ -746,5 +923,39 @@ test('special on a Tech with no turret and no salvage logs a denial', () => {
   assert.ok(
     log.some(l => l.includes('DEPLOY DENIED')),
     'should log a denial when no turret and no salvage'
+  );
+});
+
+// --- M5: Nanite Repair dispatch via special intent --------------------------
+
+test('special intent routes to Nanite Repair on a Chimera without entering directional movement', () => {
+  const { ctx, log, player, world } = buildCtx({ archetype: 'chimera', placeDrone: false });
+  player.initInventory();
+  player.inventory.salvage = makeSalvage({ scrap: SALVAGE_PER_NANITE_HEAL });
+  player.damage(1);
+  const positionBefore = { x: player.x, y: player.y };
+  const apBefore = player.ap;
+  const scrapBefore = player.inventory.salvage.scrap;
+  const hpBefore = player.hp;
+  const heals = [];
+  world.events.on(EVENT.NANITE_HEALED, payload => heals.push(payload));
+  applyIntent({ type: 'special', dx: 0, dy: 0 }, ctx);
+  assert.deepEqual({ x: player.x, y: player.y }, positionBefore, 'self-targeted, no movement');
+  assert.equal(player.ap, apBefore - AP_COST.NANITE_HEAL);
+  assert.equal(player.inventory.salvage.scrap, scrapBefore - SALVAGE_PER_NANITE_HEAL);
+  assert.equal(player.hp, hpBefore + NANITE_HEAL_AMOUNT);
+  assert.ok(log.some(line => line.includes('scrap into tissue')));
+  // Presentation hook fires for the shell's nanite-heal pulse.
+  assert.deepEqual(heals, [{ origin: { x: player.x, y: player.y }, healed: NANITE_HEAL_AMOUNT }]);
+});
+
+test('special on a Chimera with no scrap logs a denial', () => {
+  const { ctx, player, log } = buildCtx({ archetype: 'chimera', placeDrone: false });
+  player.initInventory();
+  // Default emptySalvage wallet — no scrap, can't convert.
+  applyIntent({ type: 'special', dx: 0, dy: 0 }, ctx);
+  assert.ok(
+    log.some(l => l.includes('NANITE REPAIR DENIED')),
+    'should log a denial when no scrap is available'
   );
 });

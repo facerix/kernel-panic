@@ -23,31 +23,30 @@ import { Merc, CALLSIGNS as MERC_CALLSIGNS } from './Merc.js';
 import { Razor, CALLSIGNS as RAZOR_CALLSIGNS } from './Razor.js';
 import { Tech, CALLSIGNS as TECH_CALLSIGNS } from './Tech.js';
 import { Decker, CALLSIGNS as DECKER_CALLSIGNS } from './Decker.js';
+import { Berserk, CALLSIGNS as BERSERK_CALLSIGNS } from './Berserk.js';
+import { Adept, CALLSIGNS as ADEPT_CALLSIGNS } from './Adept.js';
+import { Chimera, CALLSIGNS as CHIMERA_CALLSIGNS } from './Chimera.js';
 import type { Rng } from '../../rng.js';
 import type { FactionId } from '../constants.js';
 import type { CrewInit } from '../Crew.js';
 
-export type Archetype = Merc | Razor | Tech | Decker;
+export type Archetype = Merc | Razor | Tech | Decker | Berserk | Adept | Chimera;
 
 /**
- * Display order is also the starter crew order in `Campaign.buildCrew`.
- * Merc first so new players hit the simpler ranged archetype on first load;
- * Tech last since its gadget loop is the most involved kit to learn.
+ * Legacy starter-selector display order (pre-P3.5.M6, when archetype was a
+ * direct pick rather than a rolled-and-derived outcome). Still governs any
+ * UI that lists the "core three" — e.g. character-select — but no longer
+ * drives `Campaign.buildCrew`, which now rolls stats for every starter slot
+ * and derives the archetype from the result (`crewStatRoll.ts`); duplicates
+ * are a legal roll outcome there.
  *
  * The **Decker is deliberately absent** (P3.M2): it is a mid-campaign narrative
- * recruit, never a starter pick or selector option. Its metadata still lives in
- * `ARCHETYPES`/`BUILDERS` so `buildCrewMember('decker', …)` and snapshot
- * round-trips work — it just isn't offered through the normal selection paths.
+ * recruit, never a starter pick or selector option, and — per M6 — `deriveArchetype`
+ * never resolves to it either. Its metadata still lives in `ARCHETYPES`/`BUILDERS`
+ * so `buildCrewMember('decker', …)` and snapshot round-trips work — it just isn't
+ * offered through the normal selection paths.
  */
 export const ARCHETYPE_IDS = Object.freeze(['merc', 'razor', 'tech']);
-
-/**
- * Weighted archetype pool for recruitment. 40% Merc, 40% Razor, 20% Tech.
- * Expressed as a flat array so `rng.pick()` gives the correct distribution.
- * The Decker is **not** in this pool — normal random recruitment must never
- * roll one; it joins only through the Act-2 narrative beat (P3.M2 / P3.M1).
- */
-export const RECRUIT_ARCHETYPE_POOL = Object.freeze(['merc', 'merc', 'razor', 'razor', 'tech']);
 
 /**
  * All three archetypes share a single perk key (`x`) — the keymap collapses
@@ -64,6 +63,7 @@ export const ARCHETYPES = Object.freeze({
     perks: Object.freeze(['vault']),
     perkName: 'BREAK',
     perkLabel: 'Mercs can BREAK: hop cover / knock enemies back',
+    perkAim: 'directional',
   }),
   razor: Object.freeze({
     id: 'razor',
@@ -72,6 +72,7 @@ export const ARCHETYPES = Object.freeze({
     perks: Object.freeze(['slide']),
     perkName: 'SLIDE',
     perkLabel: 'Razors can SLIDE: dash 2 tiles and go silent for a turn',
+    perkAim: 'directional',
   }),
   tech: Object.freeze({
     id: 'tech',
@@ -80,24 +81,77 @@ export const ARCHETYPES = Object.freeze({
     perks: Object.freeze(['deploy']),
     perkName: 'DEPLOY',
     perkLabel: 'Techs can DEPLOY: place a turret that will fire on enemies',
+    perkAim: 'directional',
   }),
   decker: Object.freeze({
     id: 'decker',
     name: 'DECKER',
-    blurb: 'Console cowboy. Hijacks corp drones; jacks into Cyberspace.',
-    perks: Object.freeze(['override']),
-    perkName: 'OVERRIDE',
-    perkLabel: 'Deckers can OVERRIDE: hijack a corp drone to fight for you',
+    blurb: 'Console cowboy. Fries a room with an EMP; jacks into Cyberspace.',
+    perks: Object.freeze(['emp']),
+    perkName: 'EMP',
+    perkLabel: 'Deckers can EMP: stun everyone around you for a turn',
+    // Self-centered blast — the perk key fires it immediately, no aim step.
+    perkAim: 'self',
+  }),
+  berserk: Object.freeze({
+    id: 'berserk',
+    name: 'BERSERK',
+    blurb: 'Volatile assault. Surge hard, then endure the crash.',
+    perks: Object.freeze(['surge']),
+    perkName: 'SURGE',
+    perkLabel: 'Berserks can SURGE: gain damage and AP before crashing',
+    perkAim: 'self',
+  }),
+  adept: Object.freeze({
+    id: 'adept',
+    name: 'ADEPT',
+    blurb: 'Weak shot, strong will. Bends a hostile mind to your side.',
+    perks: Object.freeze(['influence']),
+    perkName: 'INFLUENCE',
+    perkLabel: 'Adepts can INFLUENCE: dominate a hostile mind for a few turns',
+    // Aim-sector target picker, same shape the old drone Override always used.
+    perkAim: 'directional',
+  }),
+  chimera: Object.freeze({
+    id: 'chimera',
+    name: 'CHIMERA',
+    blurb: 'Human, machine, or both — nobody is sure. Turns scrap into scar tissue.',
+    perks: Object.freeze(['nanite-repair']),
+    perkName: 'NANITE REPAIR',
+    perkLabel: 'Chimeras can NANITE REPAIR: convert scrap into HP',
+    // Self-targeted like EMP/Surge — no direction to pick.
+    perkAim: 'self',
   }),
 });
 
 export type ArchetypeInfo = (typeof ARCHETYPES)[keyof typeof ARCHETYPES];
+
+/** Per-archetype perk aim requirement — see `keymap.PerkAim`. */
+export type PerkAim = 'directional' | 'self';
+
+/**
+ * Resolve how an archetype's `special` perk aims. Accepts either the lowercase
+ * registry id (`'decker'`) or the class-cased `Crew.archetype` (`'Decker'`).
+ * Throws on an unknown archetype — a crew member always has a registered
+ * archetype, so an unknown one is a wiring bug, not a value to paper over.
+ */
+export function perkAimForArchetype(archetype: string): PerkAim {
+  const key = archetype.toLowerCase();
+  const info = ARCHETYPES[key as keyof typeof ARCHETYPES];
+  if (!info) {
+    throw new Error(`perkAimForArchetype: unknown archetype "${archetype}"`);
+  }
+  return info.perkAim as PerkAim;
+}
 
 const BUILDERS = Object.freeze({
   merc: Merc,
   razor: Razor,
   tech: Tech,
   decker: Decker,
+  berserk: Berserk,
+  adept: Adept,
+  chimera: Chimera,
 });
 
 /**
@@ -111,6 +165,9 @@ export const CALLSIGNS_BY_ARCHETYPE = Object.freeze({
   razor: RAZOR_CALLSIGNS,
   tech: TECH_CALLSIGNS,
   decker: DECKER_CALLSIGNS,
+  berserk: BERSERK_CALLSIGNS,
+  adept: ADEPT_CALLSIGNS,
+  chimera: CHIMERA_CALLSIGNS,
 });
 
 export function isArchetypeId(value: string) {
@@ -151,14 +208,17 @@ export function pickCallsign(archetypeId: string, rng: Rng, excludeCallsigns = n
  * Set so callers (`Campaign.buildCrew`, `Campaign.generateRecruits`) can dedupe
  * against campaign history.
  */
-type BuildCrewMemberOptions = {
+export type BuildCrewMemberOptions = {
   excludeCallsigns?: Set<string>;
   id?: string;
   maxAp?: number;
   maxHp?: number;
   faction?: FactionId;
+  /** P3.5.M6: rolled base stats, threaded straight to the archetype constructor. */
+  baseHitChance?: number;
+  baseDodgeChance?: number;
 };
-type BuildCrewMemberSpawn = {
+export type BuildCrewMemberSpawn = {
   x: number;
   y: number;
   maxAp?: number;
@@ -196,5 +256,7 @@ export function buildCrewMember(
   };
   if (spawn.maxAp !== undefined) props.maxAp = spawn.maxAp;
   if (spawn.maxHp !== undefined) props.maxHp = spawn.maxHp;
+  if (options.baseHitChance !== undefined) props.baseHitChance = options.baseHitChance;
+  if (options.baseDodgeChance !== undefined) props.baseDodgeChance = options.baseDodgeChance;
   return new Ctor(props);
 }

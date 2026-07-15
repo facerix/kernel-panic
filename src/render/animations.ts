@@ -31,11 +31,23 @@
 
 import type { AsciiRenderer } from './AsciiRenderer.js';
 import { COMBAT_HUD_COLORS } from './combatHud.js';
+import { CRASH_FLASH_FG, HEAL_FLASH_FG, STUNNED_FG, SURGE_FLASH_FG } from './palette.js';
 
 export const ANIMATION_DURATIONS = Object.freeze({
   SHAKE: 150,
   DAMAGE_FLASH: 300,
   MITIGATION_FLASH: 300,
+  /** Cyan discharge pulse when a Decker detonates an EMP (P3.5.M2). */
+  EMP_FLASH: 220,
+  /** Blaze-orange spike when a Berserk arms Surge (P3.5.M3). */
+  SURGE_FLASH: 220,
+  /** Ashen comedown pulse when a Berserk's Surge expires into Crash (P3.5.M3). */
+  CRASH_FLASH: 260,
+  /**
+   * Green pulse for any HP-restoring action — a Chimera converting scrap
+   * into HP (P3.5.M5) or a crew member using a STIM (P3.5.M5).
+   */
+  HEAL_FLASH: 220,
   // Original plan suggested "~80ms" but at 60fps that's ~5 frames — perceptually
   // borderline, especially with the shooter's own glyph sitting underneath.
   // 120ms (~7 frames) is still snappy and reads clearly as a burst.
@@ -44,6 +56,26 @@ export const ANIMATION_DURATIONS = Object.freeze({
   INTERACT_SECURED_FLASH: 150,
   /** Hazard-glyph breaching-charge blast overlay (presentation only). */
   BREACH_BLAST_OVERLAY: 100,
+  /**
+   * Gold single-cell burst on the occupant's tile when a Merc's Vault lands a
+   * body-check (P3.5.M5). Same pacing as the muzzle flash — a snappy impact
+   * beat, not a lingering one.
+   */
+  VAULT_IMPACT_FLASH: 120,
+  /**
+   * Violet single-cell burst on the target's tile when a mind-influence roll
+   * resolves — Adept Influence or CyberAvatar Override (P3.5.M5). Held
+   * slightly longer than a muzzle flash: a domination attempt is a bigger
+   * beat than a gunshot, win or lose.
+   */
+  MIND_INFLUENCE_FLASH: 200,
+  /**
+   * Pale mint single-cell burst on a Razor's own landing tile as Slide
+   * engages the cloak (P3.5.M5). Between the muzzle flash and the
+   * mind-influence beat — long enough to read as "something changed about
+   * you," short enough to stay a subtle self-cue, not a screen-wide event.
+   */
+  CLOAK_FLASH: 160,
 });
 
 export const SHAKE_CLASS = 'kp-shake';
@@ -94,6 +126,73 @@ export function triggerDamageFlash(stageEl: HTMLElement, timers = defaultTimers)
   stageEl.classList.remove(MITIGATION_FLASH_CLASS);
   stageEl.style.removeProperty(IMPACT_FLASH_COLOR_PROPERTY);
   return restartCssAnimation(stageEl, DAMAGE_CLASS, ANIMATION_DURATIONS.DAMAGE_FLASH, timers);
+}
+
+/**
+ * Cyan full-screen discharge pulse for a Decker EMP (P3.5.M2). Reuses the
+ * parametrized colored-vignette primitive (the same class + color property the
+ * mitigation flash drives) tinted electric cyan — the same hue a stunned glyph
+ * takes, so the blast and its aftermath read as one effect.
+ */
+export function triggerEmpFlash(stageEl: HTMLElement, timers = defaultTimers) {
+  stageEl.classList.remove(DAMAGE_CLASS);
+  stageEl.style.setProperty(IMPACT_FLASH_COLOR_PROPERTY, `${STUNNED_FG}8c`);
+  return restartCssAnimation(
+    stageEl,
+    MITIGATION_FLASH_CLASS,
+    ANIMATION_DURATIONS.EMP_FLASH,
+    timers
+  );
+}
+
+/**
+ * Blaze-orange discharge pulse when a Berserk arms Surge (P3.5.M3). Reuses the
+ * same parametrized colored-vignette primitive the EMP and mitigation flashes
+ * drive — the surge spike and its later Crash comedown share this one screen
+ * effect, tinted differently, so the ability reads as a single arc.
+ */
+export function triggerSurgeFlash(stageEl: HTMLElement, timers = defaultTimers) {
+  stageEl.classList.remove(DAMAGE_CLASS);
+  stageEl.style.setProperty(IMPACT_FLASH_COLOR_PROPERTY, `${SURGE_FLASH_FG}8c`);
+  return restartCssAnimation(
+    stageEl,
+    MITIGATION_FLASH_CLASS,
+    ANIMATION_DURATIONS.SURGE_FLASH,
+    timers
+  );
+}
+
+/**
+ * Ashen violet-grey pulse when a Berserk's Surge expires into Crash (P3.5.M3).
+ * The comedown twin of {@link triggerSurgeFlash} on the shared vignette class.
+ */
+export function triggerCrashFlash(stageEl: HTMLElement, timers = defaultTimers) {
+  stageEl.classList.remove(DAMAGE_CLASS);
+  stageEl.style.setProperty(IMPACT_FLASH_COLOR_PROPERTY, `${CRASH_FLASH_FG}8c`);
+  return restartCssAnimation(
+    stageEl,
+    MITIGATION_FLASH_CLASS,
+    ANIMATION_DURATIONS.CRASH_FLASH,
+    timers
+  );
+}
+
+/**
+ * Green discharge pulse for any HP-restoring action — the Chimera's Nanite
+ * Repair (P3.5.M5) and the STIM consumable both drive this. Reuses the same
+ * parametrized colored-vignette primitive as the EMP/Surge/Crash flashes,
+ * tinted for "HP restored" generically — a beat of feedback beyond the
+ * HP-tick itself, same shape as `triggerSurgeFlash`.
+ */
+export function triggerHealFlash(stageEl: HTMLElement, timers = defaultTimers) {
+  stageEl.classList.remove(DAMAGE_CLASS);
+  stageEl.style.setProperty(IMPACT_FLASH_COLOR_PROPERTY, `${HEAL_FLASH_FG}8c`);
+  return restartCssAnimation(
+    stageEl,
+    MITIGATION_FLASH_CLASS,
+    ANIMATION_DURATIONS.HEAL_FLASH,
+    timers
+  );
 }
 
 export type MitigationFlashKind = 'armor' | 'shield';

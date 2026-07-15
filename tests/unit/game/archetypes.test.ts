@@ -16,12 +16,15 @@ import {
   ARCHETYPES,
   ARCHETYPE_IDS,
   CALLSIGNS_BY_ARCHETYPE,
-  RECRUIT_ARCHETYPE_POOL,
   buildCrewMember,
   isArchetypeId,
+  perkAimForArchetype,
   pickCallsign,
 } from '../../../src/game/archetypes/index.js';
 import { Decker } from '../../../src/game/archetypes/Decker.js';
+import { Berserk, CALLSIGNS as BERSERK_CALLSIGNS } from '../../../src/game/archetypes/Berserk.js';
+import { Adept, CALLSIGNS as ADEPT_CALLSIGNS } from '../../../src/game/archetypes/Adept.js';
+import { Chimera, CALLSIGNS as CHIMERA_CALLSIGNS } from '../../../src/game/archetypes/Chimera.js';
 import { FACTION } from '../../../src/game/constants.js';
 import { Merc, CALLSIGNS as MERC_CALLSIGNS } from '../../../src/game/archetypes/Merc.js';
 import { CALLSIGNS as RAZOR_CALLSIGNS } from '../../../src/game/archetypes/Razor.js';
@@ -48,7 +51,7 @@ test('Merc perk is vault; Razor perk is slide; Tech perk is deploy', () => {
   assert.deepEqual(ARCHETYPES.tech.perks, ['deploy']);
 });
 
-test('ARCHETYPE_IDS lists every registered id, in display order', () => {
+test('ARCHETYPE_IDS preserves the legacy starter-selector display order', () => {
   // Display order matters for the character-select modal (default focus is
   // the first entry on first load). Merc → Razor → Tech, simplest kit first.
   assert.deepEqual(ARCHETYPE_IDS, ['merc', 'razor', 'tech']);
@@ -71,6 +74,9 @@ test('each archetype exports a CALLSIGNS list of 10–15 unique entries', () => 
 test('CALLSIGNS_BY_ARCHETYPE mirrors the per-archetype module exports', () => {
   assert.deepEqual(CALLSIGNS_BY_ARCHETYPE.merc, MERC_CALLSIGNS);
   assert.deepEqual(CALLSIGNS_BY_ARCHETYPE.razor, RAZOR_CALLSIGNS);
+  assert.deepEqual(CALLSIGNS_BY_ARCHETYPE.berserk, BERSERK_CALLSIGNS);
+  assert.deepEqual(CALLSIGNS_BY_ARCHETYPE.adept, ADEPT_CALLSIGNS);
+  assert.deepEqual(CALLSIGNS_BY_ARCHETYPE.chimera, CHIMERA_CALLSIGNS);
 });
 
 test('pickCallsign returns a name from the archetype pool', () => {
@@ -149,24 +155,51 @@ test('buildCrewMember rejects a missing or invalid rng', () => {
 
 // --- Decker (P3.M2): registered, buildable, but not a starter/recruit pick ---
 
-test('Decker is registered in ARCHETYPES with its OVERRIDE perk metadata', () => {
+test('Decker is registered in ARCHETYPES with its EMP perk metadata', () => {
   const a = ARCHETYPES.decker;
   assert.ok(a, 'missing decker archetype');
   assert.equal(a.id, 'decker');
   assert.equal(a.name, 'DECKER');
-  assert.deepEqual(a.perks, ['override']);
-  assert.equal(a.perkName, 'OVERRIDE');
+  assert.deepEqual(a.perks, ['emp']);
+  assert.equal(a.perkName, 'EMP');
   assert.ok(a.perkLabel.length > 0);
+  assert.equal(a.perkAim, 'self', 'EMP is self-centered — no aim step');
 });
 
-test('Decker is excluded from the starter selector and the random recruit pool', () => {
+test('perkAim metadata: only self-centered perks are tagged "self"', () => {
+  assert.equal(ARCHETYPES.merc.perkAim, 'directional');
+  assert.equal(ARCHETYPES.razor.perkAim, 'directional');
+  assert.equal(ARCHETYPES.tech.perkAim, 'directional');
+  assert.equal(ARCHETYPES.decker.perkAim, 'self');
+  assert.equal(ARCHETYPES.berserk.perkAim, 'self');
+  assert.equal(ARCHETYPES.adept.perkAim, 'directional');
+  assert.equal(ARCHETYPES.chimera.perkAim, 'self');
+});
+
+test('perkAimForArchetype resolves lowercase id and class-cased Crew.archetype', () => {
+  assert.equal(perkAimForArchetype('decker'), 'self');
+  assert.equal(perkAimForArchetype('Decker'), 'self', 'accepts class-cased archetype');
+  assert.equal(perkAimForArchetype('merc'), 'directional');
+  assert.equal(perkAimForArchetype('Razor'), 'directional');
+  assert.equal(perkAimForArchetype('berserk'), 'self');
+  assert.equal(perkAimForArchetype('Berserk'), 'self');
+  assert.equal(perkAimForArchetype('adept'), 'directional');
+  assert.equal(perkAimForArchetype('Adept'), 'directional');
+  assert.equal(perkAimForArchetype('chimera'), 'self');
+  assert.equal(perkAimForArchetype('Chimera'), 'self');
+});
+
+test('perkAimForArchetype throws on an unknown archetype (no silent fallback)', () => {
+  assert.throws(() => perkAimForArchetype('Avatar'), /unknown archetype/);
+  assert.throws(() => perkAimForArchetype('nope'), /unknown archetype/);
+});
+
+test('Decker is excluded from the starter selector', () => {
   // The Decker joins only via the Act-2 narrative beat — never as a starter
-  // pick or a random recruit roll (P3.M2 design constraint).
+  // pick or a random recruit roll (P3.M2 design constraint). P3.5.M6:
+  // `deriveArchetype` never resolves to 'decker' — see crewStatRoll.test.ts —
+  // so exclusion from the roll pipeline is proven there, not here.
   assert.ok(!ARCHETYPE_IDS.includes('decker'), 'Decker must not be a selectable starter');
-  assert.ok(
-    !RECRUIT_ARCHETYPE_POOL.includes('decker'),
-    'Decker must not be in the random recruit pool'
-  );
 });
 
 test('buildCrewMember can still construct a Decker by id (recruitment path)', () => {
@@ -174,6 +207,45 @@ test('buildCrewMember can still construct a Decker by id (recruitment path)', ()
   assert.ok(d instanceof Decker);
   assert.equal(isArchetypeId('decker'), true);
   assert.ok(CALLSIGNS_BY_ARCHETYPE.decker.includes(d.callsign));
+});
+
+test('Berserk is registered, recruitable, and self-targeted', () => {
+  const a = ARCHETYPES.berserk;
+  assert.deepEqual(a.perks, ['surge']);
+  assert.equal(a.perkName, 'SURGE');
+  assert.equal(a.perkAim, 'self');
+  assert.ok(!ARCHETYPE_IDS.includes('berserk'));
+
+  const berserk = buildCrewMember('berserk', { x: 1, y: 2 }, new Rng(10));
+  assert.ok(berserk instanceof Berserk);
+  assert.equal(isArchetypeId('berserk'), true);
+  assert.ok(BERSERK_CALLSIGNS.includes(berserk.callsign));
+});
+
+test('Adept is registered, recruitable, and directionally aimed', () => {
+  const a = ARCHETYPES.adept;
+  assert.deepEqual(a.perks, ['influence']);
+  assert.equal(a.perkName, 'INFLUENCE');
+  assert.equal(a.perkAim, 'directional');
+  assert.ok(!ARCHETYPE_IDS.includes('adept'));
+
+  const adept = buildCrewMember('adept', { x: 1, y: 2 }, new Rng(10));
+  assert.ok(adept instanceof Adept);
+  assert.equal(isArchetypeId('adept'), true);
+  assert.ok(ADEPT_CALLSIGNS.includes(adept.callsign));
+});
+
+test('Chimera is registered, recruitable, and self-targeted', () => {
+  const a = ARCHETYPES.chimera;
+  assert.deepEqual(a.perks, ['nanite-repair']);
+  assert.equal(a.perkName, 'NANITE REPAIR');
+  assert.equal(a.perkAim, 'self');
+  assert.ok(!ARCHETYPE_IDS.includes('chimera'));
+
+  const chimera = buildCrewMember('chimera', { x: 1, y: 2 }, new Rng(10));
+  assert.ok(chimera instanceof Chimera);
+  assert.equal(isArchetypeId('chimera'), true);
+  assert.ok(CHIMERA_CALLSIGNS.includes(chimera.callsign));
 });
 
 test('isArchetypeId is a string-set membership check', () => {

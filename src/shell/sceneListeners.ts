@@ -4,17 +4,24 @@ import { resolveEntityLabel } from '../game/Entity.js';
 import {
   ANIMATION_DURATIONS,
   runMuzzleFlash,
+  triggerCrashFlash,
   triggerDamageFlash,
+  triggerEmpFlash,
+  triggerHealFlash,
   triggerMitigationFlash,
   triggerShake,
+  triggerSurgeFlash,
 } from '../render/animations.js';
 import { COMBAT_HUD_COLORS } from '../render/combatHud.js';
+import { CLOAK_FLASH_FG, MIND_INFLUENCE_FG, VAULT_IMPACT_FG } from '../render/palette.js';
 import { cyberLayerOf, isCyberView } from './activeView.js';
 import { isRun } from './sceneView.js';
 import type {
   DoorUnlockPayload,
   EntityDamagedPayload,
+  MindInfluencedPayload,
   NoisePayload,
+  RazorCloakedPayload,
   SceneListenerDeps,
 } from './domTypes.js';
 
@@ -124,11 +131,27 @@ export class SceneListenerController {
             effects.paintPip();
           }
         }
-        if (source === 'melee' && target && damage > 0) {
+        if ((source === 'melee' || source === 'vault') && target && damage > 0) {
           const flashRenderer = meatInPip ? renderers.pip : renderers.main;
           const repaint = meatInPip ? effects.paintPip : effects.paint;
-          const fired = runMuzzleFlash(flashRenderer, repaint, target.x, target.y);
-          if (fired) animLock.push(ANIMATION_DURATIONS.MUZZLE_FLASH);
+          // Vault's body-check gets its own gold "kinetic slam" burst instead
+          // of the yellow gunfire-shaped muzzle flash — same tile, different
+          // beat (P3.5.M5).
+          const fired =
+            source === 'vault'
+              ? runMuzzleFlash(flashRenderer, repaint, target.x, target.y, {
+                  duration: ANIMATION_DURATIONS.VAULT_IMPACT_FLASH,
+                  char: '!',
+                  color: VAULT_IMPACT_FG,
+                })
+              : runMuzzleFlash(flashRenderer, repaint, target.x, target.y);
+          if (fired) {
+            animLock.push(
+              source === 'vault'
+                ? ANIMATION_DURATIONS.VAULT_IMPACT_FLASH
+                : ANIMATION_DURATIONS.MUZZLE_FLASH
+            );
+          }
         }
         if (killed && target && !forcedBodyJackOut) {
           this.#deps.memoriseMeatCorpse(target, (x, y) => meatVision.isVisible(x, y));
@@ -148,6 +171,63 @@ export class SceneListenerController {
       run.bus.on(EVENT.DOOR_UNLOCKED, payload => {
         const { label = 'Door' } = (payload ?? {}) as DoorUnlockPayload;
         effects.flash(`${label} unlocked — passage open.`);
+      }),
+      run.bus.on(EVENT.EMP_DETONATED, () => {
+        // Cyan discharge pulse on the shared stage. EMP is a Meatspace-only
+        // perk; the flash reads whether or not the meat view is in the PIP.
+        triggerEmpFlash(dom.stageEl);
+        animLock.push(ANIMATION_DURATIONS.EMP_FLASH);
+      }),
+      run.bus.on(EVENT.BERSERK_SURGED, () => {
+        // Blaze-orange spike as Surge arms — a beat of feedback beyond the HUD
+        // status tag. Meatspace-only perk, so the shared stage flash suffices.
+        triggerSurgeFlash(dom.stageEl);
+        animLock.push(ANIMATION_DURATIONS.SURGE_FLASH);
+      }),
+      run.bus.on(EVENT.BERSERK_CRASHED, () => {
+        // Ashen comedown pulse the instant Surge expires into Crash.
+        triggerCrashFlash(dom.stageEl);
+        animLock.push(ANIMATION_DURATIONS.CRASH_FLASH);
+      }),
+      run.bus.on(EVENT.NANITE_HEALED, () => {
+        // Green heal pulse as a Chimera converts scrap into HP. Meatspace-only
+        // perk, so the shared stage flash suffices (same shape as Surge/Crash).
+        // Shared with the STIM consumable's direct trigger in shellRuntime.
+        triggerHealFlash(dom.stageEl);
+        animLock.push(ANIMATION_DURATIONS.HEAL_FLASH);
+      }),
+      run.bus.on(EVENT.MIND_INFLUENCED, payload => {
+        // Violet burst on the dominated (or resisting) hostile's own tile —
+        // the Adept's Influence. Fires on both outcomes; log copy carries the
+        // success/fail nuance (P3.5.M5). CyberAvatar's Override wires the
+        // same event on the cyber bus below.
+        const { target } = (payload ?? {}) as MindInfluencedPayload;
+        if (!target) return;
+        const meatInPip = isCyberView(run);
+        const flashRenderer = meatInPip ? renderers.pip : renderers.main;
+        const repaint = meatInPip ? effects.paintPip : effects.paint;
+        const fired = runMuzzleFlash(flashRenderer, repaint, target.x, target.y, {
+          duration: ANIMATION_DURATIONS.MIND_INFLUENCE_FLASH,
+          char: target.glyph,
+          color: MIND_INFLUENCE_FG,
+        });
+        if (fired) animLock.push(ANIMATION_DURATIONS.MIND_INFLUENCE_FLASH);
+      }),
+      run.bus.on(EVENT.RAZOR_CLOAKED, payload => {
+        // Pale mint burst on the Razor's own landing tile as Slide engages
+        // the cloak — subtler and self-centered, not a screen-wide wash
+        // (P3.5.M5). Meatspace-only perk.
+        const { actor } = (payload ?? {}) as RazorCloakedPayload;
+        if (!actor) return;
+        const meatInPip = isCyberView(run);
+        const flashRenderer = meatInPip ? renderers.pip : renderers.main;
+        const repaint = meatInPip ? effects.paintPip : effects.paint;
+        const fired = runMuzzleFlash(flashRenderer, repaint, actor.x, actor.y, {
+          duration: ANIMATION_DURATIONS.CLOAK_FLASH,
+          char: actor.glyph,
+          color: CLOAK_FLASH_FG,
+        });
+        if (fired) animLock.push(ANIMATION_DURATIONS.CLOAK_FLASH);
       })
     );
   }
@@ -205,6 +285,22 @@ export class SceneListenerController {
         const repaint = cyberInPip ? effects.paintPip : effects.paint;
         const fired = runMuzzleFlash(flashRenderer, repaint, origin.x, origin.y);
         if (fired) animLock.push(ANIMATION_DURATIONS.MUZZLE_FLASH);
+      }),
+      layer.bus.on(EVENT.MIND_INFLUENCED, payload => {
+        // Same violet burst as the Adept's Influence (above), on the cyber
+        // grid for the CyberAvatar's Override — same underlying roll, same
+        // fires-on-both-outcomes shape (P3.5.M5).
+        const { target } = (payload ?? {}) as MindInfluencedPayload;
+        if (!target) return;
+        const cyberInPip = !isCyberView(run);
+        const flashRenderer = cyberInPip ? renderers.pip : renderers.main;
+        const repaint = cyberInPip ? effects.paintPip : effects.paint;
+        const fired = runMuzzleFlash(flashRenderer, repaint, target.x, target.y, {
+          duration: ANIMATION_DURATIONS.MIND_INFLUENCE_FLASH,
+          char: target.glyph,
+          color: MIND_INFLUENCE_FG,
+        });
+        if (fired) animLock.push(ANIMATION_DURATIONS.MIND_INFLUENCE_FLASH);
       })
     );
   }

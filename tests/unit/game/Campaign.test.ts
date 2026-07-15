@@ -27,6 +27,11 @@ import {
 import { emptySalvage, makeSalvage, totalSalvage } from '../../../src/game/salvage.js';
 import { testContractContext } from './contractTestUtils.js';
 import { buildCrewMember } from '../../../src/game/archetypes/index.js';
+import { SCOREABLE_ITEMS } from '../../../src/game/items.js';
+import {
+  SCOREABLE_ARCHETYPES,
+  SCOREABLE_ARCHETYPE_IDS,
+} from '../../../src/game/archetypeRewards.js';
 import type { LocationSite } from '../../../src/types.js';
 
 const fakeContract = (overrides = {}) => ({
@@ -60,18 +65,46 @@ function validSite(overrides: Partial<LocationSite> = {}): LocationSite {
   };
 }
 
-test('buildCrew creates one named member per starter archetype with unique callsigns', () => {
+test('buildCrew creates three named crew members with unique callsigns', () => {
+  // P3.5.M6: no fixed [Merc, Razor, Tech] triple — each slot rolls its own
+  // stats and derives its own archetype (crewStatRoll.ts), so duplicates
+  // are a legal outcome. Assert structure, not a specific archetype list.
   const crew = buildCrew(new Rng(0xc0ffee));
   assert.equal(crew.length, 3);
-  assert.deepEqual(
-    crew.map(member => member.constructor.name),
-    ['Merc', 'Razor', 'Tech']
-  );
+  const registered = new Set(['Merc', 'Razor', 'Tech', 'Berserk', 'Adept', 'Chimera']);
+  for (const member of crew) {
+    assert.ok(
+      registered.has(member.constructor.name),
+      `unexpected starter archetype "${member.constructor.name}" (Decker must never roll)`
+    );
+    assert.ok(member.callsign, 'every starter crew member gets a callsign');
+  }
   assert.equal(new Set(crew.map(member => member.callsign)).size, 3);
   assert.deepEqual(
     crew.map(member => member.flatlined),
     [false, false, false]
   );
+});
+
+test('buildCrew: every starter slot carries its own rolled base stats', () => {
+  const crew = buildCrew(new Rng(7));
+  for (const member of crew) {
+    assert.ok(member.baseHitChance >= 0.65 && member.baseHitChance <= 0.85);
+    assert.ok(member.baseDodgeChance >= 0.15 && member.baseDodgeChance <= 0.4);
+  }
+});
+
+test('buildCrew is deterministic from a fixed seed (rng.fork does not desync the stream)', () => {
+  const describe = (crew: ReturnType<typeof buildCrew>) =>
+    crew.map(m => ({
+      archetype: m.constructor.name,
+      callsign: m.callsign,
+      baseHitChance: m.baseHitChance,
+      baseDodgeChance: m.baseDodgeChance,
+    }));
+  const a = buildCrew(new Rng(555));
+  const b = buildCrew(new Rng(555));
+  assert.deepEqual(describe(a), describe(b));
 });
 
 test('Campaign starts in HUB with crew, salvage, credits, rep, and meta state', () => {
@@ -1586,23 +1619,34 @@ test('generateRecruits returns empty when Rep < threshold', () => {
   assert.equal(campaign.availableRecruits.length, 0);
 });
 
-test('generateRecruits archetype weights approximate 40/40/20 over many seeds', () => {
-  const counts: Record<string, number> = { Merc: 0, Razor: 0, Tech: 0 };
+test('generateRecruits archetypes come from the roll-then-derive pipeline, never Decker', () => {
+  // P3.5.M6: RECRUIT_ARCHETYPE_POOL is retired. Every recruit's archetype is
+  // derived from a stat roll (crewStatRoll.ts) rather than picked from a
+  // weighted pool — every registered non-Decker archetype should be
+  // reachable, each landing roughly in the plan's documented 13–21% spread
+  // (generous tolerance here to avoid sample-size flakiness; the exact
+  // partition math is asserted exhaustively in crewStatRoll.test.ts).
+  const counts: Record<string, number> = {
+    Merc: 0,
+    Razor: 0,
+    Tech: 0,
+    Berserk: 0,
+    Adept: 0,
+    Chimera: 0,
+  };
   const total = 1000;
   for (let i = 0; i < total; i++) {
     const campaign = new Campaign({ seed: i, rep: 80 });
     for (const recruit of campaign.availableRecruits) {
+      assert.notEqual(recruit.constructor.name, 'Decker', 'Decker must never be a random recruit');
       counts[recruit.constructor.name]++;
     }
   }
-  const sum = counts.Merc + counts.Razor + counts.Tech;
-  // Merc and Razor should each be ~40%, Tech ~20%. Allow ±8% tolerance.
-  assert.ok(counts.Merc / sum > 0.32, `Merc ${((counts.Merc / sum) * 100).toFixed(1)}% < 32%`);
-  assert.ok(counts.Merc / sum < 0.48, `Merc ${((counts.Merc / sum) * 100).toFixed(1)}% > 48%`);
-  assert.ok(counts.Razor / sum > 0.32, `Razor ${((counts.Razor / sum) * 100).toFixed(1)}% < 32%`);
-  assert.ok(counts.Razor / sum < 0.48, `Razor ${((counts.Razor / sum) * 100).toFixed(1)}% > 48%`);
-  assert.ok(counts.Tech / sum > 0.12, `Tech ${((counts.Tech / sum) * 100).toFixed(1)}% < 12%`);
-  assert.ok(counts.Tech / sum < 0.28, `Tech ${((counts.Tech / sum) * 100).toFixed(1)}% > 28%`);
+  const sum = Object.values(counts).reduce((a, b) => a + b, 0);
+  for (const id of Object.keys(counts)) {
+    const ratio = counts[id] / sum;
+    assert.ok(ratio > 0.08 && ratio < 0.28, `${id} ${(ratio * 100).toFixed(1)}% out of range`);
+  }
 });
 
 test('generateRecruits deduplicates callsigns against flatlined crew members', () => {
@@ -1759,22 +1803,31 @@ test('generateInitialCandidates returns RECRUIT.INITIAL_CANDIDATES (3) candidate
   assert.equal(new Set(ids).size, 3);
 });
 
-test('generateInitialCandidates uses weighted archetype pool', () => {
-  const counts: Record<string, number> = { Merc: 0, Razor: 0, Tech: 0 };
+test('generateInitialCandidates archetypes come from the roll-then-derive pipeline', () => {
+  // P3.5.M6: same retired-pool rationale as the generateRecruits test above.
+  const counts: Record<string, number> = {
+    Merc: 0,
+    Razor: 0,
+    Tech: 0,
+    Berserk: 0,
+    Adept: 0,
+    Chimera: 0,
+  };
   const total = 500;
   for (let i = 0; i < total; i++) {
     const campaign = new Campaign({ seed: i, crew: [] });
     const candidates = campaign.generateInitialCandidates();
     for (const c of candidates) {
+      assert.notEqual(c.constructor.name, 'Decker', 'Decker must never be an initial candidate');
       counts[c.constructor.name]++;
     }
   }
-  const sum = counts.Merc + counts.Razor + counts.Tech;
-  // Merc and Razor should each be ~40%, Tech ~20%. Allow ±10% tolerance.
-  assert.ok(counts.Merc / sum > 0.3, `Merc ${((counts.Merc / sum) * 100).toFixed(1)}% < 30%`);
-  assert.ok(counts.Merc / sum < 0.5, `Merc ${((counts.Merc / sum) * 100).toFixed(1)}% > 50%`);
-  assert.ok(counts.Tech / sum > 0.1, `Tech ${((counts.Tech / sum) * 100).toFixed(1)}% < 10%`);
-  assert.ok(counts.Tech / sum < 0.3, `Tech ${((counts.Tech / sum) * 100).toFixed(1)}% > 30%`);
+  const sum = Object.values(counts).reduce((a, b) => a + b, 0);
+  for (const id of Object.keys(counts)) {
+    assert.ok(counts[id] > 0, `${id} must be reachable in the starter candidate pool`);
+    const ratio = counts[id] / sum;
+    assert.ok(ratio > 0.07 && ratio < 0.28, `${id} ${(ratio * 100).toFixed(1)}% out of range`);
+  }
 });
 
 test('recruitInitial validates exactly RECRUIT.INITIAL_PICKS (2) IDs', () => {
@@ -1862,4 +1915,288 @@ test('recruitInitial does not require Rep gate', () => {
   // Should NOT throw despite low rep.
   campaign.recruitInitial(ids);
   assert.equal(campaign.crew.length, 2);
+});
+
+// ─── P3.5.M7: archetype unlocks via Score rewards ──────────────────────────
+
+const M7_SCORE_PRINCIPAL = { id: 'matsuda', label: 'Matsuda', groups: ['corp'] };
+
+/**
+ * A Score-ready campaign (Act 3, living Decker + partner, designated target).
+ * `pickScorePayload` is seeded from the Score *target site's* seed, not the
+ * campaign's own seed — vary both together so a seed sweep actually produces
+ * different draws (a fixed site seed would draw the same payload every time).
+ */
+function m7ScoreReadyCampaign(
+  overrides: { seed?: number; unlockedArchetypeIds?: string[] } = {}
+): Campaign {
+  const seed = overrides.seed ?? 42;
+  const campaign = new Campaign({
+    seed,
+    rep: 65,
+    completedJobs: 9,
+    unlockedArchetypeIds: overrides.unlockedArchetypeIds,
+    siteRoster: [
+      validSite({
+        id: 'score',
+        seed: String(seed),
+        tier: 'score',
+        scoreTarget: true,
+        lastVisitedJob: 5,
+        principal: M7_SCORE_PRINCIPAL,
+      }),
+      validSite({
+        id: 'case-1',
+        seed: `${seed}01`,
+        lastVisitedJob: 6,
+        principal: M7_SCORE_PRINCIPAL,
+      }),
+      validSite({
+        id: 'case-2',
+        seed: `${seed}02`,
+        lastVisitedJob: 7,
+        principal: M7_SCORE_PRINCIPAL,
+      }),
+      validSite({
+        id: 'case-3',
+        seed: `${seed}03`,
+        lastVisitedJob: 8,
+        principal: M7_SCORE_PRINCIPAL,
+      }),
+      validSite({
+        id: 'case-4',
+        seed: `${seed}04`,
+        lastVisitedJob: 9,
+        principal: M7_SCORE_PRINCIPAL,
+      }),
+    ],
+  });
+  assert.ok(campaign.canAttemptScore(), 'fixture should be Score-ready');
+  return campaign;
+}
+
+test('pickScorePayload draws from the merged item+archetype pool over enough seeds', () => {
+  let itemDraws = 0;
+  let archetypeDraws = 0;
+  for (let seed = 0; seed < 60; seed++) {
+    const contract = m7ScoreReadyCampaign({ seed }).buildScoreContract([], []);
+    if (contract.objective.params?.scoreItemId) itemDraws++;
+    if (contract.objective.params?.scoreArchetypeId) archetypeDraws++;
+  }
+  assert.ok(itemDraws > 0, 'merged pool must still be able to draw items');
+  assert.ok(archetypeDraws > 0, 'merged pool must be able to draw archetypes too');
+});
+
+test('a drawn contract carries at most one of scoreItemId/scoreArchetypeId, never both', () => {
+  for (let seed = 0; seed < 60; seed++) {
+    const contract = m7ScoreReadyCampaign({ seed }).buildScoreContract([], []);
+    const hasItem = contract.objective.params?.scoreItemId !== undefined;
+    const hasArchetype = contract.objective.params?.scoreArchetypeId !== undefined;
+    assert.ok(!(hasItem && hasArchetype), `seed ${seed}: contract carries both payload kinds`);
+  }
+});
+
+test('pool exhaustion (abstract fallback) requires both item and archetype catalogs acquired', () => {
+  const campaign = m7ScoreReadyCampaign();
+  const allItems = SCOREABLE_ITEMS.map(i => i.id);
+  const allArchetypes = SCOREABLE_ARCHETYPES.map(r => r.id);
+
+  // Items exhausted, archetypes NOT — draw must still be an archetype, not abstract.
+  const itemsGone = campaign.buildScoreContract(allItems, []);
+  assert.equal(itemsGone.objective.params?.scoreItemId, undefined);
+  assert.equal(typeof itemsGone.objective.params?.scoreArchetypeId, 'string');
+
+  // Archetypes exhausted, items NOT — draw must still be an item, not abstract.
+  const archetypesGone = campaign.buildScoreContract([], allArchetypes);
+  assert.equal(archetypesGone.objective.params?.scoreArchetypeId, undefined);
+  assert.equal(typeof archetypesGone.objective.params?.scoreItemId, 'string');
+
+  // Both exhausted → abstract fallback, neither param present.
+  const bothGone = campaign.buildScoreContract(allItems, allArchetypes);
+  assert.equal(bothGone.objective.params?.scoreItemId, undefined);
+  assert.equal(bothGone.objective.params?.scoreArchetypeId, undefined);
+});
+
+test('settlement records the drawn archetype reward when items are exhausted, never both meta fields', () => {
+  const campaign = m7ScoreReadyCampaign();
+  const decker = campaign.crew.find(m => m.archetype === 'Decker')!;
+  const partner = campaign.crew.find(m => m.archetype !== 'Decker')!;
+  const allItems = SCOREABLE_ITEMS.map(i => i.id);
+  const contract = campaign.buildScoreContract(allItems, []);
+  const expectedArchetypeId = contract.objective.params!.scoreArchetypeId as string;
+  campaign.deployCrewMember(decker.id, contract, partner.id).enterCombat();
+
+  campaign.onJobEnd({ outcome: OUTCOME.EXIT, completed: true });
+  assert.equal(campaign.endReason, 'score-complete');
+  assert.equal(campaign.scoreUnlockedArchetypeId, expectedArchetypeId);
+  assert.equal(campaign.scoreUnlockedItemId, null, 'never both');
+});
+
+test('a score-partial outcome writes nothing to either meta-store key', () => {
+  const campaign = m7ScoreReadyCampaign();
+  const decker = campaign.crew.find(m => m.archetype === 'Decker')!;
+  const partner = campaign.crew.find(m => m.archetype !== 'Decker')!;
+  const allItems = SCOREABLE_ITEMS.map(i => i.id);
+  campaign
+    .deployCrewMember(decker.id, campaign.buildScoreContract(allItems, []), partner.id)
+    .enterCombat();
+
+  campaign.onJobEnd({ outcome: OUTCOME.EXIT, completed: false });
+  assert.equal(campaign.endReason, 'score-partial');
+  assert.equal(campaign.scoreUnlockedItemId, null);
+  assert.equal(campaign.scoreUnlockedArchetypeId, null);
+});
+
+test('SCOREABLE_ARCHETYPE_IDS matches the SCOREABLE_ARCHETYPES catalog', () => {
+  assert.deepEqual(new Set(SCOREABLE_ARCHETYPE_IDS), new Set(SCOREABLE_ARCHETYPES.map(r => r.id)));
+});
+
+// ─── P3.5.M7: gating crew generation via Campaign construction-time unlocks ─
+
+test('unlockedArchetypeIds: [] gates the starter trio to merc/razor/tech only', () => {
+  for (let seed = 0; seed < 40; seed++) {
+    const campaign = new Campaign({ seed, unlockedArchetypeIds: [] });
+    for (const member of campaign.crew) {
+      assert.ok(
+        ['Merc', 'Razor', 'Tech'].includes(member.constructor.name),
+        `seed ${seed}: unexpected "${member.constructor.name}" with archetypes locked`
+      );
+    }
+  }
+});
+
+test('unlockedArchetypeIds with all three gated archetypes reaches all six starter archetypes', () => {
+  const seen = new Set<string>();
+  for (let seed = 0; seed < 150; seed++) {
+    const campaign = new Campaign({ seed, unlockedArchetypeIds: ['berserk', 'adept', 'chimera'] });
+    for (const member of campaign.crew) seen.add(member.constructor.name);
+  }
+  assert.deepEqual(seen, new Set(['Merc', 'Razor', 'Tech', 'Berserk', 'Adept', 'Chimera']));
+});
+
+test('a partial unlock (only Berserk) reaches exactly four starter archetypes across enough campaigns', () => {
+  const seen = new Set<string>();
+  for (let seed = 0; seed < 150; seed++) {
+    const campaign = new Campaign({ seed, unlockedArchetypeIds: ['berserk'] });
+    for (const member of campaign.crew) seen.add(member.constructor.name);
+  }
+  assert.deepEqual(seen, new Set(['Merc', 'Razor', 'Tech', 'Berserk']));
+});
+
+test('omitting unlockedArchetypeIds stays ungated (bare engine/test construction reaches all six)', () => {
+  const seen = new Set<string>();
+  for (let seed = 0; seed < 150; seed++) {
+    const campaign = new Campaign({ seed });
+    for (const member of campaign.crew) seen.add(member.constructor.name);
+  }
+  assert.deepEqual(seen, new Set(['Merc', 'Razor', 'Tech', 'Berserk', 'Adept', 'Chimera']));
+});
+
+test('generateInitialCandidates respects the same gating (never rolls a locked archetype)', () => {
+  const campaign = new Campaign({ seed: 1, crew: [], unlockedArchetypeIds: [] });
+  for (let seed = 0; seed < 100; seed++) {
+    campaign.rng = new Rng(seed);
+    for (const candidate of campaign.generateInitialCandidates()) {
+      assert.ok(['Merc', 'Razor', 'Tech'].includes(candidate.constructor.name));
+    }
+  }
+});
+
+test('generateRecruits respects the same gating (never rolls a locked archetype)', () => {
+  const campaign = new Campaign({ seed: 1, rep: 80, unlockedArchetypeIds: [] });
+  for (let seed = 0; seed < 100; seed++) {
+    campaign.rng = new Rng(seed);
+    for (const recruit of campaign.generateRecruits()) {
+      assert.ok(
+        !['Berserk', 'Adept', 'Chimera'].includes(recruit.constructor.name),
+        `seed ${seed}: rolled locked archetype "${recruit.constructor.name}"`
+      );
+    }
+  }
+});
+
+// ─── Showcase-slot follow-up (2026-07-14): reserve candidate slot 0 ────────
+
+test('showcaseArchetypeId reserves initialCandidates[0] for that archetype', () => {
+  for (let seed = 0; seed < 30; seed++) {
+    const campaign = new Campaign({
+      seed,
+      crew: [],
+      unlockedArchetypeIds: ['berserk', 'adept', 'chimera'],
+      showcaseArchetypeId: 'berserk',
+    });
+    const candidates = campaign.generateInitialCandidates();
+    assert.equal(candidates.length, 3);
+    assert.equal(candidates[0].constructor.name, 'Berserk');
+    assert.equal(candidates[0].id, 'crew-init-0');
+  }
+});
+
+test('showcaseArchetypeId still yields 3 unique candidates with unique callsigns', () => {
+  const campaign = new Campaign({
+    seed: 5,
+    crew: [],
+    unlockedArchetypeIds: ['berserk'],
+    showcaseArchetypeId: 'berserk',
+  });
+  const candidates = campaign.generateInitialCandidates();
+  assert.equal(candidates.length, 3);
+  assert.equal(new Set(candidates.map(c => c.callsign)).size, 3);
+  assert.equal(new Set(candidates.map(c => c.id)).size, 3);
+});
+
+test('the other two showcase-run slots still roll normally (not forced to any particular archetype)', () => {
+  const seen = new Set<string>();
+  for (let seed = 0; seed < 60; seed++) {
+    const campaign = new Campaign({
+      seed,
+      crew: [],
+      unlockedArchetypeIds: ['berserk', 'adept', 'chimera'],
+      showcaseArchetypeId: 'berserk',
+    });
+    const candidates = campaign.generateInitialCandidates();
+    for (const candidate of candidates.slice(1)) seen.add(candidate.constructor.name);
+  }
+  // Slots 1–2 should still range over more than just Berserk across enough seeds.
+  assert.ok(
+    seen.size > 1,
+    `expected varied archetypes in the non-showcase slots, got ${[...seen]}`
+  );
+});
+
+test('no showcaseArchetypeId (the ordinary case) behaves exactly as before — no forced slot', () => {
+  const campaign = new Campaign({ seed: 9, crew: [] });
+  const candidates = campaign.generateInitialCandidates();
+  assert.equal(candidates.length, 3);
+  // Not asserting a specific archetype — just that construction succeeds
+  // and nothing about the ordinary path changed shape.
+  assert.equal(campaign.showcaseArchetypeId, null);
+});
+
+test('showcaseArchetypeId defensively no-ops when the id is not actually reachable under gating', () => {
+  // Simulates a stale/hand-edited save: showcase points at an archetype that
+  // (per unlockedArchetypeIds) isn't actually unlocked. Must not throw or
+  // leak a locked archetype into the candidate pool — just skip the reservation.
+  const campaign = new Campaign({
+    seed: 3,
+    crew: [],
+    unlockedArchetypeIds: [], // berserk NOT unlocked, contradicting the showcase below
+    showcaseArchetypeId: 'berserk',
+  });
+  const candidates = campaign.generateInitialCandidates();
+  assert.equal(candidates.length, 3);
+  for (const candidate of candidates) {
+    assert.ok(['Merc', 'Razor', 'Tech'].includes(candidate.constructor.name));
+  }
+});
+
+test('Campaign rejects a malformed showcaseArchetypeId (empty string)', () => {
+  assert.throws(() => new Campaign({ seed: 1, showcaseArchetypeId: '' }), /showcaseArchetypeId/);
+});
+
+test('Campaign accepts an explicit null showcaseArchetypeId (DataStore.pendingArchetypeShowcase shape)', () => {
+  const campaign = new Campaign({ seed: 1, crew: [], showcaseArchetypeId: null });
+  assert.equal(campaign.showcaseArchetypeId, null);
+  const candidates = campaign.generateInitialCandidates();
+  assert.equal(candidates.length, 3);
 });

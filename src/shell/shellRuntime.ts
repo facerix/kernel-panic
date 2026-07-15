@@ -44,6 +44,7 @@ import {
   ANIMATION_DURATIONS,
   createAnimationLock,
   runInteractSecuredFlash,
+  triggerHealFlash,
   triggerShake,
 } from '/src/render/animations.js';
 import { Interactable } from '/src/game/entities/Interactable.js';
@@ -97,6 +98,7 @@ import {
   pickActiveVisionField,
 } from '/src/shell/activeView.js';
 import { buildCombatHudSnapshot } from '/src/shell/combatHudSnapshot.js';
+import { perkAimForArchetype, type PerkAim } from '/src/game/archetypes/index.js';
 import { buildHubHudRows, currentLocationLabel } from '/src/shell/locationHud.js';
 import { SceneListenerController } from '/src/shell/sceneListeners.js';
 import { isRun, resolveSceneView, type ShellScene } from '/src/shell/sceneView.js';
@@ -423,6 +425,7 @@ export async function boot() {
       paint();
     },
     isBlocked: () => animLock.isLocked() || isAnyBlockingModalOpen(),
+    getSpecialAim: currentSpecialAim,
   });
   keyboard.attach();
 
@@ -505,6 +508,7 @@ export async function boot() {
     paint();
   });
   touchPadEl.setBlocked(() => animLock.isLocked() || isAnyBlockingModalOpen());
+  touchPadEl.setSpecialAim(currentSpecialAim);
 
   logHeaderEl.addEventListener('click', () => {
     logEl.classList.toggle('collapsed');
@@ -565,6 +569,12 @@ function startFreshCampaign() {
     crew: [],
     onPersist: handlePersist,
     onResult: handleResult,
+    unlockedArchetypeIds: dataStore.unlockedArchetypes,
+    // Showcase-slot follow-up (2026-07-14): peek, don't consume yet — the
+    // pending flag is only cleared once campaign-start recruitment actually
+    // commits (onInitialRecruited), so an abandoned/reloaded attempt at this
+    // screen doesn't burn the showcase before the player ever sees it.
+    showcaseArchetypeId: dataStore.pendingArchetypeShowcase,
   });
 
   pendingJobResult = null;
@@ -591,6 +601,11 @@ function onInitialRecruited(evt: Event) {
   if (!campaign) return;
   const { memberIds } = (evt as CustomEvent<{ memberIds: string[] }>).detail;
   campaign.recruitInitial(memberIds);
+  // Showcase-slot follow-up (2026-07-14): the reserved candidate's job was to
+  // be *offered*, not necessarily picked — clear the pending flag the moment
+  // campaign-start recruitment actually commits, regardless of which two
+  // candidates were chosen, so it doesn't linger for a future campaign.
+  dataStore.clearPendingArchetypeShowcase();
   initialRecruitEl.hide();
   // Now the crew is set — enter the hub for the first time (builds world, persists).
   campaign.enterHub();
@@ -778,7 +793,9 @@ function onCrewRecruit(evt: Event) {
       campaign.canAttemptScore() &&
       !currentJobOptions.some(contract => contract.context.recipeId === 'score-final')
     ) {
-      currentJobOptions.push(campaign.buildScoreContract(dataStore.unlockedScoreableItems));
+      currentJobOptions.push(
+        campaign.buildScoreContract(dataStore.unlockedScoreableItems, dataStore.unlockedArchetypes)
+      );
     }
     // Refresh the roster to reflect the new crew + hide recruit section.
     presentCrewRoster();
@@ -814,7 +831,9 @@ function generateCurrentJobOptions(): Contract[] {
   }
   const contracts = campaign.curator.generateContracts(campaign.rng, campaign);
   if (campaign.canAttemptScore()) {
-    contracts.push(campaign.buildScoreContract(dataStore.unlockedScoreableItems));
+    contracts.push(
+      campaign.buildScoreContract(dataStore.unlockedScoreableItems, dataStore.unlockedArchetypes)
+    );
   }
   return contracts;
 }
@@ -1095,6 +1114,11 @@ function applyUseConsumableResult(
     flash(
       `Used STIM — healed ${healed} HP (now ${operator.hp}/${operator.maxHp}). ${operator.ap} AP left.`
     );
+    // Same green heal pulse as the Chimera's Nanite Repair — shared "HP
+    // restored" beat, direct trigger since useConsumable doesn't route
+    // through the bus (see pulseSecuredInteractable for the same shape).
+    triggerHealFlash(stageEl);
+    animLock.push(ANIMATION_DURATIONS.HEAL_FLASH);
     return;
   }
   if (result.type === 'smoke') {
@@ -1262,11 +1286,14 @@ function restartWithValidatedSave(): void {
 }
 
 function presentEndedCampaignOverlay(c: Campaign): void {
-  // P3.M6.4: commit a stolen blueprint to the cross-campaign meta-store before
+  // P3.M6.4 / P3.5.M7: commit exactly one drawn reward — a stolen blueprint or
+  // an unlocked archetype, never both — to the cross-campaign meta-store before
   // archiving the summary. Idempotent (duplicate id → no-op), so it's safe on
   // both live Score completion and a restored already-ended save.
   const unlockedItemId = c.scoreUnlockedItemId;
   if (unlockedItemId) dataStore.archiveScoreableItem(unlockedItemId);
+  const unlockedArchetypeId = c.scoreUnlockedArchetypeId;
+  if (unlockedArchetypeId) dataStore.archiveUnlockedArchetype(unlockedArchetypeId);
   // The summary captures the stolen blueprint (P3.M6.4) for the win screen and
   // the M7 Chronicle; `<game-over>` reads it straight off the summary.
   const summary = dataStore.archiveCampaign(buildCampaignSummary(c, new Date().toISOString()));
@@ -1333,6 +1360,20 @@ function currentScene(): ShellScene | null {
 }
 
 /**
+ * Resolve the live archetype's perk-aim for the keymap so `x` fires a
+ * self-centered perk (Decker EMP, future self-buffs) immediately. The active
+ * actor changes with simstim flips and partner swaps, so this reads it fresh
+ * each press. Only a Crew carries an `archetype` string; the CyberAvatar (its
+ * Override perk is aimed) and any non-combat scene fall back to `'directional'`.
+ */
+function currentSpecialAim(): PerkAim {
+  const scene = currentScene();
+  if (!scene || !isRun(scene)) return 'directional';
+  const archetype = (activeActorOf(scene) as { archetype?: unknown } | null)?.archetype;
+  return typeof archetype === 'string' ? perkAimForArchetype(archetype) : 'directional';
+}
+
+/**
  * Wire the confirmation callbacks a Run raises mid-combat. Callbacks do not
  * persist, so this runs at deploy AND on campaign resume — a restored run
  * without them would silently skip both confirmations (the no-callback
@@ -1388,6 +1429,7 @@ function resumeCampaign(record: CampaignSnapshot | unknown) {
     campaign = restoreCampaign(record, {
       onPersist: () => handlePersist(),
       onResult: handleResult,
+      unlockedArchetypeIds: dataStore.unlockedArchetypes,
     });
     if (campaign.activeRun) {
       wireRunConfirmations(campaign.activeRun);

@@ -29,6 +29,11 @@ export type CombatHudIdentityInput = Readonly<{
   callsign?: string | null;
   archetype: string;
   stealthed: boolean;
+  /** P3.5.M2: the controlled actor is EMP-stunned (0 AP next refresh). */
+  stunned?: boolean;
+  /** P3.5.M3: Berserk's active power window / mandatory payback window. */
+  surging?: boolean;
+  crashing?: boolean;
 }>;
 
 export type CombatHudVitalInput = Readonly<{
@@ -130,8 +135,12 @@ export function fitObjectiveHudLine(
 export function formatIdentityHud(identity: CombatHudIdentityInput): string {
   const archetype = requireNonEmptyString(identity.archetype, 'identity.archetype').toUpperCase();
   const callsign = identity.callsign?.trim();
-  const base = callsign ? `${callsign} [${archetype}]` : archetype;
-  return identity.stealthed ? `${base} [CLOAKED]` : base;
+  let label = callsign ? `${callsign} [${archetype}]` : archetype;
+  if (identity.stealthed) label += ' [CLOAKED]';
+  if (identity.stunned) label += ' [STUNNED]';
+  if (identity.surging) label += ' [SURGING]';
+  if (identity.crashing) label += ' [CRASH]';
+  return label;
 }
 
 export function formatHpSegments(vitals: CombatHudVitalInput): string {
@@ -210,6 +219,7 @@ export function formatCombatHudA11ySummary(summary: CombatHudSummaryInput): stri
   if (defenseText) parts.push(...defenseText);
   parts.push(`${summary.ap.ap} of ${summary.ap.maxAp} AP`, turnA11yText(summary.turn));
   if (summary.identity.stealthed) parts.push('cloaked');
+  if (summary.identity.stunned) parts.push('stunned');
   const objectiveText = objectiveA11yText(summary.objective);
   if (objectiveText) parts.push(objectiveText);
   return parts.join(', ');

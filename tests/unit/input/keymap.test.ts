@@ -48,9 +48,23 @@ test('IDLE + Space emits interact and stays IDLE', () => {
   assert.equal(r.nextMode, MODE.IDLE);
 });
 
-test('IDLE + x enters AIM (special) with no intent yet', () => {
+test('IDLE + x enters AIM (special) with no intent yet (directional perk, default)', () => {
   const r = dispatch('x', MODE.IDLE);
   assert.equal(r.intent, null, 'aiming alone produces no intent');
+  assert.equal(r.nextMode, MODE.AIM);
+  assert.equal(r.aimKind, AIM_KIND.SPECIAL);
+});
+
+test('IDLE + x with a self-targeted perk fires special immediately (no aim step)', () => {
+  const r = dispatch('x', MODE.IDLE, null, 'self');
+  assert.deepEqual(r.intent, { type: 'special', dx: 0, dy: 0 }, 'self perk fires with a zero aim');
+  assert.equal(r.nextMode, MODE.IDLE, 'no aim mode entered');
+  assert.equal(r.aimKind, null);
+});
+
+test('IDLE + x with an explicit directional perk still enters AIM', () => {
+  const r = dispatch('x', MODE.IDLE, null, 'directional');
+  assert.equal(r.intent, null);
   assert.equal(r.nextMode, MODE.AIM);
   assert.equal(r.aimKind, AIM_KIND.SPECIAL);
 });

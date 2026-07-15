@@ -18,15 +18,18 @@
  * automation can commit a melee strike without synthesizing a walk intent.
  *
  * The archetype-specific perks (Merc's Vault, Razor's Slide, Tech's Deploy
- * Turret, Decker's Override) collapse into a single `special` intent at the
- * keymap layer. The `doSpecial` dispatcher below routes it to the right verb
- * based on which methods the active player class exposes — `canVault` → vault,
- * `canSlide` → slide, `canDeploy` → deploy, `canOverride` → override (the
- * Decker resolves the nearest visible drone in the aimed eight-way sector).
- * This keeps the input surface symmetric across archetypes (one key, one touch
- * button) and stays out of the player's way:
- * the keymap doesn't need to know which class is in play, and the intent
- * dispatcher doesn't need an explicit archetype switch.
+ * Turret, Decker's EMP, Berserk's Surge, Adept's Influence, Chimera's Nanite
+ * Repair, the CyberAvatar's cyber-grid Override) collapse into a single
+ * `special` intent at the keymap layer. The `doSpecial` dispatcher below
+ * routes it to the right verb based on which methods the active player class
+ * exposes — `canVault` → vault, `canSlide` → slide, `canDeploy` → deploy,
+ * `canEmp` → EMP, `canSurge` → surge, `canInfluence` → influence (the Adept
+ * resolves the nearest visible hostile in the aimed eight-way sector),
+ * `canConvertScrap` → Nanite Repair, `canOverride` → override (same picker,
+ * cyber grid only). This keeps the input surface symmetric across archetypes
+ * (one key, one touch button) and stays out of the player's way: the keymap
+ * doesn't need to know which class is in play, and the intent dispatcher
+ * doesn't need an explicit archetype switch.
  *
  * The function is pure-ish: it mutates `ctx.world` / `ctx.player` /
  * `ctx.queue` and emits log lines via `ctx.log`, but doesn't touch the DOM.
@@ -46,7 +49,7 @@ import {
   SIGHT_RANGE,
   VAULT_DAMAGE,
   NOISE_RADIUS,
-  OVERRIDE_RANGE,
+  INFLUENCE_RANGE,
 } from '../game/constants.js';
 import { totalSalvage, formatSalvageCompact } from '../game/salvage.js';
 import { canFireRanged, resolveRanged, canMelee, resolveMelee } from '../game/Combat.js';
@@ -70,6 +73,9 @@ import type { Tech } from '../game/archetypes/Tech.js';
 import type { Merc } from '../game/archetypes/Merc.js';
 import type { Razor } from '../game/archetypes/Razor.js';
 import type { Decker } from '../game/archetypes/Decker.js';
+import type { Berserk } from '../game/archetypes/Berserk.js';
+import type { Adept } from '../game/archetypes/Adept.js';
+import type { Chimera } from '../game/archetypes/Chimera.js';
 
 export type Intent = {
   type: string;
@@ -204,6 +210,18 @@ export function applyIntent(intent: Intent, ctx: ApplyIntentContext) {
 
   if (queue.currentFaction !== FACTION.PLAYER && intent.type !== 'cancel') {
     log('> HOSTILES ACTIVE — controls locked.');
+    return;
+  }
+
+  // P3.5.M1: a stunned (EMP'd) player-faction entity starts its turn at 0 AP.
+  // Every action intent would immediately trip `Entity.spendAp`'s overspend
+  // crash, since the AP-exhaustion gate normally ends the turn *before* the
+  // player is handed an intent at exactly 0. Conclude the turn here instead —
+  // same `concludeTurn ?? advanceTurn` fallback the exhaustion gate uses.
+  // `end-turn` (Wait) and `cancel` already no-op cleanly at 0 AP.
+  if (player.ap === 0 && intent.type !== 'end-turn' && intent.type !== 'cancel') {
+    log(`> ${entityLabel(player)} is STUNNED — no AP this turn.`);
+    (ctx.concludeTurn ?? advanceTurn)();
     return;
   }
 
@@ -370,9 +388,14 @@ function collectTileLoot(ctx: ApplyIntentContext) {
 /**
  * Archetype dispatcher for the unified `special` intent. Picks the perk verb
  * by capability check on the live player:
- *   - `canDeploy` → Tech's Deploy Turret
- *   - `canVault`  → Merc's Vault
- *   - `canSlide`  → Razor's Slide
+ *   - `canDeploy`    → Tech's Deploy Turret
+ *   - `canVault`     → Merc's Vault
+ *   - `canSlide`     → Razor's Slide
+ *   - `canEmp`       → Decker's EMP neural-shock (self-centered AOE stun)
+ *   - `canSurge`     → Berserk's Surge self-buff
+ *   - `canInfluence` → Adept's Influence (Meatspace mind control)
+ *   - `canConvertScrap` → Chimera's Nanite Repair (scrap-to-HP sustain)
+ *   - `canOverride`  → CyberAvatar's ICE override (cyber grid only)
  *
  * Capability sniffing (vs. a class `instanceof` check) keeps this module free
  * of the archetype-class imports — applyIntent stays a thin glue layer. A
@@ -399,33 +422,121 @@ function doSpecial(intent: Intent, ctx: ApplyIntentContext) {
   if (typeof (player as Razor).canSlide === 'function') {
     return doSlide(intent, ctx);
   }
-  if (typeof (player as Decker).canOverride === 'function') {
+  if (typeof (player as Decker).canEmp === 'function') {
+    return doEmp(ctx);
+  }
+  if (typeof (player as Berserk).canSurge === 'function') {
+    return doSurge(ctx);
+  }
+  if (typeof (player as Adept).canInfluence === 'function') {
+    return doInfluence(intent, ctx);
+  }
+  if (typeof (player as Chimera).canConvertScrap === 'function') {
+    return doConvertScrap(ctx);
+  }
+  // Only the CyberAvatar still exposes canOverride (P3.5.M2 moved the Decker's
+  // Meatspace perk to EMP; P3.5.M4 gave the Adept the renamed Influence perk
+  // — the CyberAvatar keeps its own "Override" name/fiction for the cyber
+  // grid, delegating to the same underlying mindInfluence.ts machinery).
+  if (typeof (player as CyberAvatar).canOverride === 'function') {
     return doOverride(intent, ctx);
   }
   log('> SPECIAL: this archetype has no perk action.');
 }
 
+/** Trigger the Berserk's self-targeted Surge. */
+function doSurge(ctx: ApplyIntentContext) {
+  const { world, player, log } = ctx;
+  const berserk = player as Berserk;
+  const playerLabel = entityLabel(player);
+  const check = berserk.canSurge();
+  if (!check.ok) {
+    log(`> ${playerLabel} SURGE DENIED: ${check.reason}`);
+    return;
+  }
+  berserk.surge();
+  log(`> ${playerLabel} SURGES — power spikes before the crash (${player.ap} AP left).`);
+  // Presentation hook (P3.5.M3): the shell listens for this to pulse the surge
+  // spike. Gameplay is already committed above — this carries no state.
+  world.events?.emit(EVENT.BERSERK_SURGED, { origin: { x: player.x, y: player.y } });
+  gateOnApExhausted(ctx);
+}
+
 /**
- * Acquire a drone in the Decker's aimed eight-way sector and attempt the
- * hijack. Range, LOS, and perception match the resolver and combat targeting;
- * a failed roll trips the alarm, while an empty sector yields a legible deny.
+ * Trigger the Chimera's self-targeted Nanite Repair: convert scrap salvage
+ * into HP. Log copy stays deliberately ambiguous about the mechanism (nanite
+ * swarm vs. android self-repair) per the archetype's unresolved fiction.
+ */
+function doConvertScrap(ctx: ApplyIntentContext) {
+  const { world, player, log } = ctx;
+  const chimera = player as Chimera;
+  const playerLabel = entityLabel(player);
+  const check = chimera.canConvertScrap();
+  if (!check.ok) {
+    log(`> ${playerLabel} NANITE REPAIR DENIED: ${check.reason}`);
+    return;
+  }
+  const healed = chimera.convertScrapToHp();
+  log(
+    `> ${playerLabel} converts scrap into tissue — +${healed} HP ` +
+      `(${chimera.inventory!.salvage.scrap} scrap left, ${player.ap} AP left).`
+  );
+  // Presentation hook (P3.5.M5): the shell listens for this to pulse the
+  // nanite-heal flash. Gameplay is already committed above — this carries
+  // no state. Mirrors BERSERK_SURGED's shape exactly.
+  world.events?.emit(EVENT.NANITE_HEALED, {
+    origin: { x: player.x, y: player.y },
+    healed,
+  });
+  gateOnApExhausted(ctx);
+}
+
+/**
+ * Detonate the Decker's self-centered EMP: no aim, stuns everyone alive in
+ * radius (friend, foe, and the Decker). Reports the stun count for legibility.
+ */
+function doEmp(ctx: ApplyIntentContext) {
+  const { world, player, log } = ctx;
+  const decker = player as Decker;
+  const playerLabel = entityLabel(player);
+  const check = decker.canEmp();
+  if (!check.ok) {
+    log(`> ${playerLabel} EMP DENIED: ${check.reason}`);
+    return;
+  }
+  const { stunned } = decker.detonateEmp(world);
+  log(
+    `> ${playerLabel} detonates an EMP — ${stunned.length} caught in the blast ` +
+      `(${player.ap} AP left).`
+  );
+  gateOnApExhausted(ctx);
+}
+
+/**
+ * Acquire a hostile in the CyberAvatar's aimed eight-way sector and attempt
+ * the ICE hijack. Range, LOS, and perception match the resolver and combat
+ * targeting; a failed roll trips the alarm, while an empty sector yields a
+ * legible deny. Shares `pickInfluenceTarget`/`isInAimSector` with the Adept's
+ * `doInfluence` below — same picker, same underlying `mindInfluence.ts`
+ * mechanic, different fiction (ICE vs. a hostile mind) and different method
+ * names on the acting class.
  */
 type OverrideActor = ApplyIntentContext['player'] & {
-  canOverride(world: World, target: Entity | null): ReturnType<Decker['canOverride']>;
-  overrideDrone(world: World, target: Entity, rng: Rng): ReturnType<Decker['overrideDrone']>;
+  canOverride(world: World, target: Entity | null): ReturnType<CyberAvatar['canOverride']>;
+  overrideDrone(world: World, target: Entity, rng: Rng): ReturnType<CyberAvatar['overrideDrone']>;
 };
 
 function doOverride(intent: Intent, ctx: ApplyIntentContext) {
   const { world, player, log } = ctx;
-  const decker = player as OverrideActor;
+  const avatar = player as OverrideActor;
   const playerLabel = entityLabel(player);
-  const target = pickOverrideTarget(ctx, intent.dx!, intent.dy!);
-  const check = decker.canOverride(world, target);
+  const target = pickInfluenceTarget(ctx, intent.dx!, intent.dy!);
+  const check = avatar.canOverride(world, target);
   if (!check.ok) {
     log(`> ${playerLabel} OVERRIDE DENIED: ${check.reason}`);
     return;
   }
-  const result = decker.overrideDrone(world, target!, ctx.rng);
+  const result = avatar.overrideDrone(world, target!, ctx.rng);
   const targetLabel = entityLabel(target!);
   if (result.success) {
     log(`> ${playerLabel} OVERRIDES ${targetLabel} — it fights for you! (${player.ap} AP left).`);
@@ -435,16 +546,62 @@ function doOverride(intent: Intent, ctx: ApplyIntentContext) {
         `${result.alarm ? ' — ALARM TRIPPED' : ''} (${player.ap} AP left).`
     );
   }
+  // Presentation hook (P3.5.M5): the shell listens for this to pulse the
+  // target's tile whether the roll landed or not. Gameplay is already
+  // committed above — this carries no state.
+  world.events?.emit(EVENT.MIND_INFLUENCED, { actor: player, target, success: result.success });
   gateOnApExhausted(ctx);
 }
 
 /**
- * Nearest live hostile in the aimed eight-way sector within `OVERRIDE_RANGE`
+ * Acquire a hostile in the Adept's aimed eight-way sector and attempt to
+ * dominate its will. Same picker/range/LOS/perception as the CyberAvatar's
+ * `doOverride` above — a failed roll trips the alarm, an empty sector yields
+ * a legible deny.
+ */
+type InfluenceActor = ApplyIntentContext['player'] & {
+  canInfluence(world: World, target: Entity | null): ReturnType<Adept['canInfluence']>;
+  influenceTarget(world: World, target: Entity, rng: Rng): ReturnType<Adept['influenceTarget']>;
+};
+
+function doInfluence(intent: Intent, ctx: ApplyIntentContext) {
+  const { world, player, log } = ctx;
+  const adept = player as InfluenceActor;
+  const playerLabel = entityLabel(player);
+  const target = pickInfluenceTarget(ctx, intent.dx!, intent.dy!);
+  const check = adept.canInfluence(world, target);
+  if (!check.ok) {
+    log(`> ${playerLabel} INFLUENCE DENIED: ${check.reason}`);
+    return;
+  }
+  const result = adept.influenceTarget(world, target!, ctx.rng);
+  const targetLabel = entityLabel(target!);
+  if (result.success) {
+    log(
+      `> ${playerLabel} DOMINATES ${targetLabel}'s will — it fights for you! (${player.ap} AP left).`
+    );
+  } else {
+    log(
+      `> ${playerLabel} INFLUENCE FAILED on ${targetLabel}` +
+        `${result.alarm ? ' — ALARM TRIPPED' : ''} (${player.ap} AP left).`
+    );
+  }
+  // Presentation hook (P3.5.M5): the shell listens for this to pulse the
+  // target's tile whether the roll landed or not. Gameplay is already
+  // committed above — this carries no state.
+  world.events?.emit(EVENT.MIND_INFLUENCED, { actor: player, target, success: result.success });
+  gateOnApExhausted(ctx);
+}
+
+/**
+ * Nearest live hostile in the aimed eight-way sector within `INFLUENCE_RANGE`
  * and LOS. The 22.5-degree half-angle partitions arbitrary target offsets
  * across the eight directions supplied by keyboard and touch controls, so a
- * moving Probe does not need to be perfectly collinear with the avatar.
+ * moving target does not need to be perfectly collinear with the operator.
+ * Shared by the CyberAvatar's cyber-grid Override and the Adept's Influence —
+ * the picker itself has no archetype-specific behavior.
  */
-function pickOverrideTarget(ctx: ApplyIntentContext, dx: number, dy: number) {
+function pickInfluenceTarget(ctx: ApplyIntentContext, dx: number, dy: number) {
   const { world, player } = ctx;
   const blockers = world.blockerKeys();
   let best: Hostile | null = null;
@@ -456,7 +613,7 @@ function pickOverrideTarget(ctx: ApplyIntentContext, dx: number, dy: number) {
     const offsetX = entity.x - player.x;
     const offsetY = entity.y - player.y;
     if (!isInAimSector(dx, dy, offsetX, offsetY)) continue;
-    if (!withinRange(player.x, player.y, entity.x, entity.y, OVERRIDE_RANGE)) continue;
+    if (!withinRange(player.x, player.y, entity.x, entity.y, INFLUENCE_RANGE)) continue;
     if (
       !hasLineOfSight(world.grid, player.x, player.y, entity.x, entity.y, {
         blockers,
@@ -592,6 +749,10 @@ function doSlide(intent: Intent, ctx: ApplyIntentContext) {
     `> ${playerLabel} slid to (${player.x}, ${player.y}) — CLOAKED until next turn (` +
       `${player.ap} AP left).`
   );
+  // Presentation hook (P3.5.M5): the shell listens for this to pulse the
+  // Razor's own landing tile. Gameplay is already committed above — this
+  // carries no state.
+  world.events?.emit(EVENT.RAZOR_CLOAKED, { actor: player });
   collectTileLoot(ctx);
   gateOnApExhausted(ctx);
 }

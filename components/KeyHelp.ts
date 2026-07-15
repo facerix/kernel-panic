@@ -499,7 +499,11 @@ class KeyHelp extends HTMLElement {
     });
 
     const perkHint = this.#archetypeInfo
-      ? `${this.#archetypeInfo.perkLabel} — activate it, then pick a direction.`
+      ? `${this.#archetypeInfo.perkLabel} — ${
+          this.#archetypeInfo.perkAim === 'self'
+            ? 'activate it immediately.'
+            : 'activate it, then pick a direction.'
+        }`
       : '';
     const archetypeInfo = h('p', {
       textContent: `Every player archetype has a special ability that can be used to move, attack, or both. ${perkHint}`,

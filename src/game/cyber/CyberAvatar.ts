@@ -17,7 +17,7 @@
  * also carries `intrusionStrength`, so a flag (not the stat) marks the avatar.
  */
 import { Entity } from '../Entity.js';
-import { canOverride, overrideDrone } from '../droneOverride.js';
+import { canInfluence, influenceTarget } from '../mindInfluence.js';
 import { CYBER_AVATAR_HIT_CHANCE, CYBER_AVATAR_MAX_AP, FACTION } from '../constants.js';
 import type { World } from '../World.js';
 import type { Rng } from '../../rng.js';
@@ -65,14 +65,20 @@ export class CyberAvatar extends Entity {
     return this.damageReduction;
   }
 
-  /** Decker Override translated into the digital layer: ICE is hostile code. */
+  /**
+   * Override translated into the digital layer: ICE is hostile code. Delegates
+   * to the same `mindInfluence.ts` machinery the Adept's Meatspace Influence
+   * perk uses (P3.5.M4 rename) — the avatar keeps its own `canOverride`/
+   * `overrideDrone` method names since "Override" is the cyber-grid's own
+   * fiction, unchanged by the Adept's reflavor.
+   */
   canOverride(world: World, target: Entity | null) {
-    return canOverride(world, this, target);
+    return canInfluence(world, this, target);
   }
 
   /** Attempt to flip ICE to the avatar's faction for the normal override duration. */
   overrideDrone(world: World, target: Entity, rng: Rng) {
-    return overrideDrone(world, this, target, rng);
+    return influenceTarget(world, this, target, rng);
   }
 
   constructor({

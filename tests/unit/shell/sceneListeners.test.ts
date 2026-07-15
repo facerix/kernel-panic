@@ -3,6 +3,13 @@ import assert from 'node:assert/strict';
 
 import { EventBus, EVENT } from '../../../src/game/events.js';
 import { VisionField } from '../../../src/game/Vision.js';
+import { ANIMATION_DURATIONS } from '../../../src/render/animations.js';
+import {
+  CLOAK_FLASH_FG,
+  HEAL_FLASH_FG,
+  MIND_INFLUENCE_FG,
+  VAULT_IMPACT_FG,
+} from '../../../src/render/palette.js';
 import { SceneListenerController } from '../../../src/shell/sceneListeners.js';
 import type { ShellScene } from '../../../src/shell/sceneView.js';
 
@@ -233,6 +240,312 @@ test('fully mitigated body hits still shake and flash with the stopping defense 
   });
   assert.equal(properties.get('--kp-impact-flash-color'), '#d49a3a8c');
   assert.equal(pipProperties.get('--kp-pip-impact-color'), '#d49a3a8c');
+});
+
+test('P3.5.M5: Nanite Repair pulses the shared stage flash', () => {
+  const bus = new EventBus();
+  const scene: ShellScene = {
+    bus,
+    world: null,
+    player: null,
+    state: 'combat',
+  } as unknown as ShellScene;
+
+  const classes = new Set<string>();
+  const properties = new Map<string, string>();
+  const stage = {
+    classList: {
+      add: (name: string) => classes.add(name),
+      remove: (name: string) => classes.delete(name),
+    },
+    style: {
+      setProperty: (name: string, value: string) => properties.set(name, value),
+      removeProperty: (name: string) => properties.delete(name),
+    },
+    offsetWidth: 0,
+  } as unknown as HTMLElement;
+
+  let pushedDuration = 0;
+  const controller = new SceneListenerController({
+    getScene: () => scene,
+    getCampaign: () => null,
+    getMeatVision: () => new VisionField(),
+    getCyberVision: () => new VisionField(),
+    resetCyberVision: () => new VisionField(),
+    dom: { stageEl: stage, pipCanvas: {} as HTMLCanvasElement },
+    renderers: {
+      main: { draw: () => {} } as never,
+      pip: { draw: () => {} } as never,
+    },
+    animLock: {
+      push: (ms: number) => {
+        pushedDuration = ms;
+      },
+    },
+    effects: {
+      flash: () => {},
+      paint: () => {},
+      paintPip: () => {},
+      recomputeVision: () => {},
+    },
+    onCivilianHarmReset: () => {},
+    onCivilianHarmed: () => {},
+    onRepAdjust: () => {},
+    onAlarmTransition: () => {},
+    onObjectiveTimerExpired: () => {},
+    memoriseMeatCorpse: () => {},
+    memoriseCyberCorpse: () => {},
+  });
+  controller.rewire();
+
+  bus.emit(EVENT.NANITE_HEALED, { origin: { x: 2, y: 2 }, healed: 1 });
+
+  assert.equal(classes.has('kp-mitigation-flash'), true);
+  assert.equal(properties.get('--kp-impact-flash-color'), `${HEAL_FLASH_FG}8c`);
+  assert.equal(pushedDuration, ANIMATION_DURATIONS.HEAL_FLASH);
+});
+
+test('P3.5.M5: Vault body-check pulses a gold impact burst on the occupant tile, distinct from a melee muzzle flash', () => {
+  const bus = new EventBus();
+  const scene: ShellScene = {
+    bus,
+    world: null,
+    player: null,
+    state: 'combat',
+  } as unknown as ShellScene;
+
+  const flashCalls: { x: number; y: number; opts: Record<string, unknown> }[] = [];
+  const controller = new SceneListenerController({
+    getScene: () => scene,
+    getCampaign: () => null,
+    getMeatVision: () => new VisionField(),
+    getCyberVision: () => new VisionField(),
+    resetCyberVision: () => new VisionField(),
+    dom: { stageEl: {} as HTMLElement, pipCanvas: {} as HTMLCanvasElement },
+    renderers: {
+      main: {
+        flashCell: (x: number, y: number, opts: Record<string, unknown>) => {
+          flashCalls.push({ x, y, opts });
+          return true;
+        },
+      } as never,
+      pip: {} as never,
+    },
+    animLock: { push: () => {} },
+    effects: {
+      flash: () => {},
+      paint: () => {},
+      paintPip: () => {},
+      recomputeVision: () => {},
+    },
+    onCivilianHarmReset: () => {},
+    onCivilianHarmed: () => {},
+    onRepAdjust: () => {},
+    onAlarmTransition: () => {},
+    onObjectiveTimerExpired: () => {},
+    memoriseMeatCorpse: () => {},
+    memoriseCyberCorpse: () => {},
+  });
+  controller.rewire();
+
+  bus.emit(EVENT.ENTITY_DAMAGED, {
+    target: { id: 'drone', x: 5, y: 2 },
+    damage: 2,
+    source: 'vault',
+  });
+
+  assert.equal(flashCalls.length, 1, 'vault slam fires exactly one cell flash');
+  assert.equal(flashCalls[0].x, 5);
+  assert.equal(flashCalls[0].y, 2);
+  assert.equal(
+    flashCalls[0].opts.char,
+    '!',
+    'vault gets its own impact glyph, not the bullet spark'
+  );
+  assert.equal(flashCalls[0].opts.color, VAULT_IMPACT_FG);
+  assert.equal(flashCalls[0].opts.duration, ANIMATION_DURATIONS.VAULT_IMPACT_FLASH);
+});
+
+test('P3.5.M5: Mind Influence pulses a violet burst on the target tile in Meatspace (Adept)', () => {
+  const bus = new EventBus();
+  const scene: ShellScene = {
+    bus,
+    world: null,
+    player: null,
+    state: 'combat',
+  } as unknown as ShellScene;
+
+  const flashCalls: { x: number; y: number; opts: Record<string, unknown> }[] = [];
+  const controller = new SceneListenerController({
+    getScene: () => scene,
+    getCampaign: () => null,
+    getMeatVision: () => new VisionField(),
+    getCyberVision: () => new VisionField(),
+    resetCyberVision: () => new VisionField(),
+    dom: { stageEl: {} as HTMLElement, pipCanvas: {} as HTMLCanvasElement },
+    renderers: {
+      main: {
+        flashCell: (x: number, y: number, opts: Record<string, unknown>) => {
+          flashCalls.push({ x, y, opts });
+          return true;
+        },
+      } as never,
+      pip: {} as never,
+    },
+    animLock: { push: () => {} },
+    effects: {
+      flash: () => {},
+      paint: () => {},
+      paintPip: () => {},
+      recomputeVision: () => {},
+    },
+    onCivilianHarmReset: () => {},
+    onCivilianHarmed: () => {},
+    onRepAdjust: () => {},
+    onAlarmTransition: () => {},
+    onObjectiveTimerExpired: () => {},
+    memoriseMeatCorpse: () => {},
+    memoriseCyberCorpse: () => {},
+  });
+  controller.rewire();
+
+  // A failed roll gets the same pulse as a success — log copy carries the outcome.
+  bus.emit(EVENT.MIND_INFLUENCED, {
+    actor: { id: 'adept' },
+    target: { id: 'drone', x: 6, y: 3, glyph: 'd' },
+    success: false,
+  });
+
+  assert.equal(flashCalls.length, 1);
+  assert.equal(flashCalls[0].x, 6);
+  assert.equal(flashCalls[0].y, 3);
+  assert.equal(flashCalls[0].opts.char, 'd', "overpaints the target's own glyph");
+  assert.equal(flashCalls[0].opts.color, MIND_INFLUENCE_FG);
+  assert.equal(flashCalls[0].opts.duration, ANIMATION_DURATIONS.MIND_INFLUENCE_FLASH);
+});
+
+test('P3.5.M5: Razor Slide pulses a pale mint burst on its own landing tile, subtler than a hostile-targeted flash', () => {
+  const bus = new EventBus();
+  const scene: ShellScene = {
+    bus,
+    world: null,
+    player: null,
+    state: 'combat',
+  } as unknown as ShellScene;
+
+  const flashCalls: { x: number; y: number; opts: Record<string, unknown> }[] = [];
+  const controller = new SceneListenerController({
+    getScene: () => scene,
+    getCampaign: () => null,
+    getMeatVision: () => new VisionField(),
+    getCyberVision: () => new VisionField(),
+    resetCyberVision: () => new VisionField(),
+    dom: { stageEl: {} as HTMLElement, pipCanvas: {} as HTMLCanvasElement },
+    renderers: {
+      main: {
+        flashCell: (x: number, y: number, opts: Record<string, unknown>) => {
+          flashCalls.push({ x, y, opts });
+          return true;
+        },
+      } as never,
+      pip: {} as never,
+    },
+    animLock: { push: () => {} },
+    effects: {
+      flash: () => {},
+      paint: () => {},
+      paintPip: () => {},
+      recomputeVision: () => {},
+    },
+    onCivilianHarmReset: () => {},
+    onCivilianHarmed: () => {},
+    onRepAdjust: () => {},
+    onAlarmTransition: () => {},
+    onObjectiveTimerExpired: () => {},
+    memoriseMeatCorpse: () => {},
+    memoriseCyberCorpse: () => {},
+  });
+  controller.rewire();
+
+  bus.emit(EVENT.RAZOR_CLOAKED, {
+    actor: { id: 'razor', x: 2, y: 4, glyph: '@' },
+  });
+
+  assert.equal(flashCalls.length, 1);
+  assert.equal(flashCalls[0].x, 2);
+  assert.equal(flashCalls[0].y, 4);
+  assert.equal(flashCalls[0].opts.char, '@', "overpaints the Razor's own glyph, not a foreign one");
+  assert.equal(flashCalls[0].opts.color, CLOAK_FLASH_FG);
+  assert.notEqual(
+    CLOAK_FLASH_FG,
+    MIND_INFLUENCE_FG,
+    'self-cloak reads differently from a hostile-targeted pulse'
+  );
+  assert.equal(flashCalls[0].opts.duration, ANIMATION_DURATIONS.CLOAK_FLASH);
+});
+
+test('P3.5.M5: Mind Influence pulses on the cyber grid for the CyberAvatar Override', () => {
+  const bus = new EventBus();
+  const cyberBus = new EventBus();
+  const scene = {
+    bus,
+    world: { entities: new Map() },
+    player: { id: 'body', x: 3, y: 4, hp: 4, maxHp: 8, alive: true },
+    archetype: 'decker',
+    cyberspace: {
+      phase: 'active',
+      layer: { avatar: { id: 'avatar' }, bus: cyberBus, mapSeenKeys: () => [] },
+    },
+    activeLayer: 'cyber',
+    state: 'combat',
+  } as unknown as ShellScene;
+
+  const flashCalls: { x: number; y: number; opts: Record<string, unknown> }[] = [];
+  const controller = new SceneListenerController({
+    getScene: () => scene,
+    getCampaign: () => null,
+    getMeatVision: () => new VisionField(),
+    getCyberVision: () => new VisionField(),
+    resetCyberVision: () => new VisionField(),
+    dom: { stageEl: {} as HTMLElement, pipCanvas: {} as HTMLCanvasElement },
+    renderers: {
+      // Viewing cyber ⇒ the cyber grid is on the main canvas.
+      main: {
+        flashCell: (x: number, y: number, opts: Record<string, unknown>) => {
+          flashCalls.push({ x, y, opts });
+          return true;
+        },
+      } as never,
+      pip: {} as never,
+    },
+    animLock: { push: () => {} },
+    effects: {
+      flash: () => {},
+      paint: () => {},
+      paintPip: () => {},
+      recomputeVision: () => {},
+    },
+    onCivilianHarmReset: () => {},
+    onCivilianHarmed: () => {},
+    onRepAdjust: () => {},
+    onAlarmTransition: () => {},
+    onObjectiveTimerExpired: () => {},
+    memoriseMeatCorpse: () => {},
+    memoriseCyberCorpse: () => {},
+  });
+  controller.rewire();
+
+  cyberBus.emit(EVENT.MIND_INFLUENCED, {
+    actor: { id: 'avatar' },
+    target: { id: 'probe-ice-0', x: 4, y: 3, glyph: 'i' },
+    success: true,
+  });
+
+  assert.equal(flashCalls.length, 1);
+  assert.equal(flashCalls[0].x, 4);
+  assert.equal(flashCalls[0].y, 3);
+  assert.equal(flashCalls[0].opts.char, 'i');
+  assert.equal(flashCalls[0].opts.color, MIND_INFLUENCE_FG);
 });
 
 test('P3.M4.6: forced jack-out body repair is not memorised as a meat corpse', () => {

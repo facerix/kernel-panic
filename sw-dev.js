@@ -1,7 +1,7 @@
 // Service Worker for Kernel Panic - Development Version
-const VERSION = '0.3.4-dev';
-importScripts('/sw-release.js?v=0.3.3b');
-importScripts(`/sw-core.js?v=${VERSION}`);
+const VERSION = '0.3.5';
+importScripts(`/sw-release.js?v=${VERSION}`);
+importScripts(`/sw-core.js?v=${VERSION}-dev`);
 
 if (!self.KernelPanicRelease) {
   throw new Error('[KernelPanic] Development release metadata is missing');

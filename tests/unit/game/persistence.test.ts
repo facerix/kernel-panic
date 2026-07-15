@@ -19,15 +19,24 @@ import {
 } from '../../../src/game/persistence.js';
 import {
   CONTRACT_DIFFICULTY,
+  CRASH_HIT_PENALTY,
   FACTION,
   SALVAGE_TO_CRED_RATE,
+  STATUS_EFFECT,
   TILE,
 } from '../../../src/game/constants.js';
 import { makeSalvage, totalSalvage } from '../../../src/game/salvage.js';
 import { buildCrewMember } from '../../../src/game/archetypes/index.js';
 import { Decker } from '../../../src/game/archetypes/Decker.js';
+import { Berserk } from '../../../src/game/archetypes/Berserk.js';
+import { Adept } from '../../../src/game/archetypes/Adept.js';
+import { Chimera } from '../../../src/game/archetypes/Chimera.js';
+import {
+  DEFAULT_HIT_CHANCE_BY_ARCHETYPE,
+  DEFAULT_DODGE_CHANCE_BY_ARCHETYPE,
+} from '../../../src/game/crewStatRoll.js';
 import { PatrolHostile } from '../../../src/game/ai/PatrolHostile.js';
-import { applyOverride } from '../../../src/game/droneOverride.js';
+import { applyOverride } from '../../../src/game/mindInfluence.js';
 import { Rng } from '../../../src/rng.js';
 import { testContractContext } from './contractTestUtils.js';
 
@@ -115,6 +124,86 @@ test('snapshot/restore round-trips a Decker deploy (P3.M2)', () => {
   assert.ok(restoredRun.player instanceof Decker, 'Decker should restore as a Decker');
   assert.equal(restoredRun.player.callsign, run.player.callsign);
   // Stable round-trip through a second snapshot.
+  assert.deepEqual(snapshot(restoredRun), rec);
+});
+
+test('snapshot/restore round-trips a Berserk deploy (P3.5.M3)', () => {
+  const run = freshCombatRun(0xb3e5e4, 'berserk');
+  assert.ok(run.player instanceof Berserk, 'fixture should deploy a Berserk');
+  const rec = snapshot(run);
+  const { run: restoredRun } = restore(rec);
+  assert.ok(restoredRun.player instanceof Berserk, 'Berserk should restore as a Berserk');
+  assert.equal(restoredRun.player.callsign, run.player.callsign);
+  assert.deepEqual(snapshot(restoredRun), rec);
+});
+
+test('snapshot/restore round-trips an Adept deploy (P3.5.M4)', () => {
+  const run = freshCombatRun(0xadeb70, 'adept');
+  assert.ok(run.player instanceof Adept, 'fixture should deploy an Adept');
+  const rec = snapshot(run);
+  const { run: restoredRun } = restore(rec);
+  assert.ok(restoredRun.player instanceof Adept, 'Adept should restore as an Adept');
+  assert.equal(restoredRun.player.callsign, run.player.callsign);
+  assert.deepEqual(snapshot(restoredRun), rec);
+});
+
+test('snapshot/restore round-trips a Chimera deploy (P3.5.M5)', () => {
+  const run = freshCombatRun(0xc4171e4, 'chimera');
+  assert.ok(run.player instanceof Chimera, 'fixture should deploy a Chimera');
+  const rec = snapshot(run);
+  const { run: restoredRun } = restore(rec);
+  assert.ok(restoredRun.player instanceof Chimera, 'Chimera should restore as a Chimera');
+  assert.equal(restoredRun.player.callsign, run.player.callsign);
+  assert.deepEqual(snapshot(restoredRun), rec);
+});
+
+test('snapshot/restore preserves an active Berserk Surge, including bonus AP and armor', () => {
+  const run = freshCombatRun(0xb3e5e5, 'berserk');
+  const berserk = run.player as Berserk;
+  const baseArmor = berserk.damageReduction;
+  berserk.surge();
+  berserk.refreshAp();
+  assert.equal(berserk.ap, berserk.maxAp + 1);
+  assert.equal(berserk.effectiveDamageReduction, baseArmor + 1, 'surge armor live before save');
+
+  const rec = snapshot(run);
+  // The record stores the pristine base armor — the +armor is a computed combat
+  // value derived from the SURGE effect, never a stored stat, so it can't leak.
+  assert.equal(rec.entities.find(e => e.id === berserk.id)?.damageReduction, baseArmor);
+
+  const { run: restoredRun } = restore(rec);
+  const restored = restoredRun.player as Berserk;
+  assert.ok(restored instanceof Berserk);
+  assert.equal(restored.hasEffect(STATUS_EFFECT.SURGE), true);
+  assert.equal(restored.ap, restored.maxAp + 1);
+  assert.equal(restored.damageReduction, baseArmor, 'stored base armor round-trips clean');
+  assert.equal(
+    restored.effectiveDamageReduction,
+    baseArmor + 1,
+    'surge armor re-derived from effect'
+  );
+  assert.deepEqual(snapshot(restoredRun), rec);
+
+  // Drive Surge to expiry on the restored Berserk — combat armor falls to base.
+  restored.refreshAp();
+  assert.equal(restored.hasEffect(STATUS_EFFECT.CRASH), true);
+  assert.equal(restored.effectiveDamageReduction, baseArmor, 'combat armor drops on surge expiry');
+});
+
+test('snapshot/restore preserves Berserk Crash and its derived hit penalty', () => {
+  const run = freshCombatRun(0xb3e5e6, 'berserk');
+  const berserk = run.player as Berserk;
+  berserk.surge();
+  berserk.refreshAp();
+  berserk.refreshAp();
+  assert.equal(berserk.hasEffect(STATUS_EFFECT.CRASH), true);
+
+  const rec = snapshot(run);
+  const { run: restoredRun } = restore(rec);
+  const restored = restoredRun.player as Berserk;
+  assert.ok(restored instanceof Berserk);
+  assert.equal(restored.hasEffect(STATUS_EFFECT.CRASH), true);
+  assert.equal(restored.baseHitChance, 0.78 - CRASH_HIT_PENALTY);
   assert.deepEqual(snapshot(restoredRun), rec);
 });
 
@@ -649,6 +738,63 @@ test('restoreCampaign preserves valid hitBonus below cap', () => {
   rec.crew[0].gear = { maxHpBonus: 0, hitBonus: 0.1 };
   const restored = restoreCampaign(rec);
   assert.equal(restored.crew[0].gear!.hitBonus, 0.1);
+});
+
+// --- P3.5.M6: rolled base stats round-trip -------------------------------
+
+test('CampaignCrewSnapshot round-trips rolled baseHitChance/baseDodgeChance', () => {
+  const campaign = new Campaign({ seed: 0xc0ffee });
+  const rec = snapshotCampaign(campaign);
+  for (const crewRec of rec.crew) {
+    assert.equal(typeof crewRec.baseHitChance, 'number');
+    assert.equal(typeof crewRec.baseDodgeChance, 'number');
+  }
+  const restored = restoreCampaign(rec);
+  for (const member of campaign.crew) {
+    const restoredMember = restored.crew.find(m => m.id === member.id)!;
+    assert.equal(restoredMember.baseHitChance, member.baseHitChance);
+    assert.equal(restoredMember.baseDodgeChance, member.baseDodgeChance);
+  }
+});
+
+test('restoreCampaign falls back to the archetype default when baseHitChance/baseDodgeChance are absent (pre-P3.5 save)', () => {
+  const campaign = new Campaign({ seed: 0xfeed });
+  const rec = snapshotCampaign(campaign);
+  for (const crewRec of rec.crew) {
+    delete (crewRec as Record<string, unknown>).baseHitChance;
+    delete (crewRec as Record<string, unknown>).baseDodgeChance;
+  }
+  const restored = restoreCampaign(rec);
+  for (const crewRec of rec.crew) {
+    const member = restored.crew.find(m => m.id === crewRec.id)!;
+    assert.equal(member.baseHitChance, DEFAULT_HIT_CHANCE_BY_ARCHETYPE[crewRec.archetype]);
+    assert.equal(member.baseDodgeChance, DEFAULT_DODGE_CHANCE_BY_ARCHETYPE[crewRec.archetype]);
+  }
+});
+
+test('CampaignCrewSnapshot persists the pristine baseHitChance, not a live Berserk Crash penalty', () => {
+  const berserk = buildCrewMember('berserk', { x: 0, y: 0 }, new Rng(3), {
+    id: 'crew-berserk',
+  }) as Berserk;
+  berserk.applyEffect(STATUS_EFFECT.CRASH, 2);
+  const pristine = berserk.pristineBaseHitChance;
+  assert.ok(berserk.baseHitChance < pristine, 'precondition: Crash penalty is live');
+
+  const campaign = new Campaign({ seed: 1, crew: [berserk] });
+  const rec = snapshotCampaign(campaign);
+  const crewRec = rec.crew.find(c => c.id === 'crew-berserk')!;
+  assert.equal(
+    crewRec.baseHitChance,
+    pristine,
+    'snapshot stores the pristine roll, not the live value'
+  );
+
+  const restored = restoreCampaign(rec);
+  const restoredMember = restored.crew.find(m => m.id === 'crew-berserk')!;
+  // Restored fresh — no Crash effect carried over via CampaignCrewSnapshot
+  // (combat-run-scoped effects are out of scope for the Hub-level snapshot;
+  // see P3.5.M1) — so the live getter now reads the pristine value back.
+  assert.equal(restoredMember.baseHitChance, pristine);
 });
 
 test('restore normalizes over-capped hitBonus in run entity gear', () => {

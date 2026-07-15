@@ -1,5 +1,6 @@
 import type { CampaignEndReason } from '../types.js';
 import { SCOREABLE_ITEMS } from './items.js';
+import { SCOREABLE_ARCHETYPES } from './archetypeRewards.js';
 
 export const CAMPAIGN_HISTORY_CAP = 50;
 
@@ -12,10 +13,12 @@ export type CampaignSummaryCrew = {
 };
 
 /**
- * Blueprint stolen by a winning Score (P3.M6.4), captured self-contained
- * (id + display copy) so the record reads correctly forever even if the catalog
- * changes. Absent on losses, partials, and abstract (exhausted-pool) Scores.
- * Surfaced on the win screen now and the Chronicle in M7.
+ * Reward won by a winning Score (P3.M6.4; P3.5.M7 extends the draw to
+ * archetypes too), captured self-contained (id + display copy) so the record
+ * reads correctly forever even if the catalog changes. Absent on losses,
+ * partials, and abstract (exhausted-pool) Scores. Item and archetype rewards
+ * share this shape — there's no `kind` discriminator, since the win
+ * screen/Chronicle render both identically (id/label/flavor).
  */
 export type CampaignSummaryScoreReward = {
   id: string;
@@ -47,6 +50,8 @@ type EndedCampaignLike = {
   credits: number;
   /** The stolen blueprint id (P3.M6.4); resolved to display copy in the summary. */
   scoreUnlockedItemId?: string | null;
+  /** The unlocked archetype id (P3.5.M7); resolved to display copy in the summary. */
+  scoreUnlockedArchetypeId?: string | null;
   crew: Array<{
     id: string;
     callsign: string | null;
@@ -55,12 +60,25 @@ type EndedCampaignLike = {
   }>;
 };
 
-/** Resolve a stolen-blueprint id to a self-contained summary reward (or undefined). */
-function resolveScoreReward(id: string | null | undefined): CampaignSummaryScoreReward | undefined {
-  if (typeof id !== 'string') return undefined;
-  const item = SCOREABLE_ITEMS.find(entry => entry.id === id);
-  if (!item) return undefined;
-  return { id: item.id, label: item.label, flavor: item.flavor ?? '' };
+/**
+ * Resolve a completed Score's drawn reward to a self-contained summary
+ * record (or undefined). At most one of `itemId`/`archetypeId` is ever
+ * non-null — `Campaign.onJobEnd` writes exactly one of the two meta fields
+ * per Score (P3.5.M7).
+ */
+function resolveScoreReward(
+  itemId: string | null | undefined,
+  archetypeId: string | null | undefined
+): CampaignSummaryScoreReward | undefined {
+  if (typeof itemId === 'string') {
+    const item = SCOREABLE_ITEMS.find(entry => entry.id === itemId);
+    if (item) return { id: item.id, label: item.label, flavor: item.flavor ?? '' };
+  }
+  if (typeof archetypeId === 'string') {
+    const reward = SCOREABLE_ARCHETYPES.find(entry => entry.id === archetypeId);
+    if (reward) return { id: reward.id, label: reward.label, flavor: reward.flavor };
+  }
+  return undefined;
 }
 
 const END_REASONS: readonly CampaignEndReason[] = [
@@ -85,7 +103,10 @@ export function buildCampaignSummary(
     throw new Error('buildCampaignSummary requires a campaign end reason');
   }
 
-  const scoreReward = resolveScoreReward(campaign.scoreUnlockedItemId);
+  const scoreReward = resolveScoreReward(
+    campaign.scoreUnlockedItemId,
+    campaign.scoreUnlockedArchetypeId
+  );
   return validateCampaignSummary({
     campaignId: campaign.id,
     completedAt,

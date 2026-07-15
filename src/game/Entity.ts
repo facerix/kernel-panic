@@ -1,4 +1,4 @@
-import { DEFAULT_AP, DEFAULT_HP, FACTION, type FactionId } from './constants.js';
+import { DEFAULT_AP, DEFAULT_HP, FACTION, STATUS_EFFECT, type FactionId } from './constants.js';
 import type { TurnActionStep, TurnActionSteps } from '../types.js';
 import type { Rng } from '../rng.js';
 import type { World } from './World.js';
@@ -72,7 +72,15 @@ export class Entity {
   shieldHp: number;
   damageReduction: number;
   alive: boolean;
-  stealthed: boolean;
+  /**
+   * P3.5.M1: generic timed status-effect channel. Maps an effect id
+   * (`STATUS_EFFECT.*`) to the number of this entity's own `refreshAp()`
+   * firings the effect has left. Manipulated only through
+   * `applyEffect`/`clearEffect`/`hasEffect`; decremented by `tickEffects`
+   * inside `refreshAp`. Not persisted — every effect in scope is
+   * combat-run-scoped and has ticked to zero long before a Hub save.
+   */
+  effects: Map<string, number>;
   passable: boolean;
   anchored: boolean;
   /**
@@ -131,19 +139,87 @@ export class Entity {
     this.shieldHp = 0;
     this.damageReduction = damageReduction;
     this.alive = true;
-    /**
-     * Stealth flag. The Razor's `slide` perk sets this true; it clears on the
-     * archetype's next AP refresh (so it lasts through the corp turn but no
-     * further). Generic so future cyberware (cloak, ghost-protocol) can flip
-     * the same field without touching observer code. Skirmisher uses
-     * `isSpottableBy` to honour it.
-     */
-    this.stealthed = false;
+    this.effects = new Map();
     this.passable = passable;
     this.anchored = anchored;
     this.frozen = false;
     this.displayName = displayName;
     this.principalTag = principalTag;
+  }
+
+  /**
+   * Stealth cloak, backed by the generic effect channel (P3.5.M1). Reads/writes
+   * `STATUS_EFFECT.STEALTH` so the Razor's `slide`, the combat stealth-break,
+   * vision (`isSpottableBy`), the HUD snapshot, and save/restore all share one
+   * source of truth without any of them knowing about the effects Map. Setting
+   * `true` arms a duration of 1 (clears on this entity's next refresh); setting
+   * `false` clears it immediately.
+   */
+  get stealthed(): boolean {
+    return this.hasEffect(STATUS_EFFECT.STEALTH);
+  }
+
+  set stealthed(value: boolean) {
+    if (value) {
+      this.applyEffect(STATUS_EFFECT.STEALTH, 1);
+    } else {
+      this.clearEffect(STATUS_EFFECT.STEALTH);
+    }
+  }
+
+  /**
+   * The armor value combat actually mitigates with — base `damageReduction`
+   * plus any live timed buff a subclass layers on (the Berserk's Surge armor).
+   * For a plain entity it equals `damageReduction`. Kept separate from the
+   * stored field so a transient buff is computed on read and never persisted:
+   * snapshots read `damageReduction` (pristine base), combat reads this.
+   */
+  get effectiveDamageReduction(): number {
+    return this.damageReduction;
+  }
+
+  hasEffect(id: string): boolean {
+    return this.effects.has(id);
+  }
+
+  /** Turns of this entity's own refreshes the effect has left; 0 if absent. */
+  effectTurnsRemaining(id: string): number {
+    return this.effects.get(id) ?? 0;
+  }
+
+  /**
+   * Arm (or re-arm) a timed effect. Duration counts in this entity's own
+   * `refreshAp()` firings. No stacking: reapplying overwrites the remaining
+   * duration, mirroring the existing "second Slide re-arms stealth" behavior.
+   * Crashes on a non-positive-integer duration — that is a caller bug, not a
+   * value to silently clamp.
+   */
+  applyEffect(id: string, duration: number): void {
+    if (!Number.isInteger(duration) || duration <= 0) {
+      throw new RangeError(`effect duration must be a positive integer, got ${duration}`);
+    }
+    this.effects.set(id, duration);
+  }
+
+  clearEffect(id: string): void {
+    this.effects.delete(id);
+  }
+
+  /**
+   * Decrement every active effect by one and drop any that reach zero. Called
+   * once per `refreshAp` (this entity's own turn cadence). Protected: subclass
+   * refresh overrides get it for free through `super.refreshAp()` and never
+   * call it directly.
+   */
+  protected tickEffects(): void {
+    for (const [id, turns] of this.effects) {
+      const remaining = turns - 1;
+      if (remaining <= 0) {
+        this.effects.delete(id);
+      } else {
+        this.effects.set(id, remaining);
+      }
+    }
   }
 
   canAfford(cost: number): boolean {
@@ -185,8 +261,11 @@ export class Entity {
   }
 
   refreshAp(): void {
-    this.ap = this.maxAp;
+    // Check the stun *before* ticking so a duration of 1 covers this upcoming
+    // refresh (the 0-AP turn *is* the stun), not the one that just passed.
+    this.ap = this.hasEffect(STATUS_EFFECT.STUN) ? 0 : this.maxAp;
     this.shieldHp = 0;
+    this.tickEffects();
   }
 
   /**

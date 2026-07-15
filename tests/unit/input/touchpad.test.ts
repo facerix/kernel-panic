@@ -125,11 +125,18 @@ test('syntheticKeyFor rejects legacy melee button id (removed from pad)', () => 
   assert.throws(() => syntheticKeyFor('melee'), /unknown button/i);
 });
 
-test('IDLE + special button enters AIM (special)', () => {
+test('IDLE + special button enters AIM (special) for a directional perk', () => {
   const r = dispatchTouchAction('special', MODE.IDLE);
   assert.equal(r.intent, null);
   assert.equal(r.nextMode, MODE.AIM);
   assert.equal(r.aimKind, AIM_KIND.SPECIAL);
+});
+
+test('IDLE + special button fires immediately for a self-targeted perk', () => {
+  const r = dispatchTouchAction('special', MODE.IDLE, null, 'self');
+  assert.deepEqual(r.intent, { type: 'special', dx: 0, dy: 0 });
+  assert.equal(r.nextMode, MODE.IDLE);
+  assert.equal(r.aimKind, null);
 });
 
 test('IDLE + look button enters LOOK mode', () => {

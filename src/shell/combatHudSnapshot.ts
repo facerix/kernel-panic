@@ -1,4 +1,5 @@
 import { RUN_STATE } from '../game/Run.js';
+import { STATUS_EFFECT, SURGE_AP_BONUS } from '../game/constants.js';
 import type { Run } from '../game/Run.js';
 import type { CombatHudDefenseInput, CombatHudSummaryInput } from '../render/combatHud.js';
 import { CyberAvatar } from '../game/cyber/CyberAvatar.js';
@@ -49,6 +50,9 @@ export function combatHudBodyPanes(
         callsign: actor.callsign,
         archetype: 'Avatar',
         stealthed: actor.stealthed,
+        stunned: actor.hasEffect(STATUS_EFFECT.STUN),
+        surging: actor.hasEffect(STATUS_EFFECT.SURGE),
+        crashing: actor.hasEffect(STATUS_EFFECT.CRASH),
       },
       hp: { hp: actor.hp, maxHp: actor.maxHp, label: 'RAM' },
       ap: { ap: actor.ap, maxAp: actor.maxAp },
@@ -62,15 +66,22 @@ export function combatHudBodyPanes(
       // The active meat crew may be the partner — show its own archetype.
       archetype: crew === scene.player ? scene.archetype : crew.archetype,
       stealthed: crew.stealthed,
+      stunned: crew.hasEffect(STATUS_EFFECT.STUN),
+      surging: crew.hasEffect(STATUS_EFFECT.SURGE),
+      crashing: crew.hasEffect(STATUS_EFFECT.CRASH),
     },
     hp: { hp: crew.hp, maxHp: crew.maxHp },
     ...(defense ? { defense } : {}),
-    ap: { ap: crew.ap, maxAp: crew.maxAp },
+    ap: {
+      ap: crew.ap,
+      maxAp: crew.maxAp + (crew.hasEffect(STATUS_EFFECT.SURGE) ? SURGE_AP_BONUS : 0),
+    },
   };
 }
 
 function crewDefense(crew: Crew): CombatHudDefenseInput | undefined {
-  const armor = crew.damageReduction;
+  // Live combat armor, so a surging Berserk's +armor shows in the HUD pane.
+  const armor = crew.effectiveDamageReduction;
   const shieldCapacity = crew.gear?.shieldRegen ?? 0;
   if (armor <= 0 && shieldCapacity <= 0) return undefined;
   return {

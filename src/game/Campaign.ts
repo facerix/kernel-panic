@@ -20,7 +20,18 @@ import {
   type SalvageType,
   type TypedSalvage,
 } from './salvage.js';
-import { buildCrewMember, RECRUIT_ARCHETYPE_POOL } from './archetypes/index.js';
+import { buildCrewMember } from './archetypes/index.js';
+import {
+  buildCrewMemberFromRoll,
+  buildCrewMemberFromRollForArchetype,
+  CREW_STAT_ANCHORS,
+  type CrewStatAnchor,
+} from './crewStatRoll.js';
+import {
+  SCOREABLE_ARCHETYPES,
+  SCOREABLE_ARCHETYPE_IDS,
+  type ArchetypeReward,
+} from './archetypeRewards.js';
 import { CONTRACT_LEXICON, Curator, contractRequiresCyberspace } from './hub/Curator.js';
 import { OBJECTIVES } from './hub/Curator.js';
 import { Terminal } from './hub/Terminal.js';
@@ -44,7 +55,7 @@ import {
   SCOREABLE_ITEM_IDS,
   type Item,
 } from './items.js';
-import { OUTCOME, Run } from './Run.js';
+import { OUTCOME, Run, type CrewArchetypeId } from './Run.js';
 import {
   generateSiteId,
   mergeSiteDeltas as mergeDeltas,
@@ -130,16 +141,40 @@ const SYNTHETIC_SCORE_TARGET_DIFFICULTY = CONTRACT_DIFFICULTY.CRITICAL;
 const SCORE_PAYLOAD_SALT = 0x5c07e;
 
 /**
- * Deterministically pick the unacquired scoreable blueprint this Score targets.
- * Draws from {@link SCOREABLE_ITEMS} minus the meta-crew's already-stolen ids;
- * a retired/forward-version id in `acquiredIds` simply isn't in the pool, so it
- * is never rolled. Returns `null` when the pool is exhausted (every blueprint
- * stolen) — at which point the Score falls back to an abstract credit payload
- * via {@link pickAbstractScorePayload} (P3.M6.5).
+ * P3.5.M7: a completed Score draws exactly one reward from a single merged
+ * pool — an item blueprint or an archetype, never both. `kind` discriminates
+ * which catalog the draw landed in; the settlement path (`onJobEnd`) writes
+ * to exactly one of `meta.scoreUnlockedItemId` / `meta.scoreUnlockedArchetypeId`
+ * accordingly.
  */
-function pickScorePayload(seed: number, acquiredIds: readonly string[]): Item | null {
-  const acquired = new Set(acquiredIds);
-  const pool = SCOREABLE_ITEMS.filter(item => !acquired.has(item.id));
+export type ScorePayload =
+  | { kind: 'item'; item: Item }
+  | { kind: 'archetype'; reward: ArchetypeReward };
+
+/**
+ * Deterministically pick the unacquired reward this Score targets. Draws from
+ * a pool merging {@link SCOREABLE_ITEMS} and {@link SCOREABLE_ARCHETYPES},
+ * each minus the meta-crew's already-acquired ids; a retired/forward-version
+ * id in either `acquired*Ids` simply isn't in the pool, so it is never
+ * rolled. Returns `null` only when *both* catalogs are exhausted — at which
+ * point the Score falls back to an abstract credit payload via
+ * {@link pickAbstractScorePayload} (P3.M6.5). (P3.5.M7: item-only exhaustion
+ * previously triggered this fallback; now both catalogs must be empty.)
+ */
+function pickScorePayload(
+  seed: number,
+  acquiredItemIds: readonly string[],
+  acquiredArchetypeIds: readonly string[]
+): ScorePayload | null {
+  const acquiredItems = new Set(acquiredItemIds);
+  const acquiredArchetypes = new Set(acquiredArchetypeIds);
+  const items: ScorePayload[] = SCOREABLE_ITEMS.filter(item => !acquiredItems.has(item.id)).map(
+    item => ({ kind: 'item', item })
+  );
+  const archetypes: ScorePayload[] = SCOREABLE_ARCHETYPES.filter(
+    reward => !acquiredArchetypes.has(reward.id)
+  ).map(reward => ({ kind: 'archetype', reward }));
+  const pool = [...items, ...archetypes];
   if (pool.length === 0) return null;
   const rng = new Rng(((seed >>> 0) ^ SCORE_PAYLOAD_SALT) >>> 0);
   return pool[Math.floor(rng.next() * pool.length)] ?? null;
@@ -203,10 +238,18 @@ function pickAbstractScorePayload(seed: number): AbstractScoreTarget {
   return target;
 }
 
-/** Read the embedded heist payload id from a completed Score contract (or `null`). */
+/** Read the embedded heist item payload id from a completed Score contract (or `null`). */
 function scorePayloadItemId(contract: Contract | null): string | null {
   const raw = contract?.objective?.params?.scoreItemId;
   return typeof raw === 'string' && SCOREABLE_ITEM_IDS.has(raw) ? raw : null;
+}
+
+/** P3.5.M7: read the embedded archetype-reward payload id from a completed Score contract (or `null`). */
+function scorePayloadArchetypeId(contract: Contract | null): string | null {
+  const raw = contract?.objective?.params?.scoreArchetypeId;
+  return typeof raw === 'string' && SCOREABLE_ARCHETYPE_IDS.has(raw as CrewArchetypeId)
+    ? raw
+    : null;
 }
 
 export const CAMPAIGN_STATE = Object.freeze({
@@ -215,7 +258,13 @@ export const CAMPAIGN_STATE = Object.freeze({
   ENDED: 'ENDED',
 });
 
-const STARTER_ARCHETYPES = Object.freeze(['merc', 'razor', 'tech']);
+/**
+ * P3.5.M6: number of crew members `buildCrew` generates for a fresh
+ * campaign. No longer a fixed `[merc, razor, tech]` triple — each slot now
+ * rolls stats and derives its own archetype (`crewStatRoll.ts`), so
+ * duplicates are a legal, if unlucky, outcome.
+ */
+const STARTER_CREW_COUNT = 3;
 
 export type CampaignState = (typeof CAMPAIGN_STATE)[keyof typeof CAMPAIGN_STATE];
 // `expandedCatalog` and `betterContracts` were removed in P2.5.M5.1 — Rep
@@ -264,6 +313,25 @@ export type CampaignOptions = {
   pendingChronicleRun?: unknown;
   onPersist?: unknown;
   onResult?: unknown;
+  /**
+   * P3.5.M7: archetype ids the meta-crew has unlocked via Score wins
+   * (`DataStore.unlockedArchetypes`), captured once at construction — a
+   * completed Score both grants exactly one reward *and* ends the campaign
+   * in the same step, so this can never change mid-campaign. Omitted (vs.
+   * an explicit array) is a distinct, permissive "ungated" state used by
+   * bare engine/test construction — see `Campaign.#crewStatAnchors`.
+   */
+  unlockedArchetypeIds?: unknown;
+  /**
+   * Showcase-slot follow-up to P3.5.M7 (2026-07-14): an archetype id, if
+   * any, `generateInitialCandidates` should reserve crew candidate slot 0
+   * for — the first campaign start after that archetype's Score unlock.
+   * Captured once at construction, same lifecycle moment as
+   * `unlockedArchetypeIds`. `undefined`/omitted or `null` → no showcase
+   * (both accepted — `DataStore.pendingArchetypeShowcase` naturally yields
+   * `null`, not `undefined`, when nothing is pending).
+   */
+  showcaseArchetypeId?: unknown;
 };
 
 type CampaignLike = {
@@ -318,19 +386,32 @@ export function willEndCampaignAfterResult(
   );
 }
 
-export function buildCrew(rng: Rng): Crew[] {
+/**
+ * Build the starter crew for a fresh campaign. P3.5.M6: every slot rolls
+ * core stats and derives its archetype from the result
+ * (`buildCrewMemberFromRoll`) — no fixed one-of-each guarantee, no weighted
+ * pool. Duplicate archetypes are a legal roll outcome.
+ */
+export function buildCrew(
+  rng: Rng,
+  anchors: readonly CrewStatAnchor[] = CREW_STAT_ANCHORS
+): Crew[] {
   if (!rng || typeof rng.pick !== 'function') {
     throw new TypeError('buildCrew requires an Rng');
   }
   const usedCallsigns = new Set<string>();
-  return STARTER_ARCHETYPES.map(archetypeId => {
-    const member = buildCrewMember(archetypeId, { x: 0, y: 0 }, rng, {
-      id: `crew-${archetypeId}`,
-      excludeCallsigns: usedCallsigns,
-    });
+  const crew: Crew[] = [];
+  for (let i = 0; i < STARTER_CREW_COUNT; i++) {
+    const member = buildCrewMemberFromRoll(
+      { x: 0, y: 0 },
+      rng,
+      { id: `crew-${i}`, excludeCallsigns: usedCallsigns },
+      anchors
+    );
     if (member.callsign) usedCallsigns.add(member.callsign);
-    return member;
-  });
+    crew.push(member);
+  }
+  return crew;
 }
 
 export class Campaign {
@@ -380,6 +461,20 @@ export class Campaign {
   /** Set by the latest `enterHub` when a reveal message fired; shell reads and clears. */
   lastHubReveal: HubRevealMessage | null;
   exitTile: GridPoint | null;
+  /**
+   * P3.5.M7: archetype ids unlocked via Score wins, captured once at
+   * construction (see `CampaignOptions.unlockedArchetypeIds`). `null` =
+   * ungated (bare engine/test construction reaches all six non-Decker
+   * archetypes, preserving pre-M7 behavior); a real array (possibly empty)
+   * gates `buildCrew`/`generateRecruits`/`generateInitialCandidates` via
+   * `#crewStatAnchors()`.
+   */
+  readonly unlockedArchetypeIds: readonly string[] | null;
+  /**
+   * Showcase-slot follow-up to P3.5.M7 (2026-07-14). See
+   * `CampaignOptions.showcaseArchetypeId`. `null` = no showcase.
+   */
+  readonly showcaseArchetypeId: string | null;
 
   constructor({
     id,
@@ -399,12 +494,32 @@ export class Campaign {
     pendingChronicleRun,
     onPersist,
     onResult,
+    unlockedArchetypeIds,
+    showcaseArchetypeId,
   }: CampaignOptions = {}) {
     if (typeof seed !== 'number' || !Number.isFinite(seed)) {
       throw new TypeError(`Campaign requires a finite numeric seed, got ${seed}`);
     }
     if (crew !== undefined && !Array.isArray(crew)) {
       throw new TypeError('Campaign: crew must be an array when supplied');
+    }
+    if (
+      showcaseArchetypeId !== undefined &&
+      showcaseArchetypeId !== null &&
+      (typeof showcaseArchetypeId !== 'string' || showcaseArchetypeId.length === 0)
+    ) {
+      throw new TypeError(
+        `Campaign: showcaseArchetypeId must be a non-empty string, null, or undefined, got ${showcaseArchetypeId}`
+      );
+    }
+    if (
+      unlockedArchetypeIds !== undefined &&
+      (!Array.isArray(unlockedArchetypeIds) ||
+        !unlockedArchetypeIds.every(id => typeof id === 'string'))
+    ) {
+      throw new TypeError(
+        'Campaign: unlockedArchetypeIds must be an array of strings when supplied'
+      );
     }
     // Salvage is a TypedSalvage wallet (pre-P2.5.M4.2 saves stored a number).
     // `migrateSalvage` accepts either a legacy non-negative integer (bucketed
@@ -448,7 +563,13 @@ export class Campaign {
     this.id = id ?? makeCampaignId(seed);
     this.seed = seed >>> 0;
     this.rng = new Rng(this.seed);
-    this.crew = (crew as Crew[] | undefined) ?? buildCrew(this.rng);
+    this.unlockedArchetypeIds =
+      unlockedArchetypeIds === undefined ? null : (unlockedArchetypeIds as string[]);
+    this.showcaseArchetypeId =
+      showcaseArchetypeId === undefined || showcaseArchetypeId === null
+        ? null
+        : (showcaseArchetypeId as string);
+    this.crew = (crew as Crew[] | undefined) ?? buildCrew(this.rng, this.#crewStatAnchors());
     this.salvage = salvageWallet;
     this.credits = credits;
     this.rep = rep;
@@ -847,12 +968,15 @@ export class Campaign {
     if (completedScoreRun) {
       this.arc.scoreCompleted = true;
       this.arc.arcStage = 'score';
-      // P3.M6.4: record the stolen blueprint so settlement writes it to the
-      // cross-campaign meta-store. Persisted on `meta` (alongside `scorePartial`)
-      // so a refresh after completion still surfaces the unlock to the shell —
-      // the actual `DataStore.archiveScoreableItem` write is idempotent.
-      const payloadId = scorePayloadItemId(activeContract);
-      if (payloadId) this.meta.scoreUnlockedItemId = payloadId;
+      // P3.M6.4 / P3.5.M7: record exactly one of the drawn reward's two kinds
+      // so settlement writes it to the cross-campaign meta-store. Persisted on
+      // `meta` (alongside `scorePartial`) so a refresh after completion still
+      // surfaces the unlock to the shell — the actual `DataStore.archive*`
+      // write is idempotent. Never both — one Score, one reward.
+      const payloadItemId = scorePayloadItemId(activeContract);
+      const payloadArchetypeId = scorePayloadArchetypeId(activeContract);
+      if (payloadItemId) this.meta.scoreUnlockedItemId = payloadItemId;
+      else if (payloadArchetypeId) this.meta.scoreUnlockedArchetypeId = payloadArchetypeId;
       this.state = CAMPAIGN_STATE.ENDED;
       this.#tearDownHubWorld();
       this.#persist();
@@ -865,13 +989,28 @@ export class Campaign {
 
   /**
    * The scoreable blueprint id stolen by a completed Score, or `null` if the
-   * Score isn't complete / drew an abstract payload (P3.M6.4). Read by the shell
-   * on terminal settlement to write the cross-campaign meta-store. Returns a
-   * known scoreable id only — a stale/foreign meta value is treated as absent.
+   * Score isn't complete / drew an archetype reward or an abstract payload
+   * (P3.M6.4). Read by the shell on terminal settlement to write the
+   * cross-campaign meta-store. Returns a known scoreable id only — a
+   * stale/foreign meta value is treated as absent.
    */
   get scoreUnlockedItemId(): string | null {
     const raw = this.meta.scoreUnlockedItemId;
     return typeof raw === 'string' && SCOREABLE_ITEM_IDS.has(raw) ? raw : null;
+  }
+
+  /**
+   * P3.5.M7: the archetype id unlocked by a completed Score, or `null` if the
+   * Score isn't complete / drew an item or an abstract payload. Mirrors
+   * {@link scoreUnlockedItemId} — read by the shell on terminal settlement to
+   * write `DataStore.archiveUnlockedArchetype`. Returns a known scoreable
+   * archetype id only.
+   */
+  get scoreUnlockedArchetypeId(): string | null {
+    const raw = this.meta.scoreUnlockedArchetypeId;
+    return typeof raw === 'string' && SCOREABLE_ARCHETYPE_IDS.has(raw as CrewArchetypeId)
+      ? raw
+      : null;
   }
 
   canAttemptScore(): boolean {
@@ -885,18 +1024,26 @@ export class Campaign {
 
   /**
    * Build the climactic Score contract. P3.M6.4: the heist targets a specific
-   * unacquired scoreable blueprint (drawn deterministically from the seed minus
-   * the meta-crew's already-stolen ids), and the briefing frames the site around
-   * that prototype. The chosen id rides along in `objective.params.scoreItemId`
-   * so the completion path can unlock it. An exhausted pool (every blueprint
-   * stolen) draws an abstract credit payload instead (P3.M6.5): the briefing is
-   * framed from {@link ABSTRACT_SCORE_TARGETS} but carries no `scoreItemId`, so a
-   * clean completion writes nothing to the meta-store.
+   * unacquired reward (drawn deterministically from the seed minus the
+   * meta-crew's already-acquired ids), and the briefing frames the site around
+   * it. P3.5.M7: the draw is a single merged pool of item blueprints and
+   * archetype rewards — the chosen payload rides along in
+   * `objective.params.scoreItemId` (item) or `objective.params.scoreArchetypeId`
+   * (archetype), never both, so the completion path can unlock the right one.
+   * An exhausted pool (*both* catalogs fully acquired) draws an abstract
+   * credit payload instead (P3.M6.5): the briefing is framed from
+   * {@link ABSTRACT_SCORE_TARGETS} but carries neither param, so a clean
+   * completion writes nothing to the meta-store.
    *
    * @param unlockedScoreableIds — acquired blueprint ids from the meta-store
    *   (`DataStore.unlockedScoreableItems`); these are excluded from the draw.
+   * @param unlockedArchetypeIds — acquired archetype-reward ids from the
+   *   meta-store (`DataStore.unlockedArchetypes`); these are excluded too.
    */
-  buildScoreContract(unlockedScoreableIds: readonly string[] = []): Contract {
+  buildScoreContract(
+    unlockedScoreableIds: readonly string[] = [],
+    unlockedArchetypeIds: readonly string[] = []
+  ): Contract {
     if (!this.canAttemptScore()) {
       throw new Error('Campaign.buildScoreContract: Score is not available');
     }
@@ -920,13 +1067,17 @@ export class Campaign {
       .replace(/^\/\//, '')
       .replace(/\s+-\s+Score target$/i, '')
       .trim();
-    const payload = pickScorePayload(seed, unlockedScoreableIds);
+    const payload = pickScorePayload(seed, unlockedScoreableIds, unlockedArchetypeIds);
     const abstract = payload ? null : pickAbstractScorePayload(seed);
-    const briefing = payload
-      ? `${payload.flavor} Their prototype is held at ${siteLabel}. Breach the facility, ` +
-        `secure the ${payload.label}, and extract with the crew alive.`
-      : `${abstract!.flavor} The ${abstract!.label} sits in ${siteLabel}. Breach the facility, ` +
-        `clean it out, and extract with the crew alive.`;
+    const briefing =
+      payload?.kind === 'item'
+        ? `${payload.item.flavor} Their prototype is held at ${siteLabel}. Breach the facility, ` +
+          `secure the ${payload.item.label}, and extract with the crew alive.`
+        : payload?.kind === 'archetype'
+          ? `${payload.reward.flavor} The tech is held at ${siteLabel}. Breach the facility, ` +
+            `secure the ${payload.reward.label}, and extract with the crew alive.`
+          : `${abstract!.flavor} The ${abstract!.label} sits in ${siteLabel}. Breach the facility, ` +
+            `clean it out, and extract with the crew alive.`;
     return {
       seed,
       mapWidth: target.mapWidth,
@@ -939,7 +1090,8 @@ export class Campaign {
           requiresCyberspace: true,
           count: 1,
           doorId,
-          ...(payload ? { scoreItemId: payload.id } : {}),
+          ...(payload?.kind === 'item' ? { scoreItemId: payload.item.id } : {}),
+          ...(payload?.kind === 'archetype' ? { scoreArchetypeId: payload.reward.id } : {}),
         },
       },
       difficulty: CONTRACT_DIFFICULTY.CRITICAL,
@@ -1040,6 +1192,25 @@ export class Campaign {
   // ─── Recruitment ──────────────────────────────────────────────────────────
 
   /**
+   * P3.5.M7: the anchor table `buildCrew`/`generateRecruits`/
+   * `generateInitialCandidates` roll against. `unlockedArchetypeIds === null`
+   * (bare engine/test construction, no live meta-store threaded in) is
+   * ungated — the full six-archetype `CREW_STAT_ANCHORS`. Otherwise, a
+   * locked archetype's anchor is simply absent from the search: every roll
+   * that would've landed there saturates to its nearest *unlocked*
+   * neighbor, the same mechanism `deriveArchetype` already uses for rolls
+   * overrunning the anchor hull (M6) — no new derivation logic here.
+   */
+  #crewStatAnchors(): readonly CrewStatAnchor[] {
+    if (this.unlockedArchetypeIds === null) return CREW_STAT_ANCHORS;
+    const unlocked = this.unlockedArchetypeIds;
+    return CREW_STAT_ANCHORS.filter(
+      anchor =>
+        !SCOREABLE_ARCHETYPE_IDS.has(anchor.archetype) || unlocked.includes(anchor.archetype)
+    );
+  }
+
+  /**
    * Collect every callsign ever used by any crew member (living or flatlined)
    * and any current recruit candidate. Prevents callsign recycling within a
    * campaign.
@@ -1076,12 +1247,15 @@ export class Campaign {
         : this.rng.intRange(RECRUIT.POOL_MIN, RECRUIT.POOL_MAX + 1);
     const usedCallsigns = this.allUsedCallsigns();
     const recruits: Crew[] = [];
+    const anchors = this.#crewStatAnchors();
     for (let i = 0; i < count; i++) {
-      const archetypeId = this.rng.pick(RECRUIT_ARCHETYPE_POOL as unknown as string[]);
-      const recruit = buildCrewMember(archetypeId, { x: 0, y: 0 }, this.rng, {
-        id: `recruit-${i}-${this.rng.intRange(0, 0xffff)}`,
-        excludeCallsigns: usedCallsigns,
-      });
+      const idSuffix = this.rng.intRange(0, 0xffff);
+      const recruit = buildCrewMemberFromRoll(
+        { x: 0, y: 0 },
+        this.rng,
+        { id: `recruit-${i}-${idSuffix}`, excludeCallsigns: usedCallsigns },
+        anchors
+      );
       if (recruit.callsign) usedCallsigns.add(recruit.callsign);
       if (rewardRecruit) this.rewardRecruitIds.add(recruit.id);
       recruits.push(recruit);
@@ -1128,25 +1302,65 @@ export class Campaign {
 
   /**
    * Generate the starter candidate pool for a fresh campaign. Returns
-   * `RECRUIT.INITIAL_CANDIDATES` (3) candidates with weighted archetype
-   * distribution (40/40/20). Stores them on `initialCandidates` for
+   * `RECRUIT.INITIAL_CANDIDATES` (3) candidates, each rolled and derived
+   * independently (P3.5.M6: `buildCrewMemberFromRoll`) — no weighted pool,
+   * duplicates allowed. Stores them on `initialCandidates` for
    * `recruitInitial()` to consume. Does NOT require Rep gate — this is
    * the campaign-start exception.
+   *
+   * Showcase-slot follow-up (2026-07-14): when `showcaseArchetypeId` is set
+   * and still reachable under the current gating, candidate slot 0 is
+   * reserved for that archetype (`#buildShowcaseCandidate`) — the remaining
+   * slots roll normally. This guarantees the first campaign start after an
+   * archetype's Score unlock actually offers it, rather than leaving it to
+   * the ordinary roll odds.
    */
   generateInitialCandidates(): Crew[] {
     const usedCallsigns = this.allUsedCallsigns();
+    const anchors = this.#crewStatAnchors();
     const candidates: Crew[] = [];
-    for (let i = 0; i < RECRUIT.INITIAL_CANDIDATES; i++) {
-      const archetypeId = this.rng.pick(RECRUIT_ARCHETYPE_POOL as unknown as string[]);
-      const candidate = buildCrewMember(archetypeId, { x: 0, y: 0 }, this.rng, {
-        id: `crew-init-${i}`,
-        excludeCallsigns: usedCallsigns,
-      });
+    const showcase = this.#buildShowcaseCandidate(usedCallsigns, anchors);
+    if (showcase) {
+      candidates.push(showcase);
+      if (showcase.callsign) usedCallsigns.add(showcase.callsign);
+    }
+    for (let i = candidates.length; i < RECRUIT.INITIAL_CANDIDATES; i++) {
+      const candidate = buildCrewMemberFromRoll(
+        { x: 0, y: 0 },
+        this.rng,
+        { id: `crew-init-${i}`, excludeCallsigns: usedCallsigns },
+        anchors
+      );
       if (candidate.callsign) usedCallsigns.add(candidate.callsign);
       candidates.push(candidate);
     }
     this.initialCandidates = candidates;
     return candidates;
+  }
+
+  /**
+   * Build the showcase candidate (slot 0) for `generateInitialCandidates`,
+   * or `null` when there's nothing to showcase. Defensive: returns `null`
+   * (rather than throwing) if `showcaseArchetypeId` isn't actually reachable
+   * under `anchors` — should never happen in the live shell, since
+   * `DataStore.archiveUnlockedArchetype` arms the showcase atomically with
+   * the unlock itself, but a stale/hand-edited save shouldn't be able to
+   * crash campaign-start recruitment over a cosmetic nicety.
+   */
+  #buildShowcaseCandidate(
+    excludeCallsigns: Set<string>,
+    anchors: readonly CrewStatAnchor[]
+  ): Crew | null {
+    const archetypeId = this.showcaseArchetypeId;
+    if (archetypeId === null) return null;
+    if (!anchors.some(anchor => anchor.archetype === archetypeId)) return null;
+    return buildCrewMemberFromRollForArchetype(
+      { x: 0, y: 0 },
+      this.rng,
+      archetypeId as CrewArchetypeId,
+      anchors,
+      { id: 'crew-init-0', excludeCallsigns }
+    );
   }
 
   /**
@@ -1684,6 +1898,11 @@ export class Campaign {
     if (payloadId) {
       const payload = SCOREABLE_ITEMS.find(item => item.id === payloadId);
       if (payload) return payload.label;
+    }
+    const archetypeId = scorePayloadArchetypeId(contract);
+    if (archetypeId) {
+      const reward = SCOREABLE_ARCHETYPES.find(entry => entry.id === archetypeId);
+      if (reward) return reward.label;
     }
     return null;
   }

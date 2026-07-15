@@ -14,6 +14,10 @@ import {
 import { OUTCOME } from '../../../src/game/Run.js';
 import { makeSalvage } from '../../../src/game/salvage.js';
 import { SCOREABLE_ITEM_IDS } from '../../../src/game/items.js';
+import {
+  SCOREABLE_ARCHETYPE_IDS,
+  SCOREABLE_ARCHETYPES,
+} from '../../../src/game/archetypeRewards.js';
 import type { LocationSite } from '../../../src/types.js';
 
 const COMPLETED_AT = '2026-06-14T19:30:00.000Z';
@@ -89,11 +93,44 @@ test('Score completion summary uses post-settlement jobs, Rep, and Credits', () 
   assert.equal(record.credits, 125 + SCORE_CREDITS_REWARD);
   assert.equal('salvage' in record, false);
   assert.ok(record.crewRoster.some(member => member.archetype === 'Decker'));
-  // P3.M6.4: a winning Score captures the stolen blueprint, self-contained.
-  assert.ok(record.scoreReward, 'win summary carries the stolen blueprint');
-  assert.ok(SCOREABLE_ITEM_IDS.has(record.scoreReward.id));
+  // P3.M6.4 / P3.5.M7: a winning Score captures the drawn reward — item
+  // blueprint or archetype — self-contained. `buildScoreContract()` here is
+  // called ungated (no unlockedArchetypeIds), so either pool is a legal draw.
+  assert.ok(record.scoreReward, 'win summary carries the stolen reward');
+  assert.ok(
+    SCOREABLE_ITEM_IDS.has(record.scoreReward.id) ||
+      SCOREABLE_ARCHETYPE_IDS.has(record.scoreReward.id as never)
+  );
   assert.ok(record.scoreReward.label.length > 0);
   assert.equal(typeof record.scoreReward.flavor, 'string');
+});
+
+test('a win summary captures an archetype reward when the Score drew one instead of an item (P3.5.M7)', () => {
+  const campaign = new Campaign({ id: 'campaign-archetype-win', seed: 9 });
+  campaign.state = CAMPAIGN_STATE.ENDED;
+  Object.defineProperty(campaign, 'endReason', { value: 'score-complete' });
+  campaign.meta.scoreUnlockedArchetypeId = 'berserk';
+
+  const record = buildCampaignSummary(campaign, COMPLETED_AT);
+  const berserkReward = SCOREABLE_ARCHETYPES.find(r => r.id === 'berserk')!;
+  assert.deepEqual(record.scoreReward, {
+    id: 'berserk',
+    label: berserkReward.label,
+    flavor: berserkReward.flavor,
+  });
+});
+
+test('resolveScoreReward prefers the item id when (implausibly) both meta fields are set', () => {
+  // Campaign.onJobEnd never sets both — this pins resolveScoreReward's own
+  // resolution order as a defensive-in-depth guarantee, not a reachable state.
+  const campaign = new Campaign({ id: 'campaign-both-set', seed: 9 });
+  campaign.state = CAMPAIGN_STATE.ENDED;
+  Object.defineProperty(campaign, 'endReason', { value: 'score-complete' });
+  campaign.meta.scoreUnlockedItemId = 'monoblade';
+  campaign.meta.scoreUnlockedArchetypeId = 'berserk';
+
+  const record = buildCampaignSummary(campaign, COMPLETED_AT);
+  assert.equal(record.scoreReward!.id, 'monoblade');
 });
 
 test('loss summaries preserve each terminal reason and final roster state', () => {

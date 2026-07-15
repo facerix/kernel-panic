@@ -5,7 +5,7 @@ import { Razor } from '../../../src/game/archetypes/Razor.js';
 import { Entity } from '../../../src/game/Entity.js';
 import { Grid } from '../../../src/game/Grid.js';
 import { World } from '../../../src/game/World.js';
-import { TILE, FACTION, AP_COST } from '../../../src/game/constants.js';
+import { TILE, FACTION, AP_COST, STATUS_EFFECT } from '../../../src/game/constants.js';
 import { EventBus, EVENT } from '../../../src/game/events.js';
 
 const makeWorld = ({ grid, razorAt = [3, 3], extraEntities = [], bus = null } = {}) => {
@@ -148,4 +148,30 @@ test('Razor.refreshAp clears the stealthed flag (turn rotation drops cloak)', ()
   assert.equal(razor.stealthed, false, 'stealth ends at the next AP refresh');
   // And refresh actually refreshes AP, so subclass didn't break super().
   assert.equal(razor.ap, razor.maxAp);
+});
+
+test('Razor.slide arms the generic STEALTH effect (P3.5.M1 channel)', () => {
+  const { world, razor } = makeWorld();
+  assert.equal(razor.hasEffect(STATUS_EFFECT.STEALTH), false);
+  razor.slide(world, 1, 0);
+  assert.equal(
+    razor.hasEffect(STATUS_EFFECT.STEALTH),
+    true,
+    'slide sets STEALTH via the effect channel'
+  );
+  assert.equal(razor.effectTurnsRemaining(STATUS_EFFECT.STEALTH), 1, 'one own-refresh of cloak');
+});
+
+test('Razor slide -> wait -> slide re-cloaks (second slide re-arms stealth)', () => {
+  const g = new Grid(12, 12);
+  const { world, razor } = makeWorld({ grid: g, razorAt: [2, 2] });
+  razor.slide(world, 1, 0); // lands (4,2), cloaked
+  assert.equal(razor.stealthed, true);
+  // The refresh that would have dropped the cloak also re-opens the AP budget,
+  // then a second slide re-arms stealth for another turn.
+  razor.refreshAp();
+  assert.equal(razor.stealthed, false, 'cloak dropped at refresh');
+  razor.slide(world, 1, 0); // lands (6,2)
+  assert.equal(razor.stealthed, true, 'second slide re-cloaks');
+  assert.equal(razor.effectTurnsRemaining(STATUS_EFFECT.STEALTH), 1);
 });

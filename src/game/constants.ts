@@ -75,6 +75,29 @@ export function factionForPrincipalGroups(groups: readonly string[]): FactionId 
 }
 
 /**
+ * Status-effect ids for the generic duration-effect channel (`Entity.effects`,
+ * P3.5.M1). Duration counts in "how many times the owning entity's own
+ * `refreshAp()` fires" — a duration of 1 clears by that entity's next refresh,
+ * the same semantics Razor's stealth cloak always had. No stacking; reapplying
+ * overwrites. New effects are added here as their milestones land.
+ *
+ *   - `STEALTH` — Razor's slide cloak (migrated onto this channel in M1).
+ *   - `STUN` — EMP neural-shock: the entity takes 0 AP on its stunned refresh
+ *     (M2). Gated in `Entity.refreshAp` *before* the tick, so a duration of 1
+ *     covers the upcoming refresh, not the one that just passed.
+ *   - `SURGE` / `CRASH` — Berserk's chained self-buff and mandatory payback
+ *     window (M3).
+ */
+export const STATUS_EFFECT = Object.freeze({
+  STEALTH: 'stealth',
+  STUN: 'stun',
+  SURGE: 'surge',
+  CRASH: 'crash',
+});
+
+export type StatusEffectId = (typeof STATUS_EFFECT)[keyof typeof STATUS_EFFECT];
+
+/**
  * Action Point costs from the V1 blueprint. Centralised so tuning is one edit.
  */
 export const AP_COST = Object.freeze({
@@ -87,25 +110,50 @@ export const AP_COST = Object.freeze({
   VAULT: 2, // Merc — hop a cover tile while firing
   SLIDE: 2, // Razor — 2-tile reposition with stealth bonus
   DEPLOY: 2, // Tech — place a turret on an adjacent tile
-  OVERRIDE: 2, // Decker — hijack a corp drone's allegiance
+  INFLUENCE: 2, // Adept (Meatspace) + CyberAvatar (cyber grid) — flip a hostile's/ICE's allegiance (renamed from OVERRIDE, P3.5.M4)
+  EMP: 2, // Decker — self-centered AOE neural-shock stun (P3.5.M2)
+  SURGE: 2, // Berserk — self-buff that always chains into CRASH (P3.5.M3)
+  NANITE_HEAL: 2, // Chimera — convert scrap salvage into HP (P3.5.M5)
 });
 
 /**
- * Decker drone-override parameters (P3.M2). The Decker's signature Meatspace
- * ability flips a corp drone to the player's side for a few turns by reusing
- * the existing drone AI with a faction swap (the AI targets by faction, so a
- * flipped drone fights its former allies for free).
+ * Berserk Surge/Crash tuning (P3.5.M3). Surge is a short, potent spike that
+ * always chains into a deliberately heavier Crash — the payback outweighs the
+ * high so the ability reads as a genuine gamble, not free value.
  *
- *   - `OVERRIDE_RANGE` — reach for the intrusion, matched to baseline SIGHT so
- *     the Decker must have a clean LOS lane like a ranged shot.
- *   - `OVERRIDE_DURATION` — turns the drone stays player-aligned before its
- *     firmware reasserts control and it reverts to its original faction.
- *   - `OVERRIDE_SUCCESS_CHANCE` — probability the intrusion takes. A failed
+ *   - `SURGE_ARMOR_BONUS` — flat `damageReduction` while SURGE is active. The
+ *     frenzy shrugs off hits mid-spike; the bonus is computed on Berserk's
+ *     `damageReduction` getter (never stored), so it can't leak into a save.
+ *   - Crash is longer (3 refreshes) and bites harder (−2 AP, −0.2 hit) than the
+ *     Surge it pays for — playtest-tuned so the comedown actually stings.
+ */
+export const SURGE_DURATION = 2;
+export const SURGE_DAMAGE_BONUS = 1;
+export const SURGE_AP_BONUS = 1;
+export const SURGE_ARMOR_BONUS = 1;
+export const CRASH_DURATION = 3;
+export const CRASH_AP_PENALTY = 2;
+export const CRASH_HIT_PENALTY = 0.2;
+
+/**
+ * Mind Influence parameters (renamed from Decker drone-override, P3.M2 →
+ * P3.5.M4). The Adept's signature Meatspace ability psychically dominates a
+ * hostile's will for a few turns by reusing the existing hostile AI with a
+ * faction swap (the AI targets by faction, so a dominated hostile fights its
+ * former allies for free). The CyberAvatar's cyber-grid Override against ICE
+ * shares this exact same machinery (`mindInfluence.ts`) — only the fiction
+ * differs between the two consumers, not the numbers.
+ *
+ *   - `INFLUENCE_RANGE` — reach for the intrusion, matched to baseline SIGHT
+ *     so the operator must have a clean LOS lane like a ranged shot.
+ *   - `INFLUENCE_DURATION` — turns the target stays player-aligned before its
+ *     own will reasserts control and it reverts to its original faction.
+ *   - `INFLUENCE_SUCCESS_CHANCE` — probability the intrusion takes. A failed
  *     attempt still burns AP and trips the facility alarm.
  */
-export const OVERRIDE_RANGE = 5;
-export const OVERRIDE_DURATION = 3;
-export const OVERRIDE_SUCCESS_CHANCE = 0.6;
+export const INFLUENCE_RANGE = 5;
+export const INFLUENCE_DURATION = 3;
+export const INFLUENCE_SUCCESS_CHANCE = 0.6;
 
 /**
  * Decker cyber stats (P3.M3.3). Named stats with real effects from day one
@@ -190,6 +238,29 @@ export const MELEE_DAMAGE = 2;
 
 /** Razor blade and elite corp strike — overrides {@link MELEE_DAMAGE}. */
 export const HEAVY_MELEE_DAMAGE = 3;
+
+/**
+ * Archetype base hit/dodge defaults (P3.5.M6). Used two ways: (1) each
+ * archetype constructor's un-rolled default when no `baseHitChance`/
+ * `baseDodgeChance` override is supplied, and (2) `crewStatRoll.ts`'s
+ * `DEFAULT_*_BY_ARCHETYPE` old-save fallback for `CampaignCrewSnapshot`
+ * records written before P3.5.M6. These are a *separate* table from
+ * `CREW_STAT_ANCHORS` (`crewStatRoll.ts`) — the anchors are tuned only for
+ * an even roll-classification partition, while Merc/Razor/Tech here stay
+ * frozen at their pre-P3.5 shipped values so an old save never silently
+ * regenerates stats it never had.
+ */
+export const MERC_DEFAULT_HIT_CHANCE = 0.8;
+export const RAZOR_DEFAULT_HIT_CHANCE = 0.7;
+export const RAZOR_DEFAULT_DODGE_CHANCE = 0.35;
+export const TECH_DEFAULT_HIT_CHANCE = 0.75;
+export const DECKER_DEFAULT_HIT_CHANCE = 0.7;
+export const BERSERK_DEFAULT_HIT_CHANCE = 0.78;
+export const BERSERK_DEFAULT_DODGE_CHANCE = 0.36;
+export const ADEPT_DEFAULT_HIT_CHANCE = 0.7;
+export const ADEPT_DEFAULT_DODGE_CHANCE = 0.2;
+export const CHIMERA_DEFAULT_HIT_CHANCE = 0.75;
+export const CHIMERA_DEFAULT_DODGE_CHANCE = 0.25;
 
 /**
  * Vault (Merc perk). Breach-and-clear slam in two modes:
@@ -341,6 +412,21 @@ export const SALVAGE_DROP_MAX = 3;
 export const SALVAGE_PER_IMPROVISED_TURRET = 2;
 
 /**
+ * Chimera nanite-repair parameters (P3.5.M5). The Chimera's signature sustain
+ * perk converts scrap salvage into HP — same resource-gate shape as Tech's
+ * improvised turret (repeatable every turn, no per-job cap), reusing that
+ * exact scrap price rather than inventing a new number.
+ *
+ *   - `NANITE_HEAL_AMOUNT` — flat HP restored per activation, clamped at
+ *     maxHp by `Entity.heal`.
+ *   - `SALVAGE_PER_NANITE_HEAL` — scrap cost, matched to
+ *     {@link SALVAGE_PER_IMPROVISED_TURRET} so both scrap-gated perks compete
+ *     for the same pool at the same price.
+ */
+export const NANITE_HEAL_AMOUNT = 1;
+export const SALVAGE_PER_NANITE_HEAL = SALVAGE_PER_IMPROVISED_TURRET;
+
+/**
  * Finn's shop — item tuning constants. Job-scoped consumables are lost on
  * job end; campaign-scoped gear persists until campaign wipe; meta upgrades
  * survive even a full campaign wipe.
@@ -348,6 +434,20 @@ export const SALVAGE_PER_IMPROVISED_TURRET = 2;
 export const STIM_HEAL = 2;
 export const SMOKE_RADIUS = 2;
 export const SMOKE_DURATION_TURNS = 1;
+
+/**
+ * Decker EMP blast parameters (P3.5.M2). The Decker's Meatspace signature: a
+ * self-centered neural-shock/EMP that stuns *everyone* alive in radius — friend
+ * and foe alike, excepting only the Decker themselves. (matches the deliberately
+ * blurred organic/mechanical enemy theming). A stunned entity takes 0 AP on its
+ * next refresh (see `STATUS_EFFECT.STUN`).
+ *
+ *   - `EMP_RADIUS` — Chebyshev reach, matched to {@link SMOKE_RADIUS} (2): a
+ *     "clears a room" footprint.
+ *   - `EMP_STUN_DURATION` — one skipped activation per caught entity.
+ */
+export const EMP_RADIUS = SMOKE_RADIUS;
+export const EMP_STUN_DURATION = 1;
 /**
  * Incendiary bomb: thrown along an aim direction (dx, dy) selected via
  * `MODE.AIM` with `aimKind: 'use-item'`. The target tile is `thrower + dir *
@@ -593,8 +693,11 @@ export const REP = Object.freeze({
 });
 
 /**
- * Recruitment parameters. Controls candidate pool size, campaign-start picks,
- * and archetype weight distribution.
+ * Recruitment parameters. Controls candidate pool size and campaign-start
+ * picks. Archetype is no longer chosen by weighted pool (P3.5.M6 retired
+ * `RECRUIT_ARCHETYPE_POOL`) — see `crewStatRoll.ts` for the roll-then-derive
+ * pipeline every non-Decker crew member (starter trio and mid-campaign
+ * recruits alike) now goes through.
  */
 export const RECRUIT = Object.freeze({
   /** Mid-campaign: minimum recruits offered per hub visit (when Rep gate met). */
@@ -606,6 +709,23 @@ export const RECRUIT = Object.freeze({
   /** Campaign start: number the player must pick. */
   INITIAL_PICKS: 2,
 });
+
+/**
+ * P3.5.M6: crew stat roll ranges — continuous and deliberately wider than the
+ * old fixed per-archetype stats, so every rolled operative reads as distinct
+ * rather than clustering onto a handful of identical stat lines. Rolled
+ * floats are rounded to 0.01 (`crewStatRoll.ts`) so the derivation domain
+ * stays finite/enumerable and the HUD reads clean whole percents. The ranges
+ * deliberately overrun `CREW_STAT_ANCHORS`' hull (hit 0.67–0.83, dodge
+ * 0.19–0.36) — outer-margin rolls saturate to the nearest corner archetype
+ * rather than dead-zoning (see `deriveArchetype`).
+ */
+export const CREW_HIT_CHANCE_ROLL_MIN = 0.65;
+export const CREW_HIT_CHANCE_ROLL_MAX = 0.85;
+export const CREW_DODGE_CHANCE_ROLL_MIN = 0.15;
+export const CREW_DODGE_CHANCE_ROLL_MAX = 0.4;
+/** Conservative — armor is a wholly new variance axis with no prior balance data. */
+export const CREW_ARMOR_ROLL_CHANCE = 0.15;
 
 /**
  * Rep tier definitions — each tier carries a label, a lower bound, and a

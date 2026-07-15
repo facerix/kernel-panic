@@ -1,4 +1,4 @@
-import { TILE } from '../game/constants.js';
+import { TILE, STATUS_EFFECT } from '../game/constants.js';
 import {
   glyphForTile,
   glyphForEntity,
@@ -10,6 +10,10 @@ import {
   CORPSE_GLYPH_CHAR,
   MEMORY_DIM,
   INTERACTABLE_SECURED_FG,
+  STUNNED_FG,
+  SURGE_FLASH_FG,
+  CRASH_FLASH_FG,
+  CLOAK_FLASH_FG,
 } from './palette.js';
 import { Interactable } from '../game/entities/Interactable.js';
 import type { World } from '../game/World.js';
@@ -232,6 +236,29 @@ function glyphForEntityCell(entity: Entity): Glyph {
   if (!entity.alive) return glyphForCorpse(entity);
   if (entity instanceof Interactable && entity.secured) {
     return { char: entity.glyph, fg: INTERACTABLE_SECURED_FG };
+  }
+  // A stunned (EMP'd) entity glows electric cyan, overriding its faction hue —
+  // it reads as "short-circuited, skipping its turn". Wins over faction colour
+  // but not over the corpse/secured states resolved above, and over the
+  // altered-state tints below: losing your turn is the most urgent thing to
+  // read off a glyph, so it wins any co-occurrence.
+  if (entity.hasEffect(STATUS_EFFECT.STUN)) {
+    return { char: entity.glyph, fg: STUNNED_FG };
+  }
+  // P3.5.M5: persistent tints for the two archetype-only altered states that
+  // otherwise only announced themselves via a HUD tag / transient flash —
+  // same colours as each ability's screen/cell flash so the sustained state
+  // and its trigger beat read as one language. SURGE/CRASH are mutually
+  // exclusive (Surge expires *into* Crash, see `TurnQueue.endTurn`), so
+  // their order below is arbitrary.
+  if (entity.hasEffect(STATUS_EFFECT.SURGE)) {
+    return { char: entity.glyph, fg: SURGE_FLASH_FG };
+  }
+  if (entity.hasEffect(STATUS_EFFECT.CRASH)) {
+    return { char: entity.glyph, fg: CRASH_FLASH_FG };
+  }
+  if (entity.stealthed) {
+    return { char: entity.glyph, fg: CLOAK_FLASH_FG };
   }
   return glyphForEntity(entity);
 }

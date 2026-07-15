@@ -1,14 +1,13 @@
 import { Crew } from '../Crew.js';
-import { canOverride, overrideDrone } from '../droneOverride.js';
+import { canEmp, detonateEmp } from '../empBlast.js';
 import {
   DECKER_BASE_ICE_RESISTANCE,
   DECKER_BASE_INTRUSION,
   DECKER_BASE_RAM,
+  DECKER_DEFAULT_HIT_CHANCE,
 } from '../constants.js';
 import type { CrewInit, CrewSnapshot } from '../Crew.js';
-import type { Entity } from '../Entity.js';
 import type { World } from '../World.js';
-import type { Rng } from '../../rng.js';
 
 /**
  * Curated callsign pool for the Decker archetype. See `Merc.js` CALLSIGNS for
@@ -35,10 +34,11 @@ export const CALLSIGNS = Object.freeze([
  * (Merc 0.8, Tech 0.75, Razor 0.7). Their real edge is digital — and, on the
  * physical grid, the signature **Drone Override Hack**.
  *
- * Phase-3 perk: **Override**. Reaches across a clean LOS lane to hijack a corp
- * drone's allegiance for a few turns (`droneOverride.ts`). It is a *targeted*
- * perk — the intent layer resolves a drone along the aim ray, then calls
- * `overrideDrone`.
+ * Meatspace perk (P3.5.M2): **EMP**. A self-centered neural-shock blast that
+ * stuns everyone alive in radius — friend, foe, and the Decker themselves — for
+ * one activation (`empBlast.ts`). No aim ray, no target: the intent layer calls
+ * `detonateEmp` directly. (This replaced the old Drone Override Hack, which
+ * moved to the Adept archetype as "Influence" in M4.)
  *
  * Cyberspace attributes (P3.M3.3) are named stats with real effects: `ram`
  * is the avatar HP pool, `intrusionStrength` the slice progress per data-node
@@ -75,17 +75,13 @@ export class Decker extends Crew {
   /** Avatar `damageReduction` against ICE (P3.M3.3). */
   iceResistance: number;
 
-  override get baseHitChance(): number {
-    return 0.7;
-  }
-
   constructor({
     ram = DECKER_BASE_RAM,
     intrusionStrength = DECKER_BASE_INTRUSION,
     iceResistance = DECKER_BASE_ICE_RESISTANCE,
     ...props
   }: DeckerInit) {
-    super({ ...props, glyph: '@' });
+    super({ baseHitChance: DECKER_DEFAULT_HIT_CHANCE, ...props, glyph: '@' });
     if (!Number.isInteger(ram) || ram <= 0) {
       throw new RangeError(`Decker ram must be a positive integer, got ${ram}`);
     }
@@ -105,20 +101,20 @@ export class Decker extends Crew {
   }
 
   /**
-   * Pre-flight legality check for overriding `target`. Returns `{ ok }` or
+   * Pre-flight legality check for detonating an EMP. Returns `{ ok }` or
    * `{ ok: false, reason }`, mirroring the other archetype perks. Delegates to
-   * the shared `droneOverride` module so the rules live in one place.
+   * the shared `empBlast` module so the rules live in one place.
    */
-  canOverride(world: World, target: Entity | null) {
-    return canOverride(world, this, target);
+  canEmp() {
+    return canEmp(this);
   }
 
   /**
-   * Commit an override against `target`. Throws on illegal pre-conditions
-   * (no AP burned); on a legal attempt, debits AP and either flips the drone
-   * or trips the alarm depending on the roll. Returns the {@link OverrideResult}.
+   * Detonate the EMP. Throws on illegal pre-conditions (no AP burned); on a
+   * legal attempt, debits AP once and stuns every alive entity in radius
+   * (including this Decker). Returns the stunned entities.
    */
-  overrideDrone(world: World, target: Entity, rng: Rng) {
-    return overrideDrone(world, this, target, rng);
+  detonateEmp(world: World) {
+    return detonateEmp(world, this);
   }
 }

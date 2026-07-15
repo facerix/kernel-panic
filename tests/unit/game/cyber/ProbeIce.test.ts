@@ -17,7 +17,7 @@ import { PATROL_STATE } from '../../../../src/game/ai/PatrolHostile.js';
 import { JackInPoint } from '../../../../src/game/entities/JackInPoint.js';
 import { resolveMelee } from '../../../../src/game/Combat.js';
 import { runPlayerAftermathSteps } from '../../../../src/game/combatTurnPipeline.js';
-import { applyOverride } from '../../../../src/game/droneOverride.js';
+import { applyOverride } from '../../../../src/game/mindInfluence.js';
 import { EVENT } from '../../../../src/game/events.js';
 import { snapshot, restore } from '../../../../src/game/persistence.js';
 import { buildCrewMember } from '../../../../src/game/archetypes/index.js';

@@ -44,6 +44,7 @@ import {
   ENEMY_ROLE,
   JACK_OUT_SHOCK_DAMAGE,
   factionForPrincipalGroups,
+  STATUS_EFFECT,
 } from './constants.js';
 import { coordKey, explorationReachableKeys, hasAdjacentPassableTile } from './mapConnectivity.js';
 import { isValidBlockingPlacement, checkPlacementIntegrity } from './placement.js';
@@ -56,6 +57,9 @@ import { Merc } from './archetypes/Merc.js';
 import { Razor } from './archetypes/Razor.js';
 import { Tech } from './archetypes/Tech.js';
 import { Decker } from './archetypes/Decker.js';
+import { Berserk } from './archetypes/Berserk.js';
+import { Adept } from './archetypes/Adept.js';
+import { Chimera } from './archetypes/Chimera.js';
 import { Turret } from './Turret.js';
 import { Skirmisher } from './ai/Skirmisher.js';
 import { Guard } from './ai/Guard.js';
@@ -155,7 +159,14 @@ const KNOWN_OUTCOMES = new Set(Object.values(OUTCOME));
 
 export type RunState = (typeof RUN_STATE)[keyof typeof RUN_STATE];
 export type Outcome = (typeof OUTCOME)[keyof typeof OUTCOME];
-export type CrewArchetypeId = 'merc' | 'razor' | 'tech' | 'decker';
+export type CrewArchetypeId =
+  | 'merc'
+  | 'razor'
+  | 'tech'
+  | 'decker'
+  | 'berserk'
+  | 'adept'
+  | 'chimera';
 export type EntityArchetypeId =
   | CrewArchetypeId
   | 'turret'
@@ -268,6 +279,8 @@ export type RunEntitySnapshot = {
   maxAp: number;
   alive: boolean;
   stealthed: boolean;
+  /** Active non-stealth timed effects. Omitted when empty and on legacy saves. */
+  effects?: Record<string, number>;
   /** Phase 2.9 principal theming — omitted for un-aliased entities (player, props). */
   displayName?: string;
   principalTag?: string;
@@ -2689,6 +2702,9 @@ const SNAPSHOT_EXTRACTORS: Partial<Record<EntityArchetypeId, (e: Entity) => Enti
   {
     merc: e => crewSnapshotExtra(e as Crew) as unknown as EntitySnapshotExtra,
     razor: e => crewSnapshotExtra(e as Crew) as unknown as EntitySnapshotExtra,
+    berserk: e => crewSnapshotExtra(e as Crew) as unknown as EntitySnapshotExtra,
+    adept: e => crewSnapshotExtra(e as Crew) as unknown as EntitySnapshotExtra,
+    chimera: e => crewSnapshotExtra(e as Crew) as unknown as EntitySnapshotExtra,
     decker: e => {
       const d = e as Decker;
       return {
@@ -2874,6 +2890,10 @@ function snapshotEntity(entity: Entity): RunEntitySnapshot {
   // keep a byte-stable snapshot and pre-2.9 saves stay unaffected.
   if (entity.displayName !== undefined) base.displayName = entity.displayName;
   if (entity.principalTag !== undefined) base.principalTag = entity.principalTag;
+  const effects = Object.fromEntries(
+    [...entity.effects].filter(([id]) => id !== STATUS_EFFECT.STEALTH)
+  );
+  if (Object.keys(effects).length > 0) base.effects = effects;
   const extract = SNAPSHOT_EXTRACTORS[archetype];
   if (extract) base.extra = extract(entity);
   return base;
@@ -2884,6 +2904,9 @@ function archetypeOf(entity: Entity): EntityArchetypeId {
   if (entity instanceof Razor) return 'razor';
   if (entity instanceof Tech) return 'tech';
   if (entity instanceof Decker) return 'decker';
+  if (entity instanceof Berserk) return 'berserk';
+  if (entity instanceof Adept) return 'adept';
+  if (entity instanceof Chimera) return 'chimera';
   if (entity instanceof Turret) return 'turret';
   if (entity instanceof Bruiser) return 'bruiser';
   if (entity instanceof Juggernaut) return 'juggernaut';
@@ -3461,6 +3484,9 @@ function archetypeOfCrew(entity: Entity): CrewArchetypeId {
   if (entity instanceof Razor) return 'razor';
   if (entity instanceof Tech) return 'tech';
   if (entity instanceof Decker) return 'decker';
+  if (entity instanceof Berserk) return 'berserk';
+  if (entity instanceof Adept) return 'adept';
+  if (entity instanceof Chimera) return 'chimera';
   throw new Error(
     `archetypeOfCrew: cannot classify crew member ${(entity as Entity | undefined)?.id}`
   );

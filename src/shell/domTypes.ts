@@ -6,7 +6,7 @@ import type { Item } from '../game/items.js';
 import type { CampaignSummary } from '../game/campaignSummary.js';
 import type { TypedSalvage } from '../game/salvage.js';
 import type { KeyItem, Telemetry } from '../types.js';
-import type { AimKind, Mode } from '../input/keymap.js';
+import type { AimKind, Mode, PerkAim } from '../input/keymap.js';
 import type {
   UpdateAvailableDetail,
   UpdateRestartRequiredDetail,
@@ -124,6 +124,7 @@ export type TouchPadElement = HTMLElement & {
   aimKind: AimKind | null;
   setMode(mode: Mode, aimKind?: AimKind | null): void;
   setBlocked(predicate: (() => boolean) | null): void;
+  setSpecialAim(resolver: (() => PerkAim) | null): void;
   setFlipAvailable(available: boolean): void;
 };
 
@@ -161,6 +162,16 @@ export type NoisePayload = {
 
 export type DoorUnlockPayload = {
   label?: string;
+};
+
+export type MindInfluencedPayload = {
+  actor?: import('../game/Entity.js').Entity;
+  target?: import('../game/Entity.js').Entity;
+  success?: boolean;
+};
+
+export type RazorCloakedPayload = {
+  actor?: import('../game/Entity.js').Entity;
 };
 
 export type ShellDomRefs = {

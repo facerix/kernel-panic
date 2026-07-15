@@ -346,9 +346,11 @@ function applyDamageReduction(intendedDamage: number, target: Entity): number {
     throw new RangeError(`damage must be a non-negative integer, got ${intendedDamage}`);
   }
   if (intendedDamage === 0) return 0;
-  const armor = target.damageReduction;
+  // Live combat armor: base plus any active timed buff (Berserk Surge). Equals
+  // `damageReduction` for every other entity.
+  const armor = target.effectiveDamageReduction;
   if (!Number.isInteger(armor) || armor < 0) {
-    throw new RangeError(`target ${target.id} has invalid damageReduction=${armor}`);
+    throw new RangeError(`target ${target.id} has invalid effectiveDamageReduction=${armor}`);
   }
   return Math.max(1, intendedDamage - armor);
 }

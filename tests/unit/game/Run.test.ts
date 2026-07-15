@@ -23,6 +23,9 @@ import { findPath } from '../../../src/game/Pathfinding.js';
 import { Rng } from '../../../src/rng.js';
 import { testContractContext } from './contractTestUtils.js';
 import { ITEM_ID } from '../../../src/game/items.js';
+import { Berserk } from '../../../src/game/archetypes/Berserk.js';
+import { Adept } from '../../../src/game/archetypes/Adept.js';
+import { Chimera } from '../../../src/game/archetypes/Chimera.js';
 
 const fakeContract = (overrides = {}) => ({
   seed: 12345,
@@ -82,6 +85,30 @@ test('Run starts with state=null and a deployed crew member', () => {
   assert.equal(run.rng.seed, 42);
   assert.equal(run.crewMember, crewMember);
   assert.equal(run.archetype, 'razor');
+});
+
+test('Run classifies a Berserk and seeds matching telemetry', () => {
+  const crewMember = makeCrew('berserk');
+  const run = new Run({ crewMember, seed: 43 });
+  assert.ok(crewMember instanceof Berserk);
+  assert.equal(run.archetype, 'berserk');
+  assert.equal(run.telemetry.archetype, 'berserk');
+});
+
+test('Run classifies an Adept and seeds matching telemetry', () => {
+  const crewMember = makeCrew('adept');
+  const run = new Run({ crewMember, seed: 44 });
+  assert.ok(crewMember instanceof Adept);
+  assert.equal(run.archetype, 'adept');
+  assert.equal(run.telemetry.archetype, 'adept');
+});
+
+test('Run classifies a Chimera and seeds matching telemetry', () => {
+  const crewMember = makeCrew('chimera');
+  const run = new Run({ crewMember, seed: 45 });
+  assert.ok(crewMember instanceof Chimera);
+  assert.equal(run.archetype, 'chimera');
+  assert.equal(run.telemetry.archetype, 'chimera');
 });
 
 test('legal transition chain: BRIEFING → COMBAT → RESULT', () => {

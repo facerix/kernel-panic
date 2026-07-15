@@ -1,5 +1,11 @@
 import { Crew } from '../Crew.js';
-import { TILE, AP_COST, FACTION, MERC_RANGED_DAMAGE } from '../constants.js';
+import {
+  TILE,
+  AP_COST,
+  FACTION,
+  MERC_RANGED_DAMAGE,
+  MERC_DEFAULT_HIT_CHANCE,
+} from '../constants.js';
 import { canKnockbackByOffset } from '../knockback.js';
 import type { CrewInit } from '../Crew.js';
 import type { Entity } from '../Entity.js';
@@ -59,16 +65,13 @@ export const CALLSIGNS = Object.freeze([
  */
 export class Merc extends Crew {
   override archetype = 'Merc';
-  override get baseHitChance(): number {
-    return 0.8;
-  }
 
   override get rangedDamage(): number {
     return MERC_RANGED_DAMAGE;
   }
 
   constructor(props: CrewInit) {
-    super({ ...props, glyph: '@' });
+    super({ baseHitChance: MERC_DEFAULT_HIT_CHANCE, ...props, glyph: '@' });
   }
 
   canVault(world: World, dx: number, dy: number): VaultCheck {

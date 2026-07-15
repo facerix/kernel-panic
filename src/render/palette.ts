@@ -41,6 +41,59 @@ const FACTION_FG = {
 export const INTERACTABLE_SECURED_FG = FACTION_FG[FACTION.PLAYER];
 
 /**
+ * Electric cyan for a stunned (EMP'd) entity glyph (P3.5.M2). Overrides the
+ * faction hue so a shocked hostile reads as "short-circuited, skipping its
+ * turn" at a glance. Shared with the EMP screen-flash tint so the discharge and
+ * its aftermath are the same colour.
+ */
+export const STUNNED_FG = '#8be9ff';
+
+/**
+ * Berserk Surge/Crash screen-pulse tints (P3.5.M3). Reused by the shared
+ * colored-vignette flash so the two halves of the ability read as one arc:
+ *   - `SURGE_FLASH_FG` — blaze orange for the power spike (rage, heat).
+ *   - `CRASH_FLASH_FG` — ashen violet-grey for the comedown (drained, burnt out).
+ */
+export const SURGE_FLASH_FG = '#ff6a1a';
+export const CRASH_FLASH_FG = '#6c6a8a';
+
+/**
+ * Green screen-pulse tint for any HP-restoring action — the Chimera's Nanite
+ * Repair (P3.5.M5) and the STIM consumable both drive this. Distinct from the
+ * mint player faction colour (`#00d9a5`) so a heal pulse doesn't read as
+ * "just the player's own colour" — brighter and greener. Deliberately
+ * mechanism-neutral (not "nanite-tinted") since STIM's fiction is a chemical
+ * injector, not nanites — the colour reads as "HP restored," not "how."
+ */
+export const HEAL_FLASH_FG = '#5cff8f';
+
+/**
+ * Warm gold-amber single-cell burst for a Merc's Vault body-check landing on
+ * an occupant (P3.5.M5). Distinct from the muzzle flash's yellow (`#ffff66`)
+ * and from `ARMOR`/rival amber so a kinetic slam reads differently from
+ * gunfire landing on the same tile.
+ */
+export const VAULT_IMPACT_FG = '#ffd166';
+
+/**
+ * Violet single-cell burst for a resolved mind-influence roll — the Adept's
+ * Influence and the CyberAvatar's Override (P3.5.M5), both backed by
+ * `mindInfluence.ts`. Fires on the target's own tile regardless of success
+ * or failure; distinct from the pale lavender used for shields/neutral
+ * faction so "psychic domination" doesn't read as "defense mitigated."
+ */
+export const MIND_INFLUENCE_FG = '#a64dff';
+
+/**
+ * Pale icy mint single-cell burst on a Razor's own tile as Slide engages the
+ * cloak (P3.5.M5). Deliberately a washed-out relative of the mint player
+ * faction colour (`#00d9a5`) rather than a foreign hue — this is the
+ * player's own signature going translucent, not an outside force acting on
+ * them (contrast `VAULT_IMPACT_FG`/`MIND_INFLUENCE_FG`, which are external).
+ */
+export const CLOAK_FLASH_FG = '#babfb6';
+
+/**
  * Sentinel glyph for cells outside the world (camera near the map edge).
  * We render *something* rather than leaving holes so the playfield always
  * fills the canvas — easier on the eyes and on the CRT post-pass. Stays a

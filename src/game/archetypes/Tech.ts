@@ -1,5 +1,10 @@
 import { Crew } from '../Crew.js';
-import { FACTION, AP_COST, SALVAGE_PER_IMPROVISED_TURRET } from '../constants.js';
+import {
+  FACTION,
+  AP_COST,
+  SALVAGE_PER_IMPROVISED_TURRET,
+  TECH_DEFAULT_HIT_CHANCE,
+} from '../constants.js';
 import { Turret } from '../Turret.js';
 import type { CrewInit, CrewSnapshot } from '../Crew.js';
 import type { World } from '../World.js';
@@ -46,15 +51,12 @@ export const CALLSIGNS = Object.freeze([
  */
 export class Tech extends Crew {
   override archetype = 'Tech';
-  override get baseHitChance(): number {
-    return 0.75;
-  }
 
   turretReady: boolean;
   private _improvisedTurretCount: number;
 
   constructor(props: CrewInit) {
-    super({ ...props, glyph: '@' });
+    super({ baseHitChance: TECH_DEFAULT_HIT_CHANCE, ...props, glyph: '@' });
     this.turretReady = true;
     /** Counter for unique improvised turret ids within a job. */
     this._improvisedTurretCount = 0;
