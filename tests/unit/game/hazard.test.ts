@@ -549,7 +549,11 @@ test('thrown incendiary ignites RUBBLE under a body and deals impact damage', ()
   const result = placeHazardCluster(world, { x: 5, y: 5 }, new Rng(42), { thrown: true });
 
   assert.equal(world.grid.tileAt(5, 5), TILE.HAZARD, 'rubble under the body lights');
-  assert.equal(drone.hp, 3 - INCENDIARY_IMPACT_DAMAGE, 'caught square on for real, not for nothing');
+  assert.equal(
+    drone.hp,
+    3 - INCENDIARY_IMPACT_DAMAGE,
+    'caught square on for real, not for nothing'
+  );
   assert.equal(result.casualties.length, 1);
 });
 
@@ -574,7 +578,11 @@ test('thrown incendiary catches a body standing in an existing fire pool', () =>
 
   const result = placeHazardCluster(world, { x: 5, y: 5 }, new Rng(42), { thrown: true });
 
-  assert.equal(drone.hp, 3 - INCENDIARY_IMPACT_DAMAGE, 'a body in a fire pool takes the impact hit');
+  assert.equal(
+    drone.hp,
+    3 - INCENDIARY_IMPACT_DAMAGE,
+    'a body in a fire pool takes the impact hit'
+  );
   assert.equal(result.casualties.length, 1);
 });
 
