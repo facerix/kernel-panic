@@ -53,7 +53,7 @@ import { AIM_KIND, MODE } from '/src/input/keymap.js';
 import { applyIntent, PLAYER_ACTIONS } from '/src/input/applyIntent.js';
 import { recordStatusActionLine } from '/src/statusActivityRows.js';
 
-import { placeSmoke, clearSmoke } from '/src/game/Smoke.js';
+import { placeSmoke } from '/src/game/Smoke.js';
 import { placeHazardCluster } from '/src/game/Run.js';
 import { blastCells } from '/src/game/breachBlast.js';
 import { hasLineOfSight } from '/src/game/LineOfSight.js';
@@ -139,7 +139,6 @@ import type {
 
 import KeyHelp from '/components/KeyHelp.js';
 
-type SmokeOverlay = ReturnType<typeof placeSmoke>[number];
 type PointLike = Pick<Entity, 'x' | 'y'> | { x: number; y: number } | null | undefined;
 type HelpScope = import('/src/shell/domTypes.js').HelpScope;
 
@@ -246,12 +245,6 @@ function scheduleCombatPump(fn: () => void, ms: number): void {
     fn();
   }, ms);
 }
-/**
- * Active smoke overlays from Smoke Charge consumables. Each entry records
- * the tile position and original tile type so `clearSmoke` can restore the
- * grid. Cleared at the start of the player's next turn (`onPlayerTurnReady`).
- */
-let activeSmokeOverlays: SmokeOverlay[] = [];
 /** Hazard-glyph blast flash — cleared on a short timer after each detonation. */
 let activeBreachBlastOverlayKeys = new Set<string>();
 let breachBlastOverlayTimer: ReturnType<typeof setTimeout> | null = null;
@@ -644,7 +637,6 @@ function abortShellForFault(): void {
   corpToneActivityBody = null;
   clearBreachBlastOverlay(false);
   resetInputModes();
-  activeSmokeOverlays = [];
   civilianHarmsThisJob = 0;
 }
 
@@ -1126,8 +1118,10 @@ function applyUseConsumableResult(
     if (!Number.isInteger(cx) || !Number.isInteger(cy) || !Number.isInteger(radius)) {
       throw new Error('[shell] smoke consumable returned invalid placement data');
     }
-    const overlays = placeSmoke(run.world.grid, cx, cy, radius);
-    activeSmokeOverlays.push(...overlays);
+    // Lifetime is World's — `tickTileEffects` clears the cloud at the round
+    // boundary, so there's no shell-side overlay list to keep in sync (and
+    // none to be lost across a save).
+    placeSmoke(run.world, cx, cy, radius);
     recomputeVision();
     flash(`Used SMOKE CHARGE — LOS blocked in radius ${radius}. ${operator.ap} AP left.`);
     return;
@@ -1143,12 +1137,19 @@ function applyUseConsumableResult(
     // AP and consumed the charge in Crew.useConsumable; the LOS pre-check
     // in `resolveAimedUseItem` is what protects the player from "throw
     // through a wall and lose your bomb."
-    const stamped = placeHazardCluster(run.world, { x: cx, y: cy }, run.rng);
-    if (stamped === 0) {
+    const { placed, casualties } = placeHazardCluster(run.world, { x: cx, y: cy }, run.rng, {
+      thrown: true,
+      attacker: operator,
+    });
+    if (placed === 0) {
       flash(`Used MOLOTOV — landed on hard cover; no fire took. ${operator.ap} AP left.`);
     } else {
+      const caught = casualties.length;
+      const downed = casualties.filter(c => c.killed).length;
+      const hit = caught === 0 ? '' : ` ${caught} caught${downed > 0 ? `, ${downed} DOWN` : ''}.`;
       flash(
-        `Used MOLOTOV — ${stamped} tile${stamped === 1 ? '' : 's'} ignited. ${operator.ap} AP left.`
+        `Used MOLOTOV — ${placed} tile${placed === 1 ? '' : 's'} ignited.${hit} ` +
+          `${operator.ap} AP left.`
       );
     }
     recomputeVision();
@@ -1918,12 +1919,9 @@ function driveCombatTurnPipeline(run: Run, options: { resumeFromCorpSlice?: bool
     },
     onPlayerTurnReady: () => {
       if (degrading) return;
-      // Clear any smoke from last turn before the player acts.
-      if (activeSmokeOverlays.length > 0) {
-        clearSmoke(world.grid, activeSmokeOverlays);
-        activeSmokeOverlays = [];
-      }
-      // Stealth & vision may both have changed during the corp turn.
+      // Expired smoke/fire has already been cleared by `tickTileEffects` inside
+      // advanceFromPlayerTurn — vision recompute below picks up the sightlines
+      // that just reopened. Stealth may also have changed during the corp turn.
       recomputeVision();
       paint();
     },

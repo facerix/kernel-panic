@@ -202,6 +202,16 @@ export function advanceFromPlayerTurn(ctx: PlayerTurnContext) {
         onFinish: () => {
           if (isTerminal()) return;
           queue.endTurn(world);
+          // Round boundary: age every timed tile effect exactly once, here, at
+          // the CORP→PLAYER handoff. This is the only point both the shell and
+          // the debug harness pass through, which is why effect lifetimes hang
+          // off it rather than off shell state.
+          //
+          // It has to be *after* the corp turn: smoke thrown on the player's
+          // turn exists to blind the drones that move next, so aging it any
+          // earlier (in player aftermath, say) would clear it before it ever
+          // did its job.
+          world.tickTileEffects();
           onPlayerTurnReady();
         },
       });
@@ -371,10 +381,12 @@ export function* runPlayerAftermathSteps(
     if (!entity.alive) continue;
     if (entity.isHazardImmune()) continue;
     if (world.grid.tileAt(entity.x, entity.y) !== TILE.HAZARD) continue;
-    const damage = HAZARD_DAMAGE;
-    entity.hp = Math.max(0, entity.hp - damage);
-    const killed = entity.hp <= 0;
-    if (killed) entity.alive = false;
+    // Route through `Entity.damage()` rather than writing `hp` directly, so
+    // shields absorb fire like they absorb everything else. Writing hp here by
+    // hand made a Medic's shield the one thing in the game that stopped
+    // bullets but not flame.
+    const damage = entity.damage(HAZARD_DAMAGE);
+    const killed = !entity.alive;
     world.events?.emit(EVENT.ENTITY_DAMAGED, {
       attacker: null,
       target: entity,

@@ -48,6 +48,21 @@ When an item lands, gets reclassified, or develops new context, edit it in place
 
 ## ◇ Monitored
 
+- **Generated hazard and thrown fire are visually identical but behave differently.** Both
+  render as `▓`, but a map-generated pool is permanent scenery while a thrown molotov burns
+  out after `INCENDIARY_BURN_TURNS`. A player has no way to tell which fire will still be
+  there in three turns, which makes it hard to plan around either. Options: a distinct glyph
+  or colour ramp for burning-out fire, or an intensity ramp as the timer runs down (a natural
+  fit for the 3.6 "effects" work). **Revisit trigger:** first playtest where someone waits out
+  a permanent pool, or routes into fire that they expected to have gone out.
+- **`INCENDIARY_THROW_DIST` is a fixed 3 tiles in 8 directions.** You cannot lob short, long,
+  or drop at your feet — the only Molotov play is "exactly 3 tiles that way". The cluster's
+  radius-1 spread softens this to an effective 2–4 band on-axis, but it still means a hostile
+  at range 1, 2, or 5+ simply cannot be targeted. Left alone in P3.6 because free targeting is
+  a real UX design problem (needs a cursor/reticle mode, not just a direction press) and the
+  fixed throw is at least legible. **Revisit trigger:** when any second thrown item wants
+  variable range, or the first playtest complaint about "I couldn't hit the thing next to me".
+
 - **Debug save Import relies on `prompt()`.** The in-app browser used for local smoke tests
   does not support native `prompt()`, so `/debug/save.html` logs an error and cannot import a
   prepared save there. Normal browsers may still support it, but the debug surface should use
@@ -78,6 +93,25 @@ When an item lands, gets reclassified, or develops new context, edit it in place
 
 ## ✓ Closed
 
+- ~~**Smoke tiles survive a mid-mission save as permanent LOS blockers.**~~ Surfaced and closed
+  in P3.6 while fixing the Molotov. `placeSmoke` stamped `TILE.SMOKE` onto the grid and handed
+  the restore records to the *shell*, which held them in `shellRuntime.activeSmokeOverlays` and
+  cleared them on `onPlayerTurnReady`. But `grid.tiles` **is** persisted and
+  `activeSmokeOverlays` **was not** — and autosave fires at the player→corp `turn:ended`, which
+  is exactly when smoke is on the grid. Save inside your own cloud, reload, and the overlay list
+  came back `[]` while the SMOKE tiles remained: a permanent sight-line wall nothing would ever
+  clean up. Reachable in ordinary play, and silent when it happened.
+  **Fix:** effect lifetimes moved onto `World` as one shared registry — `applyTileEffect(x, y,
+  tile, turns)` / `tickTileEffects()` — that thrown fire and smoke both use, snapshotted as
+  `RunSnapshot.tileEffects`. Two details worth keeping: the registry **reads the tile underneath
+  itself** rather than taking it from the caller (a caller passing FLOOR for a cloud over the
+  EXIT tile would have silently deleted the exit), and re-applying to an already-affected tile
+  keeps the *original* restore target, so terrain can't be lost to a chain of effects. Ticked
+  once per round from `advanceFromPlayerTurn` at the CORP→PLAYER handoff — the only point both
+  the shell and the debug harness share, and necessarily *after* the corp turn, since smoke
+  exists to blind the drones that move next. `clearSmoke` and the shell's overlay list are gone.
+  Tests: `items.test.ts` (smoke lifetime, EXIT restore, fire/smoke interaction),
+  `persistence.test.ts` (save-mid-cloud round-trip), `hazard.test.ts` (round-boundary ordering).
 - ~~**Unwinnable runs.**~~ Closed in Phase 2.5 — two-part fix: (1) **Abort extraction:** player can exit via the EXIT tile with an incomplete objective; forfeits all rewards (creds, salvage, rep gain) and takes `REP.ABORT_PENALTY` (−5). (2) **Breach charge auto-grant:** `Campaign.deployCrewMember` grants 1× breaching charge when accepting a breach contract if the operative doesn't already carry one, so the objective is always completable regardless of Finn's shop access.
 
 - ~~**`advanceFromPlayerTurn` advances the turn queue on a terminal run.**~~ Closed at Phase 2 closeout — TIER-1 item #1 from the [2026-05-17 adversarial review](./2026-05-17-adversarial-review-findings.md#1). Stepping onto the exit tile transitions the run to RESULT synchronously; the pipeline then still called `queue.endTurn(world)`, refreshing corp AP and bumping the turn counter on a dead run. The `isTerminal()` guard now runs *before* `queue.endTurn` / `onCorpTurnReady`. Regression test in `combatTurnPipeline.test.ts`.

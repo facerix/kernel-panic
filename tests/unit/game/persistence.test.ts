@@ -21,10 +21,12 @@ import {
   CONTRACT_DIFFICULTY,
   CRASH_HIT_PENALTY,
   FACTION,
+  INCENDIARY_BURN_TURNS,
   SALVAGE_TO_CRED_RATE,
   STATUS_EFFECT,
   TILE,
 } from '../../../src/game/constants.js';
+import { placeSmoke } from '../../../src/game/Smoke.js';
 import { makeSalvage, totalSalvage } from '../../../src/game/salvage.js';
 import { buildCrewMember } from '../../../src/game/archetypes/index.js';
 import { Decker } from '../../../src/game/archetypes/Decker.js';
@@ -977,4 +979,146 @@ test('M6.2: restore normalizes legacy top-level crew fields into extra', () => {
 
   const { player } = restore(rec);
   assert.equal(player.callsign, 'Ghost');
+});
+
+// ---------------------------------------------------------------------------
+// P3.6: timed tile effects (thrown fire, smoke)
+//
+// Effect lifetimes live on World specifically so they survive a save. Smoke
+// used to keep its lifetime in shell state that was *not* persisted while
+// grid.tiles *is* — so a mid-mission reload stranded smoke on the map forever.
+// Autosave fires at the player→corp hand-off, which is exactly when smoke is
+// on the grid, so this was reachable in ordinary play. These guard the fix.
+// ---------------------------------------------------------------------------
+
+test('P3.6: thrown-fire burn timers survive a snapshot round-trip', () => {
+  const run = freshCombatRun(0xf1e5, 'razor');
+  const tile = freeCombatTile(run);
+  run.world.applyTileEffect(tile.x, tile.y, TILE.HAZARD, INCENDIARY_BURN_TURNS);
+
+  const rec = snapshot(run);
+  assert.deepEqual(
+    rec.tileEffects,
+    [
+      {
+        x: tile.x,
+        y: tile.y,
+        tile: TILE.HAZARD,
+        turnsLeft: INCENDIARY_BURN_TURNS,
+        restoreTo: TILE.FLOOR,
+      },
+    ],
+    'effect timers ride the run snapshot'
+  );
+
+  const { run: restored } = restore(rec);
+  assert.deepEqual(snapshot(restored), rec, 'stable round-trip');
+});
+
+test('P3.6: fire reloaded mid-burn still goes out on schedule', () => {
+  const run = freshCombatRun(0xf1e6, 'razor');
+  const tile = freeCombatTile(run);
+  run.world.applyTileEffect(tile.x, tile.y, TILE.HAZARD, INCENDIARY_BURN_TURNS);
+
+  const { run: restored } = restore(snapshot(run));
+  assert.equal(restored.world.grid.tileAt(tile.x, tile.y), TILE.HAZARD, 'still alight on reload');
+
+  for (let i = 0; i < INCENDIARY_BURN_TURNS; i++) {
+    restored.world.tickTileEffects();
+  }
+
+  assert.equal(
+    restored.world.grid.tileAt(tile.x, tile.y),
+    TILE.FLOOR,
+    'reloaded fire must still burn out — not become a permanent scar'
+  );
+});
+
+// The regression this whole mechanism exists for.
+test('P3.6: smoke saved mid-cloud does NOT become a permanent LOS wall on reload', () => {
+  const run = freshCombatRun(0xf1e9, 'razor');
+  const tile = freeCombatTile(run);
+  placeSmoke(run.world, tile.x, tile.y, 0);
+  assert.equal(run.world.grid.tileAt(tile.x, tile.y), TILE.SMOKE, 'cloud is on the grid');
+
+  // Autosave fires at the player→corp hand-off — i.e. right here, with smoke up.
+  const { run: restored } = restore(snapshot(run));
+  assert.equal(restored.world.grid.tileAt(tile.x, tile.y), TILE.SMOKE, 'cloud survives reload');
+
+  restored.world.tickTileEffects();
+
+  assert.equal(
+    restored.world.grid.tileAt(tile.x, tile.y),
+    TILE.FLOOR,
+    'reloaded smoke must still clear — it used to sit there blocking LOS forever'
+  );
+});
+
+test('P3.6: smoke over the EXIT tile restores the EXIT, not FLOOR', () => {
+  const run = freshCombatRun(0xf1ea, 'razor');
+  const exit = run.exitTile;
+  assert.ok(exit, 'fixture has an exit tile');
+  assert.equal(run.world.grid.tileAt(exit.x, exit.y), TILE.EXIT);
+
+  placeSmoke(run.world, exit.x, exit.y, 0);
+  const { run: restored } = restore(snapshot(run));
+  restored.world.tickTileEffects();
+
+  assert.equal(
+    restored.world.grid.tileAt(exit.x, exit.y),
+    TILE.EXIT,
+    'a cloud over the exit must not quietly delete the exit'
+  );
+});
+
+test('P3.6: a pre-3.6 save with no tileEffects field restores as permanent fire', () => {
+  const run = freshCombatRun(0xf1e7, 'razor');
+  const tile = freeCombatTile(run);
+  run.world.applyTileEffect(tile.x, tile.y, TILE.HAZARD, INCENDIARY_BURN_TURNS);
+
+  const rec = snapshot(run);
+  delete (rec as Record<string, unknown>).tileEffects; // as an old save would be
+
+  const { run: restored } = restore(rec);
+  for (let i = 0; i < INCENDIARY_BURN_TURNS + 3; i++) {
+    restored.world.tickTileEffects();
+  }
+
+  assert.equal(
+    restored.world.grid.tileAt(tile.x, tile.y),
+    TILE.HAZARD,
+    'an old save keeps the behaviour it was played under'
+  );
+});
+
+test('P3.6: restore rejects a malformed tileEffects entry rather than guessing', () => {
+  const run = freshCombatRun(0xf1e8, 'razor');
+  const tile = freeCombatTile(run);
+  run.world.applyTileEffect(tile.x, tile.y, TILE.HAZARD, INCENDIARY_BURN_TURNS);
+  const rec = snapshot(run);
+
+  const withEffect = (patch: Record<string, unknown>) => {
+    const bad = structuredClone(rec) as Record<string, unknown>;
+    bad.tileEffects = [
+      { x: tile.x, y: tile.y, tile: TILE.HAZARD, turnsLeft: 1, restoreTo: TILE.FLOOR, ...patch },
+    ];
+    return bad;
+  };
+
+  assert.throws(
+    () => restore(withEffect({ turnsLeft: 0 })),
+    /turnsLeft/i,
+    'turnsLeft must be >= 1'
+  );
+  assert.throws(() => restore(withEffect({ x: 'nope' })), /integer x,y/i, 'coords are integers');
+  assert.throws(() => restore(withEffect({ tile: 99 })), /unknown tile/i, 'tile must be a TILE id');
+  assert.throws(
+    () => restore(withEffect({ restoreTo: 99 })),
+    /unknown restoreTo/i,
+    'restoreTo must be a TILE id'
+  );
+
+  const notArray = structuredClone(rec) as Record<string, unknown>;
+  notArray.tileEffects = 'not-an-array';
+  assert.throws(() => restore(notArray), /must be an array/i);
 });

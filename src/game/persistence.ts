@@ -32,6 +32,7 @@
 import { Rng } from '../rng.js';
 import { Grid } from './Grid.js';
 import { World } from './World.js';
+import type { TileEffectEntry } from './World.js';
 import { TurnQueue } from './TurnQueue.js';
 import { EventBus } from './events.js';
 import {
@@ -1263,6 +1264,7 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
   run.world.restoreSecuredPickups(
     normalizeObjectiveProgress(record.objectiveProgress).securedPickups
   );
+  run.world.restoreTileEffects(normalizeTileEffects(record.tileEffects));
   run.extractedOperativeIds = new Set(extractedOperativeIds);
   run.world.mutationDeltas = normalizeMutationDeltas(record.mutationDeltas, grid);
   if (record.alarm) {
@@ -2139,6 +2141,51 @@ function normalizeObjectiveProgress(progress: unknown): ObjectiveProgressSnapsho
     }
   }
   return { securedPickups: [...candidate.securedPickups] };
+}
+
+/**
+ * Timed tile effects — thrown fire, smoke clouds. Absent in pre-P3.6 saves → no
+ * timers, which leaves that save's fire and smoke permanent: the behaviour it
+ * was played under.
+ */
+function normalizeTileEffects(raw: unknown): TileEffectEntry[] {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) {
+    throw new TypeError('restore: tileEffects must be an array');
+  }
+  return raw.map(entry => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw new TypeError('restore: tileEffects entries must be objects');
+    }
+    const { x, y, tile, turnsLeft, restoreTo } = entry as Partial<TileEffectEntry>;
+    if (!Number.isInteger(x) || !Number.isInteger(y)) {
+      throw new TypeError(
+        `restore: tileEffects entry requires integer x,y; got (${String(x)}, ${String(y)})`
+      );
+    }
+    if (!isTileId(tile)) {
+      throw new TypeError(
+        `restore: tileEffects entry (${x}, ${y}) has an unknown tile ${String(tile)}`
+      );
+    }
+    if (!isTileId(restoreTo)) {
+      throw new TypeError(
+        `restore: tileEffects entry (${x}, ${y}) has an unknown restoreTo ${String(restoreTo)}`
+      );
+    }
+    if (!Number.isInteger(turnsLeft) || (turnsLeft as number) < 1) {
+      throw new RangeError(
+        `restore: tileEffects entry (${x}, ${y}) requires turnsLeft >= 1, got ${String(turnsLeft)}`
+      );
+    }
+    return { x, y, tile, turnsLeft, restoreTo } as TileEffectEntry;
+  });
+}
+
+const TILE_IDS: ReadonlySet<number> = new Set(Object.values(TILE));
+
+function isTileId(value: unknown): boolean {
+  return typeof value === 'number' && TILE_IDS.has(value);
 }
 
 function normalizeExtractedOperativeIds(raw: unknown): string[] {

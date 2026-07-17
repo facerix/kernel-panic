@@ -357,7 +357,7 @@ button.target-row[aria-current='true'] .cursor {
 `;
 
 const SCOPE_LABELS: Record<string, string> = {
-  [ITEM_SCOPE.JOB]: 'CONSUMABLES',
+  [ITEM_SCOPE.JOB]: 'CONSUMABLES (Single use)',
   [ITEM_SCOPE.CAMPAIGN]: 'CREW GEAR (Applies to a single crew member)',
 };
 

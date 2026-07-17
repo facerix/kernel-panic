@@ -43,6 +43,8 @@ import {
   SALVAGE_DROP_MAX,
   ENEMY_ROLE,
   JACK_OUT_SHOCK_DAMAGE,
+  INCENDIARY_BURN_TURNS,
+  INCENDIARY_IMPACT_DAMAGE,
   factionForPrincipalGroups,
   STATUS_EFFECT,
 } from './constants.js';
@@ -142,7 +144,7 @@ import type { CyberAvatarSnapshot } from './cyber/CyberAvatar.js';
 import type { EntryPortSnapshot } from './cyber/EntryPort.js';
 import type { DataNodeSnapshot } from './cyber/DataNode.js';
 import type { DeckerSnapshot } from './archetypes/Decker.js';
-import type { AlarmState } from './World.js';
+import type { AlarmState, TileEffectEntry } from './World.js';
 
 export const RUN_STATE = Object.freeze({
   BRIEFING: 'BRIEFING',
@@ -310,6 +312,13 @@ export type RunSnapshot = {
   objectiveTimer?: ObjectiveTimerSnapshot;
   /** Map memory. Missing in older saves → current LOS only. */
   mapMemory?: MapMemorySnapshot;
+  /**
+   * Timed tile effects — thrown fire and smoke clouds (P3.6). Missing in
+   * pre-3.6 saves → no timers, so any hazard or smoke on that grid stays put.
+   * That's exactly the behaviour those saves were played under (it's the bug
+   * this field exists to fix), so an old save reloads consistent with itself.
+   */
+  tileEffects?: TileEffectEntry[];
   /** Pickup unification: removed objective pickups still count as secured. */
   objectiveProgress?: ObjectiveProgressSnapshot;
   /** P3.M5: Score-only independent extraction latch. */
@@ -978,6 +987,7 @@ export class Run {
       objectiveTimer: { ...this.objectiveTimer },
       mapMemory: { seen: this.mapSeenKeys() },
       objectiveProgress: { securedPickups: world.securedPickupIds() },
+      tileEffects: world.tileEffectsSnapshot(),
       ...(this.extractedOperativeIds.size > 0
         ? {
             extractedOperativeIds: [...this.extractedOperativeIds].sort(),
@@ -3430,15 +3440,53 @@ function findConsumablePickupAnchor(
   return rng.pick(candidates);
 }
 
+export type HazardClusterOptions = {
+  /**
+   * `true` when this cluster is a thrown incendiary rather than map scenery.
+   *
+   * This is not a style flag — the two callers want genuinely opposite things
+   * from the same geometry:
+   *
+   * - **Map generation** (`thrown: false`) stamps scenery around a cast that is
+   *   *already placed* (`enterCombat` spawns hostiles before objectives), so it
+   *   must not disturb anyone: every occupied tile is spared, nothing takes
+   *   damage, and the fire is permanent — a contaminated site stays
+   *   contaminated.
+   * - **A thrown molotov** (`thrown: true`) is an attack. Landing on someone is
+   *   the entire point, so only hazard-immune props spare their tile; everyone
+   *   else is set alight, takes `INCENDIARY_IMPACT_DAMAGE` on the spot, and the
+   *   fire burns out after `INCENDIARY_BURN_TURNS`.
+   */
+  thrown?: boolean;
+  /** Credited as `attacker` on `ENTITY_DAMAGED`. Thrown clusters only. */
+  attacker?: Entity | null;
+};
+
+export type HazardClusterResult = {
+  /** How many tiles actually caught. Zero means the throw hit hard cover. */
+  placed: number;
+  /** Entities hit by the ignition itself. Always empty for scenery. */
+  casualties: { entity: Entity; damage: number; killed: boolean }[];
+};
+
 /**
  * Place a cluster of HAZARD tiles near `center`. Stomps FLOOR tiles only —
- * walls, cover, exit, and tiles occupied by entities are left alone. The
- * cluster is a diamond/cross shape (center + cardinal neighbours) with a
- * random subset of diagonal neighbours, giving an organic 5–9 tile footprint.
+ * walls, cover, exit, and rubble are left alone. The cluster is a diamond/cross
+ * shape (center + cardinal neighbours) with a random subset of diagonal
+ * neighbours, giving an organic 5–9 tile footprint.
+ *
+ * Whether an *occupied* tile catches depends on `options.thrown` — see
+ * {@link HazardClusterOptions}.
  *
  * Exported for testing.
  */
-export function placeHazardCluster(world: World, center: GridPoint, rng: Rng): number {
+export function placeHazardCluster(
+  world: World,
+  center: GridPoint,
+  rng: Rng,
+  options: HazardClusterOptions = {}
+): HazardClusterResult {
+  const thrown = options.thrown === true;
   const candidates: GridPoint[] = [center];
   // Cardinal neighbours (always included when legal)
   for (const [dx, dy] of [
@@ -3461,14 +3509,61 @@ export function placeHazardCluster(world: World, center: GridPoint, rng: Rng): n
     }
   }
   let placed = 0;
+  const ignited: GridPoint[] = [];
   for (const { x, y } of candidates) {
     if (!world.grid.inBounds(x, y)) continue;
     if (world.grid.tileAt(x, y) !== TILE.FLOOR) continue;
-    if (world.entityAt(x, y)) continue;
-    world.grid.setTile(x, y, TILE.HAZARD);
+    // Scenery spares anyone standing there; a thrown bomb only spares props
+    // that can't burn anyway (terminals, pickups, sync pads — everything that
+    // overrides `isHazardImmune`). Burying an objective in permanent fire
+    // would make it uninteractable, which no amount of tactical intent
+    // justifies.
+    const occupant = world.entityAt(x, y);
+    if (occupant && (!thrown || occupant.isHazardImmune())) continue;
+    if (thrown) {
+      // Registers a burn timer — thrown fire always goes out.
+      world.applyTileEffect(x, y, TILE.HAZARD, INCENDIARY_BURN_TURNS);
+    } else {
+      // Raw setTile: generated hazard is permanent scenery, so it deliberately
+      // gets no timer and never appears in the tile-effect registry.
+      world.grid.setTile(x, y, TILE.HAZARD);
+    }
+    ignited.push({ x, y });
     placed++;
   }
-  return placed;
+  if (!thrown) return { placed, casualties: [] };
+  return { placed, casualties: burnEntitiesOn(world, ignited, options.attacker ?? null) };
+}
+
+/**
+ * Apply the incendiary's one-off impact damage to everything standing on a
+ * freshly-lit tile. Mirrors `breachBlast`: route through `Entity.damage()` so
+ * shields apply, and emit `ENTITY_DAMAGED` so Run's death-detection listener
+ * resolves kills through the normal path.
+ */
+function burnEntitiesOn(
+  world: World,
+  ignited: readonly GridPoint[],
+  attacker: Entity | null
+): { entity: Entity; damage: number; killed: boolean }[] {
+  const lit = new Set(ignited.map(p => `${p.x},${p.y}`));
+  const casualties: { entity: Entity; damage: number; killed: boolean }[] = [];
+  for (const entity of world.entities.values()) {
+    if (!entity.alive) continue;
+    if (entity.isHazardImmune()) continue;
+    if (!lit.has(`${entity.x},${entity.y}`)) continue;
+    const damage = entity.damage(INCENDIARY_IMPACT_DAMAGE);
+    const killed = !entity.alive;
+    casualties.push({ entity, damage, killed });
+    world.events?.emit(EVENT.ENTITY_DAMAGED, {
+      attacker,
+      target: entity,
+      damage,
+      killed,
+      source: 'incendiary',
+    });
+  }
+  return casualties;
 }
 
 function manhattan(a: GridPoint, b: GridPoint): number {

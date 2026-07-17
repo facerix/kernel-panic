@@ -8,10 +8,11 @@ import { ConsumablePickup, CONSUMABLE_PICKUP_GLYPH } from './entities/Consumable
 import { BreachingCharge } from './entities/BreachingCharge.js';
 import { KeyCard } from './entities/KeyCard.js';
 import { totalSalvage } from './salvage.js';
+import { coordKey } from './mapConnectivity.js';
 import type { Grid } from './Grid.js';
 import type { Entity, LootableEntity } from './Entity.js';
 import type { EventBus } from './events.js';
-import type { TileDelta } from '../types.js';
+import type { GridPoint, TileDelta } from '../types.js';
 import { nudgeIfOccupied } from './placement.js';
 
 /**
@@ -36,6 +37,18 @@ export type DoorUnlockPayload = {
 
 export type WorldOptions = {
   events?: EventBus | null;
+};
+
+/**
+ * One timed tile effect: the tile it placed, how many rounds it has left, and
+ * the tile to put back when it ends. Snapshot/restore shape.
+ */
+export type TileEffectEntry = {
+  x: number;
+  y: number;
+  tile: TileId;
+  turnsLeft: number;
+  restoreTo: TileId;
 };
 
 export const ALARM_PHASE = Object.freeze({
@@ -75,6 +88,24 @@ export class World {
   mutationDeltas: TileDelta[];
   #breachingChargeSeq: number;
 
+  /**
+   * Timed tile effects: `"x,y"` → what's on the tile, how long it lasts, and
+   * what to put back. Thrown fire and smoke clouds both live here;
+   * `tickTileEffects` ages them at the round boundary.
+   *
+   * Map-generated hazard (the "gassed clinic" contract flavor) is permanent
+   * scenery and is deliberately never registered — a contaminated site stays
+   * contaminated for the whole run.
+   *
+   * This lives on World rather than in the shell on purpose. Smoke used to keep
+   * its lifetime in `shellRuntime.activeSmokeOverlays`, which was *not*
+   * persisted while `grid.tiles` *is* — so a mid-mission autosave/reload
+   * stranded smoke tiles on the grid permanently, with no overlay left to clear
+   * them. Effect lifetimes belong with the state they mutate, and ride the run
+   * snapshot with it.
+   */
+  #tileEffects: Map<string, { tile: TileId; turnsLeft: number; restoreTo: TileId }>;
+
   /** Tunable alarm cadence. `alarmActive` remains as the legacy alert-phase view. */
   alarm: AlarmState;
 
@@ -86,6 +117,7 @@ export class World {
     this.securedPickups = new Set();
     this.mutationDeltas = [];
     this.#breachingChargeSeq = 0;
+    this.#tileEffects = new Map();
     this.alarm = quietAlarm();
   }
 
@@ -280,6 +312,127 @@ export class World {
     const charge = new BreachingCharge({ id, x, y });
     this.addEntity(charge);
     return charge;
+  }
+
+  /**
+   * Temporarily override a tile, restoring whatever was underneath when the
+   * timer runs out. This is the one mechanism behind every timed tile effect —
+   * thrown fire (`TILE.HAZARD`, `INCENDIARY_BURN_TURNS`) and smoke clouds
+   * (`TILE.SMOKE`, `SMOKE_DURATION`) are both just entries in this registry.
+   *
+   * The restore target is **read off the grid here**, never passed in. A caller
+   * forced to supply it can get it wrong, and the failure is silent map
+   * corruption: pass FLOOR for a cloud drifting over the EXIT tile and the exit
+   * quietly ceases to exist for the rest of the run. Capturing it at the moment
+   * of the mutation makes that unrepresentable.
+   *
+   * Re-applying to a tile that already carries an effect refreshes it in place
+   * and **keeps the original restore target**, so terrain can never be lost to a
+   * chain of effects — a second molotov on a burning tile still reverts to
+   * FLOOR, not to HAZARD. Last effect wins; what lies underneath is remembered
+   * exactly once.
+   *
+   * Application is unconditional: callers own the "what may be overridden" rules
+   * (`placeHazardCluster` skips walls and props, `placeSmoke` takes only
+   * FLOOR/EXIT). What this guarantees is that an overridden tile is *always*
+   * registered — no effect can be applied without also being scheduled to end.
+   */
+  applyTileEffect(x: number, y: number, tile: TileId, turns: number): void {
+    if (!Number.isInteger(x) || !Number.isInteger(y)) {
+      throw new TypeError(`World.applyTileEffect requires integer x,y; got (${x}, ${y})`);
+    }
+    if (!this.grid.inBounds(x, y)) {
+      throw new RangeError(`World.applyTileEffect: (${x}, ${y}) out of grid bounds`);
+    }
+    if (!Number.isInteger(turns) || turns < 1) {
+      throw new RangeError(`World.applyTileEffect requires turns >= 1, got ${turns}`);
+    }
+    const key = coordKey(x, y);
+    const existing = this.#tileEffects.get(key);
+    const restoreTo = existing ? existing.restoreTo : (this.grid.tileAt(x, y) as TileId);
+    if (tile === restoreTo) {
+      throw new RangeError(
+        `World.applyTileEffect: (${x}, ${y}) effect tile ${tile} is already the tile underneath — ` +
+          `the effect would be invisible and its expiry a no-op`
+      );
+    }
+    this.grid.setTile(x, y, tile);
+    this.#tileEffects.set(key, { tile, turnsLeft: turns, restoreTo });
+  }
+
+  /**
+   * Age every timed tile effect by one round and revert the spent ones.
+   *
+   * Driven once per round by `advanceFromPlayerTurn` at the CORP→PLAYER handoff
+   * — the true round boundary, and the one point both the shell and the debug
+   * harness share. Smoke placed on your turn therefore survives the corp turn it
+   * was thrown to blind (its entire purpose) and is gone before you act again.
+   *
+   * A tile that has since become something else (rubble from a breach, say) is
+   * dropped from the registry without being reverted — an expiring effect must
+   * never clobber a newer mutation.
+   *
+   * @returns the tiles whose effects ended this round.
+   */
+  tickTileEffects(): GridPoint[] {
+    const expired: GridPoint[] = [];
+    // Safe to mutate while iterating: we only ever delete the current key or
+    // overwrite an existing one, neither of which perturbs a Map's iteration.
+    for (const [key, effect] of this.#tileEffects) {
+      const [xs, ys] = key.split(',');
+      const x = Number(xs);
+      const y = Number(ys);
+      if (this.grid.tileAt(x, y) !== effect.tile) {
+        this.#tileEffects.delete(key);
+        continue;
+      }
+      const remaining = effect.turnsLeft - 1;
+      if (remaining > 0) {
+        this.#tileEffects.set(key, { ...effect, turnsLeft: remaining });
+        continue;
+      }
+      this.grid.setTile(x, y, effect.restoreTo);
+      this.#tileEffects.delete(key);
+      expired.push({ x, y });
+    }
+    return expired;
+  }
+
+  /** Live timed tile effects, for the run snapshot. Empty when none are active. */
+  tileEffectsSnapshot(): TileEffectEntry[] {
+    return [...this.#tileEffects].map(([key, effect]) => {
+      const [xs, ys] = key.split(',');
+      return {
+        x: Number(xs),
+        y: Number(ys),
+        tile: effect.tile,
+        turnsLeft: effect.turnsLeft,
+        restoreTo: effect.restoreTo,
+      };
+    });
+  }
+
+  /**
+   * Rehydrate timed tile effects from a snapshot. Entries whose tile no longer
+   * matches what the effect claims to have placed are dropped — the grid is the
+   * source of truth for what is actually on the map.
+   */
+  restoreTileEffects(entries: readonly TileEffectEntry[]): void {
+    this.#tileEffects.clear();
+    for (const { x, y, tile, turnsLeft, restoreTo } of entries) {
+      if (!Number.isInteger(x) || !Number.isInteger(y)) {
+        throw new TypeError(
+          `World.restoreTileEffects: entry requires integer x,y; got (${x}, ${y})`
+        );
+      }
+      if (!Number.isInteger(turnsLeft) || turnsLeft < 1) {
+        throw new RangeError(
+          `World.restoreTileEffects: entry (${x}, ${y}) requires turnsLeft >= 1, got ${turnsLeft}`
+        );
+      }
+      if (!this.grid.inBounds(x, y) || this.grid.tileAt(x, y) !== tile) continue;
+      this.#tileEffects.set(coordKey(x, y), { tile, turnsLeft, restoreTo });
+    }
   }
 
   recordSecuredPickup(id: string): void {
