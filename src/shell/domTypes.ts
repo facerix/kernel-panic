@@ -174,6 +174,20 @@ export type RazorCloakedPayload = {
   actor?: import('../game/Entity.js').Entity;
 };
 
+/**
+ * `EVENT.HAZARD_DAMAGE` — a body taking its per-round standing tick on a HAZARD
+ * tile (P3.6 wired this to the ember burst). Carries `x`/`y` alongside the
+ * entity because the emitter reads them at tick time; the listener uses the
+ * entity's own position, which is the same tile.
+ */
+export type HazardDamagePayload = {
+  entity?: import('../game/Entity.js').Entity;
+  damage?: number;
+  killed?: boolean;
+  x?: number;
+  y?: number;
+};
+
 export type ShellDomRefs = {
   stageEl: HTMLElement;
   pipCanvas: HTMLCanvasElement;

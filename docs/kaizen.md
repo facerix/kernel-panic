@@ -48,6 +48,20 @@ When an item lands, gets reclassified, or develops new context, edit it in place
 
 ## ◇ Monitored
 
+- **No throw preview / reticle for the Molotov.** A thrown incendiary commits AP and the charge on
+  a single direction press with no indication of where the bottle will land or what it will hit.
+  This bites hardest since P3.6 made your own crew backstops (a crewmate on the ray eats the
+  bottle — intended and tested, but a body clustered in front of you now silently shortens the
+  throw). A trajectory/impact preview at aim time — highlight the resolved impact tile and flag a
+  friendly interceptor before commit — would make both the range and the friendly-fire rule
+  legible. `resolveIncendiaryImpact` is pure over grid + entity state and already returns the
+  impact point, so a preview is a render pass over its result, not new geometry. **Note:** an
+  earlier `IncendiaryImpact.steps` field was carried speculatively for exactly this and pulled in
+  P3.6 (unused, untested) — re-add it *with* its consumer and a test if the preview needs travel
+  distance. **Revisit trigger:** first playtest complaint about a throw that "went nowhere" or
+  burned a teammate, or when a second thrown item lands (shares the reticle work). Pairs naturally
+  with the fixed-`INCENDIARY_THROW_DIST` item below.
+
 - **Generated hazard and thrown fire are visually identical but behave differently.** Both
   render as `▓`, but a map-generated pool is permanent scenery while a thrown molotov burns
   out after `INCENDIARY_BURN_TURNS`. A player has no way to tell which fire will still be
@@ -92,6 +106,25 @@ When an item lands, gets reclassified, or develops new context, edit it in place
   - **`LineOfSight` inline `` `${x},${y}` `` keys.** Could import `coordKey` from `mapConnectivity.js`; isolated, low drift risk at current scale.
 
 ## ✓ Closed
+
+- ~~**A body caught square on by a molotov takes no impact damage unless it's standing on FLOOR.**~~
+  Surfaced in P3.6 while adding ray-walked throws; closed the same phase. `placeHazardCluster`
+  stamped `TILE.FLOOR` only, and `burnEntitiesOn` only damages entities on tiles it actually
+  ignited — so a drone on `RUBBLE` or in an existing `HAZARD` pool intercepted the bottle, was
+  reported as the impact point, and took zero `INCENDIARY_IMPACT_DAMAGE` because its own tile
+  refused to light: "Caught X square on. 0 caught." in one flash. **Fix:** thrown fire now takes
+  any ground fire can hold via a shared `thrownFireCanTake(tile)` predicate (constants.ts) — the
+  single source of truth for both `incendiary.ts`'s `canHoldFire` (where the ray centres) and
+  `placeHazardCluster`'s thrown branch (where fire stamps), so the two cannot drift into the
+  silent "used the charge, got nothing" bug. Whitelist is `FLOOR | RUBBLE | HAZARD`; `EXIT` stays
+  unburnable (extraction tile) and generated scenery (`thrown: false`) stays FLOOR-only. An
+  already-burning tile is left as-is rather than re-stamped (`applyTileEffect` refuses an effect
+  equal to the tile underneath, which would crash on permanent hazard scenery) but is still counted
+  so a body in the pool takes the impact. The one residual — a body parked on `EXIT` takes no
+  impact damage because that tile must never burn — no longer lies: the shell only prints "square
+  on" when the struck body is an actual casualty. Tests: `hazard.test.ts` (RUBBLE/HAZARD impact +
+  RUBBLE burnout-restore + EXIT spare), `incendiary.test.ts` (rubble/exit centring, re-centre on
+  burning tile, open-doorway catch).
 
 - ~~**Smoke tiles survive a mid-mission save as permanent LOS blockers.**~~ Surfaced and closed
   in P3.6 while fixing the Molotov. `placeSmoke` stamped `TILE.SMOKE` onto the grid and handed

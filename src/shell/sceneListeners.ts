@@ -3,6 +3,7 @@ import { EVENT, alarmPayloadTriggersRepPenalty } from '../game/events.js';
 import { resolveEntityLabel } from '../game/Entity.js';
 import {
   ANIMATION_DURATIONS,
+  runBurnFlash,
   runMuzzleFlash,
   triggerCrashFlash,
   triggerDamageFlash,
@@ -19,6 +20,7 @@ import { isRun } from './sceneView.js';
 import type {
   DoorUnlockPayload,
   EntityDamagedPayload,
+  HazardDamagePayload,
   MindInfluencedPayload,
   NoisePayload,
   RazorCloakedPayload,
@@ -153,6 +155,17 @@ export class SceneListenerController {
             );
           }
         }
+        // A molotov's ignition tick (P3.6). The per-round standing tick is the
+        // HAZARD_DAMAGE listener below; both are contact with fire, so they
+        // share one ember burst. Deliberately not folded into the branch above
+        // — that one is keyed on `damage > 0`, and a body whose shield eats the
+        // whole ignition is still visibly on fire.
+        if (source === 'incendiary' && target) {
+          const flashRenderer = meatInPip ? renderers.pip : renderers.main;
+          const repaint = meatInPip ? effects.paintPip : effects.paint;
+          const fired = runBurnFlash(flashRenderer, repaint, target.x, target.y, target.glyph);
+          if (fired) animLock.push(ANIMATION_DURATIONS.BURN_FLASH);
+        }
         if (killed && target && !forcedBodyJackOut) {
           this.#deps.memoriseMeatCorpse(target, (x, y) => meatVision.isVisible(x, y));
         }
@@ -167,6 +180,24 @@ export class SceneListenerController {
         const repaint = meatInPip ? effects.paintPip : effects.paint;
         const fired = runMuzzleFlash(flashRenderer, repaint, origin.x, origin.y);
         if (fired) animLock.push(ANIMATION_DURATIONS.MUZZLE_FLASH);
+      }),
+      run.bus.on(EVENT.HAZARD_DAMAGE, payload => {
+        // Ember burst on each body taking a standing tick in fire (P3.6). The
+        // event has carried x/y since hazards shipped but nothing listened, so
+        // burning was invisible unless it was happening to *you* (the
+        // ENTITY_DAMAGED handler's shake/vignette). Now every body that burns
+        // says so, on its own tile.
+        //
+        // Fires once per burning entity per round, so several can land in one
+        // aftermath. animLock takes the longest outstanding window rather than
+        // summing, so a crowded fire doesn't stack into a long input freeze.
+        const { entity } = (payload ?? {}) as HazardDamagePayload;
+        if (!entity) return;
+        const meatInPip = isCyberView(run);
+        const flashRenderer = meatInPip ? renderers.pip : renderers.main;
+        const repaint = meatInPip ? effects.paintPip : effects.paint;
+        const fired = runBurnFlash(flashRenderer, repaint, entity.x, entity.y, entity.glyph);
+        if (fired) animLock.push(ANIMATION_DURATIONS.BURN_FLASH);
       }),
       run.bus.on(EVENT.DOOR_UNLOCKED, payload => {
         const { label = 'Door' } = (payload ?? {}) as DoorUnlockPayload;

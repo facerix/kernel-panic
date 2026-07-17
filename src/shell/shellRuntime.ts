@@ -43,6 +43,7 @@ import { CrtFilter } from '/src/render/CrtFilter.js';
 import {
   ANIMATION_DURATIONS,
   createAnimationLock,
+  runIncendiaryImpactFlash,
   runInteractSecuredFlash,
   triggerHealFlash,
   triggerShake,
@@ -56,7 +57,7 @@ import { recordStatusActionLine } from '/src/statusActivityRows.js';
 import { placeSmoke } from '/src/game/Smoke.js';
 import { placeHazardCluster } from '/src/game/Run.js';
 import { blastCells } from '/src/game/breachBlast.js';
-import { hasLineOfSight } from '/src/game/LineOfSight.js';
+import { resolveIncendiaryImpact } from '/src/game/incendiary.js';
 import { ITEM_ID, SCOREABLE_ITEMS, getItemById } from '/src/game/items.js';
 import type { CampaignSnapshot } from '/src/game/persistence.js';
 import type { Contract } from '/src/game/hub/Curator.js';
@@ -1127,28 +1128,54 @@ function applyUseConsumableResult(
     return;
   }
   if (result.type === 'incendiary') {
-    const { cx, cy } = result as { cx: number; cy: number };
-    if (!Number.isInteger(cx) || !Number.isInteger(cy)) {
-      throw new Error('[shell] incendiary consumable returned invalid placement data');
+    const { dx, dy } = result as { dx: number; dy: number };
+    // Crew reports the aim; the ray is resolved here because it needs World
+    // (P3.6). Resolving it a second time after the pre-check in
+    // `resolveAimedUseItem` is deliberate and cheap: the function is pure over
+    // grid + entity state, `useConsumable` only touches the operator's AP and
+    // inventory in between, and both calls run in one synchronous tick — so
+    // they cannot disagree. Same shape as the breaching charge's
+    // `canPlaceBreachingCharge` → `placeBreachingCharge` pair.
+    const impact = resolveIncendiaryImpact(run.world, operator, { dx, dy }, INCENDIARY_THROW_DIST);
+    if (!impact) {
+      // Unreachable: the pre-check refuses this before any AP is spent. If it
+      // fires, the two call sites have drifted apart and the player has just
+      // silently eaten a charge — crash loud rather than swallow it.
+      throw new Error(
+        `[shell] incendiary resolved to no impact after the pre-check passed (aim ${dx},${dy})`
+      );
     }
-    // `placeHazardCluster` only stamps onto FLOOR tiles inside bounds — if
-    // the target is on/past the map edge or buried in a wall, the cluster
-    // simply finds zero candidates and stamps nothing. We've already paid
-    // AP and consumed the charge in Crew.useConsumable; the LOS pre-check
-    // in `resolveAimedUseItem` is what protects the player from "throw
-    // through a wall and lose your bomb."
-    const { placed, casualties } = placeHazardCluster(run.world, { x: cx, y: cy }, run.rng, {
+    // The impact tile is always FLOOR or a body standing on something, so the
+    // cluster has somewhere to take. `placed === 0` is still reachable — a body
+    // caught it while standing on rubble, or on the map edge with every
+    // neighbour a wall — so the dry-throw copy stays.
+    const { placed, casualties } = placeHazardCluster(run.world, impact, run.rng, {
       thrown: true,
       attacker: operator,
     });
+    // Ignition burst on the impact tile, before the fire is drawn under it.
+    // Fires whatever the throw hit, so a dry throw still reads as a throw.
+    const burst = runIncendiaryImpactFlash(renderer, paint, impact.x, impact.y);
+    if (burst) animLock.push(ANIMATION_DURATIONS.INCENDIARY_IMPACT_FLASH);
+    const caught = casualties.length;
+    const downed = casualties.filter(c => c.killed).length;
+    const hit = caught === 0 ? '' : ` ${caught} caught${downed > 0 ? `, ${downed} DOWN` : ''}.`;
     if (placed === 0) {
-      flash(`Used MOLOTOV — landed on hard cover; no fire took. ${operator.ap} AP left.`);
+      flash(`Used MOLOTOV — nothing there would take. ${operator.ap} AP left.`);
     } else {
-      const caught = casualties.length;
-      const downed = casualties.filter(c => c.killed).length;
-      const hit = caught === 0 ? '' : ` ${caught} caught${downed > 0 ? `, ${downed} DOWN` : ''}.`;
+      // Only claim "square on" when the body it hit actually burned. A body
+      // caught on the one unburnable-but-standable tile (EXIT) is the impact
+      // point yet takes no impact damage, so it is not in `casualties` — without
+      // this guard the flash would read "Caught X square on. 0 caught." and lie.
+      const struckBody =
+        impact.intercepted && casualties.some(c => c.entity === impact.intercepted)
+          ? impact.intercepted
+          : null;
+      const short = struckBody
+        ? ` Caught ${resolveEntityLabel(struckBody.id, run.world.entities)} square on.`
+        : '';
       flash(
-        `Used MOLOTOV — ${placed} tile${placed === 1 ? '' : 's'} ignited.${hit} ` +
+        `Used MOLOTOV — ${placed} tile${placed === 1 ? '' : 's'} ignited.${short}${hit} ` +
           `${operator.ap} AP left.`
       );
     }
@@ -1197,20 +1224,14 @@ function resolveAimedUseItem(aim: { dx: number; dy: number }, run: Run): void {
   }
   pendingAimItemId = null;
   if (itemId === ITEM_ID.MOLOTOV) {
-    // LOS-clear-target pre-check: the throw lands at
-    // `player + dir * INCENDIARY_THROW_DIST`. If LOS from the thrower to
-    // that tile is blocked (or the tile is out of bounds), refuse the
-    // throw *before* spending AP / consuming the bomb.
-    const cx = operator.x + aim.dx * INCENDIARY_THROW_DIST;
-    const cy = operator.y + aim.dy * INCENDIARY_THROW_DIST;
-    if (!run.world.grid.inBounds(cx, cy)) {
-      flash('USE FAILED: target is off the map.');
-      paint();
-      return;
-    }
-    const blockers = run.world.blockerKeys();
-    if (!hasLineOfSight(run.world.grid, operator.x, operator.y, cx, cy, { blockers })) {
-      flash('USE FAILED: target is behind cover.');
+    // P3.6: a molotov no longer refuses on geometry — it flies until something
+    // stops it and burns there, walls and cover included. The one case left
+    // with no answer is a ray that never crosses ground fire can take (facing
+    // an adjacent wall, or throwing off the map edge). Refuse that *before*
+    // `useConsumable` spends the AP and the charge; Rylee's call is that this
+    // stays a refusal rather than smashing the bottle at your own feet.
+    if (!resolveIncendiaryImpact(run.world, operator, aim, INCENDIARY_THROW_DIST)) {
+      flash('USE FAILED: no clear ground to throw at.');
       paint();
       return;
     }

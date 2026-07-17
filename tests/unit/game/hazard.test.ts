@@ -536,6 +536,64 @@ test('thrown incendiary damages each entity at most once', () => {
   assert.equal(drone.hp, 9 - INCENDIARY_IMPACT_DAMAGE, 'not damaged once per ignited tile');
 });
 
+// P3.6 widening: "caught square on" must actually burn on any tile fire can
+// take, not just FLOOR. Before this, a body on RUBBLE or in an existing fire
+// pool was reported as the impact centre yet took zero impact damage, because
+// its own tile refused to light — the "square on … 0 caught" lie.
+test('thrown incendiary ignites RUBBLE under a body and deals impact damage', () => {
+  const { world } = makeHazardWorld(10, 10);
+  world.grid.setTile(5, 5, TILE.RUBBLE);
+  const drone = makeEntity('drone-0', 5, 5, FACTION.CORP, 3);
+  world.addEntity(drone);
+
+  const result = placeHazardCluster(world, { x: 5, y: 5 }, new Rng(42), { thrown: true });
+
+  assert.equal(world.grid.tileAt(5, 5), TILE.HAZARD, 'rubble under the body lights');
+  assert.equal(drone.hp, 3 - INCENDIARY_IMPACT_DAMAGE, 'caught square on for real, not for nothing');
+  assert.equal(result.casualties.length, 1);
+});
+
+test('thrown fire on RUBBLE reverts to RUBBLE after burnout, not FLOOR', () => {
+  const { world } = makeHazardWorld(10, 10);
+  world.grid.setTile(5, 5, TILE.RUBBLE);
+  placeHazardCluster(world, { x: 5, y: 5 }, new Rng(42), { thrown: true });
+  assert.equal(world.grid.tileAt(5, 5), TILE.HAZARD, 'ignites the rubble');
+
+  for (let i = 0; i < INCENDIARY_BURN_TURNS; i++) advanceRound(world);
+
+  // The tile-effect registry reads the tile underneath, so widening ignition
+  // must not erase terrain: rubble comes back, not FLOOR.
+  assert.equal(world.grid.tileAt(5, 5), TILE.RUBBLE, 'terrain underneath preserved');
+});
+
+test('thrown incendiary catches a body standing in an existing fire pool', () => {
+  const { world } = makeHazardWorld(10, 10);
+  world.grid.setTile(5, 5, TILE.HAZARD);
+  const drone = makeEntity('drone-0', 5, 5, FACTION.CORP, 3);
+  world.addEntity(drone);
+
+  const result = placeHazardCluster(world, { x: 5, y: 5 }, new Rng(42), { thrown: true });
+
+  assert.equal(drone.hp, 3 - INCENDIARY_IMPACT_DAMAGE, 'a body in a fire pool takes the impact hit');
+  assert.equal(result.casualties.length, 1);
+});
+
+test('thrown incendiary spares an EXIT tile even under a body — extraction stays unburnable', () => {
+  const { world } = makeHazardWorld(10, 10);
+  world.grid.setTile(5, 5, TILE.EXIT);
+  const drone = makeEntity('drone-0', 5, 5, FACTION.CORP, 3);
+  world.addEntity(drone);
+
+  const result = placeHazardCluster(world, { x: 5, y: 5 }, new Rng(42), { thrown: true });
+
+  // Hard constraint: burning the extraction tile would make it uninteractable.
+  // Accepted residual — a body parked exactly on the EXIT takes no impact damage
+  // — which is why the shell only claims "square on" when the body is a casualty.
+  assert.equal(world.grid.tileAt(5, 5), TILE.EXIT, 'EXIT never burns, body or not');
+  assert.equal(drone.hp, 3, 'a body on the EXIT takes no impact damage');
+  assert.equal(result.casualties.length, 0);
+});
+
 // ---------------------------------------------------------------------------
 // Thrown incendiary: burnout
 // ---------------------------------------------------------------------------

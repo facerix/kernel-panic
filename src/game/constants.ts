@@ -412,6 +412,31 @@ export function moveStepApCost(destTile: TileId): number {
 }
 
 /**
+ * Which tiles a *thrown* incendiary can take fire on (P3.6). The single source
+ * of truth shared by `incendiary.ts`'s `canHoldFire` (where the bottle is
+ * allowed to centre) and `placeHazardCluster`'s thrown branch (where fire is
+ * actually stamped). These two MUST agree tile-for-tile: if the ray centres on
+ * a tile the cluster then refuses to light, you get the silent "used the charge,
+ * got nothing" bug the ray-walk exists to prevent — so they call this, not two
+ * hand-synced predicates.
+ *
+ * FLOOR and RUBBLE are open ground fire takes; HAZARD is already burning (a
+ * re-throw refreshes it and, crucially, catches a body standing in the pool).
+ * EXIT is deliberately excluded — burning the extraction tile would make it
+ * uninteractable — as are WALL/COVER (not passable ground) and SMOKE (transient
+ * and not something fire pools on). The tile-effect registry reads the tile
+ * underneath before stamping, so lighting RUBBLE or HAZARD reverts to the right
+ * terrain on burnout; this predicate never has to worry about restoration.
+ *
+ * Generated hazard scenery (`placeHazardCluster` with `thrown: false`) does NOT
+ * use this — it stays FLOOR-only so map generation can't spread permanent fire
+ * across rubble or bury an objective.
+ */
+export function thrownFireCanTake(tile: TileId): boolean {
+  return tile === TILE.FLOOR || tile === TILE.RUBBLE || tile === TILE.HAZARD;
+}
+
+/**
  * Corp turret parameters. Stationary CORP-faction hostile that fires at
  * PLAYER entities during the corp turn. Range matches the player turret
  * (TURRET_RANGE) so the threat is symmetric; damage matches {@link TURRET_DAMAGE}.
@@ -473,11 +498,13 @@ export const EMP_RADIUS = SMOKE_RADIUS;
 export const EMP_STUN_DURATION = 1;
 /**
  * Incendiary bomb: thrown along an aim direction (dx, dy) selected via
- * `MODE.AIM` with `aimKind: 'use-item'`. The target tile is `thrower + dir *
- * INCENDIARY_THROW_DIST`; LOS from thrower → target must be clear (no lobbing
- * through walls). Hazard cluster shape and size come from `placeHazardCluster`
- * (5–9 tile diamond/cross of `TILE.HAZARD`). Damage per standing tick:
- * `HAZARD_DAMAGE`.
+ * `MODE.AIM` with `aimKind: 'use-item'`. This is the bottle's *maximum* carry,
+ * not its landing tile — `resolveIncendiaryImpact` (incendiary.ts) walks the
+ * ray and detonates on the first thing that stops it, so a body in the way is
+ * hit at 1 or 2 steps instead of being flown past. Walls stop the bottle
+ * (it lands short); cover is lobbed over. Hazard cluster shape and size come
+ * from `placeHazardCluster` (5–9 tile diamond/cross of `TILE.HAZARD`), centred
+ * on the impact. Damage per standing tick: `HAZARD_DAMAGE`.
  */
 export const INCENDIARY_THROW_DIST = 3;
 /**

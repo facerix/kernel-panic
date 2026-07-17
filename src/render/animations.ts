@@ -31,7 +31,14 @@
 
 import type { AsciiRenderer } from './AsciiRenderer.js';
 import { COMBAT_HUD_COLORS } from './combatHud.js';
-import { CRASH_FLASH_FG, HEAL_FLASH_FG, STUNNED_FG, SURGE_FLASH_FG } from './palette.js';
+import {
+  BURN_FLASH_FG,
+  CRASH_FLASH_FG,
+  HEAL_FLASH_FG,
+  INCENDIARY_IMPACT_FG,
+  STUNNED_FG,
+  SURGE_FLASH_FG,
+} from './palette.js';
 
 export const ANIMATION_DURATIONS = Object.freeze({
   SHAKE: 150,
@@ -76,6 +83,20 @@ export const ANIMATION_DURATIONS = Object.freeze({
    * you," short enough to stay a subtle self-cue, not a screen-wide event.
    */
   CLOAK_FLASH: 160,
+  /**
+   * Ignition burst on a thrown molotov's impact tile (P3.6). Longer than the
+   * muzzle flash — a bottle breaking is a heavier beat than a gunshot, and the
+   * burst has to register *before* the eye settles on the fire it leaves
+   * behind. Matched to MIND_INFLUENCE_FLASH rather than the 120ms impacts.
+   */
+  INCENDIARY_IMPACT_FLASH: 200,
+  /**
+   * Ember burst on a body taking fire damage (P3.6) — the ignition tick and
+   * every standing tick after. Shorter than the impact burst: this one can
+   * fire several times in a round (one per burning entity), so it stays brief
+   * enough not to hold the input lock open across a crowded aftermath.
+   */
+  BURN_FLASH: 140,
 });
 
 export const SHAKE_CLASS = 'kp-shake';
@@ -322,5 +343,63 @@ export function runInteractSecuredFlash(
     timers,
     char: glyphChar,
     color,
+  });
+}
+
+type RunFireFlashOptions = {
+  duration?: number;
+  timers?: typeof defaultTimers;
+};
+
+/**
+ * Ignition burst where a thrown molotov breaks (P3.6). Fires on the impact tile
+ * whatever landed there — a body, bare floor, or the ground short of a wall —
+ * so a throw always has a visible beat even when it catches nobody.
+ *
+ * `*` rather than the HAZARD tile's own `▓`: the fire cluster is stamped onto
+ * this cell in the same frame, so reusing its glyph would make the burst
+ * invisible. The star reads as the bottle shattering, then resolves into fire.
+ */
+export function runIncendiaryImpactFlash(
+  renderer: AsciiRenderer,
+  repaint: () => void,
+  worldX: number,
+  worldY: number,
+  options: RunFireFlashOptions = {}
+) {
+  const { duration = ANIMATION_DURATIONS.INCENDIARY_IMPACT_FLASH, timers = defaultTimers } =
+    options;
+  return runMuzzleFlash(renderer, repaint, worldX, worldY, {
+    duration,
+    timers,
+    char: '*',
+    color: INCENDIARY_IMPACT_FG,
+  });
+}
+
+/**
+ * Ember burst on a body being eaten by fire (P3.6) — the molotov's ignition
+ * tick and every standing tick on a HAZARD tile after it.
+ *
+ * Paints the entity's *own* glyph tinted ember, the `MIND_INFLUENCED` /
+ * `RAZOR_CLOAKED` shape: this is something happening to a body, and the player
+ * needs to read *which* body at a glance when three drones are burning at once.
+ * Overpainting with a fire glyph would erase exactly that information — and the
+ * tile underneath is already drawn as fire anyway.
+ */
+export function runBurnFlash(
+  renderer: AsciiRenderer,
+  repaint: () => void,
+  worldX: number,
+  worldY: number,
+  glyphChar: string,
+  options: RunFireFlashOptions = {}
+) {
+  const { duration = ANIMATION_DURATIONS.BURN_FLASH, timers = defaultTimers } = options;
+  return runMuzzleFlash(renderer, repaint, worldX, worldY, {
+    duration,
+    timers,
+    char: glyphChar,
+    color: BURN_FLASH_FG,
   });
 }

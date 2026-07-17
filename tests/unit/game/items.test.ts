@@ -8,7 +8,6 @@ import {
   TILE,
   STIM_HEAL,
   SMOKE_RADIUS,
-  INCENDIARY_THROW_DIST,
   BREACHING_CHARGE_RANGE,
   TARGETING_BONUS,
   DODGE_BONUS,
@@ -354,13 +353,22 @@ test('useConsumable(SMOKE_CHARGE) returns smoke descriptor', () => {
 // Crew.useConsumable — Incendiary
 // ---------------------------------------------------------------------------
 
-test('useConsumable(MOLOTOV) returns thrown hazard descriptor', () => {
+test('useConsumable(MOLOTOV) reports the aim, not a landing tile', () => {
+  // P3.6: the bottle flies until something stops it, so the impact depends on
+  // grid + entity state Crew has no reference to. Crew must hand back the aim
+  // and let the shell resolve the ray (`resolveIncendiaryImpact`) — a
+  // `thrower + dir * DIST` centre here would be wrong the moment a drone, a
+  // wall, or the map edge is in the way. See incendiary.test.ts for the ray.
   const crew = new Merc({ id: 'merc', x: 3, y: 3, maxAp: 4 });
   crew.addConsumable(ITEM_ID.MOLOTOV);
   const result = crew.useConsumable(ITEM_ID.MOLOTOV, { dx: 1, dy: 0 });
   assert.equal(result.type, 'incendiary');
-  assert.equal(result.cx, 3 + INCENDIARY_THROW_DIST);
-  assert.equal(result.cy, 3);
+  assert.deepEqual({ dx: result.dx, dy: result.dy }, { dx: 1, dy: 0 });
+  assert.equal(
+    'cx' in result,
+    false,
+    'a precomputed centre would be a guess the shell then has to ignore'
+  );
   assert.equal(crew.inventory.consumables.length, 0);
 });
 

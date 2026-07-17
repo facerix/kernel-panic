@@ -45,6 +45,7 @@ import {
   JACK_OUT_SHOCK_DAMAGE,
   INCENDIARY_BURN_TURNS,
   INCENDIARY_IMPACT_DAMAGE,
+  thrownFireCanTake,
   factionForPrincipalGroups,
   STATUS_EFFECT,
 } from './constants.js';
@@ -120,7 +121,7 @@ import { buildMap } from './procgen/mapBuild.js';
 import { normalizeMapDimensions } from './procgen/mapDimensions.js';
 import { findPath } from './Pathfinding.js';
 import type { Contract } from './hub/Curator.js';
-import type { FactionId } from './constants.js';
+import type { FactionId, TileId } from './constants.js';
 import type { GridPoint, KeyItem, TileDelta, EntitySnapshotExtra } from '../types.js';
 import type { CrewSnapshot } from './Crew.js';
 import type { TechSnapshot } from './archetypes/Tech.js';
@@ -3512,7 +3513,12 @@ export function placeHazardCluster(
   const ignited: GridPoint[] = [];
   for (const { x, y } of candidates) {
     if (!world.grid.inBounds(x, y)) continue;
-    if (world.grid.tileAt(x, y) !== TILE.FLOOR) continue;
+    const tile = world.grid.tileAt(x, y) as TileId;
+    // Generated scenery stamps FLOOR only; a thrown bottle takes any ground
+    // fire can hold (FLOOR/RUBBLE/HAZARD — the shared `thrownFireCanTake`, which
+    // `incendiary.ts` also centres on so the two can't drift). EXIT and the rest
+    // are excluded so the extraction tile can never be buried in fire.
+    if (thrown ? !thrownFireCanTake(tile) : tile !== TILE.FLOOR) continue;
     // Scenery spares anyone standing there; a thrown bomb only spares props
     // that can't burn anyway (terminals, pickups, sync pads — everything that
     // overrides `isHazardImmune`). Burying an objective in permanent fire
@@ -3521,8 +3527,16 @@ export function placeHazardCluster(
     const occupant = world.entityAt(x, y);
     if (occupant && (!thrown || occupant.isHazardImmune())) continue;
     if (thrown) {
-      // Registers a burn timer — thrown fire always goes out.
-      world.applyTileEffect(x, y, TILE.HAZARD, INCENDIARY_BURN_TURNS);
+      // A tile already ablaze stays as-is: re-stamping HAZARD would throw on
+      // permanent hazard scenery (`applyTileEffect` refuses an effect equal to
+      // the tile underneath) and only redundantly refresh timed fire. We still
+      // push it to `ignited` below, so a body caught standing in an existing
+      // pool takes the impact hit rather than just the next standing tick.
+      if (tile !== TILE.HAZARD) {
+        // Registers a burn timer — thrown fire always goes out, reverting to
+        // whatever ground (FLOOR or RUBBLE) the registry recorded underneath.
+        world.applyTileEffect(x, y, TILE.HAZARD, INCENDIARY_BURN_TURNS);
+      }
     } else {
       // Raw setTile: generated hazard is permanent scenery, so it deliberately
       // gets no timer and never appears in the tile-effect registry.
