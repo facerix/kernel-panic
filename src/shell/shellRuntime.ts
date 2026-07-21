@@ -11,6 +11,11 @@ import type {
 import { Campaign, CAMPAIGN_STATE, willEndCampaignAfterResult } from '/src/game/Campaign.js';
 import { buildCampaignSummary } from '/src/game/campaignSummary.js';
 import { totalSalvage, formatSalvageCompact } from '/src/game/salvage.js';
+import {
+  collectConsumablePickup,
+  collectKeycardPickup,
+  collectCorpseSalvage,
+} from '/src/game/lootCollection.js';
 import { RUN_STATE, Run } from '/src/game/Run.js';
 import { restoreCampaign, snapshotCampaign } from '/src/game/persistence.js';
 import { runCorpTurn as driveCorpTurn } from '/src/game/corpTurnDriver.js';
@@ -115,6 +120,8 @@ import {
   stateLabelForSceneState,
 } from '/src/shell/statusLine.js';
 import { applyMeatSeenRecord, syncVisionFields } from '/src/shell/visionSync.js';
+import { audioManager } from '/src/audio/soundBoard.js';
+import { EXTRACTION_MOTIF, TRANSACTION_MOTIF } from '/src/audio/sounds.js';
 import type {
   ChronicleArchiveElement,
   ClinicModalElement,
@@ -133,6 +140,7 @@ import type {
   KeyHelpElement,
   KeyItemView,
   RunBriefingElement,
+  SettingsModalElement,
   SystemStartElement,
   TouchPadElement,
   UpdateNotificationElement,
@@ -206,6 +214,7 @@ let touchPadEl: TouchPadElement;
 let crewRosterEl: CrewRosterElement;
 let finnShopEl: FinnShopElement;
 let clinicModalEl: ClinicModalElement;
+let settingsModalEl: SettingsModalElement;
 let combatInventoryEl: CombatInventoryElement;
 let crewInventoryEl: CrewInventoryElement;
 let chronicleArchiveEl: ChronicleArchiveElement;
@@ -394,6 +403,7 @@ export async function boot() {
   crewRosterEl = mustGetElement<CrewRosterElement>('crew-roster');
   finnShopEl = mustGetElement<FinnShopElement>('finn-shop');
   clinicModalEl = mustGetElement<ClinicModalElement>('clinic-modal');
+  settingsModalEl = mustGetElement<SettingsModalElement>('settings-modal');
   combatInventoryEl = mustGetElement<CombatInventoryElement>('combat-inventory');
   crewInventoryEl = mustGetElement<CrewInventoryElement>('crew-inventory');
   chronicleArchiveEl = mustGetElement<ChronicleArchiveElement>('chronicle-archive');
@@ -429,6 +439,17 @@ export async function boot() {
   // panel is open keeps both behaviours clean.
   window.addEventListener('keydown', handleGlobalKey, true);
 
+  // Web Audio can't produce sound until a context is created/resumed after a
+  // user gesture. Resume on the first keydown or pointerdown, then unsubscribe —
+  // this covers every entry path (new campaign, resume, keyboard-only, touch).
+  const resumeAudio = () => {
+    audioManager.resume();
+    window.removeEventListener('keydown', resumeAudio, true);
+    window.removeEventListener('pointerdown', resumeAudio, true);
+  };
+  window.addEventListener('keydown', resumeAudio, true);
+  window.addEventListener('pointerdown', resumeAudio, true);
+
   contractSelectEl.addEventListener('contract-selected', onContractSelected);
   contractSelectEl.addEventListener('dismiss', () => contractSelectEl.hide());
   briefingEl.addEventListener('deploy', onBriefingDeploy);
@@ -450,12 +471,19 @@ export async function boot() {
   clinicModalEl.addEventListener('heal', onClinicHeal);
   clinicModalEl.addEventListener('dismiss', onClinicDismiss);
 
+  settingsModalEl.addEventListener('dismiss', () => settingsModalEl.hide());
+
   combatInventoryEl.addEventListener('use-item', onUseItem);
   combatInventoryEl.addEventListener('dismiss', () => combatInventoryEl.hide());
   crewInventoryEl.addEventListener('dismiss', () => crewInventoryEl.hide());
   chronicleArchiveEl.addEventListener('dismiss', () => chronicleArchiveEl.hide());
 
   keyHelpEl.addEventListener('dismiss', () => keyHelpEl.hide());
+
+  const settingsToggleEl = document.getElementById('settings-toggle');
+  if (settingsToggleEl) {
+    settingsToggleEl.addEventListener('click', () => toggleSettingsModal());
+  }
 
   const keyHelpToggleEl = document.getElementById('key-help-toggle');
   if (keyHelpToggleEl) {
@@ -467,6 +495,39 @@ export async function boot() {
       tryShowKeyHelpOverlay();
     });
   }
+  // UI click feedback (P3.6): one observer plays `uiClick` whenever any of the
+  // interactive modals toggles its `open` attribute — open or close, however it
+  // was triggered (button, key, backdrop, Esc). Flow/state screens (crash,
+  // game-over, fault, system-start) and the native confirm <dialog> are
+  // excluded — they aren't user-toggled panels.
+  const uiClickModals: HTMLElement[] = [
+    contractSelectEl,
+    briefingEl,
+    crewRosterEl,
+    finnShopEl,
+    clinicModalEl,
+    settingsModalEl,
+    combatInventoryEl,
+    crewInventoryEl,
+    chronicleArchiveEl,
+    keyHelpEl,
+  ];
+  const modalOpenState = new WeakMap<HTMLElement, boolean>();
+  for (const el of uiClickModals) modalOpenState.set(el, el.hasAttribute('open'));
+  const uiClickObserver = new MutationObserver(records => {
+    for (const rec of records) {
+      const el = rec.target as HTMLElement;
+      const open = el.hasAttribute('open');
+      // Dedupe: a same-value setAttribute still queues a record.
+      if (modalOpenState.get(el) === open) continue;
+      modalOpenState.set(el, open);
+      audioManager.play(open ? 'modalOpen' : 'modalClosed');
+    }
+  });
+  for (const el of uiClickModals) {
+    uiClickObserver.observe(el, { attributes: true, attributeFilter: ['open'] });
+  }
+
   confirmationModalEl.addEventListener('confirm', evt => {
     const detail = (evt as CustomEvent<{ context?: string }>).detail;
     switch (detail?.context) {
@@ -933,6 +994,10 @@ function onClinicHeal(evt: Event) {
   }
   const label = member?.callsign ?? memberId;
   flash(`PATCH: ${label} patched up. CREDS ${campaign.credits}.`);
+  // Same `heal` cue as Stim and the Chimera's Nanite Repair — the hub has no
+  // Run/bus to route through, so this is a direct call like the rest of this
+  // function's effects.
+  audioManager.play('heal');
   presentClinic();
 }
 
@@ -955,6 +1020,9 @@ function onFinnPurchase(evt: Event) {
     return;
   }
   flash(`FINN: Purchased ${itemId}. CREDS ${campaign.credits}.`);
+  // Same `transaction` cha-ching for buy and sell — the hub has no Run/bus to
+  // route through, so this is a direct call like the Clinic's `heal` cue.
+  audioManager.playSequence('transaction', TRANSACTION_MOTIF);
   // Refresh the shop to reflect new balance and purchased meta upgrades.
   presentFinnShop();
 }
@@ -974,6 +1042,8 @@ function onFinnSellSalvage(evt: Event) {
     flash(`SALE FAILED: ${errorMessage(err)}`);
     return;
   }
+  // Same `transaction` cha-ching as onFinnPurchase (see comment there).
+  audioManager.playSequence('transaction', TRANSACTION_MOTIF);
   presentFinnShop();
 }
 
@@ -1107,11 +1177,13 @@ function applyUseConsumableResult(
     flash(
       `Used STIM — healed ${healed} HP (now ${operator.hp}/${operator.maxHp}). ${operator.ap} AP left.`
     );
-    // Same green heal pulse as the Chimera's Nanite Repair — shared "HP
-    // restored" beat, direct trigger since useConsumable doesn't route
-    // through the bus (see pulseSecuredInteractable for the same shape).
+    // Same green heal pulse — and the same `heal` cue — as the Chimera's
+    // Nanite Repair: shared "HP restored" beat, direct triggers since
+    // useConsumable doesn't route through the bus (see
+    // pulseSecuredInteractable for the same shape).
     triggerHealFlash(stageEl);
     animLock.push(ANIMATION_DURATIONS.HEAL_FLASH);
+    audioManager.play('heal');
     return;
   }
   if (result.type === 'smoke') {
@@ -1157,6 +1229,10 @@ function applyUseConsumableResult(
     // Fires whatever the throw hit, so a dry throw still reads as a throw.
     const burst = runIncendiaryImpactFlash(renderer, paint, impact.x, impact.y);
     if (burst) animLock.push(ANIMATION_DURATIONS.INCENDIARY_IMPACT_FLASH);
+    // The impact burst is unconditional (a throw reads as a throw), but the
+    // `fire` sound tracks actual ignition — a dry throw that takes nowhere stays
+    // silent rather than crackling with no fire on the ground.
+    if (placed > 0) audioManager.play('fire');
     const caught = casualties.length;
     const downed = casualties.filter(c => c.killed).length;
     const hit = caught === 0 ? '' : ` ${caught} caught${downed > 0 ? `, ${downed} DOWN` : ''}.`;
@@ -1365,6 +1441,15 @@ function pendingResultEndsCampaign(result: PendingJobResult): boolean {
 
 function handleResult({ outcome, telemetry }: RunResult) {
   if (degrading) return;
+  // The terminal sting, fired once on the live transition into RESULT (this is
+  // the onResult callback — the save-resume path calls pushPendingJobResultOverlay
+  // directly, so a reload never re-plays it). Death flatlines; a clean exit gets
+  // the rising extraction motif.
+  if (outcome === 'death') {
+    audioManager.play('flatline');
+  } else if (outcome === 'exit') {
+    audioManager.playSequence('extracted', EXTRACTION_MOTIF);
+  }
   pushPendingJobResultOverlay({
     ...telemetry,
     outcome: telemetry?.outcome ?? outcome,
@@ -1782,7 +1867,7 @@ export function handleIntent(intent: Intent): void {
         ...(kc.principalId ? { principalId: kc.principalId } : {}),
       });
     },
-    onSecuredInteract: handleSecuredInteract,
+    onSecuredInteract: (entity, opts) => handleSecuredInteract(run as Run, entity, opts),
     onPlayerAction: (actionName: string) => {
       switch (actionName) {
         case PLAYER_ACTIONS.INVENTORY:
@@ -1904,6 +1989,7 @@ function driveCombatTurnPipeline(run: Run, options: { resumeFromCorpSlice?: bool
         cyberLayer.world.entities.has(step.entity.id);
       if (step.type === 'breach-detonate' && !jacked) {
         showBreachBlastOverlay(step.charge.x, step.charge.y);
+        audioManager.play('explosion');
         if (scene?.player && vision.isVisible(step.charge.x, step.charge.y)) {
           triggerShake(stageEl);
           animLock.push(ANIMATION_DURATIONS.SHAKE);
@@ -2204,10 +2290,21 @@ function pulseSecuredInteractable(entity: Entity): boolean {
 }
 
 function handleSecuredInteract(
+  run: Run,
   entity: Interactable,
   { apExhausted }: { apExhausted: boolean }
 ): void {
   const fired = pulseSecuredInteractable(entity);
+  // Multi-step objectives (dual-site, escort) fire this on an interim beat —
+  // a sync pad touched or the escort contact linked — that doesn't finish the
+  // objective yet. `secured` is reserved for the full completion `paint()`
+  // detects below; here we play the smaller `checkpoint` cue instead, and
+  // only when this interaction didn't just complete the objective outright
+  // (single-target objectives resolve on this same interact, so they get
+  // `secured` alone via `paint()` — no `checkpoint` first).
+  if (fired && !run.isObjectiveSatisfied()) {
+    audioManager.play('checkpoint');
+  }
   if (!apExhausted) return;
   if (fired) {
     scheduleCombatPump(() => concludeOperatorTurn(), ANIMATION_DURATIONS.INTERACT_SECURED_FLASH);
@@ -2226,39 +2323,16 @@ function handleCombatInteract(): void {
   const world = activeWorldOf(run);
   const player = activeActorOf(run);
   if (!world || !player) throw new Error('[shell] combat interact requires an active world/actor');
-  // Corpse looting needs pockets — the avatar (no inventory) skips straight
-  // to interactables. ICE leaves no salvage in this slice.
+  // Field looting needs pockets — the avatar (no inventory) skips straight to
+  // interactables. ICE leaves no salvage in this slice.
   const inventory = 'inventory' in player ? (player as Crew).inventory : null;
   if (!isCyberView(run) && !inventory) {
     throw new Error('[shell] combat player inventory is not initialised');
   }
-  if (inventory) {
-    // Scan the 8 neighbours plus the player's own tile for lootable corpses.
-    for (let dy = -1; dy <= 1; dy++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        const tx = player.x + dx;
-        const ty = player.y + dy;
-        const entity = world.lootableCorpseAt(tx, ty);
-        if (entity && !entity.alive && entity.loot && totalSalvage(entity.loot.salvage) > 0) {
-          if (!player.canAfford(AP_COST.INTERACT)) {
-            flash('Insufficient AP to loot.');
-            return;
-          }
-          // Typed salvage — show pickup total + post-pickup compact wallet.
-          const amount = totalSalvage(entity.loot.salvage);
-          (player as Crew).collectSalvage(world, entity);
-          activeVisionField(run).forgetCorpse(entity);
-          flash(
-            `Salvaged +${amount} — carrying ${formatSalvageCompact(inventory.salvage)}. ${player.ap} AP left.`
-          );
-          paint();
-          concludeOperatorTurn();
-          return;
-        }
-      }
-    }
-  }
 
+  // Priority 1: a secured / objective interactable. Objective *retrieve* pickups
+  // are Interactables (`Pickup.interact`) and resolve here too, so they outrank
+  // field loot per the interact priority.
   const interactable = world.adjacentInteractables(player)[0];
   if (interactable) {
     const result = interactable.interact(world, player);
@@ -2269,12 +2343,73 @@ function handleCombatInteract(): void {
       interactable.secured &&
       interactable.alive
     ) {
-      handleSecuredInteract(interactable, { apExhausted: player.ap === 0 });
+      handleSecuredInteract(run, interactable, { apExhausted: player.ap === 0 });
     } else if (result.ok && player.ap === 0) {
       concludeOperatorTurn();
     }
-    paint();
-    return;
+    if (result.ok) {
+      // some object can't be interacted with (e.g. an already open door); only bail if our interaction succeeds
+      paint();
+      return;
+    }
+  }
+
+  // Priority 2-4: adjacent field pickups — a deliberate action costing INTERACT
+  // AP, one item per press, by priority: keycard > consumable > corpse salvage.
+  // Scans the player's own tile plus the 8 neighbours (Chebyshev ≤ 1).
+  if (inventory) {
+    const scanAdjacent = <T>(query: (x: number, y: number) => T | null): T | null => {
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const hit = query(player.x + dx, player.y + dy);
+          if (hit) return hit;
+        }
+      }
+      return null;
+    };
+
+    const keycard = scanAdjacent((x, y) => world.keycardAt(x, y));
+    const consumable = keycard ? null : scanAdjacent((x, y) => world.consumablePickupAt(x, y));
+    const corpse =
+      keycard || consumable
+        ? null
+        : scanAdjacent((x, y) => {
+            const c = world.lootableCorpseAt(x, y);
+            return c && !c.alive && c.loot && totalSalvage(c.loot.salvage) > 0 ? c : null;
+          });
+
+    if (keycard || consumable || corpse) {
+      if (!player.canAfford(AP_COST.INTERACT)) {
+        flash('Insufficient AP to loot.');
+        return;
+      }
+      if (keycard) {
+        collectKeycardPickup(world, keycard, kc =>
+          (run as Run).addKeyItem({
+            id: kc.id,
+            label: kc.label,
+            doorId: kc.doorId,
+            ...(kc.principalId ? { principalId: kc.principalId } : {}),
+          })
+        );
+        (player as Crew).spendAp(AP_COST.INTERACT);
+        flash(`Picked up ${keycard.label}. ${player.ap} AP left.`);
+      } else if (consumable) {
+        collectConsumablePickup(world, player as Crew, consumable);
+        (player as Crew).spendAp(AP_COST.INTERACT);
+        flash(`Picked up ${consumable.label}. ${player.ap} AP left.`);
+      } else if (corpse) {
+        // Standalone interact salvage pays its own INTERACT AP.
+        const amount = collectCorpseSalvage(world, player as Crew, corpse, { spendAp: true });
+        activeVisionField(run).forgetCorpse(corpse);
+        flash(
+          `Salvaged +${amount} — carrying ${formatSalvageCompact(inventory.salvage)}. ${player.ap} AP left.`
+        );
+      }
+      paint();
+      concludeOperatorTurn();
+      return;
+    }
   }
 
   flash('Nothing to interact with nearby.');
@@ -2442,6 +2577,11 @@ function paintPip(): void {
   });
 }
 
+// The run instance we've already played the `secured` sting for, so objective
+// completion chimes exactly once per run (paint runs after every action, and
+// the objective can be satisfied by any of them).
+let objectiveSecuredForScene: object | null = null;
+
 export function paint(stateHint: InputState = activeInputState()): void {
   const run = currentScene();
   // P3.M4.3: surface the simstim FLIP fab only when a flip target exists right
@@ -2472,6 +2612,7 @@ export function paint(stateHint: InputState = activeInputState()): void {
     run.state === RUN_STATE.COMBAT && !jacked
       ? campaign?.activeRun?.contract?.context?.principal?.id
       : undefined;
+  const combatHud = buildCombatHudSnapshot(run);
   renderer.draw(world, actor, {
     vision: activeVision,
     player: actor,
@@ -2481,8 +2622,13 @@ export function paint(stateHint: InputState = activeInputState()): void {
     tileset: activeTileset(run),
     locationLabel: currentLocationLabel(campaign, run),
     hudRows: buildHubHudRows(campaign, run),
-    combatHud: buildCombatHudSnapshot(run),
+    combatHud,
   });
+  // `secured` on the objective flipping to done — once per run.
+  if (combatHud?.objective?.done && objectiveSecuredForScene !== run) {
+    objectiveSecuredForScene = run;
+    audioManager.play('secured');
+  }
   crt.alertTint = run.state === RUN_STATE.COMBAT && world.alarmActive;
   crt.apply();
   paintPip();
@@ -2733,12 +2879,29 @@ function tryShowKeyHelpOverlay(): 'ok' | 'blocking' | 'no-scope' | 'none' {
 }
 
 /**
+ * `o`/`O` toggles <settings-modal> — same rules as the header toolbar button.
+ * Suppressed while another blocking modal owns the foreground (falls through
+ * un-prevented so, e.g., typing "o" into a search field inside that modal
+ * still works); closing an already-open settings modal always succeeds.
+ */
+function toggleSettingsModal(): boolean {
+  if (settingsModalEl.isOpen) {
+    settingsModalEl.hide();
+    return true;
+  }
+  if (isAnyBlockingModalOpen()) return false;
+  settingsModalEl.show();
+  return true;
+}
+
+/**
  * `?` toggles the help overlay. Esc, when the help overlay is open, dismisses
  * it (and we swallow the event so the keymap doesn't also turn it into a
  * `cancel` intent for whatever aim mode was active).
  *
  * `?` is suppressed while any blocking modal owns the foreground — opening
  * help over a briefing or crew-roster would just stack panels.
+ * `o`/`O` for Options follows the same rule (see `toggleSettingsModal`).
  */
 export function handleGlobalKey(evt: KeyboardEvent): void {
   if (evt.ctrlKey || evt.metaKey || evt.altKey) return;
@@ -2763,6 +2926,11 @@ export function handleGlobalKey(evt: KeyboardEvent): void {
     // Everything else: block, don't process.
     evt.preventDefault();
     evt.stopPropagation();
+    return;
+  }
+
+  if (evt.key === 'o' || evt.key === 'O') {
+    if (toggleSettingsModal()) evt.preventDefault();
     return;
   }
 
@@ -2798,6 +2966,7 @@ function isAnyBlockingModalOpen(): boolean {
   if (crewRosterEl?.isOpen) return true;
   if (finnShopEl?.isOpen) return true;
   if (clinicModalEl?.isOpen) return true;
+  if (settingsModalEl?.isOpen) return true;
   if (combatInventoryEl?.isOpen) return true;
   if (crewInventoryEl?.isOpen) return true;
   if (chronicleArchiveEl?.isOpen) return true;

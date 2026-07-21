@@ -1,6 +1,7 @@
 import { REP } from '../game/constants.js';
 import { EVENT, alarmPayloadTriggersRepPenalty } from '../game/events.js';
 import { resolveEntityLabel } from '../game/Entity.js';
+import { Hostile } from '../game/Hostile.js';
 import {
   ANIMATION_DURATIONS,
   runBurnFlash,
@@ -13,6 +14,7 @@ import {
   triggerShake,
   triggerSurgeFlash,
 } from '../render/animations.js';
+import { audioManager } from '../audio/soundBoard.js';
 import { COMBAT_HUD_COLORS } from '../render/combatHud.js';
 import { CLOAK_FLASH_FG, MIND_INFLUENCE_FG, VAULT_IMPACT_FG } from '../render/palette.js';
 import { cyberLayerOf, isCyberView } from './activeView.js';
@@ -37,6 +39,8 @@ export class SceneListenerController {
   #animationUnsubs: (() => void)[] = [];
   #cyberUnsubs: (() => void)[] = [];
   #repUnsubs: (() => void)[] = [];
+  #audioUnsubs: (() => void)[] = [];
+  #cyberAudioUnsubs: (() => void)[] = [];
 
   constructor(deps: SceneListenerDeps) {
     this.#deps = deps;
@@ -46,12 +50,16 @@ export class SceneListenerController {
     this.#attachVisionListener();
     this.#attachAnimationListeners();
     this.#attachRepListeners();
+    this.#attachAudioListeners();
     this.#attachCyberListeners();
+    this.#attachCyberAudioListeners();
   }
 
   detachCyber(): void {
     for (const off of this.#cyberUnsubs) off();
     this.#cyberUnsubs = [];
+    for (const off of this.#cyberAudioUnsubs) off();
+    this.#cyberAudioUnsubs = [];
   }
 
   #attachVisionListener(): void {
@@ -373,6 +381,111 @@ export class SceneListenerController {
         const title = contract?.objective?.title ?? 'objective';
         this.#deps.onObjectiveTimerExpired(title);
         this.#deps.effects.flash(`WINDOW CLOSED: ${title} can no longer be completed cleanly.`);
+      })
+    );
+  }
+
+  /**
+   * Bus-driven sound effects. Kept separate from rep/animation wiring so the
+   * audio seam is easy to find and reason about. Subscribes on the run bus (same
+   * instance as `world.events`), so both `World.raiseAlarm()` alarms and
+   * `collectTileLoot` pickups reach here.
+   */
+  #attachAudioListeners(): void {
+    for (const off of this.#audioUnsubs) off();
+    this.#audioUnsubs = [];
+    const run = this.#deps.getScene();
+    if (!run?.bus) return;
+
+    this.#audioUnsubs.push(
+      // The facility alarm *raising* is the sting worth hearing — not the later
+      // cooldown/quiet transitions, which are ambient state changes.
+      run.bus.on(EVENT.ALARM_CHANGED, payload => {
+        const transition = (payload as { transition?: string } | undefined)?.transition;
+        if (transition === 'raised') audioManager.play('alarm');
+      }),
+      run.bus.on(EVENT.ITEM_COLLECTED, () => audioManager.play('pickUp')),
+      run.bus.on(EVENT.ENTITY_DAMAGED, payload => {
+        const { source, killed, dodged, target } = (payload ?? {}) as EntityDamagedPayload;
+        // Any connected melee strike — either side's. A dodge whiffs (no blade),
+        // and armor-absorbed still counts as a hit (blade on plate).
+        if (source === 'melee' && !dodged) audioManager.play('slash');
+        // A hostile going down, however it died. Civilians aren't Hostiles — a
+        // civilian death is a somber beat, not a satisfying thud.
+        if (killed && target instanceof Hostile) audioManager.play('down');
+      }),
+      run.bus.on(EVENT.NOISE, payload => {
+        const { kind } = payload as NoisePayload;
+        if (kind === 'ranged') {
+          audioManager.play('rangedShot');
+        } else if (kind === 'vault') {
+          // Merc BREAK has no dedicated event — its always-emitted 'vault' noise
+          // (fired whether or not it connects) is the reliable hook for the slam.
+          audioManager.play('vault');
+        }
+      }),
+      // --- Operator perk cues -------------------------------------------------
+      // Each perk resolver emits a presentation-only hook; we sonify them here,
+      // alongside the combat SFX above. Gameplay is already committed upstream.
+      run.bus.on(EVENT.RAZOR_CLOAKED, () => audioManager.play('slide')),
+      run.bus.on(EVENT.EMP_DETONATED, () => audioManager.play('emp')),
+      run.bus.on(EVENT.BERSERK_SURGED, () => audioManager.play('surge')),
+      // The Surge comedown, a few turns later — the deflating inverse of 'surge'.
+      run.bus.on(EVENT.BERSERK_CRASHED, () => audioManager.play('surgeCrash')),
+      run.bus.on(EVENT.NANITE_HEALED, () => audioManager.play('heal')),
+      run.bus.on(EVENT.MIND_INFLUENCED, payload => {
+        // Covers the Adept's Influence and the CyberAvatar's Override. The
+        // success flag splits the lock-in from the resisted whiff.
+        const { success } = (payload ?? {}) as MindInfluencedPayload;
+        audioManager.play(success ? 'influence' : 'influenceResist');
+      }),
+      run.bus.on(EVENT.TURRET_DEPLOYED, () =>
+        // Two beats: the mechanical clunk, then a boot chirp ~90ms later.
+        audioManager.playChain([
+          { name: 'deploy', when: 0 },
+          { name: 'deployOnline', when: 0.09 },
+        ])
+      )
+    );
+  }
+
+  /**
+   * Bus-driven SFX for the cyber grid (P3.6) — the digital-combat sibling of
+   * `#attachAudioListeners`, subscribed on `layer.bus` (the cyber World's own
+   * event bus, distinct from `run.bus`) instead of the run bus. Same event
+   * shapes as Meatspace (both `resolveRanged`/`resolveMelee` and
+   * `World.raiseAlarm`/`tickAlarm` are shared code — see Combat.ts/World.ts),
+   * just different sounds: `zap`/`jolt` instead of `rangedShot`/`slash`, so
+   * the grid reads as electric rather than physical. `alarm` and `down` are
+   * reused outright — the facility-alarm sting and "hostile went down" thud
+   * mean the same thing on either layer.
+   *
+   * Torn down by `detachCyber()` (unlike the run-bus `#audioUnsubs`, which
+   * live for the whole scene) so a stale layer's bus can never keep firing
+   * sounds after jack-out.
+   */
+  #attachCyberAudioListeners(): void {
+    for (const off of this.#cyberAudioUnsubs) off();
+    this.#cyberAudioUnsubs = [];
+    const run = this.#deps.getScene();
+    const layer = cyberLayerOf(run);
+    if (!layer) return;
+
+    this.#cyberAudioUnsubs.push(
+      layer.bus.on(EVENT.ALARM_CHANGED, payload => {
+        const transition = (payload as { transition?: string } | undefined)?.transition;
+        if (transition === 'raised') audioManager.play('alarm');
+      }),
+      layer.bus.on(EVENT.ENTITY_DAMAGED, payload => {
+        const { source, killed, dodged, target } = (payload ?? {}) as EntityDamagedPayload;
+        if (source === 'melee' && !dodged) audioManager.play('jolt');
+        // ICE (Guardian/Probe/Spark) are all Hostile subclasses; the avatar is
+        // a plain Entity, so this can't fire on the avatar's own RAM hitting 0.
+        if (killed && target instanceof Hostile) audioManager.play('down');
+      }),
+      layer.bus.on(EVENT.NOISE, payload => {
+        const { kind } = (payload ?? {}) as NoisePayload;
+        if (kind === 'ranged') audioManager.play('zap');
       })
     );
   }

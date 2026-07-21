@@ -74,6 +74,21 @@ export const EVENT = Object.freeze({
    * `{ actor }`.
    */
   RAZOR_CLOAKED: 'razor:cloaked',
+  /**
+   * P3.6: the player collected something off a tile — salvage, a consumable
+   * charge, or a keycard. Presentation-only hook (gameplay already resolved by
+   * `collectTileLoot`), consumed by the audio layer for the `pickUp` sound.
+   * Payload `{ kind: 'salvage' | 'consumable' | 'keycard', entityId }`.
+   */
+  ITEM_COLLECTED: 'item:collected',
+  /**
+   * P3.6: a Tech deployed a turret via the DEPLOY perk. Presentation-only hook
+   * (the turret is already placed by the caller), mirrors `BERSERK_SURGED`.
+   * Consumed by the audio layer for the deploy clunk + boot chirp. `improvised`
+   * distinguishes the pre-built turret from the salvage-improvised fallback.
+   * Payload `{ origin: {x,y}, improvised }`.
+   */
+  TURRET_DEPLOYED: 'turret:deployed',
 });
 
 const KNOWN_TYPES = new Set<string>(Object.values(EVENT));

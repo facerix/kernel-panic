@@ -106,6 +106,17 @@ test('World.entityAt ignores objective pickups; objectivePickupAt resolves them'
   assert.equal(w.objectivePickupAt(2, 2)?.id, 'pickup-0');
 });
 
+test('World.adjacentInteractables resolves a passable objective pickup', () => {
+  const w = new World(new Grid(5, 5));
+  const player = makePlayer(2, 2);
+  const pickup = new Pickup({ id: 'pickup-0', x: 2, y: 3, label: 'Cache' });
+  w.addEntity(player);
+  w.addEntity(pickup);
+
+  assert.equal(w.interactableAt(2, 3), pickup);
+  assert.deepEqual(w.adjacentInteractables(player), [pickup]);
+});
+
 test('World.entityAt ignores objective pickups even when passable flag is wrong', () => {
   const w = new World(new Grid(5, 5));
   const pickup = new Pickup({ id: 'pickup-0', x: 2, y: 2, label: 'Cache' });

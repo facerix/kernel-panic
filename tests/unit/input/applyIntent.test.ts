@@ -361,6 +361,17 @@ test('special intent routes to Vault on a Merc and lands two tiles away', () => 
   assert.equal(player.y, 2);
 });
 
+test('deploying a turret emits TURRET_DEPLOYED for the audio/presentation layer', () => {
+  const { ctx, world } = buildCtx({ archetype: 'tech', placeDrone: false });
+  const deploys = [];
+  world.events.on(EVENT.TURRET_DEPLOYED, payload => deploys.push(payload));
+  // Tech at (2,2); deploy down into the empty floor at (2,3).
+  applyIntent({ type: 'special', dx: 0, dy: 1 }, ctx);
+  assert.equal(deploys.length, 1, 'presentation hook fires once on a successful deploy');
+  assert.deepEqual(deploys[0].origin, { x: 2, y: 3 });
+  assert.equal(deploys[0].improvised, false, 'a pre-built turret, not an improvised one');
+});
+
 test('vault onto an objective pickup secures it', () => {
   const { ctx, log, player, world } = buildCtx({ archetype: 'merc', placeDrone: false });
   world.addEntity(new Pickup({ id: 'pickup-0', x: 4, y: 2, label: 'Cache' }));

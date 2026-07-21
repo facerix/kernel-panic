@@ -118,6 +118,40 @@ test('run snapshot → restore → snapshot is byte-for-byte stable', () => {
   assert.deepEqual(recB, recA, 'round-trip should reproduce the source record');
 });
 
+test('snapshot/restore preserves an unlooted hostile corpse and its exact salvage', () => {
+  const run = freshCombatRun(0xdecafbad);
+  const corpse = [...run.world.entities.values()].find(entity => entity instanceof PatrolHostile);
+  assert.ok(corpse, 'fixture should contain a patrol hostile');
+  corpse.hp = 0;
+  corpse.alive = false;
+  corpse.loot = { salvage: makeSalvage({ scrap: 2, chips: 1 }) };
+
+  const rec = snapshot(run);
+  const corpseRec = rec.entities.find(entity => entity.id === corpse.id);
+  assert.deepEqual(corpseRec?.loot?.salvage, makeSalvage({ scrap: 2, chips: 1 }));
+
+  const { world: restoredWorld } = restore(rec);
+  const restoredCorpse = restoredWorld.lootableCorpseAt(corpse.x, corpse.y);
+  assert.ok(restoredCorpse, 'restored corpse should remain lootable');
+  assert.equal(restoredCorpse.id, corpse.id);
+  assert.deepEqual(restoredCorpse.loot.salvage, makeSalvage({ scrap: 2, chips: 1 }));
+});
+
+test('restore rejects malformed corpse loot instead of discarding it', () => {
+  const run = freshCombatRun(0xdecafbad);
+  const corpse = [...run.world.entities.values()].find(entity => entity instanceof PatrolHostile);
+  assert.ok(corpse, 'fixture should contain a patrol hostile');
+  corpse.hp = 0;
+  corpse.alive = false;
+
+  const rec = snapshot(run);
+  const corpseRec = rec.entities.find(entity => entity.id === corpse.id);
+  assert.ok(corpseRec);
+  corpseRec.loot = { salvage: { scrap: -1, chips: 0, bio: 0, data: 0 } };
+
+  assert.throws(() => restore(rec), /salvage.*scrap/i);
+});
+
 test('snapshot/restore round-trips a Decker deploy (P3.M2)', () => {
   const run = freshCombatRun(0xc0ffee, 'decker');
   assert.ok(run.player instanceof Decker, 'fixture should deploy a Decker');

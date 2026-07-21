@@ -51,7 +51,7 @@ import {
   NOISE_RADIUS,
   INFLUENCE_RANGE,
 } from '../game/constants.js';
-import { totalSalvage, formatSalvageCompact } from '../game/salvage.js';
+import { formatSalvageCompact } from '../game/salvage.js';
 import { canFireRanged, resolveRanged, canMelee, resolveMelee } from '../game/Combat.js';
 import { isConcealedFromPlayer } from '../game/playerPerception.js';
 import { hasLineOfSight, withinRange } from '../game/LineOfSight.js';
@@ -60,6 +60,11 @@ import { Interactable } from '../game/entities/Interactable.js';
 import { Door } from '../game/entities/Door.js';
 import { DenyTarget } from '../game/entities/DenyTarget.js';
 import { EVENT } from '../game/events.js';
+import {
+  collectConsumablePickup,
+  collectKeycardPickup,
+  collectCorpseSalvage,
+} from '../game/lootCollection.js';
 import { TILE } from '../game/constants.js';
 import { Hostile } from '../game/Hostile.js';
 import type { KeyItem } from '../types.js';
@@ -353,8 +358,7 @@ function collectTileLoot(ctx: ApplyIntentContext) {
   const consumablePickup =
     'addConsumable' in player && player.alive ? world.consumablePickupAt(player.x, player.y) : null;
   if (consumablePickup && 'addConsumable' in player) {
-    player.addConsumable(consumablePickup.consumableId);
-    world.removeEntity(consumablePickup.id);
+    collectConsumablePickup(world, player, consumablePickup);
     log(`> ${entityLabel(player)} picks up ${consumablePickup.label}.`);
   }
   // Walk-onto keycard collection (P2.5.M6.2). principalId determines scope:
@@ -362,13 +366,7 @@ function collectTileLoot(ctx: ApplyIntentContext) {
   //   - no principalId  → run-scoped (discarded on run end)
   const keycard = player.alive ? world.keycardAt(player.x, player.y) : null;
   if (keycard) {
-    world.removeEntity(keycard.id);
-    ctx.onKeycardCollected?.({
-      id: keycard.id,
-      doorId: keycard.doorId,
-      label: keycard.label,
-      principalId: keycard.principalId,
-    });
+    collectKeycardPickup(world, keycard, kc => ctx.onKeycardCollected?.(kc));
     log(`> ${entityLabel(player)} picks up ${keycard.label}.`);
   }
   const corpse =
@@ -376,8 +374,8 @@ function collectTileLoot(ctx: ApplyIntentContext) {
       ? world.lootableCorpseAt(player.x, player.y)
       : null;
   if (corpse && 'inventory' in player) {
-    const amount = totalSalvage(corpse.loot!.salvage);
-    player.collectSalvage(world, corpse, { spendAp: false });
+    // Walk-onto salvage is free — the move already paid AP.
+    const amount = collectCorpseSalvage(world, player, corpse, { spendAp: false });
     ctx.onCorpseSalvaged?.(corpse);
     log(
       `> ${entityLabel(player)} salvages +${amount} — carrying ${formatSalvageCompact(player.inventory!.salvage)}, ${player.ap} AP left.`
@@ -659,6 +657,12 @@ function doDeploy(intent: Intent, ctx: ApplyIntentContext) {
     log(
       `> ${playerLabel} deploys ${entityLabel(turret)} at (${turret.x}, ${turret.y}) — ${player.ap} AP left.`
     );
+    // Presentation hook: the shell listens for the deploy clunk + boot chirp.
+    // Gameplay is already committed above — this carries no state.
+    world.events?.emit(EVENT.TURRET_DEPLOYED, {
+      origin: { x: turret.x, y: turret.y },
+      improvised: false,
+    });
     gateOnApExhausted(ctx);
     return;
   }
@@ -671,6 +675,10 @@ function doDeploy(intent: Intent, ctx: ApplyIntentContext) {
         `> ${playerLabel} improvises ${entityLabel(turret)} at (${turret.x}, ${turret.y}) — ` +
           `${tech.inventory!.salvage.scrap} scrap left, ${player.ap} AP left.`
       );
+      world.events?.emit(EVENT.TURRET_DEPLOYED, {
+        origin: { x: turret.x, y: turret.y },
+        improvised: true,
+      });
       gateOnApExhausted(ctx);
       return;
     }

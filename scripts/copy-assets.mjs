@@ -30,10 +30,15 @@ const files = [
   'sw-dev.js',
   'sw-core.js',
   'sw-release.js',
+  // Vendored TONEBENCH synth engine: plain JS, not compiled by tsc (no allowJs).
+  // Consumed via its co-located .d.ts; shipped as a static asset. See
+  // src/vendor/tonebench/README.md.
+  'src/vendor/tonebench/tonebenchEngine.js',
   // Debug harness pages (their scripts are compiled by tsc into dist/debug/).
   'debug/index.html',
   'debug/map.html',
   'debug/save.html',
+  'debug/sound.html',
 ];
 
 // Directories copied recursively.

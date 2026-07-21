@@ -101,6 +101,9 @@ export type ClinicModalElement = ModalElement & {
   setPatients(crew: Crew[], balances: { credits: number; healedMemberIds?: string[] }): void;
 };
 
+/** `<settings-modal>` — player preferences (audio mute/volume; future prefs). */
+export type SettingsModalElement = ModalElement;
+
 /** `<combat-inventory>` — the deployed operator's interactive kit. */
 export type CombatInventoryElement = ModalElement & {
   setContents(contents: {
@@ -152,6 +155,8 @@ export type EntityDamagedPayload = {
   damage?: number;
   killed?: boolean;
   source?: string;
+  /** Melee only: the strike was dodged (whiffed) rather than connecting. */
+  dodged?: boolean;
   damageResolution?: import('../types.js').DamageResolution;
 };
 

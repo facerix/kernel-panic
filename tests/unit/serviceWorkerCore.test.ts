@@ -48,7 +48,10 @@ test('every core precache URL maps to a repository source or static asset', () =
     if (url === '/') return !existsSync('index.html');
     const relative = url.slice(1);
     if (!relative.endsWith('.js')) return !existsSync(relative);
-    return !existsSync(relative.replace(/\.js$/, '.ts'));
+    // A /*.js precache URL maps to a compiled .ts source, or — for vendored
+    // libraries copied verbatim into dist/ (see src/vendor/) — to a .js source
+    // that already exists as-is.
+    return !existsSync(relative.replace(/\.js$/, '.ts')) && !existsSync(relative);
   });
   assert.deepEqual(missing, []);
 });

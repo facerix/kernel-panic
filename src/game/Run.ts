@@ -51,7 +51,7 @@ import {
 } from './constants.js';
 import { coordKey, explorationReachableKeys, hasAdjacentPassableTile } from './mapConnectivity.js';
 import { isValidBlockingPlacement, checkPlacementIntegrity } from './placement.js';
-import { makeSalvage, type TypedSalvage } from './salvage.js';
+import { makeSalvage, validateSalvage, type TypedSalvage } from './salvage.js';
 import { Entity, type LootableEntity } from './Entity.js';
 import { Hostile } from './Hostile.js';
 import { hasLineOfSight } from './LineOfSight.js';
@@ -287,6 +287,8 @@ export type RunEntitySnapshot = {
   /** Phase 2.9 principal theming — omitted for un-aliased entities (player, props). */
   displayName?: string;
   principalTag?: string;
+  /** Uncollected typed salvage on a dead entity. Omitted for ordinary entities and legacy saves. */
+  loot?: { salvage: TypedSalvage };
   /** Opaque per-archetype payload; strict shape owned by the entity module. */
   extra?: EntitySnapshotExtra;
 };
@@ -2901,6 +2903,25 @@ function snapshotEntity(entity: Entity): RunEntitySnapshot {
   // keep a byte-stable snapshot and pre-2.9 saves stay unaffected.
   if (entity.displayName !== undefined) base.displayName = entity.displayName;
   if (entity.principalTag !== undefined) base.principalTag = entity.principalTag;
+  const loot = (entity as Entity & { loot?: unknown }).loot;
+  if (loot !== undefined) {
+    if (entity.alive) {
+      throw new Error(`Run.snapshot: live entity ${entity.id} cannot carry corpse loot`);
+    }
+    if (loot === null || typeof loot !== 'object' || Array.isArray(loot)) {
+      throw new TypeError(`Run.snapshot: entity ${entity.id} loot must be a plain object`);
+    }
+    const lootRecord = loot as Record<string, unknown>;
+    if (Object.keys(lootRecord).some(key => key !== 'salvage')) {
+      throw new TypeError(`Run.snapshot: entity ${entity.id} loot has unknown fields`);
+    }
+    base.loot = {
+      salvage: validateSalvage(
+        lootRecord.salvage,
+        `Run.snapshot: entity ${entity.id} loot.salvage`
+      ),
+    };
+  }
   const effects = Object.fromEntries(
     [...entity.effects].filter(([id]) => id !== STATUS_EFFECT.STEALTH)
   );

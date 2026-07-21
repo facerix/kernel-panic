@@ -44,8 +44,8 @@ import {
   SURGE_AP_BONUS,
   TILE,
 } from './constants.js';
-import { migrateSalvage, type TypedSalvage } from './salvage.js';
-import { Entity } from './Entity.js';
+import { migrateSalvage, validateSalvage, type TypedSalvage } from './salvage.js';
+import { Entity, type LootableEntity } from './Entity.js';
 import { Crew } from './Crew.js';
 import { Merc } from './archetypes/Merc.js';
 import { Razor } from './archetypes/Razor.js';
@@ -1642,6 +1642,7 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
   }
 
   const activeEffects = readActiveEffects(rec);
+  const loot = readEntityLoot(rec);
 
   const extra = normalizeEntityExtra(rec);
   const entry = ENTITY_RESTORE[rec.archetype];
@@ -1687,6 +1688,12 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
   entity.hp = rec.hp;
   entity.alive = rec.alive ?? rec.hp > 0;
   entity.shieldHp = rec.shieldHp ?? 0;
+  if (loot) {
+    if (entity.alive) {
+      throw new Error(`restore: live entity ${rec.id} cannot carry corpse loot`);
+    }
+    (entity as Partial<LootableEntity>).loot = loot;
+  }
   if (Number.isInteger(rec.ap)) {
     const maxAp =
       rec.archetype === 'berserk' && activeEffects.has(STATUS_EFFECT.SURGE)
@@ -1728,6 +1735,25 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
   // player from a heterogeneous entity set.
   (entity as Entity & { [ARCHETYPE_KEY]?: EntityArchetypeId })[ARCHETYPE_KEY] = rec.archetype;
   return entity;
+}
+
+function readEntityLoot(rec: RunEntitySnapshot): LootableEntity['loot'] | undefined {
+  if (rec.loot === undefined) return undefined;
+  if (rec.loot === null || typeof rec.loot !== 'object' || Array.isArray(rec.loot)) {
+    throw new TypeError(`restore: entity ${rec.id} loot must be a plain object`);
+  }
+  const loot = rec.loot as Record<string, unknown>;
+  for (const key of Object.keys(loot)) {
+    if (key !== 'salvage') {
+      throw new TypeError(`restore: entity ${rec.id} loot has unknown field "${key}"`);
+    }
+  }
+  if (!('salvage' in loot)) {
+    throw new TypeError(`restore: entity ${rec.id} loot missing required field "salvage"`);
+  }
+  return {
+    salvage: validateSalvage(loot.salvage, `restore: entity ${rec.id} loot.salvage`),
+  };
 }
 
 function validateRecord(record: unknown): asserts record is RunSnapshot {

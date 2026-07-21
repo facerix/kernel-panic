@@ -105,6 +105,8 @@ When an item lands, gets reclassified, or develops new context, edit it in place
   - **`chebyshev` / `manhattan` helpers.** `Pathfinding.chebyshev(ax, ay, bx, by)` vs `Run.chebyshev` / `Run.manhattan` (GridPoint) vs `mapBuild.manhattan` — unify on GridPoint wrappers or a small `gridMath.ts` when convenient.
   - **`LineOfSight` inline `` `${x},${y}` `` keys.** Could import `coordKey` from `mapConnectivity.js`; isolated, low drift risk at current scale.
 
+- **Dual-site and escort objectives have no HUD progress chip.** Surfaced 2026-07-20 while adding a distinct `checkpoint` audio cue (`src/audio/sounds.ts`) for their interim beats — sync pad 1 of 2 touched, escort contact linked up — via `handleSecuredInteract` in `shellRuntime.ts` gating on `run.isObjectiveSatisfied()`. That closes the *audio* gap, but `objectiveProgress()` in `src/game/objectiveProgress.ts` still has no `case` for `OBJECTIVES.DUAL_SITE` or `OBJECTIVES.ESCORT_EXTRACT`, unlike `RECON`/`SWEEP`/`DATA_NODE_SLICE`/`SCORE_FINAL`, which all render a `[LABEL:current/total]` chip. Players get a sound but no on-screen `[SYNC:1/2]`-style readout. Would need progress tallies analogous to `dataNodeProgress` (count `SyncPad.synced` / `EscortNpc.activated` across the world) plumbed through `buildCombatHudSnapshot`. **Revisit trigger:** first playtest confusion about dual-site/escort state, or next time the HUD chip work is touched.
+
 ## ✓ Closed
 
 - ~~**A body caught square on by a molotov takes no impact damage unless it's standing on FLOOR.**~~

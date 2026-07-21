@@ -43,9 +43,13 @@ const CacheConfig = {
       '/components/InventoryOverlay.js',
       '/components/KeyHelp.js',
       '/components/RunBriefing.js',
+      '/components/SettingsModal.js',
       '/components/SystemStart.js',
       '/components/TouchPad.js',
       '/components/UpdateNotification.js',
+      '/src/audio/AudioManager.js',
+      '/src/audio/soundBoard.js',
+      '/src/audio/sounds.js',
       '/src/DataStore.js',
       '/src/domUtils.js',
       '/src/errorBoundary.js',
@@ -182,6 +186,7 @@ const CacheConfig = {
       '/src/shell/visionSync.js',
       '/src/statusActivityRows.js',
       '/src/updateRelease.js',
+      '/src/vendor/tonebench/tonebenchEngine.js',
     ];
   },
   

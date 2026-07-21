@@ -613,8 +613,12 @@ export class World {
   }
 
   interactableAt(x: number, y: number): Interactable | null {
-    const entity = this.entityAt(x, y);
-    return entity instanceof Interactable ? entity : null;
+    for (const entity of this.entities.values()) {
+      if (entity instanceof Interactable && entity.alive && entity.x === x && entity.y === y) {
+        return entity;
+      }
+    }
+    return null;
   }
 
   adjacentInteractables(actor: Entity): Interactable[] {
