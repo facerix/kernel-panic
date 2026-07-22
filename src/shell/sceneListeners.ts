@@ -14,7 +14,8 @@ import {
   triggerShake,
   triggerSurgeFlash,
 } from '../render/animations.js';
-import { audioManager } from '../audio/soundBoard.js';
+import { audioManager, musicDirector } from '../audio/soundBoard.js';
+import { tensionForAlarmTransition } from './musicScore.js';
 import { COMBAT_HUD_COLORS } from '../render/combatHud.js';
 import { CLOAK_FLASH_FG, MIND_INFLUENCE_FG, VAULT_IMPACT_FG } from '../render/palette.js';
 import { cyberLayerOf, isCyberView } from './activeView.js';
@@ -41,6 +42,7 @@ export class SceneListenerController {
   #repUnsubs: (() => void)[] = [];
   #audioUnsubs: (() => void)[] = [];
   #cyberAudioUnsubs: (() => void)[] = [];
+  #musicUnsubs: (() => void)[] = [];
 
   constructor(deps: SceneListenerDeps) {
     this.#deps = deps;
@@ -51,6 +53,7 @@ export class SceneListenerController {
     this.#attachAnimationListeners();
     this.#attachRepListeners();
     this.#attachAudioListeners();
+    this.#attachMusicListeners();
     this.#attachCyberListeners();
     this.#attachCyberAudioListeners();
   }
@@ -450,6 +453,36 @@ export class SceneListenerController {
   }
 
   /**
+   * Drives the generative score's tension from the facility alarm.
+   *
+   * Distinct from `#attachAudioListeners` on purpose: that maps events to
+   * one-shot stings, this maps them to a persistent state change. The alarm is
+   * the only run-bus event that changes the score — everything else the player
+   * does is punctuation, and re-scoring on it would make the bed twitchy.
+   *
+   * Only the *state* mapping lives here; `shellRuntime` sets tension from the
+   * persisted alarm phase on scene entry and resume, so a run reloaded mid-alarm
+   * is scored correctly before any transition fires. Both go through
+   * `musicScore.ts` so the two paths cannot drift apart.
+   */
+  #attachMusicListeners(): void {
+    for (const off of this.#musicUnsubs) off();
+    this.#musicUnsubs = [];
+    const run = this.#deps.getScene();
+    if (!run?.bus) return;
+
+    this.#musicUnsubs.push(
+      run.bus.on(EVENT.ALARM_CHANGED, payload => {
+        const transition = (payload as { transition?: string } | undefined)?.transition;
+        const tension = tensionForAlarmTransition(transition);
+        // null → a transition with no musical meaning; hold what is playing
+        // rather than inventing a level.
+        if (tension !== null) musicDirector.setTension(tension);
+      })
+    );
+  }
+
+  /**
    * Bus-driven SFX for the cyber grid (P3.6) — the digital-combat sibling of
    * `#attachAudioListeners`, subscribed on `layer.bus` (the cyber World's own
    * event bus, distinct from `run.bus`) instead of the run bus. Same event
@@ -475,6 +508,12 @@ export class SceneListenerController {
       layer.bus.on(EVENT.ALARM_CHANGED, payload => {
         const transition = (payload as { transition?: string } | undefined)?.transition;
         if (transition === 'raised') audioManager.play('alarm');
+        // The cyber grid runs its own alarm cadence, so ICE closing in has to
+        // drive the score too — otherwise jacking in during an alert plays a
+        // calm bed over a firefight. Torn down by `detachCyber()` with the rest
+        // of these, so a stale layer can never keep re-scoring after jack-out.
+        const tension = tensionForAlarmTransition(transition);
+        if (tension !== null) musicDirector.setTension(tension);
       }),
       layer.bus.on(EVENT.ENTITY_DAMAGED, payload => {
         const { source, killed, dodged, target } = (payload ?? {}) as EntityDamagedPayload;

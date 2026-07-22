@@ -39,6 +39,7 @@ const files = [
   'debug/map.html',
   'debug/save.html',
   'debug/sound.html',
+  'debug/music.html',
 ];
 
 // Directories copied recursively.

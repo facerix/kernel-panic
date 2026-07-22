@@ -120,8 +120,14 @@ import {
   stateLabelForSceneState,
 } from '/src/shell/statusLine.js';
 import { applyMeatSeenRecord, syncVisionFields } from '/src/shell/visionSync.js';
-import { audioManager } from '/src/audio/soundBoard.js';
+import { audioManager, musicDirector } from '/src/audio/soundBoard.js';
 import { EXTRACTION_MOTIF, TRANSACTION_MOTIF } from '/src/audio/sounds.js';
+import {
+  HUB_PALETTE,
+  HUB_TENSION,
+  paletteForRun,
+  tensionForAlarmPhase,
+} from '/src/shell/musicScore.js';
 import type {
   ChronicleArchiveElement,
   ClinicModalElement,
@@ -444,11 +450,42 @@ export async function boot() {
   // this covers every entry path (new campaign, resume, keyboard-only, touch).
   const resumeAudio = () => {
     audioManager.resume();
+    // The scene is usually already up by the time the player touches anything,
+    // and scene transitions before this point started a director that had no
+    // audio clock to schedule against. Re-sync now that one exists.
+    syncMusicToScene();
     window.removeEventListener('keydown', resumeAudio, true);
     window.removeEventListener('pointerdown', resumeAudio, true);
   };
   window.addEventListener('keydown', resumeAudio, true);
   window.addEventListener('pointerdown', resumeAudio, true);
+
+  // Pause the score whenever the game loses the player's attention. Both event
+  // families are needed, because neither covers the other:
+  //   - `visibilitychange` fires when the tab is switched away or minimized, but
+  //     NOT when the player alt-tabs to another application (the tab stays
+  //     "visible" — it is simply behind another window).
+  //   - window `blur`/`focus` catch that case, but do not fire reliably on tab
+  //     switches in every browser.
+  // `document.hasFocus()` is the reconciling read: it is false in both cases.
+  //
+  // SFX are deliberately left alone. They only fire in response to the player's
+  // own actions, so an unattended tab produces none anyway — and silencing the
+  // master gain would also mute the audio the player *does* trigger on return.
+  const syncMusicToFocus = () => {
+    const attended = document.visibilityState === 'visible' && document.hasFocus();
+    audioManager.setMusicSuspended(!attended);
+    if (attended) {
+      // Re-derives palette/tension and restarts the director, whose beat clock
+      // re-anchors to now rather than backfilling the time spent away.
+      syncMusicToScene();
+    } else {
+      musicDirector.stop();
+    }
+  };
+  window.addEventListener('blur', syncMusicToFocus);
+  window.addEventListener('focus', syncMusicToFocus);
+  document.addEventListener('visibilitychange', syncMusicToFocus);
 
   contractSelectEl.addEventListener('contract-selected', onContractSelected);
   contractSelectEl.addEventListener('dismiss', () => contractSelectEl.hide());
@@ -1497,7 +1534,9 @@ function wireRunConfirmations(run: Run): void {
     confirmationModalEl.showModal(jackOutConfirmationCopy(request), 'jack-out-early');
   };
   run.onJackInPresent = () => {
-    sceneListenerController.rewire();
+    // Via the shared helper (not `rewire()` directly) so the score switches to
+    // the cyber palette as the grid comes up.
+    rewireSceneListeners();
     recomputeVision();
     flash('LINK ESTABLISHED — entering // THE GRID //.');
     paint();
@@ -2477,10 +2516,57 @@ function onNewRunRequested(): void {
 
 function rewireSceneListeners(): void {
   sceneListenerController.rewire();
+  syncMusicToScene();
+}
+
+/**
+ * Point the generative score at whatever is on screen now.
+ *
+ * Called on every scene transition (and on jack in/out), so it is the one place
+ * that decides whether music plays at all, in which palette, and at what
+ * tension. Everything it calls is idempotent, so re-running it on an unchanged
+ * scene is free.
+ *
+ * Deriving tension from persisted alarm *state* here — rather than relying only
+ * on the ALARM_CHANGED listener in `sceneListeners` — is what makes a run saved
+ * mid-alarm reload scored as tense. Both paths share `musicScore.ts`.
+ */
+function syncMusicToScene(): void {
+  const scene = currentScene();
+
+  // No campaign yet: the title screen is deliberately unscored. Cut any tail
+  // still ringing from a previous campaign rather than letting it play under it.
+  if (!scene) {
+    musicDirector.stop();
+    audioManager.stopMusic();
+    return;
+  }
+
+  if (!isRun(scene)) {
+    musicDirector.setPalette(HUB_PALETTE);
+    musicDirector.setTension(HUB_TENSION);
+    musicDirector.start();
+    return;
+  }
+
+  // Palette tracks the *run*: a job with a cyberspace component is scored cyber
+  // start to finish, whether or not the grid is currently on screen.
+  musicDirector.setPalette(paletteForRun(scene));
+
+  // Tension tracks whichever layer the player is actually looking at — while
+  // flipped to the grid, the cyber layer runs its own world and its own alarm
+  // cadence, so the meat grid's alarm says nothing about the danger on screen.
+  const world = isCyberView(scene) ? cyberLayerOf(scene)?.world : scene.world;
+  musicDirector.setTension(tensionForAlarmPhase(world?.alarm?.phase));
+  musicDirector.start();
 }
 
 function completeJackOutShellSwap(): void {
   sceneListenerController.detachCyber();
+  // Back in the body: tension re-reads the meat grid's alarm. The palette stays
+  // cyber — this is still a net run, and flipping the key on jack-out would
+  // churn it every time the Decker surfaces.
+  syncMusicToScene();
   pipCanvas.hidden = true;
   flash('LINK DROPPED — back in your body.', { priority: true });
   recomputeVision();

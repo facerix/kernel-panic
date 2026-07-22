@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Kernel Panic — Music test</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+    <link rel="stylesheet" href="/main.css" type="text/css" />
+    <style>
+      .music-test-shell {
+        max-width: 960px;
+        margin: 1rem auto;
+        padding: 0 1rem;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+      .music-controls {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.75rem 1.25rem;
+        margin: 0.75rem 0;
+        padding: 0.6rem 0.85rem;
+        border: 1px solid var(--accent-color);
+        border-radius: 6px;
+      }
+      .music-controls label {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.85rem;
+      }
+      .music-controls input[type='range'] {
+        accent-color: var(--accent-color);
+        cursor: pointer;
+      }
+      .music-controls input[type='number'] {
+        background: #06090a;
+        color: #c5efdf;
+        border: 1px solid rgba(0, 217, 165, 0.45);
+        border-radius: 4px;
+        padding: 0.3rem 0.4rem;
+        font: inherit;
+        font-size: 0.8rem;
+        width: 11ch;
+      }
+      .music-controls .readout {
+        min-width: 3ch;
+        display: inline-block;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
+      button.control {
+        appearance: none;
+        -webkit-appearance: none;
+        background: rgba(0, 217, 165, 0.08);
+        color: #c5efdf;
+        border: 1px solid rgba(0, 217, 165, 0.45);
+        border-radius: 4px;
+        padding: 0.45rem 0.6rem;
+        font: inherit;
+        font-size: 0.8rem;
+        letter-spacing: 0.04em;
+        cursor: pointer;
+        min-height: 34px;
+      }
+      button.control:hover,
+      button.control:focus-visible {
+        outline: none;
+        border-color: var(--accent-color);
+        background: rgba(0, 217, 165, 0.2);
+      }
+      button.control[aria-pressed='true'] {
+        border-color: var(--accent-color);
+        background: rgba(0, 217, 165, 0.28);
+        color: var(--accent-color);
+      }
+      .music-status {
+        margin: 0.5rem 0;
+        min-height: 1.2em;
+        color: #6ee5c0;
+      }
+      .music-log {
+        font-size: 0.8rem;
+        background: #06090a;
+        color: #6ee5c0;
+        padding: 0.75rem;
+        border-radius: 4px;
+        height: 18rem;
+        overflow-y: auto;
+        white-space: pre-wrap;
+      }
+      h2 {
+        font-size: 0.95rem;
+        letter-spacing: 0.06em;
+        border-bottom: 1px dashed var(--accent-color);
+        padding-bottom: 0.3rem;
+      }
+      .btn-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+      }
+    </style>
+  </head>
+  <body class="music-test-shell">
+    <header>
+      <h1>Kernel Panic — Music test</h1>
+    </header>
+    <main>
+      <p>
+        The generative score from <code>src/audio/MusicDirector.ts</code>, driven by hand instead of
+        by game state. Tuning this by ear is the point — the unit tests can prove the bed is
+        continuous and in-scale, but not that it sounds good. Mute and volume read/write the same
+        <code>DataStore</code> prefs as the in-game Options modal.
+      </p>
+      <p>
+        Things worth listening for: no gaps at pad retriggers; tension changes landing on a bar
+        without a click; the cyber palette reading as distinctly colder; and music mute leaving SFX
+        audible.
+      </p>
+      <div id="music-controls" class="music-controls" aria-label="Music controls"></div>
+      <p id="music-status" class="music-status" aria-live="polite"></p>
+      <section>
+        <h2>Scheduled notes</h2>
+        <p>
+          Every note the director hands to the audio clock, newest last. Times are audio-clock
+          seconds.
+        </p>
+        <div id="music-log" class="music-log">(not started)</div>
+      </section>
+    </main>
+    <script src="/debug/music.js" type="module"></script>
+  </body>
+</html>

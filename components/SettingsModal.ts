@@ -1,12 +1,15 @@
 /**
  * <settings-modal> — player preferences. The app's first real DataStore.prefs
- * UI; audio (mute + volume) is the pathfinder consumer, and future prefs plug
- * in here.
+ * UI; audio (mute + volume, per channel) is the pathfinder consumer, and future
+ * prefs plug in here.
  *
  * Data flow is one-way: this modal writes prefs to DataStore; AudioManager is
- * subscribed to DataStore's `change` event and reacts (updates the master gain).
- * The modal never talks to AudioManager directly. It reads current values from
- * DataStore.prefs each time it opens.
+ * subscribed to DataStore's `change` event and reacts (updates the master and
+ * music gains). The modal never talks to AudioManager directly. It reads current
+ * values from DataStore.prefs each time it opens.
+ *
+ * SFX and music are two instances of the same control, described by `CHANNELS`
+ * and built in a loop rather than written twice.
  *
  * Events:
  *   - `dismiss` — player pressed Esc / clicked the backdrop / hit CLOSE.
@@ -17,8 +20,12 @@ import dataStore from '/src/DataStore.js';
 import {
   AUDIO_MUTED_PREF,
   AUDIO_VOLUME_PREF,
+  AUDIO_MUSIC_MUTED_PREF,
+  AUDIO_MUSIC_VOLUME_PREF,
   DEFAULT_VOLUME,
+  DEFAULT_MUSIC_VOLUME,
   parseAudioPrefs,
+  type AudioPrefs,
 } from '/src/audio/AudioManager.js';
 
 const CSS = `
@@ -161,15 +168,57 @@ input[type='range']:disabled {
 /** Volume slider granularity: 0–100 integer, mapped to the 0–1 pref. */
 const VOLUME_STEPS = 100;
 
+/**
+ * One mute/volume pair — SFX and music are the same control twice over, so the
+ * rows are built from a shared description rather than duplicated. Adding a
+ * third channel later means adding a `ChannelSpec`, not another four fields and
+ * four methods.
+ */
+interface ChannelSpec {
+  /** Row label for the mute toggle. */
+  label: string;
+  /** Row label for the slider. */
+  volumeLabel: string;
+  mutedPref: string;
+  volumePref: string;
+  defaultVolume: number;
+  /** Pulls this channel's pair out of a parsed prefs object. */
+  read: (prefs: AudioPrefs) => { muted: boolean; volume: number };
+}
+
+const CHANNELS: readonly ChannelSpec[] = [
+  {
+    label: 'Sound',
+    volumeLabel: 'Volume',
+    mutedPref: AUDIO_MUTED_PREF,
+    volumePref: AUDIO_VOLUME_PREF,
+    defaultVolume: DEFAULT_VOLUME,
+    read: prefs => ({ muted: prefs.muted, volume: prefs.volume }),
+  },
+  {
+    label: 'Music',
+    volumeLabel: 'Music vol.',
+    mutedPref: AUDIO_MUSIC_MUTED_PREF,
+    volumePref: AUDIO_MUSIC_VOLUME_PREF,
+    defaultVolume: DEFAULT_MUSIC_VOLUME,
+    read: prefs => ({ muted: prefs.musicMuted, volume: prefs.musicVolume }),
+  },
+];
+
+/** Live controls + current values for one channel. */
+interface ChannelControls {
+  spec: ChannelSpec;
+  button: HTMLButtonElement;
+  slider: HTMLInputElement;
+  readout: HTMLElement;
+  muted: boolean;
+  volume: number;
+}
+
 class SettingsModal extends HTMLElement {
   #ready = false;
   #panelEl: HTMLElement | null = null;
-  #soundBtn: HTMLButtonElement | null = null;
-  #volumeInput: HTMLInputElement | null = null;
-  #volumeReadout: HTMLElement | null = null;
-
-  #muted = false;
-  #volume = DEFAULT_VOLUME;
+  #channels: ChannelControls[] = [];
 
   #onKeyDown: ((this: HTMLElement, ev: KeyboardEvent) => void) | null = null;
   #onBackdrop: ((this: HTMLElement, ev: MouseEvent) => void) | null = null;
@@ -182,25 +231,49 @@ class SettingsModal extends HTMLElement {
     style.textContent = CSS;
     shadow.appendChild(style);
 
-    this.#soundBtn = h('button', {
-      type: 'button',
-      className: 'control',
-      'aria-pressed': 'false',
-    }) as HTMLButtonElement;
-    this.#soundBtn.addEventListener('click', () => this.#toggleMuted());
+    const channelRows: HTMLElement[] = [];
+    this.#channels = CHANNELS.map(spec => {
+      const button = h('button', {
+        type: 'button',
+        className: 'control',
+        'aria-pressed': 'false',
+      }) as HTMLButtonElement;
 
-    this.#volumeInput = h('input', {
-      type: 'range',
-      min: '0',
-      max: String(VOLUME_STEPS),
-      step: '1',
-      'aria-label': 'Volume',
-    }) as HTMLInputElement;
-    // `input` fires continuously as the player drags — write each step so the
-    // master gain tracks live via DataStore → AudioManager.
-    this.#volumeInput.addEventListener('input', () => this.#onVolumeInput());
+      const slider = h('input', {
+        type: 'range',
+        min: '0',
+        max: String(VOLUME_STEPS),
+        step: '1',
+        'aria-label': spec.volumeLabel,
+      }) as HTMLInputElement;
 
-    this.#volumeReadout = h('span', { className: 'volume-readout' });
+      const readout = h('span', { className: 'volume-readout' });
+      const controls: ChannelControls = {
+        spec,
+        button,
+        slider,
+        readout,
+        muted: false,
+        volume: spec.defaultVolume,
+      };
+
+      button.addEventListener('click', () => this.#toggleMuted(controls));
+      // `input` fires continuously as the player drags — write each step so the
+      // gain tracks live via DataStore → AudioManager.
+      slider.addEventListener('input', () => this.#onVolumeInput(controls));
+
+      channelRows.push(
+        h('div', { className: 'row' }, [
+          h('span', { className: 'row-name', textContent: spec.label }),
+          button,
+        ]),
+        h('div', { className: 'row' }, [
+          h('span', { className: 'row-name', textContent: spec.volumeLabel }),
+          h('div', { className: 'volume-cell' }, [slider, readout]),
+        ])
+      );
+      return controls;
+    });
 
     const closeBtn = h('button', {
       type: 'button',
@@ -212,14 +285,7 @@ class SettingsModal extends HTMLElement {
     this.#panelEl = h('section', { className: 'panel' }, [
       h('h2', { className: 'title', textContent: '── OPTIONS ──' }),
       h('p', { className: 'section-label', textContent: 'AUDIO' }),
-      h('div', { className: 'row' }, [
-        h('span', { className: 'row-name', textContent: 'Sound' }),
-        this.#soundBtn,
-      ]),
-      h('div', { className: 'row' }, [
-        h('span', { className: 'row-name', textContent: 'Volume' }),
-        h('div', { className: 'volume-cell' }, [this.#volumeInput, this.#volumeReadout]),
-      ]),
+      ...channelRows,
       h('div', { className: 'footer' }, [closeBtn]),
       h('p', { className: 'hint', textContent: 'Esc close' }),
     ]);
@@ -249,10 +315,13 @@ class SettingsModal extends HTMLElement {
 
   show() {
     // Pull the latest persisted values every open — the store is the source of truth.
-    ({ muted: this.#muted, volume: this.#volume } = parseAudioPrefs(dataStore.prefs));
+    const prefs = parseAudioPrefs(dataStore.prefs);
+    for (const channel of this.#channels) {
+      ({ muted: channel.muted, volume: channel.volume } = channel.spec.read(prefs));
+    }
     this.setAttribute('open', '');
     this.#render();
-    queueMicrotask(() => this.#soundBtn?.focus());
+    queueMicrotask(() => this.#channels[0]?.button.focus());
   }
 
   hide() {
@@ -263,37 +332,32 @@ class SettingsModal extends HTMLElement {
     return this.hasAttribute('open');
   }
 
-  #toggleMuted() {
-    this.#muted = !this.#muted;
-    dataStore.setPref(AUDIO_MUTED_PREF, this.#muted);
+  #toggleMuted(channel: ChannelControls) {
+    channel.muted = !channel.muted;
+    dataStore.setPref(channel.spec.mutedPref, channel.muted);
     this.#render();
   }
 
-  #onVolumeInput() {
-    if (!this.#volumeInput) return;
-    const steps = Number(this.#volumeInput.value);
-    this.#volume = Math.min(1, Math.max(0, steps / VOLUME_STEPS));
-    dataStore.setPref(AUDIO_VOLUME_PREF, this.#volume);
-    this.#syncVolumeReadout();
+  #onVolumeInput(channel: ChannelControls) {
+    const steps = Number(channel.slider.value);
+    channel.volume = Math.min(1, Math.max(0, steps / VOLUME_STEPS));
+    dataStore.setPref(channel.spec.volumePref, channel.volume);
+    this.#syncVolumeReadout(channel);
   }
 
   #render() {
     if (!this.#ready) return;
-    if (this.#soundBtn) {
-      this.#soundBtn.setAttribute('aria-pressed', this.#muted ? 'false' : 'true');
-      this.#soundBtn.textContent = this.#muted ? 'OFF' : 'ON';
+    for (const channel of this.#channels) {
+      channel.button.setAttribute('aria-pressed', channel.muted ? 'false' : 'true');
+      channel.button.textContent = channel.muted ? 'OFF' : 'ON';
+      channel.slider.value = String(Math.round(channel.volume * VOLUME_STEPS));
+      channel.slider.disabled = channel.muted;
+      this.#syncVolumeReadout(channel);
     }
-    if (this.#volumeInput) {
-      this.#volumeInput.value = String(Math.round(this.#volume * VOLUME_STEPS));
-      this.#volumeInput.disabled = this.#muted;
-    }
-    this.#syncVolumeReadout();
   }
 
-  #syncVolumeReadout() {
-    if (this.#volumeReadout) {
-      this.#volumeReadout.textContent = `${Math.round(this.#volume * 100)}%`;
-    }
+  #syncVolumeReadout(channel: ChannelControls) {
+    channel.readout.textContent = `${Math.round(channel.volume * 100)}%`;
   }
 
   #emit(eventName: string, detail: Record<string, unknown> = {}) {
