@@ -22,6 +22,7 @@ import {
 } from '/src/game/salvage.js';
 import { ITEM_ID, ITEM_SCOPE } from '/src/game/items.js';
 import type { Item } from '/src/game/items.js';
+import { itemPreview, type ItemPreview } from '/src/game/shopPreview.js';
 import type { Crew as CrewMember } from '/src/game/Crew.js';
 
 type CrewMemberSnapshot = {
@@ -37,6 +38,13 @@ type CrewMemberSnapshot = {
    * shop greys out the same purchases `Campaign.purchase` would refuse.
    */
   saturatedGearIds: string[];
+  /**
+   * Per-item "what you already have" readouts, keyed by catalog item id —
+   * held quantity for consumables, the moved stat for gear. Precomputed at
+   * `setCatalog` time (catalog × crew is a handful of rows) so target
+   * selection is a pure lookup. See `src/game/shopPreview.ts`.
+   */
+  previews: Record<string, ItemPreview>;
 };
 
 const SALVAGE_TYPE_LABELS: Record<SalvageType, string> = {
@@ -339,6 +347,29 @@ button.target-row[aria-current='true'] .cursor {
   visibility: visible;
 }
 
+/*
+ * The per-operator "what you already have" readout on a target row: held
+ * quantity for consumables, the moved stat for gear. Right-aligned so the
+ * column scans vertically when comparing crew members.
+ */
+.target-preview {
+  margin-left: auto;
+  padding-left: 0.6rem;
+  font-size: 0.82rem;
+  color: var(--shop-gold);
+  white-space: nowrap;
+  letter-spacing: 0.04em;
+}
+
+.target-preview .preview-label {
+  color: var(--shop-dim);
+  margin-right: 0.35em;
+}
+
+.target-preview.at-cap {
+  color: var(--shop-danger);
+}
+
 .hint {
   text-align: center;
   font-size: 0.85rem;
@@ -456,6 +487,7 @@ class FinnShop extends HTMLElement {
       maxHp: member.maxHp,
       flatlined: !!member.flatlined,
       saturatedGearIds: gearIds.filter(id => member.gearAtCap(id)),
+      previews: Object.fromEntries(catalog.map(item => [item.id, itemPreview(item.id, member)])),
     }));
     this.#credits = balances.credits ?? 0;
     this.#salvage = balances.salvage ?? emptySalvage();
@@ -644,8 +676,25 @@ class FinnShop extends HTMLElement {
       }) as HTMLButtonElement;
       btn.dataset.targetIndex = String(i);
       btn.addEventListener('click', () => this.#confirmTarget(i));
-      const capLabel = ITEM_CAP_LABELS[item.id] ?? '';
-      const suffix = member.flatlined ? ' FLATLINED' : atCap ? ` ${capLabel}` : '';
+      // Relevant-inventory column: held count (consumables) or moved stat
+      // (gear), with the cap label appended once the purchase would be a no-op.
+      const preview = member.previews[item.id];
+      // Identity column: archetype + HP, or FLATLINED when they're gone. HP is
+      // dropped when the preview itself is HP (Bone Lacing) — one column, once.
+      const archetype = member.archetype.toUpperCase();
+      const identity = member.flatlined
+        ? `${archetype} FLATLINED`
+        : preview?.label === 'HP'
+          ? archetype
+          : `${archetype} HP ${member.hp}/${member.maxHp}`;
+      const capLabel = atCap ? (ITEM_CAP_LABELS[item.id] ?? 'AT CAP') : '';
+      const previewEl = h('span', { className: `target-preview${atCap ? ' at-cap' : ''}` });
+      if (preview) {
+        previewEl.append(
+          h('span', { className: 'preview-label', textContent: preview.label }),
+          h('span', { textContent: preview.value + (capLabel ? ` · ${capLabel}` : '') })
+        );
+      }
       btn.append(
         h('span', { className: 'cursor', textContent: '>' }),
         h('span', {
@@ -654,8 +703,9 @@ class FinnShop extends HTMLElement {
         }),
         h('span', {
           className: 'item-desc',
-          textContent: `${member.archetype.toUpperCase()} HP ${member.hp}/${member.maxHp}${suffix}`,
-        })
+          textContent: identity,
+        }),
+        previewEl
       );
       rows.appendChild(btn);
       this.#targetButtons.push(btn);

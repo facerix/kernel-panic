@@ -154,6 +154,7 @@ const CacheConfig = {
       '/src/game/Run.js',
       '/src/game/salvage.js',
       '/src/game/scoreableUnlocks.js',
+      '/src/game/shopPreview.js',
       '/src/game/slide.js',
       '/src/game/Smoke.js',
       '/src/game/surge.js',
