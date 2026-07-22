@@ -39,9 +39,9 @@ test('every HELP_ROWS entry has the required shape', () => {
 test('every advertised key is actually handled by the keymap dispatcher', () => {
   for (const row of HELP_ROWS) {
     for (const key of row.keys) {
-      // `?` and `o` are UI-only keys handled at shell level, not in the game
+      // `?` and `O` are UI-only keys handled at shell level, not in the game
       // keymap. Other rows should round-trip through dispatch.
-      if (key === '?' || key === 'o') continue;
+      if (key === '?' || key === 'O') continue;
       const r = dispatch(key, MODE.IDLE);
       const handled = r.intent !== null || r.nextMode !== MODE.IDLE;
       assert.ok(
@@ -117,11 +117,11 @@ test("'?' is in HELP_ROWS as a system-scope row", () => {
   assert.equal(help.scope, 'both');
 });
 
-test("'o' is in HELP_ROWS as a system-scope row", () => {
-  // 'o' opens <settings-modal> — a UI-level binding handled in shellRuntime's
+test("'O' is in HELP_ROWS as a system-scope row", () => {
+  // 'O' opens <settings-modal> — a UI-level binding handled in shellRuntime's
   // handleGlobalKey, same as '?'.
-  const row = HELP_ROWS.find(r => r.keys.includes('o'));
-  assert.ok(row, "HELP_ROWS must include a row for the 'o' settings toggle");
+  const row = HELP_ROWS.find(r => r.keys.includes('O'));
+  assert.ok(row, "HELP_ROWS must include a row for the 'O'ptions toggle");
   assert.equal(row.group, 'system');
   assert.equal(row.scope, 'both');
 });
