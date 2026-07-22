@@ -8,16 +8,8 @@ import {
   type SoundName,
 } from '../../src/audio/sounds.js';
 
-// Valid ranges mirror the vendored TONEBENCH engine's published bounds
-// (src/vendor/tonebench/tonebenchEngine.d.ts). Hardcoded here so the test does
-// not depend on the vendored .js being present at runtime — and so a re-vendor
-// that changes the bounds is a deliberate, reviewed edit to these constants.
-const WAVE_TYPES = ['sine', 'square', 'sawtooth', 'triangle', 'noise'];
-const FILTER_TYPES = ['none', 'lowpass', 'highpass', 'bandpass', 'notch'];
 const FREQ_MIN = 20;
 const FREQ_MAX = 4000;
-const CUTOFF_MIN = 40;
-const CUTOFF_MAX = 14000;
 
 // The sound set itself is the single source of truth (src/audio/sounds.ts):
 // `SoundName` is derived from `KERNEL_PANIC_DEFS`'s keys, so we iterate those
