@@ -89,6 +89,8 @@ test('healMember rejects calls when not in HUB', () => {
   const member = campaign.crew[0];
   campaign.deployCrewMember(member.id, {
     seed: 1,
+    mapWidth: 24,
+    mapHeight: 16,
     objective: {
       kind: OBJECTIVES.REACH_EXIT,
       title: 'Extract',

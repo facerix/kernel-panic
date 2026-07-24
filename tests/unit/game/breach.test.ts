@@ -48,6 +48,8 @@ function makeCrew() {
 function demolitionContract(overrides: Partial<Contract> = {}): Contract {
   return {
     seed: 42,
+    mapWidth: 24,
+    mapHeight: 16,
     objective: {
       kind: OBJECTIVES.DENY,
       title: 'Breach floodgate',
@@ -280,17 +282,17 @@ test('detonation damages blast-vulnerable entities and emits breach-blast events
   world.addEntity(player);
   world.addEntity(drone);
   world.placeBreachingCharge(3, 4);
-  const damaged: unknown[] = [];
-  bus.on(EVENT.ENTITY_DAMAGED, payload => damaged.push(payload));
+  const damaged: Record<string, unknown>[] = [];
+  bus.on(EVENT.ENTITY_DAMAGED, payload => damaged.push(payload as Record<string, unknown>));
 
   const { casualties } = detonateBreachingCharge(world, 3, 4, player);
 
   assert.equal(casualties.length, 2);
   assert.equal(player.hp, 5 - BREACH_BLAST_DAMAGE);
   assert.equal(drone.hp, drone.maxHp - BREACH_BLAST_DAMAGE);
-  assert.ok(damaged.some((p: { source?: string }) => p.source === 'breach-blast'));
+  assert.ok(damaged.some(p => p.source === 'breach-blast'));
   assert.ok(
-    damaged.every((p: { attacker?: unknown }) => p.attacker === player),
+    damaged.every(p => p.attacker === player),
     'breach blast should attribute damage to the planter'
   );
 });
@@ -302,17 +304,12 @@ test('runPlayerAftermathSteps passes player to breach detonation', () => {
   const player = new Merc({ id: 'crew-merc', x: 3, y: 3, maxHp: 5 });
   world.addEntity(player);
   world.placeBreachingCharge(3, 4);
-  const damaged: unknown[] = [];
-  bus.on(EVENT.ENTITY_DAMAGED, payload => damaged.push(payload));
+  const damaged: Record<string, unknown>[] = [];
+  bus.on(EVENT.ENTITY_DAMAGED, payload => damaged.push(payload as Record<string, unknown>));
 
   [...runPlayerAftermathSteps(world, new Rng(1), { player })];
 
-  assert.ok(
-    damaged.some(
-      (p: { attacker?: unknown; source?: string }) =>
-        p.source === 'breach-blast' && p.attacker === player
-    )
-  );
+  assert.ok(damaged.some(p => p.source === 'breach-blast' && p.attacker === player));
 });
 
 test('armed breaching charge round-trips through run snapshots', () => {

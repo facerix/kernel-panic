@@ -9,7 +9,7 @@ import {
   BSP_TUNABLES,
 } from '../../../../src/game/procgen/bsp.js';
 
-const fullRegion = (width, height) => ({ x: 0, y: 0, width, height });
+const fullRegion = (width: number, height: number) => ({ x: 0, y: 0, width, height });
 
 test('splitRegion is deterministic for the same seed', () => {
   const a = splitRegion(new Rng(42), fullRegion(24, 16));
@@ -75,6 +75,7 @@ test('non-integer region throws (data-corruption guard)', () => {
 });
 
 test('rng-less call throws TypeError', () => {
+  // @ts-expect-error Verify runtime validation of a missing RNG.
   assert.throws(() => splitRegion(null, fullRegion(20, 16)), TypeError);
 });
 

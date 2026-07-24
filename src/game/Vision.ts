@@ -16,6 +16,7 @@ import { hasLineOfSight } from './LineOfSight.js';
 import { SIGHT_RANGE } from './constants.js';
 import { coordKey } from './mapConnectivity.js';
 import type { Entity } from './Entity.js';
+import type { GridPoint } from '../types.js';
 import type { Grid } from './Grid.js';
 
 type RecomputeOptions = {
@@ -48,7 +49,7 @@ export class VisionField {
    * listener when `killed` is true and the corpse tile is currently visible.
    * Cleared with {@link resetFogState} when a new combat episode starts.
    */
-  memoriseCorpse(entity: Entity) {
+  memoriseCorpse(entity: Pick<Entity, 'x' | 'y' | 'faction' | 'glyph'>) {
     const k = coordKey(entity.x, entity.y);
     this.memorisedCorpses.set(k, {
       x: entity.x,
@@ -104,7 +105,7 @@ export class VisionField {
    * on `entity:moved` for non-player factions, so a drone walking into LOS
    * becomes visible without waiting for the player to step.
    */
-  recompute(grid: Grid, viewer: Entity, range = SIGHT_RANGE, options: RecomputeOptions = {}) {
+  recompute(grid: Grid, viewer: GridPoint, range = SIGHT_RANGE, options: RecomputeOptions = {}) {
     if (!Number.isInteger(range) || range < 0) {
       throw new RangeError(`vision range must be a non-negative integer, got ${range}`);
     }

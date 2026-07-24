@@ -47,6 +47,8 @@ function makeCrew(archetype = 'razor') {
 function makeDenyContract(overrides: Partial<Contract> = {}): Contract {
   return {
     seed: 42,
+    mapWidth: 24,
+    mapHeight: 16,
     objective: {
       kind: OBJECTIVES.DENY,
       title: 'Disable shipment',
@@ -64,7 +66,7 @@ function makeDenyContract(overrides: Partial<Contract> = {}): Contract {
 
 function denyTargetsIn(run: Run): DenyTarget[] {
   if (!run.world) throw new Error('run must be in combat');
-  return [...run.world.entities.values()].filter(
+  return [...run.world!.entities.values()].filter(
     (entity): entity is DenyTarget => entity instanceof DenyTarget
   );
 }
@@ -145,7 +147,7 @@ describe('deny runs', () => {
     const run = new Run({
       crewMember: makeCrew('razor'),
       seed: 42,
-      onResult: result => results.push(result),
+      onResult: (result: unknown) => results.push(result),
     });
     run.enterBriefing(makeDenyContract());
     run.enterCombat();
@@ -156,7 +158,7 @@ describe('deny runs', () => {
     assert.equal(target.label, 'Shipment');
     assert.ok(run.exitTile, 'deny run should have an exit tile');
     assert.ok(
-      Math.max(Math.abs(target.x - run.exitTile.x), Math.abs(target.y - run.exitTile.y)) > 1,
+      Math.max(Math.abs(target.x - run.exitTile!.x), Math.abs(target.y - run.exitTile!.y)) > 1,
       'deny target should not spawn adjacent to extraction'
     );
     assert.equal(isObjectiveSatisfied(run.contract!, run.world), false);
@@ -165,7 +167,7 @@ describe('deny runs', () => {
     run.bus!.emit('entity:moved', {
       entity: run.player,
       from: { x: run.player!.x, y: run.player!.y },
-      to: { x: run.exitTile.x, y: run.exitTile.y },
+      to: { x: run.exitTile!.x, y: run.exitTile!.y },
     });
     assert.equal(run.state, RUN_STATE.RESULT, 'abort extraction ends the run');
     const abortResult = results[0] as {
@@ -185,7 +187,7 @@ describe('deny runs', () => {
     const run = new Run({
       crewMember: makeCrew('razor'),
       seed: 42,
-      onResult: result => results.push(result),
+      onResult: (result: unknown) => results.push(result),
     });
     run.enterBriefing(makeDenyContract());
     run.enterCombat();

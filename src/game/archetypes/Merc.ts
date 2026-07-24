@@ -12,7 +12,7 @@ import type { Entity } from '../Entity.js';
 import type { World } from '../World.js';
 
 export type VaultCheck =
-  | { ok: true; mode: 'hop' | 'shove'; occupant: Entity | null }
+  | { ok: true; mode: 'hop' | 'shove'; occupant: Entity | null; reason?: never }
   | { ok: false; reason: string };
 
 /**

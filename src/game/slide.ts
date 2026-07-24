@@ -4,7 +4,7 @@ import type { Entity } from './Entity.js';
 import type { World } from './World.js';
 import type { GridPoint } from '../types.js';
 
-export type SlideCheck = { ok: true } | { ok: false; reason: string };
+export type SlideCheck = { ok: true; reason?: never } | { ok: false; reason: string };
 
 /**
  * Shared two-tile SLIDE geometry for Razor and Flanker.

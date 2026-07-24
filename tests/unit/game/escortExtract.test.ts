@@ -27,6 +27,8 @@ import type { Contract } from '../../../src/game/hub/Curator.js';
 function makeEscortContract(overrides: Partial<Contract> = {}): Contract {
   return {
     seed: 212,
+    mapWidth: 24,
+    mapHeight: 16,
     objective: {
       kind: OBJECTIVES.ESCORT_EXTRACT,
       title: 'Extract clinic witness',
@@ -228,7 +230,7 @@ describe('escort runs', () => {
     const run = new Run({
       crewMember: makeCrew('razor'),
       seed: 212,
-      onResult: result => results.push(result),
+      onResult: (result: unknown) => results.push(result),
     });
     run.enterBriefing(makeEscortContract());
     run.enterCombat();
@@ -269,7 +271,7 @@ describe('escort runs', () => {
     const run = new Run({
       crewMember: makeCrew('razor'),
       seed: 216,
-      onResult: result => results.push(result),
+      onResult: (result: unknown) => results.push(result),
     });
     run.onAbortRequested = () => {
       abortRequested = true;
@@ -308,7 +310,7 @@ describe('escort runs', () => {
     const run = new Run({
       crewMember: makeCrew('razor'),
       seed: 213,
-      onResult: result => results.push(result),
+      onResult: (result: unknown) => results.push(result),
     });
     run.enterBriefing(makeEscortContract({ seed: 213 }));
     run.enterCombat();
@@ -337,7 +339,7 @@ describe('escort runs', () => {
     const run = new Run({
       crewMember: makeCrew('razor'),
       seed: 215,
-      onResult: result => results.push(result),
+      onResult: (result: unknown) => results.push(result),
     });
     run.enterBriefing(makeEscortContract({ seed: 215 }));
     run.enterCombat();

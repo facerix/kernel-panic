@@ -18,7 +18,7 @@ import { Rng } from '../../../src/rng.js';
 
 const openWorld = () => new World(new Grid(14, 8));
 
-const addPlayer = (world, x = 2, y = 2) => {
+const addPlayer = (world: World, x = 2, y = 2) => {
   const player = new Entity({ id: 'player', x, y, faction: FACTION.PLAYER, glyph: '@' });
   world.addEntity(player);
   return player;

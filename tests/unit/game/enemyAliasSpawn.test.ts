@@ -48,7 +48,7 @@ function combatRun(seed = 7): Run {
 }
 
 function hostilesIn(run: Run): Hostile[] {
-  return [...run.world.entities.values()].filter((e): e is Hostile => e instanceof Hostile);
+  return [...run.world!.entities.values()].filter((e): e is Hostile => e instanceof Hostile);
 }
 
 test('Entity carries displayName/principalTag from init, undefined by default', () => {
@@ -85,9 +85,9 @@ test('spawned hostiles carry the contract principal’s curated alias', () => {
 
 test('the player is not aliased (no displayName in snapshot)', () => {
   const run = combatRun();
-  assert.equal(run.player.displayName, undefined);
+  assert.equal(run.player!.displayName, undefined);
   const rec = snapshot(run);
-  const playerRec = rec.entities.find(e => e.id === run.player.id);
+  const playerRec = rec.entities.find(e => e.id === run.player!.id);
   assert.ok(playerRec);
   assert.ok(!('displayName' in playerRec), 'un-aliased entities omit displayName from snapshot');
 });

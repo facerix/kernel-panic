@@ -29,6 +29,11 @@ export function mulberry32(seed: number): () => number {
   };
 }
 
+/** Smallest random-source protocol for consumers that only draw unit floats. */
+export interface RandomSource {
+  next(): number;
+}
+
 /**
  * Stateful wrapper around `mulberry32`. The internal `state` is a single u32
  * that advances on every call — exposing it means a save can checkpoint a

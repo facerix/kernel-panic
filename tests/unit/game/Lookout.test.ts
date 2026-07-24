@@ -21,13 +21,13 @@ import { Rng } from '../../../src/rng.js';
 const openWorld = (w = 14, h = 8) => new World(new Grid(w, h), { events: new EventBus() });
 
 /** Capture every ALARM payload emitted on the world bus. */
-const captureAlarms = world => {
-  const seen = [];
-  world.events.on(EVENT.ALARM, payload => seen.push(payload));
+const captureAlarms = (world: World) => {
+  const seen: Record<string, unknown>[] = [];
+  world.events!.on(EVENT.ALARM, payload => seen.push(payload as Record<string, unknown>));
   return seen;
 };
 
-const addPlayer = (world, x, y) => {
+const addPlayer = (world: World, x: number, y: number) => {
   const player = new Entity({ id: 'player', x, y, faction: FACTION.PLAYER, glyph: '@' });
   world.addEntity(player);
   return player;
@@ -84,7 +84,7 @@ test('a subscribed patrol hostile force-engages on a lookout ping (fresh coords)
   // lookout's ping (it subscribes to ALARM; the lookout does not).
   const ally = new Skirmisher({ id: 'drone-0', x: 12, y: 7 });
   world.addEntity(ally);
-  ally.bindToBus(world.events);
+  ally.bindToBus(world.events!);
 
   lookout.takeTurn(world, new Rng(1));
   assert.equal(ally.state, PATROL_STATE.ENGAGE, 'ally re-engages on the shared target');

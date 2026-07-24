@@ -119,7 +119,7 @@ test('P3.M4.3: flip swaps meat partner ↔ cyber avatar while jacked in', () => 
   assert.equal(activeTileset(run), 'cyber');
   assert.equal(
     activeWorldOf(run),
-    run.cyberspace!.phase === 'active' && run.cyberspace.layer.world
+    run.cyberspace?.phase === 'active' && run.cyberspace.layer.world
   );
 
   // Flip back to Meatspace.

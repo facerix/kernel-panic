@@ -75,6 +75,7 @@ test('AIM (fire) + quit-campaign touch button stays in AIM', () => {
 test('syntheticKeyFor throws on an unknown button (crash > silent fallback)', () => {
   assert.throws(() => syntheticKeyFor('jump'), /unknown button/i);
   assert.throws(() => syntheticKeyFor(''), /unknown button/i);
+  // @ts-expect-error Verify runtime validation of a non-string button.
   assert.throws(() => syntheticKeyFor(null), /unknown button/i);
 });
 
@@ -88,7 +89,7 @@ test('IDLE + direction button emits a move intent in that direction', () => {
     ['NE', 1, -1],
     ['SW', -1, 1],
     ['SE', 1, 1],
-  ];
+  ] as const;
   for (const [btn, dx, dy] of cases) {
     const r = dispatchTouchAction(btn, MODE.IDLE);
     assert.deepEqual(r.intent, { type: 'move', dx, dy }, `${btn} should move (${dx}, ${dy})`);

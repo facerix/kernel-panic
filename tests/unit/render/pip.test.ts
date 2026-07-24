@@ -20,7 +20,8 @@ import {
 function makeEntity(id: string, x: number, y: number, hp = 5, maxHp = 8) {
   const grid = new Grid(28, 18);
   const world = new World(grid);
-  const ent = new Entity({ id, x, y, faction: FACTION.PLAYER, glyph: '@', maxHp, hp });
+  const ent = new Entity({ id, x, y, faction: FACTION.PLAYER, glyph: '@', maxHp });
+  ent.hp = hp;
   world.addEntity(ent);
   return { world, ent };
 }
@@ -36,7 +37,6 @@ function viewingCyber() {
     faction: FACTION.PLAYER,
     glyph: 'R',
     maxHp: 6,
-    hp: 6,
   });
   meatWorld.addEntity(partner);
   return {

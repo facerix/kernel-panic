@@ -7,14 +7,30 @@ import { World } from '../../../src/game/World.js';
 import { Entity } from '../../../src/game/Entity.js';
 import { FACTION } from '../../../src/game/constants.js';
 
+type DrawCall = {
+  op: 'rect' | 'text';
+  x?: number;
+  y?: number;
+  w?: number;
+  h?: number;
+  char?: string;
+  px?: number;
+  py?: number;
+  fillStyle: string;
+  shadowColor?: string;
+  font?: string;
+  textAlign?: string;
+};
+type TestCanvas = HTMLCanvasElement & { _drawCalls: DrawCall[] };
+
 /**
  * Minimal canvas + 2D-context stub. Records every text draw so tests can
  * inspect (a) how many full frames have been drawn and (b) which flash
  * overlays got painted on top. We don't need pixel fidelity — only the
  * sequence of calls.
  */
-function makeCanvas() {
-  const drawCalls = [];
+function makeCanvas(): TestCanvas {
+  const drawCalls: DrawCall[] = [];
   const ctx = {
     fillStyle: '',
     shadowBlur: 0,
@@ -22,10 +38,10 @@ function makeCanvas() {
     font: '',
     textAlign: '',
     textBaseline: '',
-    fillRect(x, y, w, h) {
+    fillRect(x: number, y: number, w: number, h: number) {
       drawCalls.push({ op: 'rect', x, y, w, h, fillStyle: ctx.fillStyle });
     },
-    fillText(char, px, py) {
+    fillText(char: string, px: number, py: number) {
       drawCalls.push({
         op: 'text',
         char,
@@ -37,7 +53,7 @@ function makeCanvas() {
         textAlign: ctx.textAlign,
       });
     },
-    measureText: text => ({ width: String(text).length * 7 }),
+    measureText: (text: string) => ({ width: String(text).length * 7 }),
     save: () => {},
     restore: () => {},
   };
@@ -46,7 +62,7 @@ function makeCanvas() {
     height: 400,
     getContext: () => ctx,
     _drawCalls: drawCalls,
-  };
+  } as unknown as TestCanvas;
 }
 
 /** A tiny world: 32×20 grid with a player at (16, 10) so the camera centers. */
@@ -61,6 +77,7 @@ function makeWorld() {
 test('flashCell rejects non-integer coords', () => {
   const r = new AsciiRenderer(makeCanvas(), { now: () => 0 });
   assert.throws(() => r.flashCell(1.5, 0), /integers/);
+  // @ts-expect-error Runtime validation must reject a non-numeric coordinate.
   assert.throws(() => r.flashCell(0, 'x'), /integers/);
 });
 
@@ -95,6 +112,7 @@ test('draw() paints registered flashes on top of the regular frame', () => {
   assert.equal(textOps.length, baselineTextOps + 1, 'one extra text op for the flash overlay');
   // The last text op should be the flash overlay (drawn after the frame).
   const flashOp = textOps.at(-1);
+  assert.ok(flashOp);
   assert.equal(flashOp.char, '*');
   assert.equal(flashOp.fillStyle, '#abcdef');
 });
@@ -126,6 +144,7 @@ test('draw() paints the location chip (uppercased) on top when a label is given'
   r.draw(world, player, { locationLabel: 'Vuong Holdings server farm' });
   const textOps = canvas._drawCalls.filter(c => c.op === 'text');
   const chip = textOps.at(-1);
+  assert.ok(chip);
   assert.equal(chip.char, 'VUONG HOLDINGS SERVER FARM', 'chip painted last, uppercased');
   assert.equal(chip.px, 6, 'chip sits in the top-left padding');
 });
@@ -138,7 +157,7 @@ test('draw() omits the location chip when no label is supplied', () => {
   r.draw(world, player);
   const chip = canvas._drawCalls
     .filter(c => c.op === 'text')
-    .find(c => c.char === c.char?.toUpperCase?.() && c.char.length > 1);
+    .find(c => c.char === c.char?.toUpperCase?.() && String(c.char).length > 1);
   assert.equal(chip, undefined, 'no multi-char label text op without a locationLabel');
 });
 
@@ -212,6 +231,7 @@ test('draw() preserves recon progress tags when the objective title is long', ()
 
   r.draw(world, player, {
     combatHud: {
+      cyber: false,
       objective: {
         title: 'Map the full district water board facility layout',
         done: true,
@@ -238,6 +258,7 @@ test('draw() paints structured combat HUD rows in the planned canvas corners', (
   r.draw(world, player, {
     locationLabel: 'Vuong Holdings server farm',
     combatHud: {
+      cyber: false,
       objective: { title: 'Sentinel window', done: false, turnsRemaining: 4 },
       identity: { callsign: 'Patch', archetype: 'tech', stealthed: true },
       hp: { hp: 2, maxHp: 3 },
@@ -276,6 +297,7 @@ test('draw() paints combat HUD HP and AP glyphs with per-state colors', () => {
 
   r.draw(world, player, {
     combatHud: {
+      cyber: false,
       objective: { title: 'Sentinel window', done: false },
       identity: { callsign: 'Patch', archetype: 'tech', stealthed: false },
       hp: { hp: 1, maxHp: 3 },

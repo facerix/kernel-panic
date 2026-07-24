@@ -8,7 +8,17 @@ import { World } from '../../../src/game/World.js';
 import { TILE, FACTION, AP_COST, STATUS_EFFECT } from '../../../src/game/constants.js';
 import { EventBus, EVENT } from '../../../src/game/events.js';
 
-const makeWorld = ({ grid, razorAt = [3, 3], extraEntities = [], bus = null } = {}) => {
+const makeWorld = ({
+  grid,
+  razorAt = [3, 3],
+  extraEntities = [],
+  bus = null,
+}: {
+  grid?: Grid;
+  razorAt?: [number, number];
+  extraEntities?: Entity[];
+  bus?: EventBus | null;
+} = {}) => {
   const g = grid ?? new Grid(8, 8);
   const w = new World(g, bus ? { events: bus } : {});
   const razor = new Razor({ id: 'razor', x: razorAt[0], y: razorAt[1] });
@@ -123,8 +133,8 @@ test('Razor.slide throws on illegal slide and leaves state untouched', () => {
 test('Razor.slide emits entity:moved with the from/to delta', () => {
   const bus = new EventBus();
   const { world, razor } = makeWorld({ bus });
-  const moves = [];
-  bus.on(EVENT.ENTITY_MOVED, payload => moves.push(payload));
+  const moves: Record<string, unknown>[] = [];
+  bus.on(EVENT.ENTITY_MOVED, payload => moves.push(payload as Record<string, unknown>));
   razor.slide(world, 1, 0);
   assert.equal(moves.length, 1);
   assert.deepEqual(moves[0].from, { x: 3, y: 3 });
@@ -134,8 +144,8 @@ test('Razor.slide emits entity:moved with the from/to delta', () => {
 test('Razor.slide does NOT emit a noise event (perk is silent)', () => {
   const bus = new EventBus();
   const { world, razor } = makeWorld({ bus });
-  const noises = [];
-  bus.on(EVENT.NOISE, payload => noises.push(payload));
+  const noises: Record<string, unknown>[] = [];
+  bus.on(EVENT.NOISE, payload => noises.push(payload as Record<string, unknown>));
   razor.slide(world, 1, 0);
   assert.deepEqual(noises, [], 'slide is silent — that is the whole point');
 });

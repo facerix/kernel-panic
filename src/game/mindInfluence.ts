@@ -42,11 +42,13 @@ import {
 } from './constants.js';
 import type { Entity } from './Entity.js';
 import type { World } from './World.js';
-import type { Rng } from '../rng.js';
+import type { RandomSource, Rng } from '../rng.js';
 import type { TurnActionStep } from '../types.js';
 
 /** Pre-flight legality verdict, mirroring the Tech/Razor/Merc perk shape. */
-export type InfluenceCheck = { ok: true } | { ok: false; reason: InfluenceDenyReason };
+export type InfluenceCheck =
+  | { ok: true; reason?: never }
+  | { ok: false; reason: InfluenceDenyReason };
 
 export type InfluenceDenyReason =
   | 'dead'
@@ -114,7 +116,7 @@ export function influenceTarget(
   world: World,
   operator: Entity,
   target: Entity,
-  rng: Rng
+  rng: RandomSource
 ): InfluenceResult {
   const check = canInfluence(world, operator, target);
   if (!check.ok) {

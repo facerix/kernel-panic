@@ -22,6 +22,7 @@ import {
   INCENDIARY_IMPACT_DAMAGE,
   INCENDIARY_BURN_TURNS,
   moveStepApCost,
+  type FactionId,
 } from '../../../src/game/constants.js';
 import { Rng } from '../../../src/rng.js';
 import {
@@ -54,7 +55,7 @@ function makeHazardWorld(width = 8, height = 8) {
   return { grid, world: new World(grid, { events: bus }), bus };
 }
 
-function makeEntity(id: string, x: number, y: number, faction = FACTION.PLAYER, hp = 3) {
+function makeEntity(id: string, x: number, y: number, faction: FactionId = FACTION.PLAYER, hp = 3) {
   return new Entity({ id, x, y, faction, glyph: '@', maxHp: hp });
 }
 

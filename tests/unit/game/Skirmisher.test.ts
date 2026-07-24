@@ -21,12 +21,16 @@ import { Rng } from '../../../src/rng.js';
  * Lets each combat-touching test pin hit/miss outcomes without coupling to
  * mulberry32 state.
  */
-class StubRng {
-  constructor(values) {
+class StubRng extends Rng {
+  values: number[];
+  calls: number;
+
+  constructor(values: number[]) {
+    super(0);
     this.values = [...values];
     this.calls = 0;
   }
-  next() {
+  override next() {
     if (this.calls >= this.values.length) {
       throw new Error('StubRng drained — test under-supplied rolls');
     }
@@ -170,7 +174,7 @@ test('drone investigates last known position when target leaves LOS', () => {
   // x=4 and x=6, the drone needs to detour through y=1 or y=3.
   assert.notEqual(drone.state, PATROL_STATE.ENGAGE);
   assert.ok(
-    drone.state === PATROL_STATE.INVESTIGATE || drone.state === PATROL_STATE.PATROL,
+    new Set<string>([PATROL_STATE.INVESTIGATE, PATROL_STATE.PATROL]).has(drone.state),
     `unexpected state ${drone.state}`
   );
   // Either the drone moved (investigating) or marked the lead abandoned.
@@ -248,6 +252,7 @@ test('Skirmisher constructor rejects malformed waypoints', () => {
     TypeError
   );
   assert.throws(
+    // @ts-expect-error Verify runtime validation of a non-array waypoint list.
     () => new Skirmisher({ id: 'd', x: 1, y: 1, patrolWaypoints: 'not-an-array' }),
     TypeError
   );
@@ -357,12 +362,16 @@ test('takeTurnSteps pauses mid-turn — caller can inspect state between yields'
   const gen = drone.takeTurnSteps(w, new StubRng([0]));
 
   const first = gen.next();
+  assert.equal(first.done, false);
+  if (first.done) throw new Error('expected first turn step');
   assert.equal(first.value.type, 'fire');
   // After the fire yield: player is damaged, drone hasn't moved yet.
   assert.equal(player.hp, player.maxHp - 1);
   assert.equal(drone.x, 6, 'drone has not stepped yet at the fire-yield boundary');
 
   const second = gen.next();
+  assert.equal(second.done, false);
+  if (second.done) throw new Error('expected second turn step');
   assert.equal(second.value.type, 'move-engage');
   assert.ok(drone.x < 6, 'drone has now stepped');
 
@@ -414,7 +423,7 @@ test('takeTurnSteps does NOT crash the safety cap on unreachable patrol waypoint
   // Just calling `takeTurn` (which drains the generator) must not throw.
   // We also assert it produced *some* log entries (the skips themselves) so
   // a future regression that silently aborts the generator pre-yield fails too.
-  let log;
+  let log: ReturnType<typeof drone.takeTurn> = [];
   assert.doesNotThrow(() => {
     log = drone.takeTurn(w, new Rng(1));
   });
@@ -446,7 +455,7 @@ test('takeTurnSteps does NOT crash on co-located patrol waypoints', () => {
     ],
   });
   w.addEntity(drone);
-  let log;
+  let log: ReturnType<typeof drone.takeTurn> = [];
   assert.doesNotThrow(() => {
     log = drone.takeTurn(w, new Rng(1));
   });

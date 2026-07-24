@@ -16,24 +16,25 @@ import { EventBus, EVENT } from '../../../src/game/events.js';
 import { snapshot, restore } from '../../../src/game/persistence.js';
 import { buildCrewMember } from '../../../src/game/archetypes/index.js';
 import { AP_COST, TILE } from '../../../src/game/constants.js';
-import { OBJECTIVES } from '../../../src/game/hub/Curator.js';
+import { OBJECTIVES, type Contract } from '../../../src/game/hub/Curator.js';
 import { Rng } from '../../../src/rng.js';
 import { testContractContext } from './contractTestUtils.js';
 
-const fakeContract = (overrides = {}) => ({
-  seed: 12345,
-  objective: {
-    kind: OBJECTIVES.REACH_EXIT,
-    title: 'Extract clean',
-    briefing: 'Reach the exit.',
-  },
-  difficulty: 'standard',
-  threatCount: 1,
-  label: 'test job',
-  context: testContractContext(OBJECTIVES.REACH_EXIT),
-  reward: { credits: 0, repDelta: 0 },
-  ...overrides,
-});
+const fakeContract = (overrides: Partial<Contract> = {}): Contract =>
+  ({
+    seed: 12345,
+    objective: {
+      kind: OBJECTIVES.REACH_EXIT,
+      title: 'Extract clean',
+      briefing: 'Reach the exit.',
+    },
+    difficulty: 'standard',
+    threatCount: 1,
+    label: 'test job',
+    context: testContractContext(OBJECTIVES.REACH_EXIT),
+    reward: { credits: 0, repDelta: 0 },
+    ...overrides,
+  }) as Contract;
 
 const cyberContract = (overrides = {}) =>
   fakeContract({
@@ -61,7 +62,7 @@ function makeMerc(x = 1, y = 1) {
   return buildCrewMember('merc', { x, y }, new Rng(101), { id: 'crew-merc' });
 }
 
-function readyForCombat(member: ReturnType<typeof makeDecker>) {
+function readyForCombat<T extends { ap: number; maxAp: number }>(member: T): T {
   member.ap = member.maxAp = 4;
   return member;
 }

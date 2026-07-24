@@ -8,7 +8,11 @@ import { World } from '../../../src/game/World.js';
 import { TILE, FACTION, AP_COST } from '../../../src/game/constants.js';
 import { ConsumablePickup } from '../../../src/game/entities/ConsumablePickup.js';
 
-const makeWorld = ({ grid, mercAt = [3, 3], extraEntities = [] } = {}) => {
+const makeWorld = ({
+  grid,
+  mercAt = [3, 3],
+  extraEntities = [],
+}: { grid?: Grid; mercAt?: [number, number]; extraEntities?: Entity[] } = {}) => {
   const g = grid ?? new Grid(8, 8);
   const w = new World(g);
   const merc = new Merc({ id: 'merc', x: mercAt[0], y: mercAt[1], glyph: '@' });

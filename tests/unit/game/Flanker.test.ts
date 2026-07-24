@@ -20,13 +20,18 @@ import {
   HEAVY_MELEE_DAMAGE,
   TILE,
 } from '../../../src/game/constants.js';
+import { Rng } from '../../../src/rng.js';
 
-class StubRng {
-  constructor(values) {
+class StubRng extends Rng {
+  values: number[];
+  calls: number;
+
+  constructor(values: number[]) {
+    super(0);
     this.values = [...values];
     this.calls = 0;
   }
-  next() {
+  override next() {
     if (this.calls >= this.values.length) {
       throw new Error('StubRng drained — test under-supplied rolls');
     }
@@ -34,8 +39,11 @@ class StubRng {
   }
 }
 
-const makePlayer = (x, y, extra = {}) =>
-  new Entity({ id: 'p', x, y, faction: FACTION.PLAYER, glyph: '@', maxHp: 10, ...extra });
+const makePlayer = (
+  x: number,
+  y: number,
+  extra: Partial<ConstructorParameters<typeof Entity>[0]> = {}
+) => new Entity({ id: 'p', x, y, faction: FACTION.PLAYER, glyph: '@', maxHp: 10, ...extra });
 
 test('Flanker is a corp-faction elite PatrolHostile with the flanker glyph', () => {
   const flanker = new Flanker({ id: 'flanker-0', x: 1, y: 1 });

@@ -17,12 +17,16 @@ import {
 } from '../../../src/game/constants.js';
 import { Rng } from '../../../src/rng.js';
 
-class StubRng {
-  constructor(values) {
+class StubRng extends Rng {
+  values: number[];
+  calls: number;
+
+  constructor(values: number[]) {
+    super(0);
     this.values = [...values];
     this.calls = 0;
   }
-  next() {
+  override next() {
     if (this.calls >= this.values.length) {
       throw new Error('StubRng drained — test under-supplied rolls');
     }

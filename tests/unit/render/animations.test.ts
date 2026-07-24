@@ -28,6 +28,10 @@ import {
   STUNNED_FG,
   SURGE_FLASH_FG,
 } from '../../../src/render/palette.js';
+import type { AsciiRenderer } from '../../../src/render/AsciiRenderer.js';
+
+type FlashRenderer = Pick<AsciiRenderer, 'flashCell'>;
+type FlashCall = [string, ...unknown[]];
 
 /**
  * Minimal DOM-element stub — enough surface for restartCssAnimation to
@@ -36,20 +40,20 @@ import {
  * tests can assert state without inspecting the internals.
  */
 function makeElement() {
-  const classes = new Set();
-  const properties = new Map();
+  const classes = new Set<string>();
+  const properties = new Map<string, string>();
   let offsetWidthReads = 0;
   return {
     classList: {
-      add: cls => classes.add(cls),
-      remove: cls => classes.delete(cls),
-      contains: cls => classes.has(cls),
+      add: (cls: string) => classes.add(cls),
+      remove: (cls: string) => classes.delete(cls),
+      contains: (cls: string) => classes.has(cls),
       toString: () => Array.from(classes).join(' '),
     },
     style: {
-      setProperty: (name, value) => properties.set(name, value),
-      removeProperty: name => properties.delete(name),
-      getPropertyValue: name => properties.get(name) ?? '',
+      setProperty: (name: string, value: string) => properties.set(name, value),
+      removeProperty: (name: string) => properties.delete(name),
+      getPropertyValue: (name: string) => properties.get(name) ?? '',
     },
     get offsetWidth() {
       offsetWidthReads += 1;
@@ -63,20 +67,19 @@ function makeElement() {
 /** Fake timer pair: deterministic `now()` and a manually-pumped queue. */
 function makeTimers() {
   let nowMs = 0;
-  /** @type {{at: number, fn: () => void}[]} */
-  const queue = [];
+  const queue: { at: number; fn: () => void }[] = [];
   return {
     now: () => nowMs,
-    setTimeout: (fn, ms) => {
+    setTimeout: (fn: () => void, ms: number) => {
       queue.push({ at: nowMs + ms, fn });
       return queue.length;
     },
-    advance(ms) {
+    advance(ms: number) {
       nowMs += ms;
       // Stable sort by time; pop everything due.
       queue.sort((a, b) => a.at - b.at);
       while (queue.length && queue[0].at <= nowMs) {
-        const due = queue.shift();
+        const due = queue.shift()!;
         due.fn();
       }
     },
@@ -126,7 +129,9 @@ test('restartCssAnimation retriggers cleanly on a back-to-back call', () => {
 
 test('restartCssAnimation tolerates a null target', () => {
   const timers = makeTimers();
+  // @ts-expect-error Runtime validation deliberately accepts and rejects a null target.
   assert.equal(restartCssAnimation(null, 'flash', 50, timers), false);
+  // @ts-expect-error Runtime validation deliberately accepts and rejects malformed targets.
   assert.equal(restartCssAnimation({}, 'flash', 50, timers), false, 'no classList → false');
 });
 
@@ -284,8 +289,8 @@ test('createAnimationLock: rejects non-finite durations', () => {
 
 test('runMuzzleFlash: paints the cell and schedules the repaint', () => {
   const timers = makeTimers();
-  const calls = [];
-  const renderer = {
+  const calls: FlashCall[] = [];
+  const renderer: FlashRenderer = {
     flashCell: (wx, wy, opts) => {
       calls.push(['flash', wx, wy, opts]);
       return true;
@@ -307,10 +312,10 @@ test('runMuzzleFlash: paints the cell and schedules the repaint', () => {
 
 test('runMuzzleFlash: custom duration overrides default and is forwarded to flashCell', () => {
   const timers = makeTimers();
-  const calls = [];
-  const renderer = {
+  const calls: FlashCall[] = [];
+  const renderer: FlashRenderer = {
     flashCell: (wx, wy, opts) => {
-      calls.push(['flash', opts.duration]);
+      calls.push(['flash', opts!.duration]);
       return true;
     },
   };
@@ -334,14 +339,16 @@ test('runMuzzleFlash: when the renderer cannot paint, returns false and does not
 });
 
 test('runMuzzleFlash: rejects malformed arguments', () => {
+  // @ts-expect-error Runtime guard must reject a renderer without flashCell.
   assert.throws(() => runMuzzleFlash({}, () => {}, 0, 0), /flashCell/);
+  // @ts-expect-error Runtime guard must reject a non-function repaint callback.
   assert.throws(() => runMuzzleFlash({ flashCell: () => true }, null, 0, 0), /repaint/);
 });
 
 test('runInteractSecuredFlash: paints the prop glyph in white and schedules repaint', () => {
   const timers = makeTimers();
-  const calls = [];
-  const renderer = {
+  const calls: FlashCall[] = [];
+  const renderer: FlashRenderer = {
     flashCell: (wx, wy, opts) => {
       calls.push(['flash', wx, wy, opts]);
       return true;
@@ -371,8 +378,8 @@ test('runInteractSecuredFlash: paints the prop glyph in white and schedules repa
 
 test('runIncendiaryImpactFlash: bursts on the impact tile and schedules repaint', () => {
   const timers = makeTimers();
-  const calls = [];
-  const renderer = {
+  const calls: FlashCall[] = [];
+  const renderer: FlashRenderer = {
     flashCell: (wx, wy, opts) => {
       calls.push(['flash', wx, wy, opts]);
       return true;
@@ -400,10 +407,10 @@ test('runIncendiaryImpactFlash: does not overpaint with the HAZARD glyph', () =>
   // The fire cluster is stamped onto this same cell in the same frame, so a
   // burst drawn as `▓` would be invisible — the whole point of the effect is
   // that the throw reads as a distinct beat before the fire settles.
-  const calls = [];
-  const renderer = {
+  const calls: string[] = [];
+  const renderer: FlashRenderer = {
     flashCell: (_wx, _wy, opts) => {
-      calls.push(opts.char);
+      calls.push(opts!.char!);
       return true;
     },
   };
@@ -415,8 +422,8 @@ test('runBurnFlash: tints the burning body’s own glyph rather than overpaintin
   // Which body is burning is the information the player needs when several are
   // alight at once — a generic fire glyph would erase exactly that.
   const timers = makeTimers();
-  const calls = [];
-  const renderer = {
+  const calls: FlashCall[] = [];
+  const renderer: FlashRenderer = {
     flashCell: (wx, wy, opts) => {
       calls.push(['flash', wx, wy, opts]);
       return true;

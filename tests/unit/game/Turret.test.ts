@@ -29,7 +29,7 @@ import {
 } from '../../../src/game/constants.js';
 import { Rng } from '../../../src/rng.js';
 
-function makeWorld({ grid, withBus = false } = {}) {
+function makeWorld({ grid, withBus = false }: { grid?: Grid; withBus?: boolean } = {}) {
   const g = grid ?? new Grid(12, 12);
   const bus = withBus ? new EventBus() : null;
   const world = new World(g, bus ? { events: bus } : {});
@@ -174,8 +174,8 @@ test('Turret.autoFire commits a free shot through resolveRanged on a target hit'
   world.addEntity(turret);
   world.addEntity(drone);
 
-  const events = [];
-  bus.on(EVENT.ENTITY_DAMAGED, payload => events.push(payload));
+  const events: Record<string, unknown>[] = [];
+  bus!.on(EVENT.ENTITY_DAMAGED, payload => events.push(payload as Record<string, unknown>));
 
   const rng = new Rng(1);
   const result = turret.autoFire(world, rng);
@@ -195,6 +195,7 @@ test('Turret.autoFire throws without an Rng (crash > silent fallback)', () => {
   const { world } = makeWorld();
   const turret = new Turret({ id: 't1', x: 3, y: 3 });
   world.addEntity(turret);
+  // @ts-expect-error Verify runtime validation of a missing RNG.
   assert.throws(() => turret.autoFire(world, null), /Rng/i);
 });
 

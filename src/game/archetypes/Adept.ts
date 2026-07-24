@@ -4,7 +4,7 @@ import { ADEPT_DEFAULT_HIT_CHANCE, ADEPT_DEFAULT_DODGE_CHANCE } from '../constan
 import type { CrewInit } from '../Crew.js';
 import type { World } from '../World.js';
 import type { Entity } from '../Entity.js';
-import type { Rng } from '../../rng.js';
+import type { RandomSource } from '../../rng.js';
 
 /**
  * Curated callsign pool for the Adept archetype. See `Merc.ts` CALLSIGNS for
@@ -66,7 +66,7 @@ export class Adept extends Crew {
    * AP burned); on a legal attempt, debits AP once and rolls the success
    * chance — a failure still costs AP and may trip the alarm.
    */
-  influenceTarget(world: World, target: Entity, rng: Rng) {
+  influenceTarget(world: World, target: Entity, rng: RandomSource) {
     return influenceTarget(world, this, target, rng);
   }
 }

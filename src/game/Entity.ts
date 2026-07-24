@@ -72,6 +72,8 @@ export class Entity {
   shieldHp: number;
   damageReduction: number;
   alive: boolean;
+  /** Salvage carried by a defeated entity; populated when the run resolves a kill. */
+  loot?: { salvage: TypedSalvage };
   /**
    * P3.5.M1: generic timed status-effect channel. Maps an effect id
    * (`STATUS_EFFECT.*`) to the number of this entity's own `refreshAp()`
@@ -394,11 +396,13 @@ type LabelableEntity = {
   callsign?: string | null;
   displayName?: string;
   principalTag?: string;
-  maxAp: number;
-  hp: number;
-  maxHp: number;
-  shieldHp: number;
+  maxAp?: number;
+  hp?: number;
+  maxHp?: number;
+  shieldHp?: number;
 };
+type LabelableEntityWithStats = LabelableEntity &
+  Required<Pick<LabelableEntity, 'maxAp' | 'hp' | 'maxHp' | 'shieldHp'>>;
 
 /**
  * Player-facing label for an entity, in priority order:
@@ -408,9 +412,14 @@ type LabelableEntity = {
  *   3. Legacy `[Faction]Kind` from the id prefix (e.g. `[Corp]Drone`,
  *      `[Neutral]Civilian`, `Turret`) — un-aliased entities and pre-2.9 saves.
  */
+export function entityLabel(entity: LabelableEntity): string;
+export function entityLabel(entity: LabelableEntityWithStats, showStats: true): string;
+export function entityLabel(entity: LabelableEntityWithStats, showStats: boolean): string;
 export function entityLabel(entity: LabelableEntity, showStats: boolean = false): string {
   if (entity.callsign) return entity.callsign;
-  const stats = `${entity.hp}/${entity.maxHp} HP, ${entity.maxAp} AP${entity.shieldHp > 0 ? `, ${entity.shieldHp} shield` : ''}`;
+  const stats = showStats
+    ? `${entity.hp}/${entity.maxHp} HP, ${entity.maxAp} AP${(entity.shieldHp ?? 0) > 0 ? `, ${entity.shieldHp} shield` : ''}`
+    : '';
   if (entity.displayName) {
     const tag = entity.principalTag ? `[${entity.principalTag}]` : '';
     return `${tag}${entity.displayName}${showStats ? ` (${stats})` : ''}`;

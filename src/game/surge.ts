@@ -2,7 +2,7 @@ import { AP_COST, STATUS_EFFECT, SURGE_DURATION } from './constants.js';
 import type { Entity } from './Entity.js';
 
 export type SurgeCheck =
-  | { ok: true }
+  | { ok: true; reason?: never }
   | {
       ok: false;
       reason: 'dead' | 'insufficient-ap' | 'already-surging' | 'crashing';

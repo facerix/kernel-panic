@@ -42,14 +42,14 @@ test('applyGear(BONE_LACING) increases maxHp and hp by 1', () => {
   crew.applyGear(ITEM_ID.BONE_LACING);
   assert.equal(crew.maxHp, origMaxHp + 1);
   assert.equal(crew.hp, origHp + 1);
-  assert.equal(crew.gear.maxHpBonus, 1);
+  assert.equal(crew.gear!.maxHpBonus, 1);
 });
 
 test('applyGear(BONE_LACING) stacks', () => {
   const crew = new Merc({ id: 'merc', x: 0, y: 0 });
   crew.applyGear(ITEM_ID.BONE_LACING);
   crew.applyGear(ITEM_ID.BONE_LACING);
-  assert.equal(crew.gear.maxHpBonus, 2);
+  assert.equal(crew.gear!.maxHpBonus, 2);
   assert.equal(crew.maxHp, DEFAULT_HP + 2);
 });
 
@@ -60,7 +60,7 @@ test('applyGear(BONE_LACING) stacks', () => {
 test('applyGear(TARGETING_CHIP) sets hitBonus', () => {
   const crew = new Merc({ id: 'merc', x: 0, y: 0 });
   crew.applyGear(ITEM_ID.TARGETING_CHIP);
-  assert.equal(crew.gear.hitBonus, TARGETING_BONUS);
+  assert.equal(crew.gear!.hitBonus, TARGETING_BONUS);
 });
 
 test('applyGear throws on unknown item', () => {
@@ -75,13 +75,13 @@ test('applyGear throws on unknown item', () => {
 test('applyGear(GHOST_WEAVE) sets dodgeBonus', () => {
   const crew = new Merc({ id: 'merc', x: 0, y: 0 });
   crew.applyGear(ITEM_ID.GHOST_WEAVE);
-  assert.equal(crew.gear.dodgeBonus, DODGE_BONUS);
+  assert.equal(crew.gear!.dodgeBonus, DODGE_BONUS);
 });
 
 test('applyGear(RIP_ROUNDS) sets rangedDamageBonus', () => {
   const crew = new Merc({ id: 'merc', x: 0, y: 0 });
   crew.applyGear(ITEM_ID.RIP_ROUNDS);
-  assert.equal(crew.gear.rangedDamageBonus, RANGED_DAMAGE_BONUS);
+  assert.equal(crew.gear!.rangedDamageBonus, RANGED_DAMAGE_BONUS);
 });
 
 // ---------------------------------------------------------------------------
@@ -92,11 +92,11 @@ test('applyGear(MONOBLADE) raises meleeAttackDamage by the bonus, capped', () =>
   const razor = new Razor({ id: 'razor', x: 0, y: 0, callsign: 'Cipher' });
   const base = razor.meleeAttackDamage();
   razor.applyGear(ITEM_ID.MONOBLADE);
-  assert.equal(razor.gear.meleeDamageBonus, MELEE_DAMAGE_BONUS);
+  assert.equal(razor.gear!.meleeDamageBonus, MELEE_DAMAGE_BONUS);
   assert.equal(razor.meleeAttackDamage(), base + MELEE_DAMAGE_BONUS);
   // Capped: a second install is a harmless no-op (mirrors RiP Rounds).
   razor.applyGear(ITEM_ID.MONOBLADE);
-  assert.equal(razor.gear.meleeDamageBonus, razor.maxMeleeDamageBonus);
+  assert.equal(razor.gear!.meleeDamageBonus, razor.maxMeleeDamageBonus);
   assert.equal(razor.meleeAttackDamage(), base + razor.maxMeleeDamageBonus);
 });
 
@@ -121,12 +121,12 @@ test('applyGear(SUBDERMAL_PLATING) raises damageReduction, capped', () => {
   const merc = new Merc({ id: 'merc', x: 0, y: 0 });
   assert.equal(merc.damageReduction, 0);
   merc.applyGear(ITEM_ID.SUBDERMAL_PLATING);
-  assert.equal(merc.gear.armorBonus, ARMOR_BONUS);
+  assert.equal(merc.gear!.armorBonus, ARMOR_BONUS);
   assert.equal(merc.damageReduction, ARMOR_BONUS);
   // Capped at one effective unit — a second install changes nothing.
   merc.applyGear(ITEM_ID.SUBDERMAL_PLATING);
   assert.equal(merc.damageReduction, merc.maxArmorBonus);
-  assert.equal(merc.gear.armorBonus, merc.maxArmorBonus);
+  assert.equal(merc.gear!.armorBonus, merc.maxArmorBonus);
 });
 
 test('subdermal plating mitigates incoming melee damage with a min-1 floor', () => {
@@ -153,20 +153,20 @@ test('applyGear(ADRENAL_SPIKE) grants +AP immediately, capped at one', () => {
   merc.applyGear(ITEM_ID.ADRENAL_SPIKE);
   assert.equal(merc.maxAp, DEFAULT_AP + AP_BONUS);
   assert.equal(merc.ap, apBefore + AP_BONUS, 'extra AP is usable the same turn');
-  assert.equal(merc.gear.apBonus, AP_BONUS);
+  assert.equal(merc.gear!.apBonus, AP_BONUS);
   // One per operator — a second install is a no-op, no runaway AP.
   merc.applyGear(ITEM_ID.ADRENAL_SPIKE);
   assert.equal(merc.maxAp, DEFAULT_AP + merc.maxApBonus);
-  assert.equal(merc.gear.apBonus, merc.maxApBonus);
+  assert.equal(merc.gear!.apBonus, merc.maxApBonus);
 });
 
 test('applyGear(PHASE_SHIELD) sets shieldRegen; refreshAp re-grants the shield each turn', () => {
   const merc = new Merc({ id: 'merc', x: 0, y: 0, maxAp: 4 });
   merc.applyGear(ITEM_ID.PHASE_SHIELD);
-  assert.equal(merc.gear.shieldRegen, SHIELD_REGEN);
+  assert.equal(merc.gear!.shieldRegen, SHIELD_REGEN);
   // Capped — a second install is a no-op.
   merc.applyGear(ITEM_ID.PHASE_SHIELD);
-  assert.equal(merc.gear.shieldRegen, merc.maxShieldRegen);
+  assert.equal(merc.gear!.shieldRegen, merc.maxShieldRegen);
 
   // refreshAp tops the buffer back to the regen value every turn.
   assert.equal(merc.shieldHp, 0);
@@ -192,10 +192,10 @@ test('phase shield buffer absorbs damage before HP', () => {
 test('applyGear(REGEN_MESH) sets hpRegen; refreshAp heals each turn up to maxHp', () => {
   const merc = new Merc({ id: 'merc', x: 0, y: 0, maxAp: 4 });
   merc.applyGear(ITEM_ID.REGEN_MESH);
-  assert.equal(merc.gear.hpRegen, HP_REGEN);
+  assert.equal(merc.gear!.hpRegen, HP_REGEN);
   // Capped — second install is a no-op.
   merc.applyGear(ITEM_ID.REGEN_MESH);
-  assert.equal(merc.gear.hpRegen, merc.maxHpRegen);
+  assert.equal(merc.gear!.hpRegen, merc.maxHpRegen);
 
   merc.hp = 1; // wounded
   merc.refreshAp();
@@ -282,15 +282,15 @@ test('addConsumable puts an item in inventory.consumables', () => {
   const crew = new Merc({ id: 'merc', x: 0, y: 0 });
   crew.addConsumable(ITEM_ID.STIM);
   assert.ok(crew.inventory, 'inventory should be initialised');
-  assert.equal(crew.inventory.consumables.length, 1);
-  assert.equal(crew.inventory.consumables[0].id, ITEM_ID.STIM);
+  assert.equal(crew.inventory!.consumables.length, 1);
+  assert.equal(crew.inventory!.consumables[0].id, ITEM_ID.STIM);
 });
 
 test('addConsumable stacks (multiple stims)', () => {
   const crew = new Merc({ id: 'merc', x: 0, y: 0 });
   crew.addConsumable(ITEM_ID.STIM);
   crew.addConsumable(ITEM_ID.STIM);
-  assert.equal(crew.inventory.consumables.length, 2);
+  assert.equal(crew.inventory!.consumables.length, 2);
 });
 
 test('useConsumable(STIM) heals HP and costs 1 AP', () => {
@@ -303,7 +303,7 @@ test('useConsumable(STIM) heals HP and costs 1 AP', () => {
   assert.equal(result.healed, STIM_HEAL);
   assert.equal(crew.hp, 1 + STIM_HEAL);
   assert.equal(crew.ap, apBefore - 1);
-  assert.equal(crew.inventory.consumables.length, 0);
+  assert.equal(crew.inventory!.consumables.length, 0);
 });
 
 test('useConsumable(STIM) does not exceed maxHp', () => {
@@ -346,7 +346,7 @@ test('useConsumable(SMOKE_CHARGE) returns smoke descriptor', () => {
   assert.equal(result.cx, 3);
   assert.equal(result.cy, 3);
   assert.equal(result.radius, SMOKE_RADIUS);
-  assert.equal(crew.inventory.consumables.length, 0);
+  assert.equal(crew.inventory!.consumables.length, 0);
 });
 
 // ---------------------------------------------------------------------------
@@ -369,7 +369,7 @@ test('useConsumable(MOLOTOV) reports the aim, not a landing tile', () => {
     false,
     'a precomputed centre would be a guess the shell then has to ignore'
   );
-  assert.equal(crew.inventory.consumables.length, 0);
+  assert.equal(crew.inventory!.consumables.length, 0);
 });
 
 test('useConsumable(BREACHING_CHARGE) returns adjacent breach descriptor', () => {
@@ -379,7 +379,7 @@ test('useConsumable(BREACHING_CHARGE) returns adjacent breach descriptor', () =>
   assert.equal(result.type, 'breach');
   assert.equal(result.tx, 3 - BREACHING_CHARGE_RANGE);
   assert.equal(result.ty, 3);
-  assert.equal(crew.inventory.consumables.length, 0);
+  assert.equal(crew.inventory!.consumables.length, 0);
 });
 
 test('useConsumable enforces aim shape for aimed items only', () => {

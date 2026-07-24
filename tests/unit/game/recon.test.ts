@@ -32,6 +32,8 @@ import type { Contract } from '../../../src/game/hub/Curator.js';
 function makeReconContract(overrides: Partial<Contract> = {}): Contract {
   return {
     seed: 211,
+    mapWidth: 24,
+    mapHeight: 16,
     objective: {
       kind: OBJECTIVES.RECON,
       title: 'Map site layout',
@@ -198,7 +200,7 @@ describe('recon runs', () => {
     const run = new Run({
       crewMember: makeCrew('razor'),
       seed: 211,
-      onResult: result => results.push(result),
+      onResult: (result: unknown) => results.push(result),
     });
     run.enterBriefing(makeReconContract());
     run.enterCombat();
@@ -234,7 +236,7 @@ describe('recon runs', () => {
     const run = new Run({
       crewMember: makeCrew('razor'),
       seed: 211,
-      onResult: result => results.push(result),
+      onResult: (result: unknown) => results.push(result),
     });
     run.enterBriefing(makeReconContract());
     run.enterCombat();

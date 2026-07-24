@@ -19,7 +19,7 @@ import type { Crew } from './Crew.js';
 
 /** Pre-flight legality verdict, mirroring the other archetype perks. */
 export type NaniteHealCheck =
-  | { ok: true }
+  | { ok: true; reason?: never }
   | {
       ok: false;
       reason: 'dead' | 'insufficient-ap' | 'no-inventory' | 'insufficient-salvage';

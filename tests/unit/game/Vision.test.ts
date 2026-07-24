@@ -84,6 +84,7 @@ test('VisionField.memoriseCorpse stores a glyph record at the corpse key', () =>
   v.memoriseCorpse(corpse);
   assert.ok(v.memorisedCorpses.has('4,3'), 'corpse key should be memorised');
   const rec = v.memorisedCorpses.get('4,3');
+  assert.ok(rec);
   assert.equal(rec.x, 4);
   assert.equal(rec.y, 3);
   assert.equal(rec.faction, FACTION.CORP);

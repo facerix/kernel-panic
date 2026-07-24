@@ -81,8 +81,7 @@ Determinism caveat: tier-2 fallbacks must stay seed-deterministic so saves remai
 | `sw.js` | Production service worker (plain JS) |
 | `sw-dev.js` | Development service worker (plain JS) |
 | `tsconfig.json` | Main build config (strict, ESNext, dist/ output) |
-| `tsconfig.tests.json` | Test type-checking (extends main) |
-| `tsconfig.test-build.json` | Test transpile-only build (noCheck: true) |
+| `tsconfig.tests.json` | Strict, type-check-only config for `tests/` |
 
 ## Event Reference
 
@@ -151,8 +150,11 @@ UpdateNotification (dispatched by component)
 
 ## Testing
 
-- **Unit tests:** `npm test` — runs `typecheck` (main config) → `build:tests` (transpile-only) → `node --test "dist/tests/**/*.test.js"`.
-- **Type-check tests only:** `npm run typecheck:tests` — currently has residual errors from intentionally loose test stubs; deferred.
+- **Unit tests:** `npm test` — strictly type-checks app and tests, then runs the
+  `.test.ts` files directly under Node 24's built-in type stripping. The loader
+  in `tests/support/` maps runtime `.js` specifiers back to TypeScript source, so
+  test artifacts are never emitted into `dist/`.
+- **Type-check tests only:** `npm run typecheck:tests`.
 - **Browser:** Use @Browser at `http://localhost:8099` (assume server is already running). Verify UI, interactions, console, service worker.
 
 ## Checklist

@@ -16,7 +16,17 @@ import { canEmp, isInEmpBlast, detonateEmp } from '../../../src/game/empBlast.js
 import { EventBus, EVENT } from '../../../src/game/events.js';
 import { FACTION, AP_COST, EMP_RADIUS, STATUS_EFFECT } from '../../../src/game/constants.js';
 
-function makeWorld({ deckerAt = [5, 5], grid, extraEntities = [], bus = null } = {}) {
+function makeWorld({
+  deckerAt = [5, 5],
+  grid,
+  extraEntities = [],
+  bus = null,
+}: {
+  deckerAt?: [number, number];
+  grid?: Grid;
+  extraEntities?: Entity[];
+  bus?: EventBus | null;
+} = {}) {
   const g = grid ?? new Grid(12, 12);
   const w = new World(g, bus ? { events: bus } : {});
   const decker = new Decker({ id: 'decker', x: deckerAt[0], y: deckerAt[1] });
@@ -25,8 +35,10 @@ function makeWorld({ deckerAt = [5, 5], grid, extraEntities = [], bus = null } =
   return { world: w, decker };
 }
 
-const enemy = (id, x, y) => new Entity({ id, x, y, faction: FACTION.CORP, glyph: 'd' });
-const ally = (id, x, y) => new Entity({ id, x, y, faction: FACTION.PLAYER, glyph: 'c' });
+const enemy = (id: string, x: number, y: number) =>
+  new Entity({ id, x, y, faction: FACTION.CORP, glyph: 'd' });
+const ally = (id: string, x: number, y: number) =>
+  new Entity({ id, x, y, faction: FACTION.PLAYER, glyph: 'c' });
 
 // --- isInEmpBlast geometry --------------------------------------------------
 
@@ -121,8 +133,8 @@ test('detonateEmp throws on an illegal attempt without burning AP', () => {
 
 test('detonateEmp emits EMP_DETONATED with origin and stun count for the shell flash', () => {
   const bus = new EventBus();
-  const events = [];
-  bus.on(EVENT.EMP_DETONATED, payload => events.push(payload));
+  const events: Record<string, unknown>[] = [];
+  bus.on(EVENT.EMP_DETONATED, payload => events.push(payload as Record<string, unknown>));
   const { world, decker } = makeWorld({ bus, extraEntities: [enemy('a', 6, 5), enemy('b', 4, 5)] });
   detonateEmp(world, decker);
   assert.equal(events.length, 1, 'exactly one detonation event');

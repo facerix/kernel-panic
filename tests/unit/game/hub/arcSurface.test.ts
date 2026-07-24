@@ -214,7 +214,10 @@ test('act3 reveal copy points at THE SCORE on the job board', () => {
 test('Score target helpers reject multiple targets instead of guessing', () => {
   const sites = [scoreSite({ id: 'a' }), scoreSite({ id: 'b' })];
   assert.throws(() => findScoreTargetSite(sites), /multiple Score targets/i);
-  assert.throws(() => scoreTargetSiteId({ arc: arc(), siteRoster: sites }), /multiple Score/i);
+  assert.throws(
+    () => scoreTargetSiteId({ arc: arc(), siteRoster: sites, crew: [] }),
+    /multiple Score/i
+  );
 });
 
 test('score reveal copy names the target and points at job-board badges', () => {

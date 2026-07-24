@@ -120,14 +120,14 @@ test('P3.M4.4: not end-ready when the active operator is spent but the other sti
   // Control starts on the meat partner; spend it dry, avatar still full.
   drain(run.activeActor!);
   assert.equal(run.activeActor!.ap, 0);
-  assert.ok(run.cyberspace!.phase === 'active' && run.cyberspace.layer.avatar.ap > 0);
+  assert.ok(run.cyberspace?.phase === 'active' && run.cyberspace.layer.avatar.ap > 0);
   assert.equal(run.endOfTurnReady(), false);
 });
 
 test('P3.M4.4: end-ready only once both controllable operators are spent', () => {
   const run = dualRun();
   jackIn(run);
-  const avatar = run.cyberspace!.phase === 'active' ? run.cyberspace.layer.avatar : null;
+  const avatar = run.cyberspace?.phase === 'active' ? run.cyberspace.layer.avatar : null;
   drain(run.meatActor!);
   drain(avatar!);
   assert.equal(run.endOfTurnReady(), true);
@@ -149,7 +149,7 @@ test('P3.M4.4: exhausting one operator auto-flips control to the other (no turn 
   const run = dualRun();
   jackIn(run);
   const partner = run.meatActor!;
-  const avatar = run.cyberspace!.phase === 'active' ? run.cyberspace.layer.avatar : null;
+  const avatar = run.cyberspace?.phase === 'active' ? run.cyberspace.layer.avatar : null;
   assert.ok(avatar instanceof CyberAvatar);
   const turnBefore = run.queue!.turnNumber;
 
@@ -168,7 +168,7 @@ test('P3.M4.4: exhausting one operator auto-flips control to the other (no turn 
 test('P3.M4.4: exhausting the second operator ends the mutual turn', () => {
   const run = dualRun();
   jackIn(run);
-  const avatar = run.cyberspace!.phase === 'active' ? run.cyberspace.layer.avatar : null;
+  const avatar = run.cyberspace?.phase === 'active' ? run.cyberspace.layer.avatar : null;
 
   drain(run.meatActor!);
   assert.equal(run.concludeActiveOperatorTurn(), 'auto-flip'); // → cyber
@@ -183,7 +183,7 @@ test('P3.M4.4: exhausting the second operator ends the mutual turn', () => {
 test('P3.M4.4: waiting with the other operator holding AP flips and keeps the turn open', () => {
   const run = dualRun();
   jackIn(run);
-  const avatar = run.cyberspace!.phase === 'active' ? run.cyberspace.layer.avatar : null;
+  const avatar = run.cyberspace?.phase === 'active' ? run.cyberspace.layer.avatar : null;
   drain(run.activeActor!); // Wait forfeits the partner's AP
   assert.equal(run.passActiveOperatorTurn(), 'flip');
   assert.equal(run.activeLayer, 'cyber');
@@ -196,7 +196,7 @@ test('P3.M4.4: waiting the LAST operator still flips, then ends the mutual turn'
   const run = dualRun();
   jackIn(run);
   const partner = run.meatActor!;
-  const avatar = run.cyberspace!.phase === 'active' ? run.cyberspace.layer.avatar : null;
+  const avatar = run.cyberspace?.phase === 'active' ? run.cyberspace.layer.avatar : null;
   // Both operators spent; control sits on the avatar (cyber).
   drain(partner);
   run.flip();
@@ -240,7 +240,7 @@ test('P3.M4.4: a dead partner is not a flip target — exhausting the avatar end
   const run = dualRun();
   jackIn(run);
   const partner = run.meatActor!;
-  const avatar = run.cyberspace!.phase === 'active' ? run.cyberspace.layer.avatar : null;
+  const avatar = run.cyberspace?.phase === 'active' ? run.cyberspace.layer.avatar : null;
   // Avatar takes control, partner falls on the meat field.
   run.flip();
   assert.equal(run.activeActor, avatar);

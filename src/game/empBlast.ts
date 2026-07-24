@@ -23,7 +23,9 @@ import type { Entity } from './Entity.js';
 import type { World } from './World.js';
 
 /** Pre-flight legality verdict, mirroring the other archetype perks. */
-export type EmpCheck = { ok: true } | { ok: false; reason: 'dead' | 'insufficient-ap' };
+export type EmpCheck =
+  | { ok: true; reason?: never }
+  | { ok: false; reason: 'dead' | 'insufficient-ap' };
 
 /**
  * Pure legality check for detonating an EMP. Never mutates. A self-centered

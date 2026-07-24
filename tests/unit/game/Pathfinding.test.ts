@@ -113,6 +113,7 @@ test('findPath honours maxSteps cap', () => {
 test('findPath throws on non-integer or out-of-bounds endpoints', () => {
   const w = openWorld();
   assert.throws(() => findPath(w, { x: 0.5, y: 1 }, { x: 4, y: 4 }), TypeError);
+  // @ts-expect-error Verify runtime validation of a non-numeric coordinate.
   assert.throws(() => findPath(w, { x: 1, y: 1 }, { x: 4, y: 'oops' }), TypeError);
   assert.throws(() => findPath(w, { x: -1, y: 1 }, { x: 4, y: 4 }), RangeError);
   assert.throws(() => findPath(w, { x: 1, y: 1 }, { x: 99, y: 4 }), RangeError);

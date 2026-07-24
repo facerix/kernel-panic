@@ -15,9 +15,8 @@ import {
   selectEndFlavor,
 } from '../../../src/game/endFlavor.js';
 import type { CampaignSummary } from '../../../src/game/campaignSummary.js';
-import type { CampaignEndReason } from '../../../src/types.js';
 
-const PROSE_POOLS = [
+const PROSE_POOLS: readonly (readonly string[])[] = [
   WIN_BANNERS,
   WIN_REASONS,
   WIN_DETAILS,
@@ -112,7 +111,11 @@ test('selectEndFlavor draws partial copy from the partial pools, with its own lo
 });
 
 test('selectEndFlavor gives an aborted Score its own empty-handed copy', () => {
-  const pool = LOSS_FLAVOR['score-aborted'];
+  const pool: {
+    banners: readonly string[];
+    reasons: readonly string[];
+    details: readonly string[];
+  } = LOSS_FLAVOR['score-aborted'];
   for (let seed = 0; seed < 40; seed++) {
     const flavor = selectEndFlavor(summary({ result: 'loss', endReason: 'score-aborted', seed }));
     assert.ok(pool.banners.includes(flavor.banner), `seed ${seed} banner`);
@@ -124,9 +127,17 @@ test('selectEndFlavor gives an aborted Score its own empty-handed copy', () => {
 
 test('selectEndFlavor keeps losses cause-aware so banners never cross pools', () => {
   // A clock-expired loss must not borrow the Decker-death banner, and vice versa.
-  const lossReasons: CampaignEndReason[] = ['clock-expired', 'decker-flatlined-score', 'crew-wipe'];
+  const lossReasons: (keyof typeof LOSS_FLAVOR)[] = [
+    'clock-expired',
+    'decker-flatlined-score',
+    'crew-wipe',
+  ];
   for (const endReason of lossReasons) {
-    const pool = LOSS_FLAVOR[endReason];
+    const pool: {
+      banners: readonly string[];
+      reasons: readonly string[];
+      details: readonly string[];
+    } = LOSS_FLAVOR[endReason];
     // Sweep seeds so we exercise every index, not just the default one.
     for (let seed = 0; seed < 300; seed += 1) {
       const flavor = selectEndFlavor(summary({ result: 'loss', endReason, seed }));

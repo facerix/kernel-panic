@@ -6,11 +6,13 @@ import {
   composeEncounter,
   encounterHostileCount,
   hasDurableMedicPatient,
+  type EncounterComposition,
 } from '../../../src/game/encounters.js';
 import { CONTRACT_DIFFICULTY, ENEMY_ROLE, ENEMY_TIER } from '../../../src/game/constants.js';
 
-const roles = composition => composition.entries.map(entry => entry.role);
-const archetypes = composition => composition.entries.map(entry => entry.archetype);
+const roles = (composition: EncounterComposition) => composition.entries.map(entry => entry.role);
+const archetypes = (composition: EncounterComposition) =>
+  composition.entries.map(entry => entry.archetype);
 
 test('encounterHostileCount matches composed roster size', () => {
   assert.equal(

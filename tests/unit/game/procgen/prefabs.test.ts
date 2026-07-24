@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { TILE } from '../../../../src/game/constants.js';
 import { PREFABS, parsePrefab } from '../../../../src/game/procgen/prefabs/index.js';
 
-const KNOWN_TILES = new Set(Object.values(TILE));
+const KNOWN_TILES = new Set<number>(Object.values(TILE));
 
 test('every registered prefab parses with consistent dimensions', () => {
   for (const [name, prefab] of Object.entries(PREFABS)) {

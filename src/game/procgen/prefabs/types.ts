@@ -37,7 +37,7 @@ export type PrefabMetadata = {
   id: string;
   w?: number;
   h?: number;
-  anchors: PrefabAnchorsSpec;
+  anchors?: Partial<PrefabAnchorsSpec>;
   /** Patrol waypoint lists, assigned to nearest fodder anchor. */
   patrolPaths?: PrefabAnchor[][];
 };

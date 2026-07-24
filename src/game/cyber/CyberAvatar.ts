@@ -20,7 +20,7 @@ import { Entity } from '../Entity.js';
 import { canInfluence, influenceTarget } from '../mindInfluence.js';
 import { CYBER_AVATAR_HIT_CHANCE, CYBER_AVATAR_MAX_AP, FACTION } from '../constants.js';
 import type { World } from '../World.js';
-import type { Rng } from '../../rng.js';
+import type { RandomSource } from '../../rng.js';
 
 export type CyberAvatarInit = {
   id: string;
@@ -77,7 +77,7 @@ export class CyberAvatar extends Entity {
   }
 
   /** Attempt to flip ICE to the avatar's faction for the normal override duration. */
-  overrideDrone(world: World, target: Entity, rng: Rng) {
+  overrideDrone(world: World, target: Entity, rng: RandomSource) {
     return influenceTarget(world, this, target, rng);
   }
 

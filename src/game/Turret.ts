@@ -3,6 +3,7 @@ import { Hostile } from './Hostile.js';
 import { FACTION, TURRET_MAX_HP, TURRET_RANGE, TURRET_DAMAGE } from './constants.js';
 import { resolveRanged, canFireRanged } from './Combat.js';
 import type { EntityInit } from './Entity.js';
+import type { FactionId } from './constants.js';
 import type { World } from './World.js';
 import type { Rng } from '../rng.js';
 
@@ -36,6 +37,7 @@ type TurretAutoFireFireResult = {
   type: 'fire';
   target: Entity;
   result: ReturnType<typeof resolveRanged>;
+  reason?: never;
 };
 type TurretAutoFireIdleResult = {
   type: 'idle';
@@ -44,7 +46,9 @@ type TurretAutoFireIdleResult = {
 export type TurretAutoFireResult = TurretAutoFireFireResult | TurretAutoFireIdleResult;
 export type TurretAnnotatedResult = { turret: Turret; action: TurretAutoFireResult };
 
-export interface TurretInit extends EntityInit {
+export interface TurretInit extends Omit<EntityInit, 'faction' | 'glyph' | 'maxAp'> {
+  /** Accepted for snapshot/factory compatibility; turrets are always player-aligned. */
+  faction?: FactionId;
   range?: number;
   attackDamage?: number;
   ownerId?: string | null;

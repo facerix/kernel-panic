@@ -14,17 +14,20 @@ const baseProps = () => ({
 
 test('Entity requires an id', () => {
   const props = baseProps();
+  // @ts-expect-error Verify runtime validation of a missing required id.
   delete props.id;
   assert.throws(() => new Entity(props), TypeError);
 });
 
 test('Entity requires integer x and y', () => {
   assert.throws(() => new Entity({ ...baseProps(), x: 1.5 }), TypeError);
+  // @ts-expect-error Verify runtime validation of a non-numeric coordinate.
   assert.throws(() => new Entity({ ...baseProps(), y: '3' }), TypeError);
 });
 
 test('Entity requires a faction', () => {
   const props = baseProps();
+  // @ts-expect-error Verify runtime validation of a missing faction.
   delete props.faction;
   assert.throws(() => new Entity(props), TypeError);
 });

@@ -38,7 +38,12 @@ function makeWorld(width = 12, height = 12) {
 }
 
 /** A plain blocking, burnable body — the drone stand-in. */
-function makeBody(id: string, x: number, y: number, faction: string = FACTION.CORP) {
+function makeBody(
+  id: string,
+  x: number,
+  y: number,
+  faction: import('../../../src/game/constants.js').FactionId = FACTION.CORP
+) {
   return new Entity({ id, x, y, faction, glyph: 'd', maxHp: 3 });
 }
 

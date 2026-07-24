@@ -31,7 +31,7 @@ import { CALLSIGNS as RAZOR_CALLSIGNS } from '../../../src/game/archetypes/Razor
 import { Rng } from '../../../src/rng.js';
 
 test('ARCHETYPES exposes merc, razor, and tech with required metadata', () => {
-  for (const id of ['merc', 'razor', 'tech']) {
+  for (const id of ['merc', 'razor', 'tech'] as const) {
     const a = ARCHETYPES[id];
     assert.ok(a, `missing archetype "${id}"`);
     assert.equal(a.id, id);
@@ -106,7 +106,11 @@ test('pickCallsign rejects a non-Set exclude argument', () => {
   // Easy footgun: pass an Array instead of a Set. `.has` would be undefined
   // and the filter would silently exclude nothing — exactly the silent-
   // fallback shape we're avoiding.
-  assert.throws(() => pickCallsign('merc', new Rng(0), ['Tracer']), /must be a Set/i);
+  assert.throws(
+    // @ts-expect-error Verify runtime validation of an invalid collection type.
+    () => pickCallsign('merc', new Rng(0), ['Tracer']),
+    /must be a Set/i
+  );
 });
 
 test('buildCrewMember returns the right archetype class with a populated callsign', () => {
@@ -117,6 +121,7 @@ test('buildCrewMember returns the right archetype class with a populated callsig
   assert.equal(m.y, 4);
   assert.equal(m.faction, FACTION.PLAYER);
   assert.equal(typeof m.callsign, 'string');
+  assert.ok(m.callsign);
   assert.ok(MERC_CALLSIGNS.includes(m.callsign));
   assert.equal(m.flatlined, false);
 });
@@ -143,13 +148,17 @@ test('buildCrewMember rejects an unknown archetype', () => {
 });
 
 test('buildCrewMember rejects a malformed spawn', () => {
+  // @ts-expect-error Verify runtime validation of a null spawn.
   assert.throws(() => buildCrewMember('merc', null, new Rng(0)), /spawn/i);
+  // @ts-expect-error Verify runtime validation of an incomplete spawn.
   assert.throws(() => buildCrewMember('merc', { x: 0 }, new Rng(0)), /spawn/i);
   assert.throws(() => buildCrewMember('merc', { x: NaN, y: 0 }, new Rng(0)), /spawn/i);
 });
 
 test('buildCrewMember rejects a missing or invalid rng', () => {
+  // @ts-expect-error Verify runtime validation of a missing RNG.
   assert.throws(() => buildCrewMember('merc', { x: 0, y: 0 }), /Rng/i);
+  // @ts-expect-error Verify runtime validation of a malformed RNG.
   assert.throws(() => buildCrewMember('merc', { x: 0, y: 0 }, {}), /Rng/i);
 });
 
@@ -206,6 +215,7 @@ test('buildCrewMember can still construct a Decker by id (recruitment path)', ()
   const d = buildCrewMember('decker', { x: 1, y: 2 }, new Rng(9));
   assert.ok(d instanceof Decker);
   assert.equal(isArchetypeId('decker'), true);
+  assert.ok(d.callsign);
   assert.ok(CALLSIGNS_BY_ARCHETYPE.decker.includes(d.callsign));
 });
 
@@ -219,6 +229,7 @@ test('Berserk is registered, recruitable, and self-targeted', () => {
   const berserk = buildCrewMember('berserk', { x: 1, y: 2 }, new Rng(10));
   assert.ok(berserk instanceof Berserk);
   assert.equal(isArchetypeId('berserk'), true);
+  assert.ok(berserk.callsign);
   assert.ok(BERSERK_CALLSIGNS.includes(berserk.callsign));
 });
 
@@ -232,6 +243,7 @@ test('Adept is registered, recruitable, and directionally aimed', () => {
   const adept = buildCrewMember('adept', { x: 1, y: 2 }, new Rng(10));
   assert.ok(adept instanceof Adept);
   assert.equal(isArchetypeId('adept'), true);
+  assert.ok(adept.callsign);
   assert.ok(ADEPT_CALLSIGNS.includes(adept.callsign));
 });
 
@@ -245,6 +257,7 @@ test('Chimera is registered, recruitable, and self-targeted', () => {
   const chimera = buildCrewMember('chimera', { x: 1, y: 2 }, new Rng(10));
   assert.ok(chimera instanceof Chimera);
   assert.equal(isArchetypeId('chimera'), true);
+  assert.ok(chimera.callsign);
   assert.ok(CHIMERA_CALLSIGNS.includes(chimera.callsign));
 });
 
@@ -252,7 +265,10 @@ test('isArchetypeId is a string-set membership check', () => {
   assert.equal(isArchetypeId('merc'), true);
   assert.equal(isArchetypeId('razor'), true);
   assert.equal(isArchetypeId('wizard'), false);
+  // @ts-expect-error Verify runtime rejection of non-string values.
   assert.equal(isArchetypeId(null), false);
+  // @ts-expect-error Verify runtime rejection of non-string values.
   assert.equal(isArchetypeId(undefined), false);
+  // @ts-expect-error Verify runtime rejection of non-string values.
   assert.equal(isArchetypeId(7), false);
 });

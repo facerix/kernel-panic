@@ -104,7 +104,26 @@ export const DAMAGE_CLASS = 'kp-damage-flash';
 export const MITIGATION_FLASH_CLASS = 'kp-mitigation-flash';
 const IMPACT_FLASH_COLOR_PROPERTY = '--kp-impact-flash-color';
 
-const defaultTimers = Object.freeze({
+type AnimationTimers = Readonly<{
+  now: () => number;
+  setTimeout: (fn: () => void, ms: number) => unknown;
+}>;
+
+type AnimationElement = {
+  classList: {
+    add: (className: string) => unknown;
+    remove: (className: string) => unknown;
+  };
+  style: {
+    setProperty: (name: string, value: string) => unknown;
+    removeProperty: (name: string) => unknown;
+  };
+  readonly offsetWidth: number;
+};
+
+type FlashRenderer = Pick<AsciiRenderer, 'flashCell'>;
+
+const defaultTimers: AnimationTimers = Object.freeze({
   now: () => (typeof performance !== 'undefined' ? performance.now() : Date.now()),
   setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
 });
@@ -116,7 +135,7 @@ const defaultTimers = Object.freeze({
  * second add is a no-op because the class is already present.
  */
 export function restartCssAnimation(
-  el: HTMLElement,
+  el: AnimationElement,
   className: string,
   duration: number,
   timers = defaultTimers
@@ -139,11 +158,11 @@ export function restartCssAnimation(
   return true;
 }
 
-export function triggerShake(stageEl: HTMLElement, timers = defaultTimers) {
+export function triggerShake(stageEl: AnimationElement, timers = defaultTimers) {
   return restartCssAnimation(stageEl, SHAKE_CLASS, ANIMATION_DURATIONS.SHAKE, timers);
 }
 
-export function triggerDamageFlash(stageEl: HTMLElement, timers = defaultTimers) {
+export function triggerDamageFlash(stageEl: AnimationElement, timers = defaultTimers) {
   stageEl.classList.remove(MITIGATION_FLASH_CLASS);
   stageEl.style.removeProperty(IMPACT_FLASH_COLOR_PROPERTY);
   return restartCssAnimation(stageEl, DAMAGE_CLASS, ANIMATION_DURATIONS.DAMAGE_FLASH, timers);
@@ -155,7 +174,7 @@ export function triggerDamageFlash(stageEl: HTMLElement, timers = defaultTimers)
  * mitigation flash drives) tinted electric cyan — the same hue a stunned glyph
  * takes, so the blast and its aftermath read as one effect.
  */
-export function triggerEmpFlash(stageEl: HTMLElement, timers = defaultTimers) {
+export function triggerEmpFlash(stageEl: AnimationElement, timers = defaultTimers) {
   stageEl.classList.remove(DAMAGE_CLASS);
   stageEl.style.setProperty(IMPACT_FLASH_COLOR_PROPERTY, `${STUNNED_FG}8c`);
   return restartCssAnimation(
@@ -172,7 +191,7 @@ export function triggerEmpFlash(stageEl: HTMLElement, timers = defaultTimers) {
  * drive — the surge spike and its later Crash comedown share this one screen
  * effect, tinted differently, so the ability reads as a single arc.
  */
-export function triggerSurgeFlash(stageEl: HTMLElement, timers = defaultTimers) {
+export function triggerSurgeFlash(stageEl: AnimationElement, timers = defaultTimers) {
   stageEl.classList.remove(DAMAGE_CLASS);
   stageEl.style.setProperty(IMPACT_FLASH_COLOR_PROPERTY, `${SURGE_FLASH_FG}8c`);
   return restartCssAnimation(
@@ -187,7 +206,7 @@ export function triggerSurgeFlash(stageEl: HTMLElement, timers = defaultTimers) 
  * Ashen violet-grey pulse when a Berserk's Surge expires into Crash (P3.5.M3).
  * The comedown twin of {@link triggerSurgeFlash} on the shared vignette class.
  */
-export function triggerCrashFlash(stageEl: HTMLElement, timers = defaultTimers) {
+export function triggerCrashFlash(stageEl: AnimationElement, timers = defaultTimers) {
   stageEl.classList.remove(DAMAGE_CLASS);
   stageEl.style.setProperty(IMPACT_FLASH_COLOR_PROPERTY, `${CRASH_FLASH_FG}8c`);
   return restartCssAnimation(
@@ -205,7 +224,7 @@ export function triggerCrashFlash(stageEl: HTMLElement, timers = defaultTimers) 
  * tinted for "HP restored" generically — a beat of feedback beyond the
  * HP-tick itself, same shape as `triggerSurgeFlash`.
  */
-export function triggerHealFlash(stageEl: HTMLElement, timers = defaultTimers) {
+export function triggerHealFlash(stageEl: AnimationElement, timers = defaultTimers) {
   stageEl.classList.remove(DAMAGE_CLASS);
   stageEl.style.setProperty(IMPACT_FLASH_COLOR_PROPERTY, `${HEAL_FLASH_FG}8c`);
   return restartCssAnimation(
@@ -223,7 +242,7 @@ export type MitigationFlashKind = 'armor' | 'shield';
  * The alpha suffix keeps the vignette at the same intensity as damage red.
  */
 export function triggerMitigationFlash(
-  stageEl: HTMLElement,
+  stageEl: AnimationElement,
   kind: MitigationFlashKind,
   timers = defaultTimers
 ) {
@@ -282,13 +301,13 @@ export function createAnimationLock(timers = defaultTimers) {
  */
 type RunMuzzleFlashOptions = {
   duration?: number;
-  timers?: typeof defaultTimers;
+  timers?: AnimationTimers;
   char?: string;
   color?: string;
   fontScale?: number;
 };
 export function runMuzzleFlash(
-  renderer: AsciiRenderer,
+  renderer: FlashRenderer,
   repaint: () => void,
   worldX: number,
   worldY: number,
@@ -317,7 +336,7 @@ export function runMuzzleFlash(
 
 type RunInteractSecuredFlashOptions = {
   duration?: number;
-  timers?: typeof defaultTimers;
+  timers?: AnimationTimers;
   color?: string;
 };
 
@@ -326,7 +345,7 @@ type RunInteractSecuredFlashOptions = {
  * glyph so it reads on both neutral lavender and post-activate mint.
  */
 export function runInteractSecuredFlash(
-  renderer: AsciiRenderer,
+  renderer: FlashRenderer,
   repaint: () => void,
   worldX: number,
   worldY: number,
@@ -348,7 +367,7 @@ export function runInteractSecuredFlash(
 
 type RunFireFlashOptions = {
   duration?: number;
-  timers?: typeof defaultTimers;
+  timers?: AnimationTimers;
 };
 
 /**
@@ -361,7 +380,7 @@ type RunFireFlashOptions = {
  * invisible. The star reads as the bottle shattering, then resolves into fire.
  */
 export function runIncendiaryImpactFlash(
-  renderer: AsciiRenderer,
+  renderer: FlashRenderer,
   repaint: () => void,
   worldX: number,
   worldY: number,
@@ -388,7 +407,7 @@ export function runIncendiaryImpactFlash(
  * tile underneath is already drawn as fire anyway.
  */
 export function runBurnFlash(
-  renderer: AsciiRenderer,
+  renderer: FlashRenderer,
   repaint: () => void,
   worldX: number,
   worldY: number,

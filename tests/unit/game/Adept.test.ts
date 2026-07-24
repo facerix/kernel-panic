@@ -16,10 +16,15 @@ import { Adept } from '../../../src/game/archetypes/Adept.js';
 import { Crew } from '../../../src/game/Crew.js';
 import { Grid } from '../../../src/game/Grid.js';
 import { World } from '../../../src/game/World.js';
+import { Entity } from '../../../src/game/Entity.js';
 import { Skirmisher } from '../../../src/game/ai/Skirmisher.js';
 import { FACTION, AP_COST, INFLUENCE_DURATION } from '../../../src/game/constants.js';
 
-function makeWorld({ adeptAt = [1, 1], grid, extraEntities = [] } = {}) {
+function makeWorld({
+  adeptAt = [1, 1],
+  grid,
+  extraEntities = [],
+}: { adeptAt?: [number, number]; grid?: Grid; extraEntities?: Entity[] } = {}) {
   const g = grid ?? new Grid(12, 12);
   const w = new World(g);
   const adept = new Adept({ id: 'adept', x: adeptAt[0], y: adeptAt[1] });
@@ -28,7 +33,12 @@ function makeWorld({ adeptAt = [1, 1], grid, extraEntities = [] } = {}) {
   return { world: w, adept };
 }
 
-const makeDrone = (id, x, y, faction = FACTION.CORP) => new Skirmisher({ id, x, y, faction });
+const makeDrone = (
+  id: string,
+  x: number,
+  y: number,
+  faction: ConstructorParameters<typeof Skirmisher>[0]['faction'] = FACTION.CORP
+) => new Skirmisher({ id, x, y, faction });
 
 // Deterministic single-roll stubs: 0.1 < success chance → dominate; 0.9 → fail.
 const winRng = { next: () => 0.1 };
