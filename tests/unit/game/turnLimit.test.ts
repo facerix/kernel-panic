@@ -34,6 +34,8 @@ function makeCrew(archetype = 'razor') {
 function makeTimedTerminalContract(turnLimit = 2, overrides: Partial<Contract> = {}): Contract {
   return {
     seed: 42,
+    mapWidth: 24,
+    mapHeight: 16,
     objective: {
       kind: OBJECTIVES.TERMINAL_SLICE,
       title: 'Slice sentinel terminal',
@@ -51,7 +53,7 @@ function makeTimedTerminalContract(turnLimit = 2, overrides: Partial<Contract> =
 
 function terminalIn(run: Run): Terminal {
   if (!run.world) throw new Error('run must be in combat');
-  const terminal = [...run.world.entities.values()].find(
+  const terminal = [...run.world!.entities.values()].find(
     (entity): entity is Terminal => entity instanceof Terminal
   );
   if (!terminal) throw new Error('expected a terminal');
@@ -65,10 +67,10 @@ function relocateAdjacentTo(run: Run, entity: Terminal): void {
       if (dx === 0 && dy === 0) continue;
       const x = entity.x + dx;
       const y = entity.y + dy;
-      if (!run.world.grid.inBounds(x, y)) continue;
-      if (!run.world.grid.isPassable(x, y)) continue;
-      if (run.world.liveEntityAt(x, y)) continue;
-      run.world.relocateEntity(run.player, x, y);
+      if (!run.world!.grid.inBounds(x, y)) continue;
+      if (!run.world!.grid.isPassable(x, y)) continue;
+      if (run.world!.liveEntityAt(x, y)) continue;
+      run.world!.relocateEntity(run.player, x, y);
       return;
     }
   }
@@ -78,8 +80,8 @@ function relocateAdjacentTo(run: Run, entity: Terminal): void {
 function advanceFullRounds(run: Run, count: number): void {
   if (!run.world || !run.queue) throw new Error('run must be in combat');
   for (let i = 0; i < count; i++) {
-    run.queue.endTurn(run.world);
-    run.queue.endTurn(run.world);
+    run.queue!.endTurn(run.world);
+    run.queue!.endTurn(run.world);
   }
 }
 

@@ -28,6 +28,8 @@ function makeWorld(w = 12, h = 12): World {
 function makeSweepContract(target: string): Contract {
   return {
     seed: 42,
+    mapWidth: 12,
+    mapHeight: 12,
     objective: {
       kind: OBJECTIVES.SWEEP,
       title: 'Sweep test',
@@ -46,6 +48,8 @@ test('objectiveProgress returns null for objectives without a meter', () => {
   const world = makeWorld();
   const contract: Contract = {
     seed: 1,
+    mapWidth: 12,
+    mapHeight: 12,
     objective: {
       kind: OBJECTIVES.REACH_EXIT,
       title: 'Exit',

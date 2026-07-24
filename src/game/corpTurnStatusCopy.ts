@@ -35,7 +35,7 @@ const GENERIC_STATUS_MESSAGES = [
  * @returns {number}
  */
 export function countVisibleCorpEntities(
-  entities: Iterable<Entity>,
+  entities: Iterable<Pick<Entity, 'alive' | 'faction' | 'x' | 'y'>>,
   isTileVisible: IsVisibleFn,
   hostileFaction: FactionId = FACTION.CORP
 ): number {
@@ -62,7 +62,7 @@ export function resetCorpTurnStatusCache(): void {
  * @param {number} turnNumber
  * @returns {string}
  */
-export function corpTurnStatusBody(visibleCorpCount: number, turnNumber: number): string {
+export function corpTurnStatusBody(visibleCorpCount: number, turnNumber = 0): string {
   if (visibleCorpCount >= 2) {
     return 'Multiple hostiles in sight — units repositioning.';
   }

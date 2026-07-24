@@ -52,6 +52,8 @@ function makeSweepContract(
 ): Contract {
   return {
     seed: 42,
+    mapWidth: 24,
+    mapHeight: 16,
     objective: {
       kind: OBJECTIVES.SWEEP,
       title: 'Sweep test',

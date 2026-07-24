@@ -18,6 +18,7 @@ import {
   JUGGERNAUT_PREFERRED_MIN,
   TILE,
 } from '../../../src/game/constants.js';
+import { Rng } from '../../../src/rng.js';
 
 // Walls boxing the juggernaut at (1,1) so no band-kite tile exists — every
 // neighbour except the player's tile (2,1) is sealed. Shared by the cornered
@@ -32,12 +33,16 @@ const CORNER_WALLS = [
   [2, 2],
 ];
 
-class StubRng {
-  constructor(values) {
+class StubRng extends Rng {
+  values: number[];
+  calls: number;
+
+  constructor(values: number[]) {
+    super(0);
     this.values = [...values];
     this.calls = 0;
   }
-  next() {
+  override next() {
     if (this.calls >= this.values.length) {
       throw new Error('StubRng drained — test under-supplied rolls');
     }
@@ -46,13 +51,17 @@ class StubRng {
 }
 
 // Always-hit rng for turns whose suppress-roll count we don't want to pin.
-const alwaysHit = () => ({ next: () => 0.0 });
+const alwaysHit = () => new StubRng(Array(32).fill(0));
 
 const openWorld = (w = 16, h = 6) => new World(new Grid(w, h));
-const cheb = (a, b) => Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
+const cheb = (a: { x: number; y: number }, b: { x: number; y: number }) =>
+  Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
 
-const makePlayer = (x, y, extra = {}) =>
-  new Entity({ id: 'p', x, y, faction: FACTION.PLAYER, glyph: '@', maxHp: 10, ...extra });
+const makePlayer = (
+  x: number,
+  y: number,
+  extra: Partial<ConstructorParameters<typeof Entity>[0]> = {}
+) => new Entity({ id: 'p', x, y, faction: FACTION.PLAYER, glyph: '@', maxHp: 10, ...extra });
 
 test('Juggernaut is a corp-faction elite PatrolHostile with the elite glyph', () => {
   const jug = new Juggernaut({ id: 'juggernaut-0', x: 1, y: 1 });

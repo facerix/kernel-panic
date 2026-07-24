@@ -13,7 +13,7 @@ test('IDLE + arrow keys produce move intents in the right direction', () => {
     ['ArrowDown', 0, 1],
     ['ArrowLeft', -1, 0],
     ['ArrowRight', 1, 0],
-  ];
+  ] as const;
   for (const [key, dx, dy] of cases) {
     const r = dispatch(key, MODE.IDLE);
     assert.deepEqual(r.intent, { type: 'move', dx, dy }, `${key} should emit move(${dx}, ${dy})`);
@@ -28,7 +28,7 @@ test('IDLE + diagonal keys (q/e/z/c) produce move intents', () => {
     ['e', 1, -1],
     ['z', -1, 1],
     ['c', 1, 1],
-  ];
+  ] as const;
   for (const [key, dx, dy] of cases) {
     const r = dispatch(key, MODE.IDLE);
     assert.deepEqual(r.intent, { type: 'move', dx, dy });

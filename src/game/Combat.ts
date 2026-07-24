@@ -24,7 +24,6 @@
 import type { DamageResolution, MeleeAttackResult, RangedAttackResult } from '../types.js';
 import type { Entity } from './Entity.js';
 import type { World } from './World.js';
-import type { Rng } from '../rng.js';
 import {
   AP_COST,
   BASE_HIT_CHANCE,
@@ -57,6 +56,11 @@ export type ResolveMeleeOptions = {
   damage?: number;
   dodgeChance?: number;
   coverDodgeBonus?: number;
+};
+
+/** Minimal deterministic random source required by combat resolution. */
+export type CombatRng = {
+  next: () => number;
 };
 
 function attackerRangedDamage(attacker: Entity, override?: number): number {
@@ -127,7 +131,7 @@ export function resolveRanged(
   world: World,
   attacker: Entity,
   target: Entity,
-  rng: Rng,
+  rng: CombatRng,
   options: ResolveRangedOptions = {}
 ): RangedAttackResult {
   const check = canFireRanged(world, attacker, target, options);
@@ -258,7 +262,7 @@ export function resolveMelee(
   world: World,
   attacker: Entity,
   target: Entity,
-  rng: Rng,
+  rng: CombatRng,
   options: ResolveMeleeOptions = {}
 ): MeleeAttackResult {
   const check = canMelee(world, attacker, target);

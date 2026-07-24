@@ -26,12 +26,17 @@ import {
   DECKER_BASE_INTRUSION,
   DECKER_BASE_RAM,
   FACTION,
+  type ContractDifficulty,
 } from '../../../../src/game/constants.js';
 
 const makeDecker = (overrides = {}) =>
   new Decker({ id: 'crew-decker', x: 0, y: 0, callsign: 'Phreak', ...overrides });
 
-const buildLayer = (contractSeed = 12345, decker = makeDecker(), difficulty = 'standard') =>
+const buildLayer = (
+  contractSeed = 12345,
+  decker = makeDecker(),
+  difficulty: ContractDifficulty = 'standard'
+) =>
   // nodeCount 1 matches the `cyber-data-spike` recipe (P3.M3.4).
   CyberspaceLayer.build({ contractSeed, difficulty, decker, nodeCount: 1 });
 

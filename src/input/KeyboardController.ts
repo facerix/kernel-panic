@@ -19,10 +19,15 @@ import type { AimKind, Mode, PerkAim } from './keymap.js';
  * `evt.key` is forwarded case-sensitively into `dispatch` — only lower-case
  * letter bindings in the keymap produce gameplay intents.
  */
+type KeyboardTarget = {
+  addEventListener(type: 'keydown', listener: (evt: KeyboardEvent) => void): void;
+  removeEventListener(type: 'keydown', listener: (evt: KeyboardEvent) => void): void;
+};
+
 type KeyboardControllerInit = {
-  target?: Document;
+  target?: KeyboardTarget;
   onIntent: (intent: Intent) => void;
-  onModeChange: (mode: Mode) => void;
+  onModeChange?: (mode: Mode) => void;
   isBlocked?: () => boolean;
   /**
    * Resolve the *current* archetype's perk-aim so the `x` key fires a
@@ -33,7 +38,7 @@ type KeyboardControllerInit = {
   getSpecialAim?: () => PerkAim;
 };
 export class KeyboardController {
-  target: Document;
+  target: KeyboardTarget;
   onIntent: (intent: Intent) => void;
   onModeChange: (mode: Mode) => void;
   isBlocked: () => boolean;

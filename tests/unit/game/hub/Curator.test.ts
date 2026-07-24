@@ -20,6 +20,7 @@ import {
 } from '../../../../src/game/hub/Curator.js';
 import { MAP_DIMENSION_BANDS } from '../../../../src/game/procgen/mapDimensions.js';
 import { buildHub } from '../../../../src/game/hub/SafeSpace.js';
+import type { LocationSite } from '../../../../src/types.js';
 
 test('Curator constructs with NEUTRAL faction and zero AP', () => {
   const c = new Curator({ x: 2, y: 3 });
@@ -329,7 +330,7 @@ test('P3.M1.5: campaign Clock heat raises threat counts without changing difficu
 });
 
 test('P3.M1.6: Act 2 guarantees at least one same-principal casing contract', () => {
-  const roster = [
+  const roster: LocationSite[] = [
     {
       id: 'score',
       seed: '100',
@@ -364,7 +365,7 @@ test('P3.M1.6: Act 2 guarantees at least one same-principal casing contract', ()
 });
 
 test('P3.M1.6: Act 3 board is mostly same-principal prep contracts', () => {
-  const roster = [
+  const roster: LocationSite[] = [
     {
       id: 'score',
       seed: '100',
@@ -417,6 +418,7 @@ test('different Rng states yield different seeds (no constant return)', () => {
 });
 
 test('generateContract throws on missing rng', () => {
+  // @ts-expect-error Verify runtime validation of a missing RNG.
   assert.throws(() => new Curator().generateContract(null), /requires an Rng/);
 });
 
@@ -484,7 +486,7 @@ test('KNOWN tier (rep 50-79) shifts pool toward elevated/critical vs UNKNOWN', (
 test('tier boundary transitions: 19→20 and 79→80 produce different pools', () => {
   // Collect difficulty distributions across many seeds to verify the
   // boundary produces a statistically different mix.
-  const counts = rep => {
+  const counts = (rep: number) => {
     let elevated = 0;
     for (let seed = 0; seed < 200; seed++) {
       for (const c of new Curator().generateContracts(new Rng(seed), { rep })) {
@@ -547,7 +549,8 @@ test('buildHub returns a terminalSpawn distinct from other interactables', () =>
   // Terminal must occupy a walkable tile so the player can stand adjacent.
   assert.equal(hub.grid.isPassable(hub.terminalSpawn.x, hub.terminalSpawn.y), true);
   // …and must not collide with the player spawn, Curator, or door.
-  const same = (a, b) => a.x === b.x && a.y === b.y;
+  const same = (a: { x: number; y: number }, b: { x: number; y: number }) =>
+    a.x === b.x && a.y === b.y;
   assert.ok(!same(hub.terminalSpawn, hub.playerSpawn), 'terminal overlaps player spawn');
   assert.ok(!same(hub.terminalSpawn, hub.curatorSpawn), 'terminal overlaps curator');
   assert.ok(!same(hub.terminalSpawn, hub.exitTile), 'terminal overlaps exit tile');
@@ -608,14 +611,14 @@ test('generateContracts adds door routing on elevated/critical board slots', () 
         doorRouted++;
       } else if (
         contract.difficulty !== CONTRACT_DIFFICULTY.STANDARD &&
-        [
+        new Set<string>([
           OBJECTIVES.RETRIEVE,
           OBJECTIVES.HANDOFF,
           OBJECTIVES.DENY,
           OBJECTIVES.DUAL_SITE,
           OBJECTIVES.RECON,
           OBJECTIVES.ESCORT_EXTRACT,
-        ].includes(contract.objective.kind)
+        ]).has(contract.objective.kind)
       ) {
         eligibleNonRouted++;
       }

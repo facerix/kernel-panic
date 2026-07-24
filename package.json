@@ -12,10 +12,9 @@
     "dev:assets": "chokidar \"*.html\" \"main.css\" \"manifest.json\" \"icon.svg\" \"sw*.js\" \"icons/**\" \"images/**\" \"fonts/**\" \"debug/*.html\" -c \"node scripts/copy-assets.mjs\" --initial",
     "dev:serve": "live-server dist --no-browser --port=8099",
     "build": "tsc -p tsconfig.json && node scripts/copy-assets.mjs",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.tests.json",
     "typecheck:tests": "tsc -p tsconfig.tests.json",
-    "build:tests": "tsc -p tsconfig.test-build.json",
-    "test": "npm run typecheck && npm run build:tests && node --test \"dist/tests/**/*.test.js\"",
+    "test": "npm run typecheck && node --import ./tests/support/loader.mjs --test \"tests/**/*.test.ts\"",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
     "format": "prettier --write .",
@@ -25,6 +24,9 @@
   },
   "author": "Rylee Corradini",
   "license": "GPL-3.0",
+  "engines": {
+    "node": ">=24"
+  },
   "devDependencies": {
     "@types/node": "^25.8.0",
     "chokidar-cli": "^3.0.0",

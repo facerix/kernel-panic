@@ -28,6 +28,7 @@ test('mulberry32 always returns a float in [0, 1)', () => {
 
 test('Rng requires a finite seed', () => {
   assert.throws(() => new Rng(NaN), TypeError);
+  // @ts-expect-error Verify runtime validation of a missing seed.
   assert.throws(() => new Rng(undefined), TypeError);
 });
 

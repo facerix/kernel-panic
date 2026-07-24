@@ -2,8 +2,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { Campaign, CAMPAIGN_STATE } from '../../../src/game/Campaign.js';
-import { Run, RUN_STATE } from '../../../src/game/Run.js';
-import { buildContractRecipeFixture, OBJECTIVES } from '../../../src/game/hub/Curator.js';
+import { Run, RUN_STATE, type CrewArchetypeId } from '../../../src/game/Run.js';
+import {
+  buildContractRecipeFixture,
+  OBJECTIVES,
+  type Contract,
+} from '../../../src/game/hub/Curator.js';
 import { Terminal } from '../../../src/game/entities/Terminal.js';
 import { Door } from '../../../src/game/entities/Door.js';
 import { Guard } from '../../../src/game/ai/Guard.js';
@@ -30,6 +34,7 @@ import { placeSmoke } from '../../../src/game/Smoke.js';
 import { makeSalvage, totalSalvage } from '../../../src/game/salvage.js';
 import { buildCrewMember } from '../../../src/game/archetypes/index.js';
 import { Decker } from '../../../src/game/archetypes/Decker.js';
+import { Tech } from '../../../src/game/archetypes/Tech.js';
 import { Berserk } from '../../../src/game/archetypes/Berserk.js';
 import { Adept } from '../../../src/game/archetypes/Adept.js';
 import { Chimera } from '../../../src/game/archetypes/Chimera.js';
@@ -38,26 +43,29 @@ import {
   DEFAULT_DODGE_CHANCE_BY_ARCHETYPE,
 } from '../../../src/game/crewStatRoll.js';
 import { PatrolHostile } from '../../../src/game/ai/PatrolHostile.js';
+import { Entity } from '../../../src/game/Entity.js';
+import { Turret } from '../../../src/game/Turret.js';
 import { applyOverride } from '../../../src/game/mindInfluence.js';
 import { Rng } from '../../../src/rng.js';
 import { testContractContext } from './contractTestUtils.js';
 
-const fakeContract = (overrides = {}) => ({
-  seed: 12345,
-  objective: {
-    kind: OBJECTIVES.REACH_EXIT,
-    title: 'Extract clean',
-    briefing: 'Reach the exit.',
-  },
-  difficulty: 'standard',
-  threatCount: 1,
-  label: 'test job',
-  context: testContractContext(OBJECTIVES.REACH_EXIT),
-  reward: { credits: 0, repDelta: 0 },
-  ...overrides,
-});
+const fakeContract = (overrides: Partial<Contract> = {}): Contract =>
+  ({
+    seed: 12345,
+    objective: {
+      kind: OBJECTIVES.REACH_EXIT,
+      title: 'Extract clean',
+      briefing: 'Reach the exit.',
+    },
+    difficulty: 'standard',
+    threatCount: 1,
+    label: 'test job',
+    context: testContractContext(OBJECTIVES.REACH_EXIT),
+    reward: { credits: 0, repDelta: 0 },
+    ...overrides,
+  }) as Contract;
 
-const terminalSliceContract = (overrides = {}) =>
+const terminalSliceContract = (overrides: Partial<Contract> = {}) =>
   fakeContract({
     objective: {
       kind: OBJECTIVES.TERMINAL_SLICE,
@@ -70,40 +78,40 @@ const terminalSliceContract = (overrides = {}) =>
     ...overrides,
   });
 
-function makeCrew(archetype = 'razor') {
+function makeCrew(archetype: CrewArchetypeId = 'razor') {
   return buildCrewMember(archetype, { x: 0, y: 0 }, new Rng(100), {
     id: `crew-${archetype}`,
   });
 }
 
-function relocateAdjacentTo(run, entity) {
+function relocateAdjacentTo(run: Run, entity: Entity) {
   for (let dy = -1; dy <= 1; dy++) {
     for (let dx = -1; dx <= 1; dx++) {
       if (dx === 0 && dy === 0) continue;
       const x = entity.x + dx;
       const y = entity.y + dy;
-      if (!run.world.grid.inBounds(x, y)) continue;
-      if (!run.world.grid.isPassable(x, y)) continue;
-      if (run.world.liveEntityAt(x, y)) continue;
-      run.world.relocateEntity(run.player, x, y);
+      if (!run.world!.grid.inBounds(x, y)) continue;
+      if (!run.world!.grid.isPassable(x, y)) continue;
+      if (run.world!.liveEntityAt(x, y)) continue;
+      run.world!.relocateEntity(run.player!, x, y);
       return;
     }
   }
   throw new Error(`No adjacent passable tile for ${entity.id}`);
 }
 
-function freeCombatTile(run, after = { x: 0, y: 0 }) {
-  for (let y = after.y; y < run.world.grid.height; y++) {
-    for (let x = y === after.y ? after.x : 0; x < run.world.grid.width; x++) {
-      if (!run.world.grid.isPassable(x, y)) continue;
-      if (run.world.liveEntityAt(x, y)) continue;
+function freeCombatTile(run: Run, after = { x: 0, y: 0 }) {
+  for (let y = after.y; y < run.world!.grid.height; y++) {
+    for (let x = y === after.y ? after.x : 0; x < run.world!.grid.width; x++) {
+      if (!run.world!.grid.isPassable(x, y)) continue;
+      if (run.world!.liveEntityAt(x, y)) continue;
       return { x, y };
     }
   }
   throw new Error('No free passable tile in fixture run');
 }
 
-function freshCombatRun(seed = 1, archetype = 'razor') {
+function freshCombatRun(seed = 1, archetype: CrewArchetypeId = 'razor') {
   const run = new Run({ crewMember: makeCrew(archetype), seed });
   run.enterBriefing(fakeContract());
   run.enterCombat();
@@ -120,7 +128,7 @@ test('run snapshot → restore → snapshot is byte-for-byte stable', () => {
 
 test('snapshot/restore preserves an unlooted hostile corpse and its exact salvage', () => {
   const run = freshCombatRun(0xdecafbad);
-  const corpse = [...run.world.entities.values()].find(entity => entity instanceof PatrolHostile);
+  const corpse = [...run.world!.entities.values()].find(entity => entity instanceof PatrolHostile);
   assert.ok(corpse, 'fixture should contain a patrol hostile');
   corpse.hp = 0;
   corpse.alive = false;
@@ -134,12 +142,12 @@ test('snapshot/restore preserves an unlooted hostile corpse and its exact salvag
   const restoredCorpse = restoredWorld.lootableCorpseAt(corpse.x, corpse.y);
   assert.ok(restoredCorpse, 'restored corpse should remain lootable');
   assert.equal(restoredCorpse.id, corpse.id);
-  assert.deepEqual(restoredCorpse.loot.salvage, makeSalvage({ scrap: 2, chips: 1 }));
+  assert.deepEqual(restoredCorpse.loot!.salvage, makeSalvage({ scrap: 2, chips: 1 }));
 });
 
 test('restore rejects malformed corpse loot instead of discarding it', () => {
   const run = freshCombatRun(0xdecafbad);
-  const corpse = [...run.world.entities.values()].find(entity => entity instanceof PatrolHostile);
+  const corpse = [...run.world!.entities.values()].find(entity => entity instanceof PatrolHostile);
   assert.ok(corpse, 'fixture should contain a patrol hostile');
   corpse.hp = 0;
   corpse.alive = false;
@@ -158,7 +166,7 @@ test('snapshot/restore round-trips a Decker deploy (P3.M2)', () => {
   const rec = snapshot(run);
   const { run: restoredRun } = restore(rec);
   assert.ok(restoredRun.player instanceof Decker, 'Decker should restore as a Decker');
-  assert.equal(restoredRun.player.callsign, run.player.callsign);
+  assert.equal(restoredRun.player!.callsign, run.player!.callsign);
   // Stable round-trip through a second snapshot.
   assert.deepEqual(snapshot(restoredRun), rec);
 });
@@ -169,7 +177,7 @@ test('snapshot/restore round-trips a Berserk deploy (P3.5.M3)', () => {
   const rec = snapshot(run);
   const { run: restoredRun } = restore(rec);
   assert.ok(restoredRun.player instanceof Berserk, 'Berserk should restore as a Berserk');
-  assert.equal(restoredRun.player.callsign, run.player.callsign);
+  assert.equal(restoredRun.player!.callsign, run.player!.callsign);
   assert.deepEqual(snapshot(restoredRun), rec);
 });
 
@@ -179,7 +187,7 @@ test('snapshot/restore round-trips an Adept deploy (P3.5.M4)', () => {
   const rec = snapshot(run);
   const { run: restoredRun } = restore(rec);
   assert.ok(restoredRun.player instanceof Adept, 'Adept should restore as an Adept');
-  assert.equal(restoredRun.player.callsign, run.player.callsign);
+  assert.equal(restoredRun.player!.callsign, run.player!.callsign);
   assert.deepEqual(snapshot(restoredRun), rec);
 });
 
@@ -189,7 +197,7 @@ test('snapshot/restore round-trips a Chimera deploy (P3.5.M5)', () => {
   const rec = snapshot(run);
   const { run: restoredRun } = restore(rec);
   assert.ok(restoredRun.player instanceof Chimera, 'Chimera should restore as a Chimera');
-  assert.equal(restoredRun.player.callsign, run.player.callsign);
+  assert.equal(restoredRun.player!.callsign, run.player!.callsign);
   assert.deepEqual(snapshot(restoredRun), rec);
 });
 
@@ -245,14 +253,16 @@ test('snapshot/restore preserves Berserk Crash and its derived hit penalty', () 
 
 test('snapshot/restore preserves a live drone-override (P3.M2)', () => {
   const run = freshCombatRun(0xbadbeef, 'decker');
-  const drone = [...run.world.entities.values()].find(e => e instanceof PatrolHostile);
+  const drone = [...run.world!.entities.values()].find(e => e instanceof PatrolHostile);
   assert.ok(drone, 'fixture run should contain at least one patrol hostile');
   const originalFaction = drone.faction;
   applyOverride(drone, FACTION.PLAYER);
 
   const rec = snapshot(run);
   const { world: restoredWorld } = restore(rec);
-  const restoredDrone = [...restoredWorld.entities.values()].find(e => e.id === drone.id);
+  const restoredDrone = [...restoredWorld.entities.values()].find(
+    (e): e is PatrolHostile => e.id === drone.id && e instanceof PatrolHostile
+  );
   assert.ok(restoredDrone, 'overridden drone should survive the round-trip');
   assert.equal(restoredDrone.faction, FACTION.PLAYER, 'flipped faction preserved');
   assert.equal(restoredDrone.factionBeforeOverride, originalFaction, 'prior faction preserved');
@@ -265,19 +275,19 @@ test('a never-overridden drone snapshot omits override fields (no shape drift)',
   const rec = snapshot(run);
   const droneRec = rec.entities.find(e => e.archetype === 'drone' || e.archetype === 'guard');
   assert.ok(droneRec, 'expected a patrol hostile in the snapshot');
-  assert.equal(droneRec.extra.overrideTurnsRemaining, undefined);
-  assert.equal(droneRec.extra.factionBeforeOverride, undefined);
+  assert.equal(droneRec.extra!.overrideTurnsRemaining, undefined);
+  assert.equal(droneRec.extra!.factionBeforeOverride, undefined);
 });
 
 test('snapshot/restore round-trips a Tech with a placed turret (M1)', () => {
   const run = freshCombatRun(0xc0ffee, 'tech');
-  const tech = run.player;
-  let placed = null;
+  const tech = run.player as Tech;
+  let placed: Turret | null = null;
   for (let dy = -1; dy <= 1 && !placed; dy++) {
     for (let dx = -1; dx <= 1 && !placed; dx++) {
       if (dx === 0 && dy === 0) continue;
-      if (tech.canDeploy(run.world, dx, dy).ok) {
-        placed = tech.deployTurret(run.world, dx, dy);
+      if (tech.canDeploy(run.world!, dx, dy).ok) {
+        placed = tech.deployTurret(run.world!, dx, dy);
       }
     }
   }
@@ -286,8 +296,10 @@ test('snapshot/restore round-trips a Tech with a placed turret (M1)', () => {
 
   const rec = snapshot(run);
   const { run: restoredRun, world: restoredWorld } = restore(rec);
-  assert.equal(restoredRun.player.turretReady, false);
-  const restoredTurret = [...restoredWorld.entities.values()].find(e => e.id === placed.id);
+  assert.equal((restoredRun.player as Tech).turretReady, false);
+  const restoredTurret = [...restoredWorld.entities.values()].find(
+    (e): e is Turret => e.id === placed.id && e instanceof Turret
+  );
   assert.ok(restoredTurret, 'restored world should contain the deployed turret');
   assert.equal(restoredTurret.faction, FACTION.PLAYER);
   assert.equal(restoredTurret.hp, 2);
@@ -312,29 +324,34 @@ test('restored Rng produces the same next 5 numbers as the live one', () => {
 
 test('restore reconstructs world entities with their HP / AP / stealth state and callsign', () => {
   const run = freshCombatRun(42);
-  run.player.hp = 1;
-  run.player.ap = 2;
-  run.player.stealthed = true;
-  run.player.damageReduction = 1;
+  run.player!.hp = 1;
+  run.player!.ap = 2;
+  run.player!.stealthed = true;
+  run.player!.damageReduction = 1;
   const rec = snapshot(run);
-  const { player } = restore(rec);
+  const player = restore(rec).player!;
   assert.equal(player.hp, 1);
   assert.equal(player.ap, 2);
   assert.equal(player.stealthed, true);
   assert.equal(player.damageReduction, 1);
-  assert.equal(player.callsign, run.player.callsign);
+  assert.equal(player.callsign, run.player!.callsign);
 });
 
 test('restore preserves drone AI state (mode + lastKnownTarget + patrol index)', () => {
   const run = freshCombatRun(0xdead);
-  const drone = [...run.world.entities.values()].find(e => e.faction === FACTION.CORP);
+  const drone = [...run.world!.entities.values()].find(
+    (e): e is PatrolHostile => e.faction === FACTION.CORP && e instanceof PatrolHostile
+  );
   assert.ok(drone, 'expected at least one drone for threatCount=1');
   drone.state = 'investigate';
   drone.lastKnownTarget = { x: 5, y: 7 };
   drone.patrolIndex = 1;
   const rec = snapshot(run);
   const { world: restoredWorld } = restore(rec);
-  const restoredDrone = [...restoredWorld.entities.values()].find(e => e.faction === FACTION.CORP);
+  const restoredDrone = [...restoredWorld.entities.values()].find(
+    (e): e is PatrolHostile => e.faction === FACTION.CORP && e instanceof PatrolHostile
+  );
+  assert.ok(restoredDrone);
   assert.equal(restoredDrone.state, 'investigate');
   assert.deepEqual(restoredDrone.lastKnownTarget, { x: 5, y: 7 });
   assert.equal(restoredDrone.patrolIndex, 1);
@@ -345,7 +362,9 @@ test('restore throws on a drone patrolIndex past the waypoint list', () => {
   // without a guard. A corrupt / stale index must fail loudly at restore,
   // not crash mid-turn.
   const run = freshCombatRun(0xbad1);
-  const fodder = [...run.world.entities.values()].find(e => e.faction === FACTION.CORP);
+  const fodder = [...run.world!.entities.values()].find(
+    (e): e is PatrolHostile => e.faction === FACTION.CORP && e instanceof PatrolHostile
+  );
   assert.ok(fodder, 'expected at least one fodder hostile for threatCount=1');
   const rec = snapshot(run);
   const fodderRec = rec.entities.find(e => e.id === fodder.id);
@@ -361,7 +380,7 @@ test('restore throws on a drone patrolIndex past the waypoint list', () => {
 test('Guard round-trips through snapshot/restore as archetype "guard"', () => {
   // fakeContract seed 12345 / fodderCount 1 deterministically rolls a guard.
   const run = freshCombatRun(7);
-  const guard = [...run.world.entities.values()].find(e => e instanceof Guard);
+  const guard = [...run.world!.entities.values()].find(e => e instanceof Guard);
   assert.ok(guard, 'expected a Guard from this contract seed');
   guard.state = 'engage';
   guard.lastKnownTarget = { x: 4, y: 9 };
@@ -386,7 +405,7 @@ test('Bruiser round-trips through snapshot/restore as archetype "bruiser"', () =
   // CRITICAL elite pool to include Flanker.
   run.enterBriefing(fakeContract({ seed: 0, difficulty: 'critical', threatCount: 4 }));
   run.enterCombat();
-  const bruiser = [...run.world.entities.values()].find(e => e instanceof Bruiser);
+  const bruiser = [...run.world!.entities.values()].find(e => e instanceof Bruiser);
   assert.ok(bruiser instanceof Bruiser, 'expected a Bruiser from this critical contract');
   bruiser.state = 'engage';
   bruiser.lastKnownTarget = { x: 3, y: 8 };
@@ -409,7 +428,7 @@ test('Juggernaut round-trips through snapshot/restore as archetype "juggernaut"'
   // contract seed 1 deterministically rolls a Juggernaut elite.
   run.enterBriefing(fakeContract({ seed: 1, difficulty: 'critical', threatCount: 4 }));
   run.enterCombat();
-  const juggernaut = [...run.world.entities.values()].find(e => e instanceof Juggernaut);
+  const juggernaut = [...run.world!.entities.values()].find(e => e instanceof Juggernaut);
   assert.ok(juggernaut instanceof Juggernaut, 'expected a Juggernaut from this critical contract');
   juggernaut.state = 'engage';
   juggernaut.lastKnownTarget = { x: 5, y: 4 };
@@ -433,7 +452,7 @@ test('Flanker round-trips through snapshot/restore as archetype "flanker"', () =
   // contract seed 2 deterministically rolls a Flanker elite.
   run.enterBriefing(fakeContract({ seed: 2, difficulty: 'critical', threatCount: 4 }));
   run.enterCombat();
-  const flanker = [...run.world.entities.values()].find(e => e instanceof Flanker);
+  const flanker = [...run.world!.entities.values()].find(e => e instanceof Flanker);
   assert.ok(flanker instanceof Flanker, 'expected a Flanker from this critical contract');
   flanker.state = 'engage';
   flanker.lastKnownTarget = { x: 5, y: 4 };
@@ -460,15 +479,15 @@ test('Medic and temporary shield round-trip through snapshot/restore', () => {
   const patientAnchor = freeCombatTile(run, { x: medicAnchor.x + 1, y: medicAnchor.y });
   const medic = new Medic({ id: 'medic-0', x: medicAnchor.x, y: medicAnchor.y, maxAp: 1 });
   medic.state = 'engage';
-  medic.lastKnownTarget = { x: run.player.x, y: run.player.y };
+  medic.lastKnownTarget = { x: run.player!.x, y: run.player!.y };
   const patient = new Juggernaut({
     id: 'juggernaut-fixture',
     x: patientAnchor.x,
     y: patientAnchor.y,
   });
   patient.addShield(2);
-  run.world.addEntity(medic);
-  run.world.addEntity(patient);
+  run.world!.addEntity(medic);
+  run.world!.addEntity(patient);
 
   const rec = snapshot(run);
   const medicRec = rec.entities.find(e => e.id === medic.id);
@@ -483,30 +502,30 @@ test('Medic and temporary shield round-trip through snapshot/restore', () => {
   assert.ok(restoredMedic instanceof Medic, 'restored as a Medic');
   assert.equal(restoredMedic.glyph, 'm');
   assert.equal(restoredMedic.state, 'engage');
-  assert.deepEqual(restoredMedic.lastKnownTarget, { x: run.player.x, y: run.player.y });
+  assert.deepEqual(restoredMedic.lastKnownTarget, { x: run.player!.x, y: run.player!.y });
   assert.ok(restoredPatient instanceof Juggernaut);
   assert.equal(restoredPatient.shieldHp, 2);
 });
 
 test('restore preserves turnNumber and currentFaction', () => {
   const run = freshCombatRun(11);
-  run.queue.endTurn(run.world);
-  run.queue.endTurn(run.world);
+  run.queue!.endTurn(run.world!);
+  run.queue!.endTurn(run.world!);
   const rec = snapshot(run);
   const { queue } = restore(rec);
-  assert.equal(queue.turnNumber, run.queue.turnNumber);
-  assert.equal(queue.currentFaction, run.queue.currentFaction);
+  assert.equal(queue.turnNumber, run.queue!.turnNumber);
+  assert.equal(queue.currentFaction, run.queue!.currentFaction);
 });
 
 test('snapshot/restore round-trips terminal interactable state', () => {
   const run = new Run({ crewMember: makeCrew('razor'), seed: 0x51ced });
   run.enterBriefing(terminalSliceContract());
   run.enterCombat();
-  const terminal = [...run.world.entities.values()].find(e => e instanceof Terminal);
+  const terminal = [...run.world!.entities.values()].find(e => e instanceof Terminal);
   assert.ok(terminal, 'expected a terminal interactable');
 
   relocateAdjacentTo(run, terminal);
-  terminal.interact(run.world, run.player);
+  terminal.interact(run.world!, run.player!);
 
   const rec = snapshot(run);
   const terminalRec = rec.entities.find(e => e.id === terminal.id);
@@ -522,15 +541,15 @@ test('snapshot/restore round-trips terminal interactable state', () => {
 
 test('snapshot/restore round-trips alarm cadence state', () => {
   const run = freshCombatRun(0xa1a12);
-  run.world.raiseAlarm({ origin: { x: run.player.x, y: run.player.y } });
-  run.world.tickAlarm();
+  run.world!.raiseAlarm({ origin: { x: run.player!.x, y: run.player!.y } });
+  run.world!.tickAlarm();
 
   const rec = snapshot(run);
-  assert.equal(rec.alarm.phase, 'alert');
-  assert.equal(rec.alarm.holdTurnsRemaining, 1);
+  assert.equal(rec.alarm!.phase, 'alert');
+  assert.equal(rec.alarm!.holdTurnsRemaining, 1);
 
   const { world: restoredWorld } = restore(rec);
-  assert.deepEqual(restoredWorld.alarm, run.world.alarm);
+  assert.deepEqual(restoredWorld.alarm, run.world!.alarm);
   assert.equal(restoredWorld.alarmActive, true);
 });
 
@@ -548,6 +567,7 @@ test('restore migrates legacy alarmActive run snapshots into alarm state', () =>
 test('restore throws on corrupt run records', () => {
   const run = freshCombatRun(1);
   const missingRng = snapshot(run);
+  // @ts-expect-error Simulate a legacy/corrupt record missing a required field.
   delete missingRng.rng;
   assert.throws(() => restore(missingRng), /rng/);
 
@@ -560,6 +580,7 @@ test('restore throws on corrupt run records', () => {
   assert.throws(() => restore(oob), /out of bounds/);
 
   const unknownArchetype = snapshot(run);
+  // @ts-expect-error Runtime validation must reject an unknown archetype.
   unknownArchetype.entities[0].archetype = 'wizard';
   assert.throws(() => restore(unknownArchetype), /unknown archetype/);
 
@@ -573,10 +594,12 @@ test('restore throws on corrupt run records', () => {
   assert.throws(() => restore(badAlive));
 
   const badState = snapshot(run);
+  // @ts-expect-error Runtime validation must reject an unknown run state.
   badState.state = 'WIBBLE';
   assert.throws(() => restore(badState), /unknown run state/);
 
   const badType = snapshot(run);
+  // @ts-expect-error Runtime validation must reject an unknown record type.
   badType.type = 'other';
   assert.throws(() => restore(badType), /type/);
 });
@@ -587,7 +610,9 @@ test('snapshot before any Run state set throws', () => {
 });
 
 test('snapshot without a Run instance throws TypeError', () => {
+  // @ts-expect-error Runtime validation must reject a non-Run object.
   assert.throws(() => snapshot({}), TypeError);
+  // @ts-expect-error Runtime validation must reject null.
   assert.throws(() => snapshot(null), TypeError);
 });
 
@@ -634,14 +659,14 @@ test('campaign snapshot captures an active briefing job', () => {
   campaign.deployCrewMember(campaign.crew[2].id, fakeContract({ label: 'briefing job' }));
   const rec = snapshotCampaign(campaign);
   assert.equal(rec.type, 'campaign');
-  assert.equal(rec.activeRun.state, 'BRIEFING');
-  assert.equal(rec.activeRun.contract.label, 'briefing job');
-  assert.equal(rec.activeRun.contract.reward.credits, 0);
+  assert.equal(rec.activeRun!.state, 'BRIEFING');
+  assert.equal(rec.activeRun!.contract!.label, 'briefing job');
+  assert.equal(rec.activeRun!.contract!.reward.credits, 0);
 
   const restored = restoreCampaign(rec);
-  assert.equal(restored.activeRun.state, 'BRIEFING');
-  assert.equal(restored.activeRun.contract.label, 'briefing job');
-  assert.equal(restored.activeRun.crewMember.id, campaign.crew[2].id);
+  assert.equal(restored.activeRun!.state, 'BRIEFING');
+  assert.equal(restored.activeRun!.contract!.label, 'briefing job');
+  assert.equal(restored.activeRun!.crewMember.id, campaign.crew[2].id);
 });
 
 test('resumed briefing run enters combat without redeploying', () => {
@@ -705,8 +730,8 @@ test('restoreCampaign migrates legacy active-run salvage rewards to Creds', () =
 
   const restored = restoreCampaign(rec);
 
-  assert.equal(restored.activeRun!.contract.reward.credits, 6 * SALVAGE_TO_CRED_RATE);
-  assert.equal(restored.activeRun!.contract.reward.repDelta, 2);
+  assert.equal(restored.activeRun!.contract!.reward.credits, 6 * SALVAGE_TO_CRED_RATE);
+  assert.equal(restored.activeRun!.contract!.reward.repDelta, 2);
 });
 
 test('restoreCampaign migrates legacy string objectives to objective records', () => {
@@ -718,8 +743,8 @@ test('restoreCampaign migrates legacy string objectives to objective records', (
 
   const restored = restoreCampaign(rec);
 
-  assert.equal(restored.activeRun!.contract.objective.kind, OBJECTIVES.REACH_EXIT);
-  assert.equal(typeof restored.activeRun!.contract.objective.briefing, 'string');
+  assert.equal(restored.activeRun!.contract!.objective.kind, OBJECTIVES.REACH_EXIT);
+  assert.equal(typeof restored.activeRun!.contract!.objective.briefing, 'string');
 });
 
 test('restoreCampaign throws on corrupt campaign records', () => {
@@ -748,7 +773,12 @@ test('restoreCampaign normalizes over-capped hitBonus in crew gear', () => {
   const campaign = new Campaign({ seed: 0xfade });
   const rec = snapshotCampaign(campaign);
   // Inject corrupted gear — 0.5 hitBonus exceeds any archetype's cap.
-  rec.crew[0].gear = { maxHpBonus: 0, hitBonus: 0.5 };
+  rec.crew[0].gear = {
+    maxHpBonus: 0,
+    hitBonus: 0.5,
+    dodgeBonus: 0,
+    rangedDamageBonus: 0,
+  };
   const restored = restoreCampaign(rec);
   const member = restored.crew[0];
   assert.ok(
@@ -761,7 +791,12 @@ test('restoreCampaign normalizes over-capped hitBonus in crew gear', () => {
 test('restoreCampaign normalizes over-capped dodgeBonus in crew gear', () => {
   const campaign = new Campaign({ seed: 42 });
   const rec = snapshotCampaign(campaign);
-  rec.crew[0].gear = { maxHpBonus: 0, hitBonus: 0, dodgeBonus: 0.9 };
+  rec.crew[0].gear = {
+    maxHpBonus: 0,
+    hitBonus: 0,
+    dodgeBonus: 0.9,
+    rangedDamageBonus: 0,
+  };
   const restored = restoreCampaign(rec);
   const member = restored.crew[0];
   assert.ok(member.gear!.dodgeBonus <= member.maxDodgeBonus);
@@ -771,7 +806,12 @@ test('restoreCampaign normalizes over-capped dodgeBonus in crew gear', () => {
 test('restoreCampaign preserves valid hitBonus below cap', () => {
   const campaign = new Campaign({ seed: 0xfade });
   const rec = snapshotCampaign(campaign);
-  rec.crew[0].gear = { maxHpBonus: 0, hitBonus: 0.1 };
+  rec.crew[0].gear = {
+    maxHpBonus: 0,
+    hitBonus: 0.1,
+    dodgeBonus: 0,
+    rangedDamageBonus: 0,
+  };
   const restored = restoreCampaign(rec);
   assert.equal(restored.crew[0].gear!.hitBonus, 0.1);
 });
@@ -835,10 +875,10 @@ test('CampaignCrewSnapshot persists the pristine baseHitChance, not a live Berse
 
 test('restore normalizes over-capped hitBonus in run entity gear', () => {
   const run = freshCombatRun(0xc0de, 'merc');
-  run.player.initGear();
-  run.player.gear!.hitBonus = 0.5; // corrupt: exceeds Merc's 0.2 cap
+  run.player!.initGear();
+  run.player!.gear!.hitBonus = 0.5; // corrupt: exceeds Merc's 0.2 cap
   const rec = snapshot(run);
-  const { player } = restore(rec);
+  const player = restore(rec).player!;
   assert.ok(
     player.gear!.hitBonus <= player.maxHitBonus,
     `hitBonus ${player.gear!.hitBonus} should be ≤ maxHitBonus ${player.maxHitBonus}`
@@ -851,12 +891,12 @@ test('restore normalizes over-capped hitBonus in run entity gear', () => {
 
 test('restore nudges a colliding entity to an adjacent tile instead of throwing', () => {
   const run = freshCombatRun(0xbeef);
-  const drone = [...run.world.entities.values()].find(e => e.faction === FACTION.CORP);
+  const drone = [...run.world!.entities.values()].find(e => e.faction === FACTION.CORP);
   assert.ok(drone, 'expected at least one corp entity');
 
   const rec = snapshot(run);
   // Corrupt the snapshot: move the drone onto the player's tile.
-  const playerRec = rec.entities.find(e => e.id === run.player.id);
+  const playerRec = rec.entities.find(e => e.id === run.player!.id);
   const droneRec = rec.entities.find(e => e.id === drone.id);
   assert.ok(playerRec && droneRec);
   droneRec.x = playerRec.x;
@@ -879,11 +919,11 @@ test('restore nudges a colliding entity to an adjacent tile instead of throwing'
 
 test('restore throws when tile is occupied and no free neighbour exists', () => {
   const run = freshCombatRun(0xcafe);
-  const drone = [...run.world.entities.values()].find(e => e.faction === FACTION.CORP);
+  const drone = [...run.world!.entities.values()].find(e => e.faction === FACTION.CORP);
   assert.ok(drone, 'expected at least one corp entity');
 
   const rec = snapshot(run);
-  const playerRec = rec.entities.find(e => e.id === run.player.id);
+  const playerRec = rec.entities.find(e => e.id === run.player!.id);
   const droneRec = rec.entities.find(e => e.id === drone.id);
   assert.ok(playerRec && droneRec);
 
@@ -913,7 +953,9 @@ test('restore throws when tile is occupied and no free neighbour exists', () => 
 
 test('M6.2: a fodder snapshot uses the slim extra bag, not a named sub-block', () => {
   const run = freshCombatRun(0xa5a5);
-  const fodder = [...run.world.entities.values()].find(e => e.faction === FACTION.CORP);
+  const fodder = [...run.world!.entities.values()].find(
+    (e): e is PatrolHostile => e.faction === FACTION.CORP && e instanceof PatrolHostile
+  );
   assert.ok(fodder, 'expected a corp fodder hostile');
   const rec = snapshot(run);
   const fodderRec = rec.entities.find(e => e.id === fodder.id);
@@ -937,7 +979,7 @@ test('M6.2: restore throws when a terminal record carries no state', () => {
   const run = new Run({ crewMember: makeCrew('razor'), seed: 0x51ced });
   run.enterBriefing(terminalSliceContract());
   run.enterCombat();
-  const terminal = [...run.world.entities.values()].find(e => e instanceof Terminal);
+  const terminal = [...run.world!.entities.values()].find(e => e instanceof Terminal);
   assert.ok(terminal, 'expected a terminal');
   const rec = snapshot(run);
   const tRec = rec.entities.find(e => e.id === terminal.id);
@@ -950,7 +992,7 @@ test('M6.2: restore throws on a door glyph that disagrees with locked', () => {
   const run = freshCombatRun(0xd00d);
   const tile = freeCombatTile(run);
   const door = new Door({ id: 'door-0', x: tile.x, y: tile.y, doorId: 'd-1', locked: true });
-  run.world.addEntity(door);
+  run.world!.addEntity(door);
   const rec = snapshot(run);
   const doorRec = rec.entities.find(e => e.id === 'door-0');
   assert.ok(doorRec?.extra, 'door state lives in the extra bag');
@@ -962,7 +1004,9 @@ test('M6.2: restore normalizes a legacy patrol sub-block into extra', () => {
   // Back-compat: pre-M6.2 saves keyed the patrol block under the archetype id
   // (`drone` = Skirmisher) at the top level instead of `extra`.
   const run = freshCombatRun(0xfeed);
-  const fodder = [...run.world.entities.values()].find(e => e.faction === FACTION.CORP);
+  const fodder = [...run.world!.entities.values()].find(
+    (e): e is PatrolHostile => e.faction === FACTION.CORP && e instanceof PatrolHostile
+  );
   assert.ok(fodder);
   fodder.state = 'investigate';
   fodder.lastKnownTarget = { x: 3, y: 4 };
@@ -974,7 +1018,7 @@ test('M6.2: restore normalizes a legacy patrol sub-block into extra', () => {
   delete legacy.extra;
 
   const { world } = restore(rec);
-  const restored = world.entities.get(fodder.id);
+  const restored = world.entities.get(fodder.id) as PatrolHostile | undefined;
   assert.ok(restored, 'legacy-shaped fodder still restores');
   assert.equal(restored.state, 'investigate');
   assert.deepEqual(restored.lastKnownTarget, { x: 3, y: 4 });
@@ -984,7 +1028,7 @@ test('M6.2: restore normalizes a legacy terminal sub-block into extra', () => {
   const run = new Run({ crewMember: makeCrew('razor'), seed: 0x51ced });
   run.enterBriefing(terminalSliceContract());
   run.enterCombat();
-  const terminal = [...run.world.entities.values()].find(e => e instanceof Terminal);
+  const terminal = [...run.world!.entities.values()].find(e => e instanceof Terminal);
   assert.ok(terminal);
   const rec = snapshot(run);
   const tRec = rec.entities.find(e => e.id === terminal.id);
@@ -1003,15 +1047,15 @@ test('M6.2: restore normalizes a legacy terminal sub-block into extra', () => {
 test('M6.2: restore normalizes legacy top-level crew fields into extra', () => {
   // Pre-M6.2 saves stored callsign/flatlined/inventory/gear at the top level.
   const run = freshCombatRun(0xc0b0, 'razor');
-  run.player.callsign = 'Ghost';
+  run.player!.callsign = 'Ghost';
   const rec = snapshot(run);
-  const playerRec = rec.entities.find(e => e.id === run.player.id);
+  const playerRec = rec.entities.find(e => e.id === run.player!.id);
   assert.ok(playerRec);
   const legacy = playerRec as Record<string, unknown>;
   Object.assign(legacy, legacy.extra);
   delete legacy.extra;
 
-  const { player } = restore(rec);
+  const player = restore(rec).player!;
   assert.equal(player.callsign, 'Ghost');
 });
 
@@ -1028,7 +1072,7 @@ test('M6.2: restore normalizes legacy top-level crew fields into extra', () => {
 test('P3.6: thrown-fire burn timers survive a snapshot round-trip', () => {
   const run = freshCombatRun(0xf1e5, 'razor');
   const tile = freeCombatTile(run);
-  run.world.applyTileEffect(tile.x, tile.y, TILE.HAZARD, INCENDIARY_BURN_TURNS);
+  run.world!.applyTileEffect(tile.x, tile.y, TILE.HAZARD, INCENDIARY_BURN_TURNS);
 
   const rec = snapshot(run);
   assert.deepEqual(
@@ -1052,17 +1096,17 @@ test('P3.6: thrown-fire burn timers survive a snapshot round-trip', () => {
 test('P3.6: fire reloaded mid-burn still goes out on schedule', () => {
   const run = freshCombatRun(0xf1e6, 'razor');
   const tile = freeCombatTile(run);
-  run.world.applyTileEffect(tile.x, tile.y, TILE.HAZARD, INCENDIARY_BURN_TURNS);
+  run.world!.applyTileEffect(tile.x, tile.y, TILE.HAZARD, INCENDIARY_BURN_TURNS);
 
   const { run: restored } = restore(snapshot(run));
-  assert.equal(restored.world.grid.tileAt(tile.x, tile.y), TILE.HAZARD, 'still alight on reload');
+  assert.equal(restored.world!.grid.tileAt(tile.x, tile.y), TILE.HAZARD, 'still alight on reload');
 
   for (let i = 0; i < INCENDIARY_BURN_TURNS; i++) {
-    restored.world.tickTileEffects();
+    restored.world!.tickTileEffects();
   }
 
   assert.equal(
-    restored.world.grid.tileAt(tile.x, tile.y),
+    restored.world!.grid.tileAt(tile.x, tile.y),
     TILE.FLOOR,
     'reloaded fire must still burn out — not become a permanent scar'
   );
@@ -1072,17 +1116,17 @@ test('P3.6: fire reloaded mid-burn still goes out on schedule', () => {
 test('P3.6: smoke saved mid-cloud does NOT become a permanent LOS wall on reload', () => {
   const run = freshCombatRun(0xf1e9, 'razor');
   const tile = freeCombatTile(run);
-  placeSmoke(run.world, tile.x, tile.y, 0);
-  assert.equal(run.world.grid.tileAt(tile.x, tile.y), TILE.SMOKE, 'cloud is on the grid');
+  placeSmoke(run.world!, tile.x, tile.y, 0);
+  assert.equal(run.world!.grid.tileAt(tile.x, tile.y), TILE.SMOKE, 'cloud is on the grid');
 
   // Autosave fires at the player→corp hand-off — i.e. right here, with smoke up.
   const { run: restored } = restore(snapshot(run));
-  assert.equal(restored.world.grid.tileAt(tile.x, tile.y), TILE.SMOKE, 'cloud survives reload');
+  assert.equal(restored.world!.grid.tileAt(tile.x, tile.y), TILE.SMOKE, 'cloud survives reload');
 
-  restored.world.tickTileEffects();
+  restored.world!.tickTileEffects();
 
   assert.equal(
-    restored.world.grid.tileAt(tile.x, tile.y),
+    restored.world!.grid.tileAt(tile.x, tile.y),
     TILE.FLOOR,
     'reloaded smoke must still clear — it used to sit there blocking LOS forever'
   );
@@ -1092,14 +1136,14 @@ test('P3.6: smoke over the EXIT tile restores the EXIT, not FLOOR', () => {
   const run = freshCombatRun(0xf1ea, 'razor');
   const exit = run.exitTile;
   assert.ok(exit, 'fixture has an exit tile');
-  assert.equal(run.world.grid.tileAt(exit.x, exit.y), TILE.EXIT);
+  assert.equal(run.world!.grid.tileAt(exit.x, exit.y), TILE.EXIT);
 
-  placeSmoke(run.world, exit.x, exit.y, 0);
+  placeSmoke(run.world!, exit.x, exit.y, 0);
   const { run: restored } = restore(snapshot(run));
-  restored.world.tickTileEffects();
+  restored.world!.tickTileEffects();
 
   assert.equal(
-    restored.world.grid.tileAt(exit.x, exit.y),
+    restored.world!.grid.tileAt(exit.x, exit.y),
     TILE.EXIT,
     'a cloud over the exit must not quietly delete the exit'
   );
@@ -1108,18 +1152,18 @@ test('P3.6: smoke over the EXIT tile restores the EXIT, not FLOOR', () => {
 test('P3.6: a pre-3.6 save with no tileEffects field restores as permanent fire', () => {
   const run = freshCombatRun(0xf1e7, 'razor');
   const tile = freeCombatTile(run);
-  run.world.applyTileEffect(tile.x, tile.y, TILE.HAZARD, INCENDIARY_BURN_TURNS);
+  run.world!.applyTileEffect(tile.x, tile.y, TILE.HAZARD, INCENDIARY_BURN_TURNS);
 
   const rec = snapshot(run);
   delete (rec as Record<string, unknown>).tileEffects; // as an old save would be
 
   const { run: restored } = restore(rec);
   for (let i = 0; i < INCENDIARY_BURN_TURNS + 3; i++) {
-    restored.world.tickTileEffects();
+    restored.world!.tickTileEffects();
   }
 
   assert.equal(
-    restored.world.grid.tileAt(tile.x, tile.y),
+    restored.world!.grid.tileAt(tile.x, tile.y),
     TILE.HAZARD,
     'an old save keeps the behaviour it was played under'
   );
@@ -1128,7 +1172,7 @@ test('P3.6: a pre-3.6 save with no tileEffects field restores as permanent fire'
 test('P3.6: restore rejects a malformed tileEffects entry rather than guessing', () => {
   const run = freshCombatRun(0xf1e8, 'razor');
   const tile = freeCombatTile(run);
-  run.world.applyTileEffect(tile.x, tile.y, TILE.HAZARD, INCENDIARY_BURN_TURNS);
+  run.world!.applyTileEffect(tile.x, tile.y, TILE.HAZARD, INCENDIARY_BURN_TURNS);
   const rec = snapshot(run);
 
   const withEffect = (patch: Record<string, unknown>) => {

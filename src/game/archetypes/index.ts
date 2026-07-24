@@ -225,6 +225,18 @@ export type BuildCrewMemberSpawn = {
   maxHp?: number;
   faction?: FactionId;
 };
+export function buildCrewMember<K extends keyof typeof BUILDERS>(
+  archetypeId: K,
+  spawn: BuildCrewMemberSpawn,
+  rng: Rng,
+  options?: BuildCrewMemberOptions
+): InstanceType<(typeof BUILDERS)[K]>;
+export function buildCrewMember(
+  archetypeId: string,
+  spawn: BuildCrewMemberSpawn,
+  rng: Rng,
+  options?: BuildCrewMemberOptions
+): Archetype;
 export function buildCrewMember(
   archetypeId: string,
   spawn: BuildCrewMemberSpawn,

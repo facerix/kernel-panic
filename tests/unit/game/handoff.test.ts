@@ -47,6 +47,8 @@ function makeCrew(archetype = 'razor') {
 function makeHandoffContract(overrides: Partial<Contract> = {}): Contract {
   return {
     seed: 42,
+    mapWidth: 24,
+    mapHeight: 16,
     objective: {
       kind: OBJECTIVES.HANDOFF,
       title: 'Make the handoff',
@@ -69,10 +71,10 @@ function relocateAdjacentTo(run: Run, entity: Contact): void {
       if (dx === 0 && dy === 0) continue;
       const x = entity.x + dx;
       const y = entity.y + dy;
-      if (!run.world.grid.inBounds(x, y)) continue;
-      if (!run.world.grid.isPassable(x, y)) continue;
-      if (run.world.liveEntityAt(x, y)) continue;
-      run.world.relocateEntity(run.player, x, y);
+      if (!run.world!.grid.inBounds(x, y)) continue;
+      if (!run.world!.grid.isPassable(x, y)) continue;
+      if (run.world!.liveEntityAt(x, y)) continue;
+      run.world!.relocateEntity(run.player, x, y);
       return;
     }
   }
@@ -81,7 +83,7 @@ function relocateAdjacentTo(run: Run, entity: Contact): void {
 
 function contactsIn(run: Run): Contact[] {
   if (!run.world) throw new Error('run must be in combat');
-  return [...run.world.entities.values()].filter(
+  return [...run.world!.entities.values()].filter(
     (entity): entity is Contact => entity instanceof Contact
   );
 }
@@ -166,7 +168,7 @@ describe('handoff runs', () => {
     const run = new Run({
       crewMember: makeCrew('razor'),
       seed: 42,
-      onResult: result => results.push(result),
+      onResult: (result: unknown) => results.push(result),
     });
     run.enterBriefing(makeHandoffContract());
     run.enterCombat();
@@ -177,7 +179,7 @@ describe('handoff runs', () => {
     assert.equal(contact.label, 'Pier 9 fence');
     assert.ok(run.exitTile, 'handoff run should have an exit tile');
     assert.ok(
-      Math.max(Math.abs(contact.x - run.exitTile.x), Math.abs(contact.y - run.exitTile.y)) > 1,
+      Math.max(Math.abs(contact.x - run.exitTile!.x), Math.abs(contact.y - run.exitTile!.y)) > 1,
       'contact should not spawn adjacent to extraction'
     );
     assert.equal(isObjectiveSatisfied(run.contract!, run.world), false);
@@ -186,7 +188,7 @@ describe('handoff runs', () => {
     run.bus!.emit('entity:moved', {
       entity: run.player,
       from: { x: run.player!.x, y: run.player!.y },
-      to: { x: run.exitTile.x, y: run.exitTile.y },
+      to: { x: run.exitTile!.x, y: run.exitTile!.y },
     });
     assert.equal(run.state, RUN_STATE.RESULT, 'abort extraction ends the run');
     const abortResult = results[0] as {
@@ -206,7 +208,7 @@ describe('handoff runs', () => {
     const run = new Run({
       crewMember: makeCrew('razor'),
       seed: 42,
-      onResult: result => results.push(result),
+      onResult: (result: unknown) => results.push(result),
     });
     run.enterBriefing(makeHandoffContract());
     run.enterCombat();

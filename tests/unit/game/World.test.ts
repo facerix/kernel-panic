@@ -9,9 +9,13 @@ import { Pickup } from '../../../src/game/entities/Pickup.js';
 import { Door } from '../../../src/game/entities/Door.js';
 import { TILE, FACTION, AP_COST, moveStepApCost } from '../../../src/game/constants.js';
 import { makeSalvage } from '../../../src/game/salvage.js';
+import type { EntityInit } from '../../../src/game/Entity.js';
 
-const makePlayer = (x, y, overrides = {}) =>
-  new Entity({ id: 'p', x, y, faction: FACTION.PLAYER, glyph: '@', ...overrides });
+const makePlayer = (
+  x: number,
+  y: number,
+  overrides: Partial<Omit<EntityInit, 'id' | 'x' | 'y'>> = {}
+) => new Entity({ id: 'p', x, y, faction: FACTION.PLAYER, glyph: '@', ...overrides });
 
 test('World.addEntity rejects duplicate ids', () => {
   const w = new World(new Grid(5, 5));
@@ -340,8 +344,8 @@ test('World.moveEntity emits entity:moved with from/to when an event bus is atta
   const w = new World(new Grid(5, 5), { events: bus });
   const p = makePlayer(2, 2);
   w.addEntity(p);
-  const events = [];
-  bus.on(EVENT.ENTITY_MOVED, payload => events.push(payload));
+  const events: Record<string, unknown>[] = [];
+  bus.on(EVENT.ENTITY_MOVED, payload => events.push(payload as Record<string, unknown>));
   w.moveEntity(p, 1, 0);
   assert.equal(events.length, 1);
   assert.equal(events[0].entity, p);
@@ -365,8 +369,8 @@ test('World.moveEntity emits a noise event with MOVE radius', async () => {
   const w = new World(new Grid(5, 5), { events: bus });
   const p = makePlayer(2, 2);
   w.addEntity(p);
-  const noises = [];
-  bus.on(EVENT.NOISE, payload => noises.push(payload));
+  const noises: Record<string, unknown>[] = [];
+  bus.on(EVENT.NOISE, payload => noises.push(payload as Record<string, unknown>));
   w.moveEntity(p, 1, 0);
   assert.equal(noises.length, 1);
   assert.equal(noises[0].kind, 'move');
@@ -386,8 +390,8 @@ test('World.raiseAlarm enters alert phase and emits one alarm event', async () =
   const { EventBus, EVENT } = await import('../../../src/game/events.js');
   const bus = new EventBus();
   const w = new World(new Grid(5, 5), { events: bus });
-  const alarms = [];
-  bus.on(EVENT.ALARM, payload => alarms.push(payload));
+  const alarms: Record<string, unknown>[] = [];
+  bus.on(EVENT.ALARM, payload => alarms.push(payload as Record<string, unknown>));
 
   const raised = w.raiseAlarm({ origin: { x: 2, y: 2 } });
   const duplicate = w.raiseAlarm({ origin: { x: 3, y: 3 } });
@@ -406,8 +410,8 @@ test('World.raiseAlarm honors repPenalty: false on the emitted payload', async (
   const { EventBus, EVENT } = await import('../../../src/game/events.js');
   const bus = new EventBus();
   const w = new World(new Grid(5, 5), { events: bus });
-  const alarms = [];
-  bus.on(EVENT.ALARM, payload => alarms.push(payload));
+  const alarms: Record<string, unknown>[] = [];
+  bus.on(EVENT.ALARM, payload => alarms.push(payload as Record<string, unknown>));
 
   w.raiseAlarm({ origin: { x: 1, y: 1 }, repPenalty: false });
 
@@ -419,8 +423,8 @@ test('World alarm ticks from alert to cooldown to quiet', async () => {
   const { EventBus, EVENT } = await import('../../../src/game/events.js');
   const bus = new EventBus();
   const w = new World(new Grid(5, 5), { events: bus });
-  const transitions = [];
-  bus.on(EVENT.ALARM_CHANGED, payload => transitions.push(payload));
+  const transitions: Record<string, unknown>[] = [];
+  bus.on(EVENT.ALARM_CHANGED, payload => transitions.push(payload as Record<string, unknown>));
 
   w.raiseAlarm();
   w.tickAlarm();
@@ -454,10 +458,10 @@ test('World.moveEntity { silent: true } suppresses noise but still emits entity:
   const w = new World(new Grid(5, 5), { events: bus });
   const p = makePlayer(2, 2);
   w.addEntity(p);
-  const moves = [];
-  const noises = [];
-  bus.on(EVENT.ENTITY_MOVED, payload => moves.push(payload));
-  bus.on(EVENT.NOISE, payload => noises.push(payload));
+  const moves: Record<string, unknown>[] = [];
+  const noises: Record<string, unknown>[] = [];
+  bus.on(EVENT.ENTITY_MOVED, payload => moves.push(payload as Record<string, unknown>));
+  bus.on(EVENT.NOISE, payload => noises.push(payload as Record<string, unknown>));
   w.moveEntity(p, 1, 0, { silent: true });
   assert.equal(moves.length, 1, 'silent does not gag entity:moved (vision still updates)');
   assert.deepEqual(noises, [], 'silent suppresses the noise emit');
@@ -483,7 +487,7 @@ test('World.relocateEntity emits entity:moved', async () => {
   const p = makePlayer(2, 2);
   w.addEntity(p);
   const events: unknown[] = [];
-  bus.on(EVENT.ENTITY_MOVED, payload => events.push(payload));
+  bus.on(EVENT.ENTITY_MOVED, payload => events.push(payload as Record<string, unknown>));
   w.relocateEntity(p, 4, 3);
   assert.equal(events.length, 1);
   assert.deepEqual((events[0] as Record<string, unknown>).from, { x: 2, y: 2 });
@@ -569,8 +573,8 @@ test('World.unlockDoor emits door:unlocked only when the door was locked', async
     y: 1,
   });
   w.addEntity(door);
-  const unlocked = [];
-  bus.on(EVENT.DOOR_UNLOCKED, payload => unlocked.push(payload));
+  const unlocked: Record<string, unknown>[] = [];
+  bus.on(EVENT.DOOR_UNLOCKED, payload => unlocked.push(payload as Record<string, unknown>));
 
   w.unlockDoor('door-0');
   w.unlockDoor('door-0');

@@ -200,7 +200,7 @@ test('hasLineOfSight ignores blockers sitting on the endpoints (target stays sho
 test('hasLineOfSight is blocked by walls regardless of the blocker set', () => {
   const g = new Grid(8, 8);
   g.setTile(3, 1, TILE.WALL);
-  const blockers = new Set();
+  const blockers = new Set<string>();
   assert.equal(hasLineOfSight(g, 1, 1, 5, 1, { blockers }), false);
 });
 

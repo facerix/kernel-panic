@@ -178,6 +178,7 @@ test('formatTurnLabel distinguishes player and hostile phases', () => {
 test('formatCombatHudA11ySummary preserves moved HUD facts in readable text', () => {
   assert.equal(
     formatCombatHudA11ySummary({
+      cyber: false,
       objective: { title: 'Sentinel window', done: false, turnsRemaining: 4 },
       identity: { callsign: 'Patch', archetype: 'tech', stealthed: false },
       hp: { hp: 2, maxHp: 3 },

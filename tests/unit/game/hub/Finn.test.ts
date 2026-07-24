@@ -141,7 +141,7 @@ test('getItemById throws on unknown id', () => {
 
 test('every catalog item has a valid scope', () => {
   const items = getShopCatalog();
-  const validScopes = new Set(Object.values(ITEM_SCOPE));
+  const validScopes = new Set<string>(Object.values(ITEM_SCOPE));
   for (const item of items) {
     assert.ok(validScopes.has(item.scope), `item ${item.id} has unknown scope "${item.scope}"`);
   }
@@ -173,7 +173,8 @@ test('buildHub returns a finnSpawn on walkable floor, distinct from other NPCs',
   assert.equal(typeof hub.finnSpawn.x, 'number');
   assert.equal(typeof hub.finnSpawn.y, 'number');
   assert.equal(hub.grid.isPassable(hub.finnSpawn.x, hub.finnSpawn.y), true);
-  const same = (a, b) => a.x === b.x && a.y === b.y;
+  const same = (a: { x: number; y: number }, b: { x: number; y: number }) =>
+    a.x === b.x && a.y === b.y;
   assert.ok(!same(hub.finnSpawn, hub.playerSpawn), 'finn overlaps player spawn');
   assert.ok(!same(hub.finnSpawn, hub.curatorSpawn), 'finn overlaps curator');
   assert.ok(!same(hub.finnSpawn, hub.terminalSpawn), 'finn overlaps terminal');

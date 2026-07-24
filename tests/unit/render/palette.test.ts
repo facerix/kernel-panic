@@ -31,6 +31,7 @@ test('glyphForTile maps every defined tile to a glyph', () => {
 });
 
 test('glyphForTile throws on an unknown tile id (crash over silent fallback)', () => {
+  // @ts-expect-error Verify runtime validation of an unknown tile id.
   assert.throws(() => glyphForTile(99), /unknown tile/i);
 });
 
@@ -96,6 +97,7 @@ test('glyphForCorpse preserves the rival allegiance hue (dimmed)', () => {
 });
 
 test('glyphForEntity throws on an unknown faction', () => {
+  // @ts-expect-error Verify runtime validation of an unknown faction.
   const ghost = new Entity({ id: 'g', x: 0, y: 0, faction: 'unknown-faction', glyph: '?' });
   assert.throws(() => glyphForEntity(ghost), /unknown faction/i);
 });
@@ -151,6 +153,7 @@ test('glyphForCorpse uses the corpse char even when the entity glyph differs', (
 });
 
 test('glyphForCorpse throws on an unknown faction', () => {
+  // @ts-expect-error Verify runtime validation of an unknown faction.
   const ghost = new Entity({ id: 'g', x: 0, y: 0, faction: 'mystery', glyph: '?' });
   assert.throws(() => glyphForCorpse(ghost), /unknown faction/i);
 });

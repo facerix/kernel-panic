@@ -16,7 +16,7 @@ import {
 } from '../../../src/game/Campaign.js';
 import { OUTCOME, RUN_STATE } from '../../../src/game/Run.js';
 import { Rng } from '../../../src/rng.js';
-import { OBJECTIVES } from '../../../src/game/hub/Curator.js';
+import { OBJECTIVES, type Contract } from '../../../src/game/hub/Curator.js';
 import { snapshotCampaign, restoreCampaign } from '../../../src/game/persistence.js';
 import {
   CONTRACT_DIFFICULTY,
@@ -34,20 +34,21 @@ import {
 } from '../../../src/game/archetypeRewards.js';
 import type { LocationSite } from '../../../src/types.js';
 
-const fakeContract = (overrides = {}) => ({
-  seed: 12345,
-  objective: {
-    kind: OBJECTIVES.REACH_EXIT,
-    title: 'Extract clean',
-    briefing: 'Reach the exit.',
-  },
-  difficulty: 'standard',
-  threatCount: 1,
-  label: 'test job',
-  context: testContractContext(OBJECTIVES.REACH_EXIT),
-  reward: { credits: 0, repDelta: 0 },
-  ...overrides,
-});
+const fakeContract = (overrides: Partial<Contract> = {}): Contract =>
+  ({
+    seed: 12345,
+    objective: {
+      kind: OBJECTIVES.REACH_EXIT,
+      title: 'Extract clean',
+      briefing: 'Reach the exit.',
+    },
+    difficulty: 'standard',
+    threatCount: 1,
+    label: 'test job',
+    context: testContractContext(OBJECTIVES.REACH_EXIT),
+    reward: { credits: 0, repDelta: 0 },
+    ...overrides,
+  }) as Contract;
 
 function validSite(overrides: Partial<LocationSite> = {}): LocationSite {
   return {
@@ -192,7 +193,7 @@ test('deployCrewMember starts a job Run for a non-flatlined crew member', () => 
   assert.equal(campaign.activeRun, run);
   assert.equal(run.state, RUN_STATE.BRIEFING);
   assert.equal(run.crewMember, member);
-  assert.equal(run.contract.label, 'test job');
+  assert.equal(run.contract!.label, 'test job');
 });
 
 test('deployCrewMember rejects flatlined or unknown crew members', () => {
@@ -335,6 +336,7 @@ test('willEndCampaignOnThisDeath is true only for the last surviving crew slot',
   campaign.flatlineMember(campaign.crew[0].id);
   campaign.flatlineMember(campaign.crew[1].id);
   assert.equal(willEndCampaignOnThisDeath(campaign), true);
+  // @ts-expect-error Verify runtime validation of a null campaign.
   assert.throws(() => willEndCampaignOnThisDeath(null), /Campaign-like/);
 });
 
@@ -347,7 +349,7 @@ test('onJobEnd with EXIT transfers crew inventory salvage to campaign pool', () 
   run.enterCombat();
   // Simulate the crew member collecting salvage during the job.
   member.initInventory();
-  member.inventory.salvage = makeSalvage({ scrap: 7 });
+  member.inventory!.salvage = makeSalvage({ scrap: 7 });
   // Exit extracts inventory salvage (typed wallet passed through).
   campaign.onJobEnd({ outcome: OUTCOME.EXIT, salvage: makeSalvage({ scrap: 7 }) });
   assert.equal(campaign.salvage.scrap, 7, 'scrap accumulated from job');
@@ -363,7 +365,7 @@ test('onJobEnd with DEATH does not add salvage to the campaign pool', () => {
   );
   run.enterCombat();
   member.initInventory();
-  member.inventory.salvage = makeSalvage({ scrap: 5 });
+  member.inventory!.salvage = makeSalvage({ scrap: 5 });
   campaign.onJobEnd({ outcome: OUTCOME.DEATH });
   assert.equal(totalSalvage(campaign.salvage), 0, 'death forfeits salvage');
   assert.equal(campaign.credits, 0, 'death forfeits contract Creds');
@@ -375,8 +377,8 @@ test('crew inventory survives campaign snapshot/restore round-trip', () => {
   const campaign = new Campaign({ seed: 42 });
   const member = campaign.crew[0];
   member.initInventory();
-  member.inventory.salvage = makeSalvage({ scrap: 7 });
-  member.inventory.consumables = [];
+  member.inventory!.salvage = makeSalvage({ scrap: 7 });
+  member.inventory!.consumables = [];
   const snap = snapshotCampaign(campaign);
   const restored = restoreCampaign(snap);
   const restoredMember = restored.crew[0];
@@ -390,7 +392,7 @@ test('onJobEnd flatlines deaths and ends the campaign when everyone is gone', ()
   const campaign = new Campaign({ seed: 42 });
   for (const member of campaign.crew) {
     campaign.deployCrewMember(member.id, fakeContract());
-    campaign.activeRun.enterCombat();
+    campaign.activeRun!.enterCombat();
     campaign.onJobEnd({ outcome: OUTCOME.DEATH });
   }
   assert.equal(campaign.state, CAMPAIGN_STATE.ENDED);
@@ -483,6 +485,7 @@ test('untyped sellSalvage draws scrap → chips → bio → data applying per-ty
 test('sellSalvage rejects unknown salvage types', () => {
   const campaign = new Campaign({ seed: 42 });
   campaign.salvage = makeSalvage({ scrap: 5 });
+  // @ts-expect-error Verify runtime validation of an unknown salvage type.
   assert.throws(() => campaign.sellSalvage(1, 'nuclear-waste'), /unknown salvage type/i);
 });
 
@@ -517,8 +520,8 @@ test('purchase deducts Creds and adds a consumable to the target crew member', (
   assert.equal(totalSalvage(campaign.salvage), 10, 'salvage untouched by purchase');
   assert.equal(campaign.credits, 0);
   assert.ok(member.inventory, 'inventory should be initialised after purchase');
-  assert.equal(member.inventory.consumables.length, 1);
-  assert.equal(member.inventory.consumables[0].id, 'stim');
+  assert.equal(member.inventory!.consumables.length, 1);
+  assert.equal(member.inventory!.consumables[0].id, 'stim');
 });
 
 test('purchase applies campaign-scoped gear bonus (armour plating)', () => {
@@ -528,21 +531,21 @@ test('purchase applies campaign-scoped gear bonus (armour plating)', () => {
   campaign.purchase({ itemId: 'armour-plating', targetMemberId: member.id });
   assert.equal(campaign.credits, 0);
   assert.equal(member.maxHp, origMaxHp + 1);
-  assert.equal(member.gear.maxHpBonus, 1);
+  assert.equal(member.gear!.maxHpBonus, 1);
 });
 
 test('purchase applies targeting chip gear bonus', () => {
   const campaign = new Campaign({ seed: 42, credits: SHOP_COST.TARGETING_CHIP });
   const member = campaign.crew[0];
   campaign.purchase({ itemId: 'targeting-chip', targetMemberId: member.id });
-  assert.equal(member.gear.hitBonus, 0.1);
+  assert.equal(member.gear!.hitBonus, 0.1);
 });
 
 test('purchase applies reflex weave gear bonus', () => {
   const campaign = new Campaign({ seed: 42, credits: SHOP_COST.GHOST_WEAVE });
   const member = campaign.crew[0];
   campaign.purchase({ itemId: 'reflex-weave', targetMemberId: member.id });
-  assert.equal(member.gear.dodgeBonus, 0.1);
+  assert.equal(member.gear!.dodgeBonus, 0.1);
 });
 
 test('purchase refuses limit-1 gear the target already has equipped, without charging', () => {
@@ -630,12 +633,12 @@ test('onJobEnd preserves consumables but clears salvage', () => {
   const member = campaign.crew[0];
   campaign.purchase({ itemId: 'stim', targetMemberId: member.id });
   campaign.purchase({ itemId: 'stim', targetMemberId: member.id });
-  assert.equal(member.inventory.consumables.length, 2);
+  assert.equal(member.inventory!.consumables.length, 2);
   campaign.deployCrewMember(member.id, fakeContract());
-  campaign.activeRun.enterCombat();
+  campaign.activeRun!.enterCombat();
   campaign.onJobEnd({ outcome: OUTCOME.EXIT, salvage: emptySalvage() });
-  assert.equal(member.inventory.consumables.length, 2, 'consumables persist across jobs');
-  assert.equal(totalSalvage(member.inventory.salvage), 0, 'salvage zeroed on job end');
+  assert.equal(member.inventory!.consumables.length, 2, 'consumables persist across jobs');
+  assert.equal(totalSalvage(member.inventory!.salvage), 0, 'salvage zeroed on job end');
 });
 
 test('crew member HP persists across jobs — no free heal on deploy', () => {
@@ -645,14 +648,14 @@ test('crew member HP persists across jobs — no free heal on deploy', () => {
 
   // Deploy and enter combat — member takes damage.
   campaign.deployCrewMember(member.id, fakeContract());
-  campaign.activeRun.enterCombat();
+  campaign.activeRun!.enterCombat();
   member.hp = startingHp - 2; // simulate taking 2 damage
   campaign.onJobEnd({ outcome: OUTCOME.EXIT, salvage: emptySalvage() });
   assert.equal(member.hp, startingHp - 2, 'HP should carry back from job');
 
   // Deploy again — HP must NOT reset to maxHp.
   campaign.deployCrewMember(member.id, fakeContract({ seed: 99 }));
-  campaign.activeRun.enterCombat();
+  campaign.activeRun!.enterCombat();
   assert.equal(member.hp, startingHp - 2, 'HP must persist into the next job');
 });
 
@@ -709,11 +712,11 @@ test('net-new scoreable gear survives campaign round-trip', () => {
   const restored = restoreCampaign(snapshotCampaign(campaign)).crew[0];
   assert.equal(restored.damageReduction, 1, 'armour (damageReduction) round-trips');
   assert.equal(restored.maxAp, baseMaxAp + 1, 'reflex booster maxAp round-trips');
-  assert.equal(restored.gear.armorBonus, 1);
-  assert.equal(restored.gear.apBonus, 1);
-  assert.equal(restored.gear.meleeDamageBonus, 1);
-  assert.equal(restored.gear.shieldRegen, 1, 'phase shield regen round-trips');
-  assert.equal(restored.gear.hpRegen, 1, 'regen mesh round-trips');
+  assert.equal(restored.gear!.armorBonus, 1);
+  assert.equal(restored.gear!.apBonus, 1);
+  assert.equal(restored.gear!.meleeDamageBonus, 1);
+  assert.equal(restored.gear!.shieldRegen, 1, 'phase shield regen round-trips');
+  assert.equal(restored.gear!.hpRegen, 1, 'regen mesh round-trips');
   assert.equal(restored.meleeAttackDamage(), member.meleeAttackDamage());
 });
 
@@ -735,8 +738,8 @@ test('consumables survive campaign snapshot/restore round-trip', () => {
   const snap = snapshotCampaign(campaign);
   const restored = restoreCampaign(snap);
   const restoredMember = restored.crew[0];
-  assert.equal(restoredMember.inventory.consumables.length, 1);
-  assert.equal(restoredMember.inventory.consumables[0].id, 'stim');
+  assert.equal(restoredMember.inventory!.consumables.length, 1);
+  assert.equal(restoredMember.inventory!.consumables[0].id, 'stim');
 });
 
 // --- Rep meter -----------------------------------------------------------
@@ -1361,7 +1364,7 @@ test('completed Score extraction settles synchronously before the exit move call
     seed: 47,
     rep: 65,
     completedJobs: 9,
-    onResult: result => {
+    onResult: (result: import('../../../src/game/Run.js').RunResult) => {
       campaign.onJobEnd({
         outcome: result.outcome,
         completed: result.telemetry.objectiveComplete === true,

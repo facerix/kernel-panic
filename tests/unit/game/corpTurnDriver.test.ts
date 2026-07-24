@@ -1,7 +1,34 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { isCorpTurnTerminal, runCorpTurn } from '../../../src/game/corpTurnDriver.js';
+import {
+  isCorpTurnTerminal,
+  runCorpTurn,
+  type CorpTurnDriverCtx,
+} from '../../../src/game/corpTurnDriver.js';
+import type { TurnActionStep } from '../../../src/types.js';
+
+type TestStep = { type: string };
+
+type FakeEntity = {
+  id: string;
+  alive: boolean;
+  faction: string;
+  takeTurnSteps?: () => Generator<TestStep, void, undefined>;
+  takeTurn?: () => void;
+};
+
+type FakeRun = {
+  state: string;
+  world: { entities: Map<string, FakeEntity> };
+  rng: { next: () => number };
+};
+
+type TestSchedule = ((cb: () => void, ms: number) => number) & {
+  queue: { cb: () => void; ms: number }[];
+  flush: () => void;
+  step: () => void;
+};
 
 // ---------------------------------------------------------------------------
 // Fixtures — the driver only reads a small slice of Run/world, so we hand-
@@ -9,9 +36,12 @@ import { isCorpTurnTerminal, runCorpTurn } from '../../../src/game/corpTurnDrive
 // ---------------------------------------------------------------------------
 
 /** Build a fake run-like object the driver can iterate. */
-function makeRun({ state = 'COMBAT', entities = [] } = {}) {
-  const map = new Map();
-  for (const e of entities) map.set(e.id ?? e, e);
+function makeRun({
+  state = 'COMBAT',
+  entities = [],
+}: { state?: string; entities?: FakeEntity[] } = {}): FakeRun {
+  const map = new Map<string, FakeEntity>();
+  for (const e of entities) map.set(e.id, e);
   return {
     state,
     world: { entities: map },
@@ -21,58 +51,59 @@ function makeRun({ state = 'COMBAT', entities = [] } = {}) {
 
 /** Deterministic scheduler: collects callbacks instead of using real timers. */
 function makeSchedule() {
-  const queue = [];
-  const fn = (cb, ms) => queue.push({ cb, ms });
+  const queue: { cb: () => void; ms: number }[] = [];
+  const fn = ((cb: () => void, ms: number) => queue.push({ cb, ms })) as TestSchedule;
   fn.queue = queue;
   fn.flush = () => {
     while (queue.length > 0) {
-      const { cb } = queue.shift();
+      const { cb } = queue.shift()!;
       cb();
     }
   };
   fn.step = () => {
-    const { cb } = queue.shift();
+    const { cb } = queue.shift()!;
     cb();
   };
   return fn;
 }
 
 function makeAnimLock() {
-  const pushes = [];
+  const pushes: number[] = [];
   return {
-    push: ms => pushes.push(ms),
+    push: (ms: number) => pushes.push(ms),
     pushes,
   };
 }
 
 /** Minimal corp-entity stub with a configurable action sequence. */
-function makeDrone(id, actions = []) {
+function makeDrone(id: string, actions: TestStep[] = []) {
   return {
     id,
     alive: true,
     faction: 'corp',
     actionsLeft: [...actions],
-    actionsTaken: [],
-    *takeTurnSteps() {
+    actionsTaken: [] as TestStep[],
+    *takeTurnSteps(): Generator<TestStep, void, undefined> {
       while (this.actionsLeft.length > 0) {
         const next = this.actionsLeft.shift();
-        this.actionsTaken.push(next);
-        yield next;
+        this.actionsTaken.push(next!);
+        yield next!;
       }
     },
   };
 }
 
-const baseCtx = overrides => ({
-  corpFaction: 'corp',
-  paint: () => {},
-  animLock: makeAnimLock(),
-  actionDelayMs: 100,
-  lockMarginMs: 50,
-  onFinish: () => {},
-  schedule: makeSchedule(),
-  ...overrides,
-});
+const baseCtx = (overrides: Record<string, unknown>): CorpTurnDriverCtx =>
+  ({
+    corpFaction: 'corp',
+    paint: () => {},
+    animLock: makeAnimLock(),
+    actionDelayMs: 100,
+    lockMarginMs: 50,
+    onFinish: () => {},
+    schedule: makeSchedule(),
+    ...overrides,
+  }) as unknown as CorpTurnDriverCtx;
 
 // ---------------------------------------------------------------------------
 // Terminal-state semantics
@@ -189,7 +220,7 @@ test('runCorpTurn batches invisible steps without paint or schedule', () => {
     { type: 'move-patrol' },
     { type: 'fire' },
   ]);
-  const paints = [];
+  const paints: number[] = [];
   const lock = makeAnimLock();
   const schedule = makeSchedule();
   let finished = false;
@@ -199,7 +230,7 @@ test('runCorpTurn batches invisible steps without paint or schedule', () => {
       paint: () => paints.push(drone.actionsTaken.length),
       animLock: lock,
       schedule,
-      shouldAnimateStep: (_id, step) => step.type === 'fire',
+      shouldAnimateStep: (_id: string, step: TurnActionStep) => step.type === 'fire',
       onFinish: () => (finished = true),
     })
   );
@@ -215,7 +246,7 @@ test('runCorpTurn batches invisible steps without paint or schedule', () => {
 
 test('runCorpTurn pumps one yield per schedule tick, painting between each', () => {
   const drone = makeDrone('d', [{ type: 'fire' }, { type: 'move-engage' }]);
-  const paints = [];
+  const paints: number[] = [];
   const lock = makeAnimLock();
   const schedule = makeSchedule();
   let finished = false;
@@ -278,7 +309,7 @@ test('runCorpTurn stops pumping if state transitions to RESULT mid-turn', () => 
   // race the result screen with more corp actions.
   const run = makeRun({ state: 'COMBAT' });
   const drone = makeDrone('d', [{ type: 'fire' }, { type: 'fire' }]);
-  run.world.entities.set(drone.id, drone);
+  run.world!.entities.set(drone.id, drone);
   const schedule = makeSchedule();
   let finished = false;
   runCorpTurn(

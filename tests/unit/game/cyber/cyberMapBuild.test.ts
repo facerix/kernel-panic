@@ -12,10 +12,14 @@ import assert from 'node:assert/strict';
 import { buildCyberMap } from '../../../../src/game/cyber/cyberMapBuild.js';
 import { World } from '../../../../src/game/World.js';
 import { explorationReachableKeys, coordKey } from '../../../../src/game/mapConnectivity.js';
-import { TILE, CONTRACT_DIFFICULTY } from '../../../../src/game/constants.js';
+import {
+  TILE,
+  CONTRACT_DIFFICULTY,
+  type ContractDifficulty,
+} from '../../../../src/game/constants.js';
 import { Rng } from '../../../../src/rng.js';
 
-const build = (seed = 1, difficulty = CONTRACT_DIFFICULTY.STANDARD) =>
+const build = (seed = 1, difficulty: ContractDifficulty = CONTRACT_DIFFICULTY.STANDARD) =>
   buildCyberMap({ rng: new Rng(seed), difficulty });
 
 test('equal seeds build identical cyber maps', () => {
@@ -97,5 +101,6 @@ test('each non-entry node carries a non-empty passable patrol ring', () => {
 });
 
 test('unknown difficulty throws', () => {
+  // @ts-expect-error Verify runtime validation of an unknown difficulty.
   assert.throws(() => buildCyberMap({ rng: new Rng(1), difficulty: 'impossible' }), /difficulty/);
 });

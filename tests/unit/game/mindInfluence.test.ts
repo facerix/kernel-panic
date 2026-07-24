@@ -26,7 +26,11 @@ import {
 import { TILE, FACTION, AP_COST, INFLUENCE_DURATION } from '../../../src/game/constants.js';
 import { Rng } from '../../../src/rng.js';
 
-function makeWorld({ operatorAt = [1, 1], grid, extraEntities = [] } = {}) {
+function makeWorld({
+  operatorAt = [1, 1],
+  grid,
+  extraEntities = [],
+}: { operatorAt?: [number, number]; grid?: Grid; extraEntities?: Entity[] } = {}) {
   const g = grid ?? new Grid(12, 12);
   const w = new World(g);
   // A generic PLAYER-faction operator — the module only needs alive/canAfford/
@@ -43,7 +47,12 @@ function makeWorld({ operatorAt = [1, 1], grid, extraEntities = [] } = {}) {
   return { world: w, operator };
 }
 
-function makeDrone(id, x, y, faction = FACTION.CORP) {
+function makeDrone(
+  id: string,
+  x: number,
+  y: number,
+  faction: ConstructorParameters<typeof Skirmisher>[0]['faction'] = FACTION.CORP
+) {
   return new Skirmisher({ id, x, y, faction });
 }
 

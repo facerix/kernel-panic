@@ -47,6 +47,8 @@ function makeCrew(archetype = 'razor') {
 function makeDualSiteContract(overrides: Partial<Contract> = {}): Contract {
   return {
     seed: 42,
+    mapWidth: 24,
+    mapHeight: 16,
     objective: {
       kind: OBJECTIVES.DUAL_SITE,
       title: 'Sync payroll mirrors',
@@ -69,10 +71,10 @@ function relocateAdjacentTo(run: Run, entity: SyncPad): void {
       if (dx === 0 && dy === 0) continue;
       const x = entity.x + dx;
       const y = entity.y + dy;
-      if (!run.world.grid.inBounds(x, y)) continue;
-      if (!run.world.grid.isPassable(x, y)) continue;
-      if (run.world.liveEntityAt(x, y)) continue;
-      run.world.relocateEntity(run.player, x, y);
+      if (!run.world!.grid.inBounds(x, y)) continue;
+      if (!run.world!.grid.isPassable(x, y)) continue;
+      if (run.world!.liveEntityAt(x, y)) continue;
+      run.world!.relocateEntity(run.player, x, y);
       return;
     }
   }
@@ -81,7 +83,7 @@ function relocateAdjacentTo(run: Run, entity: SyncPad): void {
 
 function syncPadsIn(run: Run): SyncPad[] {
   if (!run.world) throw new Error('run must be in combat');
-  return [...run.world.entities.values()].filter(
+  return [...run.world!.entities.values()].filter(
     (entity): entity is SyncPad => entity instanceof SyncPad
   );
 }
@@ -178,7 +180,7 @@ describe('dual-site runs', () => {
     const run = new Run({
       crewMember: makeCrew('razor'),
       seed: 42,
-      onResult: result => results.push(result),
+      onResult: (result: unknown) => results.push(result),
     });
     run.enterBriefing(makeDualSiteContract());
     run.enterCombat();
@@ -189,7 +191,7 @@ describe('dual-site runs', () => {
     for (const pad of pads) {
       assert.equal(pad.glyph, SYNC_PAD_GLYPH);
       assert.ok(
-        Math.max(Math.abs(pad.x - run.exitTile.x), Math.abs(pad.y - run.exitTile.y)) > 1,
+        Math.max(Math.abs(pad.x - run.exitTile!.x), Math.abs(pad.y - run.exitTile!.y)) > 1,
         'sync pad should not spawn adjacent to extraction'
       );
     }
@@ -199,7 +201,7 @@ describe('dual-site runs', () => {
     run.bus!.emit('entity:moved', {
       entity: run.player,
       from: { x: run.player!.x, y: run.player!.y },
-      to: { x: run.exitTile.x, y: run.exitTile.y },
+      to: { x: run.exitTile!.x, y: run.exitTile!.y },
     });
     assert.equal(run.state, RUN_STATE.RESULT, 'abort extraction ends the run');
     const abortResult = results[0] as {
@@ -219,13 +221,13 @@ describe('dual-site runs', () => {
     const run = new Run({
       crewMember: makeCrew('razor'),
       seed: 42,
-      onResult: result => results.push(result),
+      onResult: (result: unknown) => results.push(result),
     });
     run.enterBriefing(makeDualSiteContract());
     run.enterCombat();
 
     const pads = syncPadsIn(run);
-    const [first, second] = pads.toReversed();
+    const [first, second] = [...pads].reverse();
     assert.ok(first && second);
     relocateAdjacentTo(run, first);
     assert.equal(first.interact(run.world!, run.player!).ok, true);

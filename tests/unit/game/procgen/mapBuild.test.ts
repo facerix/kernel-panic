@@ -475,6 +475,7 @@ test('non-integer dimensions throw', () => {
 });
 
 test('rng-less call throws TypeError', () => {
+  // @ts-expect-error Verify runtime validation of a missing RNG.
   assert.throws(() => buildMap({ rng: null, width: W, height: H, threatCount: 1 }), TypeError);
 });
 
@@ -611,6 +612,7 @@ test('unknown contract difficulty throws', () => {
         width: 24,
         height: 16,
         threatCount: 1,
+        // @ts-expect-error Verify runtime validation of an unknown difficulty.
         difficulty: 'black-ice',
       }),
     /unknown difficulty/

@@ -38,7 +38,7 @@ test('DataStore migrates legacy data and archives idempotent capped campaign his
   const { default: dataStore } = await import('../../src/DataStore.js');
 
   await dataStore.init();
-  assert.deepEqual(dataStore.campaignHistory, []);
+  assert.equal(dataStore.campaignHistory.length, 0);
 
   const original = summary(0);
   const first = dataStore.archiveCampaign(original);

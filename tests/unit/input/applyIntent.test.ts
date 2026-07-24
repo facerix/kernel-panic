@@ -33,7 +33,12 @@ import { Door } from '../../../src/game/entities/Door.js';
 import { Terminal } from '../../../src/game/entities/Terminal.js';
 import { ITEM_ID } from '../../../src/game/items.js';
 import { Rng } from '../../../src/rng.js';
-import { applyIntent, pickFireTarget, PLAYER_ACTIONS } from '../../../src/input/applyIntent.js';
+import {
+  applyIntent,
+  pickFireTarget,
+  PLAYER_ACTIONS,
+  type ApplyIntentContext,
+} from '../../../src/input/applyIntent.js';
 
 function buildCtx({ archetype = 'merc', placeDrone = true } = {}) {
   const grid = new Grid(10, 6);
@@ -76,7 +81,7 @@ function buildCtx({ archetype = 'merc', placeDrone = true } = {}) {
   const queue = new TurnQueue([FACTION.PLAYER, FACTION.CORP]);
   const rng = new Rng(1);
 
-  const log = [];
+  const log: string[] = [];
   const calls = {
     advanceTurn: 0,
     resetInputModes: 0,
@@ -87,12 +92,14 @@ function buildCtx({ archetype = 'merc', placeDrone = true } = {}) {
     corpseSalvaged: 0,
     securedInteract: 0,
   };
-  const ctx = {
+  const ctx: ApplyIntentContext = {
     world,
     player,
     queue,
     rng,
-    log: line => log.push(line),
+    log: (line: string) => {
+      log.push(line);
+    },
     advanceTurn: () => {
       calls.advanceTurn++;
       queue.endTurn(world);
@@ -104,7 +111,7 @@ function buildCtx({ archetype = 'merc', placeDrone = true } = {}) {
       calls.securedInteract++;
       if (apExhausted) calls.advanceTurn++;
     },
-    onPlayerAction: actionName => {
+    onPlayerAction: (actionName: string) => {
       switch (actionName) {
         case PLAYER_ACTIONS.REACHED_EXIT:
           calls.reachedExit++;
@@ -209,8 +216,8 @@ test('move onto a lootable corpse auto-salvages (M4.1)', () => {
 
   assert.equal(player.x, 2);
   assert.equal(player.y, 3, 'player stepped onto the corpse tile');
-  assert.equal(player.inventory.salvage.scrap, 4, 'scrap transferred on step');
-  assert.equal(totalSalvage(player.inventory.salvage), 4, 'total wallet matches pickup');
+  assert.equal(player.inventory!.salvage.scrap, 4, 'scrap transferred on step');
+  assert.equal(totalSalvage(player.inventory!.salvage), 4, 'total wallet matches pickup');
   assert.equal(world.entities.has('corpse'), false, 'corpse removed from world (M4.1)');
   assert.ok(
     log.some(l => l.includes('salvages +4')),
@@ -235,7 +242,7 @@ test('move onto a corpse with 1 AP still salvages after the move spends AP', () 
 
   assert.equal(player.x, 2);
   assert.equal(player.y, 3, 'move still committed');
-  assert.equal(totalSalvage(player.inventory.salvage), 2, 'salvage taken after movement');
+  assert.equal(totalSalvage(player.inventory!.salvage), 2, 'salvage taken after movement');
   assert.equal(world.entities.has('corpse'), false, 'corpse removed from world');
   assert.ok(
     log.some(l => l.includes('salvages +2')),
@@ -341,10 +348,9 @@ test('move onto consumable plus low-AP corpse collects both pickups', () => {
   assert.ok(log.some(l => l.includes('salvages +2')));
 });
 
-test('move onto exit reaches exit when canExit allows it', () => {
+test('move onto exit reaches exit', () => {
   const { ctx, log, calls, world } = buildCtx({ placeDrone: false });
   world.grid.setTile(2, 3, TILE.EXIT);
-  ctx.canExit = () => true;
 
   applyIntent({ type: 'move', dx: 0, dy: 1 }, ctx);
 
@@ -363,8 +369,10 @@ test('special intent routes to Vault on a Merc and lands two tiles away', () => 
 
 test('deploying a turret emits TURRET_DEPLOYED for the audio/presentation layer', () => {
   const { ctx, world } = buildCtx({ archetype: 'tech', placeDrone: false });
-  const deploys = [];
-  world.events.on(EVENT.TURRET_DEPLOYED, payload => deploys.push(payload));
+  const deploys: Record<string, unknown>[] = [];
+  world.events!.on(EVENT.TURRET_DEPLOYED, payload =>
+    deploys.push(payload as Record<string, unknown>)
+  );
   // Tech at (2,2); deploy down into the empty floor at (2,3).
   applyIntent({ type: 'special', dx: 0, dy: 1 }, ctx);
   assert.equal(deploys.length, 1, 'presentation hook fires once on a successful deploy');
@@ -461,13 +469,13 @@ test('special intent routes to Deploy on a Tech and places a Turret adjacent', (
   const placed = world.entityAt(2, 3);
   assert.ok(placed instanceof Turret, 'expected a Turret placed south of the Tech');
   assert.equal(placed.faction, FACTION.PLAYER);
-  assert.equal(player.turretReady, false, 'Tech.turretReady consumed on commit');
+  assert.equal((player as Tech).turretReady, false, 'Tech.turretReady consumed on commit');
 });
 
 test('special intent routes to Slide on a Razor (moves 2 tiles, engages stealth)', () => {
   const { ctx, player, world } = buildCtx({ archetype: 'razor' });
-  const cloaks = [];
-  world.events.on(EVENT.RAZOR_CLOAKED, payload => cloaks.push(payload));
+  const cloaks: Record<string, unknown>[] = [];
+  world.events!.on(EVENT.RAZOR_CLOAKED, payload => cloaks.push(payload as Record<string, unknown>));
   // Player at (2,2). Special dy=1 wants to land at (2,4) — but (3,2) is cover
   // so dy=1 (down) avoids it: step (2,3), land (2,4). Both should be FLOOR.
   applyIntent({ type: 'special', dx: 0, dy: 1 }, ctx);
@@ -515,13 +523,13 @@ test('special intent routes to EMP on a Decker and stuns a same-faction ally in 
   corp.bindToBus(bus);
 
   const queue = new TurnQueue([FACTION.PLAYER, FACTION.CORP]);
-  const log = [];
+  const log: string[] = [];
   const ctx = {
     world,
     player: decker,
     queue,
     rng: new Rng(1),
-    log: line => log.push(line),
+    log: (line: string) => log.push(line),
     advanceTurn: () => queue.endTurn(world),
     resetInputModes: () => {},
     onPlayerAction: () => {},
@@ -542,8 +550,10 @@ test('special intent routes to EMP on a Decker and stuns a same-faction ally in 
 test('special intent routes to Surge on a Berserk without entering directional movement', () => {
   const { ctx, log, player, world } = buildCtx({ archetype: 'berserk', placeDrone: false });
   const positionBefore = { x: player.x, y: player.y };
-  const surges = [];
-  world.events.on(EVENT.BERSERK_SURGED, payload => surges.push(payload));
+  const surges: Record<string, unknown>[] = [];
+  world.events!.on(EVENT.BERSERK_SURGED, payload =>
+    surges.push(payload as Record<string, unknown>)
+  );
   applyIntent({ type: 'special', dx: 0, dy: 0 }, ctx);
   assert.deepEqual({ x: player.x, y: player.y }, positionBefore);
   assert.equal(player.hasEffect(STATUS_EFFECT.SURGE), true);
@@ -581,8 +591,10 @@ test('special intent routes CyberAvatar Override against Probe ICE', () => {
     onPlayerAction: () => {},
   };
 
-  const influenced = [];
-  world.events.on(EVENT.MIND_INFLUENCED, payload => influenced.push(payload));
+  const influenced: Record<string, unknown>[] = [];
+  world.events!.on(EVENT.MIND_INFLUENCED, payload =>
+    influenced.push(payload as Record<string, unknown>)
+  );
 
   applyIntent({ type: 'special', dx: 1, dy: 0 }, ctx);
 
@@ -637,20 +649,22 @@ test('special intent routes to Influence on an Adept and dominates the aimed hos
   world.addEntity(adept);
   world.addEntity(drone);
   drone.bindToBus(bus);
-  const log = [];
+  const log: string[] = [];
   const ctx = {
     world,
     player: adept,
     queue: new TurnQueue([FACTION.PLAYER, FACTION.CORP]),
     rng: { next: () => 0 }, // deterministic success
-    log: line => log.push(line),
+    log: (line: string) => log.push(line),
     advanceTurn: () => {},
     resetInputModes: () => {},
     onPlayerAction: () => {},
   };
   const apBefore = adept.ap;
-  const influenced = [];
-  world.events.on(EVENT.MIND_INFLUENCED, payload => influenced.push(payload));
+  const influenced: Record<string, unknown>[] = [];
+  world.events!.on(EVENT.MIND_INFLUENCED, payload =>
+    influenced.push(payload as Record<string, unknown>)
+  );
 
   applyIntent({ type: 'special', dx: 1, dy: 0 }, ctx);
 
@@ -670,19 +684,21 @@ test('a failed Influence roll still pulses the target tile — log copy carries 
   world.addEntity(adept);
   world.addEntity(drone);
   drone.bindToBus(bus);
-  const log = [];
+  const log: string[] = [];
   const ctx = {
     world,
     player: adept,
     queue: new TurnQueue([FACTION.PLAYER, FACTION.CORP]),
     rng: { next: () => 0.99 }, // deterministic failure (>= INFLUENCE_SUCCESS_CHANCE)
-    log: line => log.push(line),
+    log: (line: string) => log.push(line),
     advanceTurn: () => {},
     resetInputModes: () => {},
     onPlayerAction: () => {},
   };
-  const influenced = [];
-  world.events.on(EVENT.MIND_INFLUENCED, payload => influenced.push(payload));
+  const influenced: Record<string, unknown>[] = [];
+  world.events!.on(EVENT.MIND_INFLUENCED, payload =>
+    influenced.push(payload as Record<string, unknown>)
+  );
 
   applyIntent({ type: 'special', dx: 1, dy: 0 }, ctx);
 
@@ -750,6 +766,7 @@ test('non-player turn refuses everything except cancel', () => {
 test('unknown intent type throws (closed enum guard)', () => {
   const { ctx } = buildCtx();
   assert.throws(() => applyIntent({ type: 'teleport' }, ctx), /unknown intent/);
+  // @ts-expect-error Runtime validation must reject null.
   assert.throws(() => applyIntent(null, ctx), /unknown intent/);
 });
 
@@ -773,6 +790,7 @@ test('interact intent fires the shell-supplied onPlayerAction callback once', ()
 
 test('interact intent crashes when ctx.onPlayerAction is missing (no silent no-op)', () => {
   const { ctx } = buildCtx();
+  // @ts-expect-error Simulate a miswired runtime context.
   delete ctx.onPlayerAction;
   assert.throws(() => applyIntent({ type: 'interact' }, ctx), /onPlayerAction is missing/);
 });
@@ -785,13 +803,14 @@ test('jack-out intent fires the shell-supplied onPlayerAction callback once', ()
 
 test('jack-out intent crashes when ctx.onPlayerAction is missing (no silent no-op)', () => {
   const { ctx } = buildCtx();
+  // @ts-expect-error Simulate a miswired runtime context.
   delete ctx.onPlayerAction;
   assert.throws(() => applyIntent({ type: 'jack-out' }, ctx), /onPlayerAction is missing/);
 });
 
 test('use-item intent forwards a validated aim direction to the shell', () => {
   const { ctx } = buildCtx();
-  const aims = [];
+  const aims: { dx: number; dy: number }[] = [];
   ctx.onUseItem = aim => aims.push(aim);
 
   applyIntent({ type: 'use-item', dx: 1, dy: -1 }, ctx);
@@ -810,6 +829,7 @@ test('use-item intent crashes on missing handler or invalid aim', () => {
 
 test('melee intent still resolves adjacent strikes (for AI / replay, not player keymap)', () => {
   const { ctx, log, drone } = buildCtx({ placeDrone: true });
+  assert.ok(drone);
   // Adjacent east of player at (2,2): park drone at (3,2).
   drone.x = 3;
   drone.y = 2;
@@ -830,8 +850,10 @@ test('vault body-check deals VAULT_DAMAGE and knocks hostile back', () => {
   const drone = new Skirmisher({ id: 'd1', x: 4, y: 2, maxAp: 3 });
   world.addEntity(drone);
   const hpBefore = drone.hp;
-  const damaged = [];
-  world.events.on(EVENT.ENTITY_DAMAGED, payload => damaged.push(payload));
+  const damaged: Record<string, unknown>[] = [];
+  world.events!.on(EVENT.ENTITY_DAMAGED, payload =>
+    damaged.push(payload as Record<string, unknown>)
+  );
   applyIntent({ type: 'special', dx: 1, dy: 0 }, ctx);
   assert.equal(player.x, 4, 'Merc lands where the hostile was');
   assert.equal(drone.x, 5, 'hostile knocked back 1 tile east');
@@ -913,23 +935,23 @@ test('AP exhaustion triggers auto-end-turn during a move', () => {
 test('special on a Tech routes to improviseTurret when turretReady is false and salvage is available', () => {
   const { ctx, world, player } = buildCtx({ archetype: 'tech', placeDrone: false });
   player.initInventory();
-  player.inventory.salvage = makeSalvage({ scrap: SALVAGE_PER_IMPROVISED_TURRET });
+  player.inventory!.salvage = makeSalvage({ scrap: SALVAGE_PER_IMPROVISED_TURRET });
   // Deploy the pre-built turret south — (2, 3) is plain floor.
-  player.deployTurret(world, 0, 1);
+  (player as Tech).deployTurret(world, 0, 1);
   player.refreshAp();
   // Now special deploy west — (1, 2) is plain floor, not the cover at (3, 2).
   applyIntent({ type: 'special', dx: -1, dy: 0 }, ctx);
   const placed = world.entityAt(1, 2);
   assert.ok(placed instanceof Turret, 'expected an improvised turret placed');
-  assert.equal(player.inventory.salvage.scrap, 0, 'scrap deducted for improvised turret');
-  assert.equal(totalSalvage(player.inventory.salvage), 0, 'no other typed buckets touched');
+  assert.equal(player.inventory!.salvage.scrap, 0, 'scrap deducted for improvised turret');
+  assert.equal(totalSalvage(player.inventory!.salvage), 0, 'no other typed buckets touched');
 });
 
 test('special on a Tech with no turret and no salvage logs a denial', () => {
   const { ctx, player, log } = buildCtx({ archetype: 'tech', placeDrone: false });
   player.initInventory();
   // Default emptySalvage wallet — no scrap, can't improvise.
-  player.turretReady = false;
+  (player as Tech).turretReady = false;
   applyIntent({ type: 'special', dx: 0, dy: 1 }, ctx);
   assert.ok(
     log.some(l => l.includes('DEPLOY DENIED')),
@@ -942,18 +964,18 @@ test('special on a Tech with no turret and no salvage logs a denial', () => {
 test('special intent routes to Nanite Repair on a Chimera without entering directional movement', () => {
   const { ctx, log, player, world } = buildCtx({ archetype: 'chimera', placeDrone: false });
   player.initInventory();
-  player.inventory.salvage = makeSalvage({ scrap: SALVAGE_PER_NANITE_HEAL });
+  player.inventory!.salvage = makeSalvage({ scrap: SALVAGE_PER_NANITE_HEAL });
   player.damage(1);
   const positionBefore = { x: player.x, y: player.y };
   const apBefore = player.ap;
-  const scrapBefore = player.inventory.salvage.scrap;
+  const scrapBefore = player.inventory!.salvage.scrap;
   const hpBefore = player.hp;
-  const heals = [];
-  world.events.on(EVENT.NANITE_HEALED, payload => heals.push(payload));
+  const heals: Record<string, unknown>[] = [];
+  world.events!.on(EVENT.NANITE_HEALED, payload => heals.push(payload as Record<string, unknown>));
   applyIntent({ type: 'special', dx: 0, dy: 0 }, ctx);
   assert.deepEqual({ x: player.x, y: player.y }, positionBefore, 'self-targeted, no movement');
   assert.equal(player.ap, apBefore - AP_COST.NANITE_HEAL);
-  assert.equal(player.inventory.salvage.scrap, scrapBefore - SALVAGE_PER_NANITE_HEAL);
+  assert.equal(player.inventory!.salvage.scrap, scrapBefore - SALVAGE_PER_NANITE_HEAL);
   assert.equal(player.hp, hpBefore + NANITE_HEAL_AMOUNT);
   assert.ok(log.some(line => line.includes('scrap into tissue')));
   // Presentation hook fires for the shell's nanite-heal pulse.

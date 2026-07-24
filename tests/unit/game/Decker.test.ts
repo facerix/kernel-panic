@@ -17,7 +17,15 @@ import { World } from '../../../src/game/World.js';
 import { Entity } from '../../../src/game/Entity.js';
 import { FACTION, AP_COST, EMP_RADIUS, STATUS_EFFECT } from '../../../src/game/constants.js';
 
-function makeWorld({ deckerAt = [5, 5], grid, extraEntities = [] } = {}) {
+function makeWorld({
+  deckerAt = [5, 5],
+  grid,
+  extraEntities = [],
+}: {
+  deckerAt?: [number, number];
+  grid?: Grid;
+  extraEntities?: Entity[];
+} = {}) {
   const g = grid ?? new Grid(12, 12);
   const w = new World(g);
   const decker = new Decker({ id: 'decker', x: deckerAt[0], y: deckerAt[1] });
@@ -26,7 +34,8 @@ function makeWorld({ deckerAt = [5, 5], grid, extraEntities = [] } = {}) {
   return { world: w, decker };
 }
 
-const corp = (id, x, y) => new Entity({ id, x, y, faction: FACTION.CORP, glyph: 'd' });
+const corp = (id: string, x: number, y: number) =>
+  new Entity({ id, x, y, faction: FACTION.CORP, glyph: 'd' });
 
 // --- class basics ----------------------------------------------------------
 

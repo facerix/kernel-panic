@@ -277,7 +277,9 @@ test('each locked archetype anchor point saturates to a different, unlocked neig
 });
 
 test('deriveArchetype throws with an anchor table filtered down to nothing (all six gated)', () => {
-  const allGated = CREW_STAT_ANCHORS.filter(a => !NON_DECKER_ARCHETYPES.includes(a.archetype));
+  const allGated = CREW_STAT_ANCHORS.filter(
+    a => !new Set<string>(NON_DECKER_ARCHETYPES).has(a.archetype)
+  );
   assert.deepEqual(allGated, []);
   assert.throws(
     () => deriveArchetype({ hitChance: 0.75, dodgeChance: 0.25 }, allGated),

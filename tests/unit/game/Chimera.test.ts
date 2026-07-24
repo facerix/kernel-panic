@@ -23,7 +23,7 @@ import { makeSalvage, totalSalvage } from '../../../src/game/salvage.js';
 function makeChimera({ salvage = SALVAGE_PER_NANITE_HEAL } = {}) {
   const chimera = new Chimera({ id: 'chimera', x: 0, y: 0 });
   chimera.initInventory();
-  chimera.inventory.salvage = makeSalvage({ scrap: salvage });
+  chimera.inventory!.salvage = makeSalvage({ scrap: salvage });
   return chimera;
 }
 
@@ -65,12 +65,12 @@ test('Chimera.convertScrapToHp debits AP + scrap and heals, clamped at maxHp', (
   const chimera = makeChimera({ salvage: 10 });
   chimera.damage(2);
   const apBefore = chimera.ap;
-  const scrapBefore = chimera.inventory.salvage.scrap;
+  const scrapBefore = chimera.inventory!.salvage.scrap;
   const hpBefore = chimera.hp;
   const healed = chimera.convertScrapToHp();
   assert.equal(chimera.ap, apBefore - AP_COST.NANITE_HEAL, 'AP debited once');
   assert.equal(
-    chimera.inventory.salvage.scrap,
+    chimera.inventory!.salvage.scrap,
     scrapBefore - SALVAGE_PER_NANITE_HEAL,
     'scrap deducted by nanite-heal cost'
   );
@@ -82,13 +82,13 @@ test('Chimera.convertScrapToHp clamps at maxHp and still spends the resources', 
   const chimera = makeChimera({ salvage: 10 });
   assert.equal(chimera.hp, chimera.maxHp, 'starts at full HP');
   const apBefore = chimera.ap;
-  const scrapBefore = chimera.inventory.salvage.scrap;
+  const scrapBefore = chimera.inventory!.salvage.scrap;
   const healed = chimera.convertScrapToHp();
   assert.equal(healed, 0, 'no HP actually restored at full health');
   assert.equal(chimera.hp, chimera.maxHp);
   assert.equal(chimera.ap, apBefore - AP_COST.NANITE_HEAL, 'AP still spent');
   assert.equal(
-    chimera.inventory.salvage.scrap,
+    chimera.inventory!.salvage.scrap,
     scrapBefore - SALVAGE_PER_NANITE_HEAL,
     'scrap still spent'
   );
@@ -99,7 +99,7 @@ test('Chimera.convertScrapToHp throws on illegal preconditions without mutating 
   const apBefore = chimera.ap;
   assert.throws(() => chimera.convertScrapToHp(), /Illegal nanite conversion/);
   assert.equal(chimera.ap, apBefore, 'AP not debited on illegal conversion');
-  assert.equal(totalSalvage(chimera.inventory.salvage), 0, 'salvage wallet untouched');
+  assert.equal(totalSalvage(chimera.inventory!.salvage), 0, 'salvage wallet untouched');
 });
 
 test('Chimera.convertScrapToHp is repeatable across turns as long as scrap lasts', () => {
@@ -109,6 +109,6 @@ test('Chimera.convertScrapToHp is repeatable across turns as long as scrap lasts
   chimera.refreshAp();
   const secondHeal = chimera.convertScrapToHp();
   assert.ok(secondHeal >= 0);
-  assert.equal(chimera.inventory.salvage.scrap, 0, 'both activations spent scrap');
+  assert.equal(chimera.inventory!.salvage.scrap, 0, 'both activations spent scrap');
   assert.equal(chimera.canConvertScrap().reason, 'insufficient-salvage', 'scrap now exhausted');
 });

@@ -23,7 +23,7 @@ test('countVisibleCorpEntities counts only alive corp on visible tiles', () => {
     { alive: true, faction: FACTION.CORP, x: 3, y: 3 },
   ];
   const visible = new Set(['1,1']);
-  const isTileVisible = (x, y) => visible.has(`${x},${y}`);
+  const isTileVisible = (x: number, y: number) => visible.has(`${x},${y}`);
   assert.equal(countVisibleCorpEntities(entities, isTileVisible), 1);
 });
 
@@ -34,7 +34,7 @@ test('countVisibleCorpEntities honors an explicit hostile faction (RIVAL)', () =
     { alive: true, faction: FACTION.RIVAL, x: 3, y: 3 },
   ];
   const visible = new Set(['1,1', '1,2']);
-  const isTileVisible = (x, y) => visible.has(`${x},${y}`);
+  const isTileVisible = (x: number, y: number) => visible.has(`${x},${y}`);
   assert.equal(countVisibleCorpEntities(entities, isTileVisible, FACTION.RIVAL), 1);
 });
 
@@ -173,7 +173,7 @@ test('isCorpTurnStepLogVisibleToPlayer: hit on turret that survives still requir
 
 test('isCorpTurnStepVisibleToPlayer: facility alarm repaints even when actor tile is unseen', () => {
   const { world } = makeDroneWorld();
-  const step = { type: 'alarm' as const };
+  const step = { type: 'alarm' as const, target: 'p1' };
   assert.equal(
     isCorpTurnStepVisibleToPlayer(world, 'p1', 'd1', step, () => false),
     true
@@ -191,6 +191,7 @@ test('isCorpTurnStepVisibleToPlayer: off-screen patrol matches log visibility', 
 
 test('formatCorpTurnStep narrates a lookout mark with the target label', () => {
   const line = formatCorpTurnStep('[Corp]Lookout', { type: 'spot', target: 'p1' }, () => 'you');
+  assert.ok(line);
   assert.match(line, /\[Corp\]Lookout marks you/);
   assert.match(line, /converging/i);
 });
@@ -214,6 +215,7 @@ test('formatCorpTurnStep narrates melee knockback when present', () => {
     },
     id => (id === 'crew-merc' ? 'Patch' : id)
   );
+  assert.ok(line);
   assert.match(line, /Patch is shoved to \(4, 2\)/);
 });
 
@@ -241,6 +243,7 @@ test('formatCorpTurnStep surfaces armor and shield mitigation on an incoming hit
     },
     id => (id === 'crew-merc' ? 'Patch' : id)
   );
+  assert.ok(line);
 
   assert.match(line, /2 → ARMOR -1 → SHIELD -1 · HP SAFE/);
 });

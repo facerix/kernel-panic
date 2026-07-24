@@ -22,7 +22,7 @@ import { Rng } from '../../../src/rng.js';
 
 const openWorld = (w = 18, h = 8) => new World(new Grid(w, h), { events: new EventBus() });
 
-const addPlayer = (world, x, y, maxHp = 5) => {
+const addPlayer = (world: World, x: number, y: number, maxHp = 5) => {
   const player = new Entity({ id: 'player', x, y, faction: FACTION.PLAYER, glyph: '@', maxHp });
   world.addEntity(player);
   return player;
@@ -55,7 +55,7 @@ test('Sniper in range commits aim (2 AP, no NOISE) instead of firing immediately
   const sniper = new Sniper({ id: 'sniper-0', x: 12, y: 3 });
   world.addEntity(sniper);
   const noises = [];
-  world.events.on(EVENT.NOISE, p => noises.push(p));
+  world.events!.on(EVENT.NOISE, p => noises.push(p));
 
   const log = sniper.takeTurn(world, new Rng(1));
   assert.ok(
@@ -77,7 +77,7 @@ test('Sniper fires the held shot next turn — guaranteed hit, heavy damage, lou
   sniper.takeTurn(world, new Rng(1)); // aim
 
   const noises = [];
-  world.events.on(EVENT.NOISE, p => noises.push(p));
+  world.events!.on(EVENT.NOISE, p => noises.push(p));
   sniper.refreshAp();
   const log = sniper.takeTurn(world, new Rng(2)); // fire
 
@@ -133,12 +133,12 @@ test('damage during the aim window breaks the held shot', () => {
   addPlayer(world, 2, 3);
   const sniper = new Sniper({ id: 'sniper-0', x: 12, y: 3 });
   world.addEntity(sniper);
-  sniper.bindToBus(world.events);
+  sniper.bindToBus(world.events!);
   sniper.takeTurn(world, new Rng(1)); // aim
   assert.equal(sniper.aimTargetId, 'player');
 
   // Focus fire lands on the sniper while it holds aim.
-  world.events.emit(EVENT.ENTITY_DAMAGED, { target: sniper, damage: 1 });
+  world.events!.emit(EVENT.ENTITY_DAMAGED, { target: sniper, damage: 1 });
   assert.equal(sniper.aimTargetId, null, 'the held shot is broken');
 
   // Next turn it must re-acquire and re-aim, not fire.

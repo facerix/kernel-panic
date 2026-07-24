@@ -12,7 +12,7 @@ import { findPath } from '../../../src/game/Pathfinding.js';
 import { snapshot, restore } from '../../../src/game/persistence.js';
 import { buildCrewMember } from '../../../src/game/archetypes/index.js';
 import { DOOR_LOCKED_GLYPH, DOOR_OPEN_GLYPH, FACTION, TILE } from '../../../src/game/constants.js';
-import { OBJECTIVES } from '../../../src/game/hub/Curator.js';
+import { OBJECTIVES, type Contract } from '../../../src/game/hub/Curator.js';
 import { Rng } from '../../../src/rng.js';
 import { testContractContext } from './contractTestUtils.js';
 
@@ -33,7 +33,7 @@ function makeCrew() {
   return buildCrewMember('razor', { x: 0, y: 0 }, new Rng(100), { id: 'crew-razor' });
 }
 
-function fakeContract(overrides = {}) {
+function fakeContract(overrides: Partial<Contract> = {}): Contract {
   return {
     seed: 12345,
     objective: {
@@ -47,10 +47,10 @@ function fakeContract(overrides = {}) {
     context: testContractContext(OBJECTIVES.REACH_EXIT),
     reward: { credits: 0, repDelta: 0 },
     ...overrides,
-  };
+  } as Contract;
 }
 
-function retrieveDoorContract(seed, overrides = {}) {
+function retrieveDoorContract(seed: number, overrides: Record<string, unknown> = {}) {
   return fakeContract({
     seed,
     objective: {
@@ -64,16 +64,16 @@ function retrieveDoorContract(seed, overrides = {}) {
   });
 }
 
-function relocateAdjacentTo(run, entity) {
+function relocateAdjacentTo(run: Run, entity: Entity) {
   for (let dy = -1; dy <= 1; dy++) {
     for (let dx = -1; dx <= 1; dx++) {
       if (dx === 0 && dy === 0) continue;
       const x = entity.x + dx;
       const y = entity.y + dy;
-      if (!run.world.grid.inBounds(x, y)) continue;
-      if (!run.world.grid.isPassable(x, y)) continue;
-      if (run.world.entityAt(x, y)) continue;
-      run.world.relocateEntity(run.player, x, y);
+      if (!run.world!.grid.inBounds(x, y)) continue;
+      if (!run.world!.grid.isPassable(x, y)) continue;
+      if (run.world!.entityAt(x, y)) continue;
+      run.world!.relocateEntity(run.player!, x, y);
       return;
     }
   }
@@ -198,8 +198,8 @@ test('World.unlockDoor emits door:unlocked when terminal slice unlocks a linked 
   world.addEntity(player);
   world.addEntity(terminal);
   world.addEntity(door);
-  const unlocked = [];
-  bus.on(EVENT.DOOR_UNLOCKED, payload => unlocked.push(payload));
+  const unlocked: Record<string, unknown>[] = [];
+  bus.on(EVENT.DOOR_UNLOCKED, payload => unlocked.push(payload as Record<string, unknown>));
 
   const result = terminal.interact(world, player);
 
@@ -216,16 +216,16 @@ test('snapshot/restore round-trips locked and unlocked door state', () => {
   assert.equal(run.state, RUN_STATE.COMBAT);
 
   const anchors = [];
-  for (let y = 1; y < run.world.grid.height - 1 && anchors.length < 2; y++) {
-    for (let x = 1; x < run.world.grid.width - 1 && anchors.length < 2; x++) {
-      if (!run.world.grid.isPassable(x, y)) continue;
-      if (run.world.liveEntityAt(x, y)) continue;
+  for (let y = 1; y < run.world!.grid.height - 1 && anchors.length < 2; y++) {
+    for (let x = 1; x < run.world!.grid.width - 1 && anchors.length < 2; x++) {
+      if (!run.world!.grid.isPassable(x, y)) continue;
+      if (run.world!.liveEntityAt(x, y)) continue;
       anchors.push({ x, y });
     }
   }
   assert.equal(anchors.length, 2);
-  run.world.addEntity(new Door({ id: 'door-entity-0', doorId: 'door-0', ...anchors[0] }));
-  run.world.addEntity(
+  run.world!.addEntity(new Door({ id: 'door-entity-0', doorId: 'door-0', ...anchors[0] }));
+  run.world!.addEntity(
     new Door({ id: 'door-entity-1', doorId: 'door-1', locked: false, ...anchors[1] })
   );
 
@@ -250,15 +250,15 @@ test('restore rejects door snapshots whose glyph disagrees with locked state', (
   run.enterCombat();
 
   let anchor = null;
-  for (let y = 1; y < run.world.grid.height - 1 && !anchor; y++) {
-    for (let x = 1; x < run.world.grid.width - 1 && !anchor; x++) {
-      if (!run.world.grid.isPassable(x, y)) continue;
-      if (run.world.liveEntityAt(x, y)) continue;
+  for (let y = 1; y < run.world!.grid.height - 1 && !anchor; y++) {
+    for (let x = 1; x < run.world!.grid.width - 1 && !anchor; x++) {
+      if (!run.world!.grid.isPassable(x, y)) continue;
+      if (run.world!.liveEntityAt(x, y)) continue;
       anchor = { x, y };
     }
   }
   assert.ok(anchor);
-  run.world.addEntity(new Door({ id: 'door-entity-0', doorId: 'door-0', ...anchor }));
+  run.world!.addEntity(new Door({ id: 'door-entity-0', doorId: 'door-0', ...anchor }));
   const rec = snapshot(run);
   const doorRec = rec.entities.find(entity => entity.archetype === 'door');
   assert.ok(doorRec);
@@ -281,9 +281,9 @@ test('door-linked retrieve run places objective behind the door and unlock termi
   }
   assert.ok(run, 'expected at least one deterministic seed to produce a door-linked layout');
 
-  const door = [...run.world.entities.values()].find(entity => entity instanceof Door);
-  const terminal = [...run.world.entities.values()].find(entity => entity instanceof Terminal);
-  const pickup = [...run.world.entities.values()].find(entity => entity instanceof Pickup);
+  const door = [...run.world!.entities.values()].find(entity => entity instanceof Door);
+  const terminal = [...run.world!.entities.values()].find(entity => entity instanceof Terminal);
+  const pickup = [...run.world!.entities.values()].find(entity => entity instanceof Pickup);
   assert.ok(door instanceof Door);
   assert.ok(terminal instanceof Terminal);
   assert.ok(pickup instanceof Pickup);
@@ -291,18 +291,18 @@ test('door-linked retrieve run places objective behind the door and unlock termi
   assert.equal(terminal.unlocksId, 'door-0');
   assert.equal(door.locked, true);
   assert.equal(
-    findPath(run.world, { x: run.player.x, y: run.player.y }, { x: pickup.x, y: pickup.y }),
+    findPath(run.world!, { x: run.player!.x, y: run.player!.y }, { x: pickup.x, y: pickup.y }),
     null,
     'pickup starts unreachable while the door is locked'
   );
 
   relocateAdjacentTo(run, terminal);
-  const result = terminal.interact(run.world, run.player);
+  const result = terminal.interact(run.world!, run.player!);
 
   assert.equal(result.ok, true);
   assert.equal(door.locked, false);
   assert.ok(
-    findPath(run.world, { x: run.player.x, y: run.player.y }, { x: pickup.x, y: pickup.y }),
+    findPath(run.world!, { x: run.player!.x, y: run.player!.y }, { x: pickup.x, y: pickup.y }),
     'pickup becomes reachable once the door unlocks'
   );
 });
@@ -325,31 +325,31 @@ test('elevated non-routing runs can receive dynamic corridor doors with paired t
       })
     );
     candidate.enterCombat();
-    const dynamicTerminal = [...candidate.world.entities.values()].find(
+    const dynamicTerminal = [...candidate.world!.entities.values()].find(
       entity => entity instanceof Terminal && entity.id.startsWith('terminal-dynamic-door-')
     );
     if (dynamicTerminal) run = candidate;
   }
   assert.ok(run, 'expected at least one deterministic seed to produce a dynamic door');
 
-  const dynamicTerminal = [...run.world.entities.values()].find(
+  const dynamicTerminal = [...run.world!.entities.values()].find(
     entity => entity instanceof Terminal && entity.id.startsWith('terminal-dynamic-door-')
   );
   assert.ok(dynamicTerminal instanceof Terminal);
-  const dynamicDoor = [...run.world.entities.values()].find(
+  const dynamicDoor = [...run.world!.entities.values()].find(
     entity => entity instanceof Door && entity.doorId === dynamicTerminal.unlocksId
   );
   assert.ok(dynamicDoor instanceof Door);
   assert.equal(dynamicDoor.locked, true);
   assert.ok(
-    findPath(run.world, { x: run.player.x, y: run.player.y }, run.exitTile, {
+    findPath(run.world!, { x: run.player!.x, y: run.player!.y }, run.exitTile!, {
       allowOccupiedGoal: false,
     }),
     'dynamic door must not block extraction while locked'
   );
 
   relocateAdjacentTo(run, dynamicTerminal);
-  const result = dynamicTerminal.interact(run.world, run.player);
+  const result = dynamicTerminal.interact(run.world!, run.player!);
 
   assert.equal(result.ok, true);
   assert.equal(dynamicDoor.locked, false);
@@ -373,7 +373,7 @@ test('dynamic corridor doors snapshot/restore through existing door and terminal
       })
     );
     candidate.enterCombat();
-    const hasDynamicTerminal = [...candidate.world.entities.values()].some(
+    const hasDynamicTerminal = [...candidate.world!.entities.values()].some(
       entity => entity instanceof Terminal && entity.id.startsWith('terminal-dynamic-door-')
     );
     if (hasDynamicTerminal) run = candidate;
@@ -410,19 +410,19 @@ test('dynamic access terminals do not satisfy terminal-slice objectives', () => 
       })
     );
     candidate.enterCombat();
-    const dynamicTerminal = [...candidate.world.entities.values()].find(
+    const dynamicTerminal = [...candidate.world!.entities.values()].find(
       entity => entity instanceof Terminal && entity.id.startsWith('terminal-dynamic-door-')
     );
     if (dynamicTerminal) run = candidate;
   }
   assert.ok(run);
 
-  const dynamicTerminal = [...run.world.entities.values()].find(
+  const dynamicTerminal = [...run.world!.entities.values()].find(
     entity => entity instanceof Terminal && entity.id.startsWith('terminal-dynamic-door-')
   );
   assert.ok(dynamicTerminal instanceof Terminal);
   relocateAdjacentTo(run, dynamicTerminal);
-  const result = dynamicTerminal.interact(run.world, run.player);
+  const result = dynamicTerminal.interact(run.world!, run.player!);
 
   assert.equal(result.ok, true);
   assert.equal(run.isObjectiveSatisfied(), false);

@@ -47,6 +47,8 @@ function makeCrew(archetype = 'razor') {
 function makeRetrieveContract(overrides: Partial<Contract> = {}): Contract {
   return {
     seed: 42,
+    mapWidth: 24,
+    mapHeight: 16,
     objective: {
       kind: OBJECTIVES.RETRIEVE,
       title: 'Secure cache',
@@ -69,10 +71,10 @@ function relocateAdjacentTo(run: Run, entity: Pickup): void {
       if (dx === 0 && dy === 0) continue;
       const x = entity.x + dx;
       const y = entity.y + dy;
-      if (!run.world.grid.inBounds(x, y)) continue;
-      if (!run.world.grid.isPassable(x, y)) continue;
-      if (run.world.liveEntityAt(x, y)) continue;
-      run.world.relocateEntity(run.player, x, y);
+      if (!run.world!.grid.inBounds(x, y)) continue;
+      if (!run.world!.grid.isPassable(x, y)) continue;
+      if (run.world!.liveEntityAt(x, y)) continue;
+      run.world!.relocateEntity(run.player, x, y);
       return;
     }
   }
@@ -81,7 +83,7 @@ function relocateAdjacentTo(run: Run, entity: Pickup): void {
 
 function pickupsIn(run: Run): Pickup[] {
   if (!run.world) throw new Error('run must be in combat');
-  return [...run.world.entities.values()].filter(
+  return [...run.world!.entities.values()].filter(
     (entity): entity is Pickup => entity instanceof Pickup
   );
 }
@@ -188,7 +190,7 @@ describe('retrieve runs', () => {
     const run = new Run({
       crewMember: makeCrew('razor'),
       seed: 42,
-      onResult: result => results.push(result),
+      onResult: (result: unknown) => results.push(result),
     });
     run.enterBriefing(makeRetrieveContract());
     run.enterCombat();
@@ -198,7 +200,7 @@ describe('retrieve runs', () => {
     assert.equal(pickup.glyph, PICKUP_GLYPH);
     assert.ok(run.exitTile, 'retrieve run should have an exit tile');
     assert.ok(
-      Math.max(Math.abs(pickup.x - run.exitTile.x), Math.abs(pickup.y - run.exitTile.y)) > 1,
+      Math.max(Math.abs(pickup.x - run.exitTile!.x), Math.abs(pickup.y - run.exitTile!.y)) > 1,
       'pickup should not spawn adjacent to extraction'
     );
     assert.equal(isObjectiveSatisfied(run.contract!, run.world), false);
@@ -207,7 +209,7 @@ describe('retrieve runs', () => {
     run.bus!.emit('entity:moved', {
       entity: run.player,
       from: { x: run.player!.x, y: run.player!.y },
-      to: { x: run.exitTile.x, y: run.exitTile.y },
+      to: { x: run.exitTile!.x, y: run.exitTile!.y },
     });
     assert.equal(run.state, RUN_STATE.RESULT, 'abort extraction ends the run');
     const abortResult = results[0] as {
@@ -227,7 +229,7 @@ describe('retrieve runs', () => {
     const run = new Run({
       crewMember: makeCrew('razor'),
       seed: 42,
-      onResult: result => results.push(result),
+      onResult: (result: unknown) => results.push(result),
     });
     run.enterBriefing(makeRetrieveContract());
     run.enterCombat();

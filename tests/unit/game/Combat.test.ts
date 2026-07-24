@@ -21,9 +21,28 @@ import {
 import { canFireRanged, resolveRanged, canMelee, resolveMelee } from '../../../src/game/Combat.js';
 import { MELEE_DAMAGE, NOISE_RADIUS } from '../../../src/game/constants.js';
 
+type PointTuple = [number, number];
+type DamageEvent = {
+  attacker: Entity;
+  target: Entity;
+  source: string;
+  damage: number;
+  dodged?: boolean;
+  damageResolution?: unknown;
+};
+type NoiseEvent = {
+  kind: string;
+  radius: number;
+  origin: { x: number; y: number };
+  source: Entity;
+};
+
 /** Tiny stub Rng — emits a queued sequence. Lets tests pin hit/miss. */
 class StubRng {
-  constructor(values) {
+  values: number[];
+  calls: number;
+
+  constructor(values: number[]) {
     this.values = [...values];
     this.calls = 0;
   }
@@ -35,7 +54,11 @@ class StubRng {
   }
 }
 
-const makeFight = ({ grid, attackerAt = [1, 1], targetAt = [4, 1] } = {}) => {
+const makeFight = ({
+  grid,
+  attackerAt = [1, 1],
+  targetAt = [4, 1],
+}: { grid?: Grid; attackerAt?: PointTuple; targetAt?: PointTuple } = {}) => {
   const g = grid ?? new Grid(8, 8);
   const w = new World(g);
   const attacker = new Entity({
@@ -233,6 +256,7 @@ test('resolveRanged is reproducible across runs with the same RNG state', () => 
 
 test('resolveRanged crashes if no Rng is supplied (no Math.random fallback)', () => {
   const { world, attacker, target } = makeFight();
+  // @ts-expect-error Runtime validation must reject a missing random source.
   assert.throws(() => resolveRanged(world, attacker, target, null), TypeError);
 });
 
@@ -245,8 +269,8 @@ test('resolveRanged emits entity:damaged on a connected hit when a bus is attach
   const target = new Entity({ id: 't', x: 4, y: 1, faction: FACTION.CORP, glyph: 'd' });
   world.addEntity(attacker);
   world.addEntity(target);
-  const damaged = [];
-  bus.on(EVENT.ENTITY_DAMAGED, payload => damaged.push(payload));
+  const damaged: DamageEvent[] = [];
+  bus.on(EVENT.ENTITY_DAMAGED, payload => damaged.push(payload as DamageEvent));
   resolveRanged(world, attacker, target, new StubRng([0])); // guaranteed hit
   assert.equal(damaged.length, 1);
   assert.equal(damaged[0].attacker, attacker);
@@ -264,8 +288,8 @@ test('resolveRanged does NOT emit entity:damaged on a miss', async () => {
   const target = new Entity({ id: 't', x: 4, y: 1, faction: FACTION.CORP, glyph: 'd' });
   world.addEntity(attacker);
   world.addEntity(target);
-  const damaged = [];
-  bus.on(EVENT.ENTITY_DAMAGED, payload => damaged.push(payload));
+  const damaged: DamageEvent[] = [];
+  bus.on(EVENT.ENTITY_DAMAGED, payload => damaged.push(payload as DamageEvent));
   resolveRanged(world, attacker, target, new StubRng([0.99])); // guaranteed miss
   assert.deepEqual(damaged, []);
 });
@@ -279,8 +303,8 @@ test('resolveRanged emits a noise event (RANGED radius) on every shot, hit or mi
   const target = new Entity({ id: 't', x: 4, y: 1, faction: FACTION.CORP, glyph: 'd' });
   world.addEntity(attacker);
   world.addEntity(target);
-  const noises = [];
-  bus.on(EVENT.NOISE, payload => noises.push(payload));
+  const noises: NoiseEvent[] = [];
+  bus.on(EVENT.NOISE, payload => noises.push(payload as NoiseEvent));
   resolveRanged(world, attacker, target, new StubRng([0])); // hit
   resolveRanged(world, attacker, target, new StubRng([0.99])); // miss
   assert.equal(noises.length, 2, 'gunshots are loud whether they connect or not');
@@ -294,7 +318,10 @@ test('resolveRanged emits a noise event (RANGED radius) on every shot, hit or mi
 
 // --- Melee --------------------------------------------------------------
 
-const makeMeleeFight = ({ attackerAt = [3, 3], targetAt = [4, 3] } = {}) => {
+const makeMeleeFight = ({
+  attackerAt = [3, 3],
+  targetAt = [4, 3],
+}: { attackerAt?: PointTuple; targetAt?: PointTuple } = {}) => {
   const g = new Grid(8, 8);
   const w = new World(g);
   const attacker = new Entity({
@@ -391,8 +418,8 @@ test('resolveMelee reports armor, shield, and actual HP damage as separate layer
   world.events = bus;
   target.damageReduction = 1;
   target.addShield(1);
-  const damaged = [];
-  bus.on(EVENT.ENTITY_DAMAGED, payload => damaged.push(payload));
+  const damaged: DamageEvent[] = [];
+  bus.on(EVENT.ENTITY_DAMAGED, payload => damaged.push(payload as DamageEvent));
 
   const result = resolveMelee(world, attacker, target, new StubRng([0.99]), { damage: 3 });
 
@@ -441,8 +468,8 @@ test('resolveMelee emits entity:damaged with source="melee"', async () => {
   const target = new Entity({ id: 't', x: 4, y: 3, faction: FACTION.CORP, glyph: 'd' });
   world.addEntity(attacker);
   world.addEntity(target);
-  const damaged = [];
-  bus.on(EVENT.ENTITY_DAMAGED, payload => damaged.push(payload));
+  const damaged: DamageEvent[] = [];
+  bus.on(EVENT.ENTITY_DAMAGED, payload => damaged.push(payload as DamageEvent));
   resolveMelee(world, attacker, target, new StubRng([0.99]));
   assert.equal(damaged.length, 1);
   assert.equal(damaged[0].source, 'melee');
@@ -460,8 +487,8 @@ test('resolveMelee can be dodged without changing target HP', async () => {
   world.addEntity(attacker);
   world.addEntity(target);
   const hpBefore = target.hp;
-  const damaged = [];
-  bus.on(EVENT.ENTITY_DAMAGED, payload => damaged.push(payload));
+  const damaged: DamageEvent[] = [];
+  bus.on(EVENT.ENTITY_DAMAGED, payload => damaged.push(payload as DamageEvent));
 
   const result = resolveMelee(world, attacker, target, new StubRng([DODGE_CHANCE - 0.01]));
 
@@ -540,6 +567,7 @@ test('resolveMelee never dodges stationary infrastructure even in corner cover',
 
 test('resolveMelee crashes if no Rng is supplied (no Math.random fallback)', () => {
   const { world, attacker, target } = makeMeleeFight();
+  // @ts-expect-error Runtime validation must reject a missing random source.
   assert.throws(() => resolveMelee(world, attacker, target, null), TypeError);
 });
 
@@ -609,8 +637,8 @@ test('resolveMelee emits a noise event (MELEE radius)', async () => {
   const target = new Entity({ id: 't', x: 4, y: 3, faction: FACTION.CORP, glyph: 'd' });
   world.addEntity(attacker);
   world.addEntity(target);
-  const noises = [];
-  bus.on(EVENT.NOISE, payload => noises.push(payload));
+  const noises: NoiseEvent[] = [];
+  bus.on(EVENT.NOISE, payload => noises.push(payload as NoiseEvent));
   resolveMelee(world, attacker, target, new StubRng([0.99]));
   assert.equal(noises.length, 1);
   assert.equal(noises[0].kind, 'melee');

@@ -13,7 +13,7 @@ import { Campaign } from '../../../../src/game/Campaign.js';
 import { JackInPoint } from '../../../../src/game/entities/JackInPoint.js';
 import { CyberAvatar } from '../../../../src/game/cyber/CyberAvatar.js';
 import { buildCrewMember } from '../../../../src/game/archetypes/index.js';
-import { OBJECTIVES } from '../../../../src/game/hub/Curator.js';
+import { OBJECTIVES, type Contract } from '../../../../src/game/hub/Curator.js';
 import { EVENT } from '../../../../src/game/events.js';
 import { FACTION } from '../../../../src/game/constants.js';
 import { Rng } from '../../../../src/rng.js';
@@ -28,8 +28,10 @@ import type { World } from '../../../../src/game/World.js';
 import type { Entity } from '../../../../src/game/Entity.js';
 import type { Crew } from '../../../../src/game/Crew.js';
 
-const cyberContract = (overrides = {}) => ({
+const cyberContract = (overrides: Partial<Contract> = {}): Contract => ({
   seed: 12345,
+  mapWidth: 24,
+  mapHeight: 16,
   objective: {
     kind: OBJECTIVES.DATA_NODE_SLICE,
     title: 'Spike the server farm',

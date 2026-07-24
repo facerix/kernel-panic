@@ -23,7 +23,9 @@ const worldWithPlayer = () => {
 test('describeTileAt identifies rubble with AP cost', () => {
   const { grid, world } = worldWithPlayer();
   grid.setTile(3, 2, TILE.RUBBLE);
-  assert.match(describeTileAt(world, 3, 2), /Rubble.+2 AP to enter/);
+  const line = describeTileAt(world, 3, 2);
+  assert.ok(line);
+  assert.match(line, /Rubble.+2 AP to enter/);
 });
 
 test('describeTileAt returns null for plain floor', () => {
@@ -62,6 +64,7 @@ test('describeTileAt identifies salvageable corpses with compact salvage', () =>
   drone.alive = false;
   drone.loot = { salvage: makeSalvage({ scrap: 2, chips: 1 }) };
   const line = describeTileAt(world, 3, 2);
+  assert.ok(line);
   assert.match(line, /\[Corp\] Drone corpse — salvageable/);
   assert.match(line, /S:2 C:1 B:0 D:0/);
 });
@@ -101,7 +104,9 @@ test('describeTileAt falls through to terrain when memorised corpse is gone', ()
   vision.seen.add('5,4');
   vision.memoriseCorpse({ x: 5, y: 4, faction: FACTION.CORP, glyph: '%' });
   vision.recompute(world.grid, player, 1);
-  assert.match(describeTileAt(world, 5, 4, { vision }), /Rubble/);
+  const line = describeTileAt(world, 5, 4, { vision });
+  assert.ok(line);
+  assert.match(line, /Rubble/);
 });
 
 test('describeTileAt identifies door and terminal state clauses', () => {

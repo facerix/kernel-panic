@@ -11,6 +11,7 @@ import { FACTION, STATUS_EFFECT } from '../../../src/game/constants.js';
 
 test('TurnQueue requires a non-empty faction order', () => {
   assert.throws(() => new TurnQueue([]), TypeError);
+  // @ts-expect-error Verify runtime validation of a null faction order.
   assert.throws(() => new TurnQueue(null), TypeError);
 });
 
@@ -95,7 +96,7 @@ test('TurnQueue.endTurn emits berserk:crashed once, on the surge→crash refresh
   w.addEntity(berserk);
   berserk.surge();
 
-  const crashes = [];
+  const crashes: unknown[] = [];
   bus.on(EVENT.BERSERK_CRASHED, payload => crashes.push(payload));
 
   const q = new TurnQueue([FACTION.PLAYER, FACTION.CORP]);
@@ -120,7 +121,7 @@ test('TurnQueue.endTurn emits turn:ended with previous/next/turn when bus attach
   const bus = new EventBus();
   const w = new World(new Grid(3, 3), { events: bus });
   const q = new TurnQueue([FACTION.PLAYER, FACTION.CORP]);
-  const events = [];
+  const events: unknown[] = [];
   bus.on(EVENT.TURN_ENDED, payload => events.push(payload));
   q.endTurn(w); // PLAYER -> CORP
   q.endTurn(w); // CORP -> PLAYER (turn 2)

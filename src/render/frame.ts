@@ -67,7 +67,7 @@ export type Frame = {
  * @param {{ width: number, height: number }} viewport
  * @returns {{ x: number, y: number, width: number, height: number }}
  */
-export function cameraFor(target: Entity, viewport: Viewport): Camera {
+export function cameraFor(target: Pick<Entity, 'x' | 'y'>, viewport: Viewport): Camera {
   if (!Number.isInteger(viewport.width) || viewport.width <= 0) {
     throw new RangeError(`viewport.width must be a positive integer, got ${viewport.width}`);
   }

@@ -24,7 +24,7 @@ export function awayVector(attacker: Entity, target: Entity): GridPoint | null {
 }
 
 export type KnockbackCheck =
-  | { ok: true }
+  | { ok: true; reason?: never }
   | { ok: false; reason: 'knockback-oob' | 'knockback-blocked' | 'knockback-occupied' };
 
 export function canKnockbackTo(world: World, entity: Entity, x: number, y: number): KnockbackCheck {

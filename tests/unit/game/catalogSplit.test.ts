@@ -40,7 +40,7 @@ function assertWellFormed(item: Item) {
   assert.ok(Number.isInteger(item.cost) && item.cost > 0, `item "${item.id}" cost must be > 0`);
   assert.equal(typeof item.needsTarget, 'boolean');
   assert.ok(
-    Object.values(ITEM_SCOPE).includes(item.scope),
+    new Set<string>(Object.values(ITEM_SCOPE)).has(item.scope),
     `item "${item.id}" has invalid scope "${item.scope}"`
   );
 }
@@ -70,7 +70,7 @@ test('the two catalogs are disjoint (no item is both default and scoreable)', ()
 
 test('scoreable pool has at least 5 net-new items beyond the original KNOWN gear', () => {
   // The original rep-gated KNOWN gear that became scoreable.
-  const ORIGINAL_KNOWN = new Set([
+  const ORIGINAL_KNOWN = new Set<string>([
     ITEM_ID.BONE_LACING,
     ITEM_ID.TARGETING_CHIP,
     ITEM_ID.GHOST_WEAVE,

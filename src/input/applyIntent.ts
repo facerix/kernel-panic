@@ -73,7 +73,7 @@ import type { CyberAvatar } from '../game/cyber/CyberAvatar.js';
 import type { Entity } from '../game/Entity.js';
 import type { World } from '../game/World.js';
 import type { TurnQueue } from '../game/TurnQueue.js';
-import type { Rng } from '../rng.js';
+import type { RandomSource } from '../rng.js';
 import type { Tech } from '../game/archetypes/Tech.js';
 import type { Merc } from '../game/archetypes/Merc.js';
 import type { Razor } from '../game/archetypes/Razor.js';
@@ -97,7 +97,7 @@ export type ApplyIntentContext = {
    */
   player: Archetype | CyberAvatar;
   queue: TurnQueue;
-  rng: Rng;
+  rng: RandomSource;
   log: (line: string) => void;
   advanceTurn: () => void;
   /**
@@ -521,7 +521,11 @@ function doEmp(ctx: ApplyIntentContext) {
  */
 type OverrideActor = ApplyIntentContext['player'] & {
   canOverride(world: World, target: Entity | null): ReturnType<CyberAvatar['canOverride']>;
-  overrideDrone(world: World, target: Entity, rng: Rng): ReturnType<CyberAvatar['overrideDrone']>;
+  overrideDrone(
+    world: World,
+    target: Entity,
+    rng: RandomSource
+  ): ReturnType<CyberAvatar['overrideDrone']>;
 };
 
 function doOverride(intent: Intent, ctx: ApplyIntentContext) {
@@ -559,7 +563,11 @@ function doOverride(intent: Intent, ctx: ApplyIntentContext) {
  */
 type InfluenceActor = ApplyIntentContext['player'] & {
   canInfluence(world: World, target: Entity | null): ReturnType<Adept['canInfluence']>;
-  influenceTarget(world: World, target: Entity, rng: Rng): ReturnType<Adept['influenceTarget']>;
+  influenceTarget(
+    world: World,
+    target: Entity,
+    rng: RandomSource
+  ): ReturnType<Adept['influenceTarget']>;
 };
 
 function doInfluence(intent: Intent, ctx: ApplyIntentContext) {

@@ -37,7 +37,7 @@ import {
   KEYCARD_GLYPH,
   AP_COST,
 } from '../../../src/game/constants.js';
-import { OBJECTIVES, type ContractContext } from '../../../src/game/hub/Curator.js';
+import { OBJECTIVES, type Contract, type ContractContext } from '../../../src/game/hub/Curator.js';
 import { Rng } from '../../../src/rng.js';
 import { TurnQueue } from '../../../src/game/TurnQueue.js';
 import { testContractContext } from './contractTestUtils.js';
@@ -63,9 +63,11 @@ function makeCrew() {
   return buildCrewMember('razor', { x: 0, y: 0 }, new Rng(100), { id: 'crew-razor' });
 }
 
-function fakeContract(overrides = {}) {
+function fakeContract(overrides: Partial<Contract> = {}): Contract {
   return {
     seed: 12345,
+    mapWidth: 24,
+    mapHeight: 16,
     objective: {
       kind: OBJECTIVES.REACH_EXIT,
       title: 'Extract clean',
@@ -386,7 +388,11 @@ test('onKeycardCollected: run-scoped keycard (no principalId) passes principalId
   );
 
   assert.ok(collected);
-  assert.equal(collected!.principalId, null, 'run-scoped keycard should have principalId: null');
+  assert.equal(
+    (collected as unknown as { principalId: string | null }).principalId,
+    null,
+    'run-scoped keycard should have principalId: null'
+  );
 });
 
 test('onKeycardCollected: campaign-scoped keycard (with principalId) passes principalId through', () => {
@@ -428,7 +434,7 @@ test('onKeycardCollected: campaign-scoped keycard (with principalId) passes prin
 
   assert.ok(collected);
   assert.equal(
-    collected!.principalId,
+    (collected as unknown as { principalId: string | null }).principalId,
     'matsuda',
     'campaign-scoped keycard should pass principalId'
   );
@@ -557,8 +563,9 @@ test('collectTileLoot picks up keycard and invokes onKeycardCollected', () => {
   );
 
   assert.ok(collected, 'onKeycardCollected should fire');
-  assert.equal(collected!.id, 'kc-1');
-  assert.equal(collected!.doorId, 'door-0');
+  const picked = collected as unknown as { id: string; doorId: string };
+  assert.equal(picked.id, 'kc-1');
+  assert.equal(picked.doorId, 'door-0');
   assert.equal(world.keycardAt(3, 1), null, 'keycard removed from world');
   assert.ok(log.some(l => l.includes('Access keycard')));
 });

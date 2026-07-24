@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { buildFrame, cameraFor } from '../../../src/render/frame.js';
+import { buildFrame, cameraFor, type Frame } from '../../../src/render/frame.js';
 import { Grid } from '../../../src/game/Grid.js';
 import { Entity } from '../../../src/game/Entity.js';
 import { World } from '../../../src/game/World.js';
@@ -42,7 +42,7 @@ const fixture = () => {
   return { world: w, player, drone };
 };
 
-const cellAt = (frame, x, y) => frame.cells[y * frame.width + x];
+const cellAt = (frame: Frame, x: number, y: number) => frame.cells[y * frame.width + x]!;
 
 test('buildFrame returns a frame matching the viewport dimensions', () => {
   const { world } = fixture();

@@ -374,7 +374,7 @@ test('onJobEnd EXIT increments completedJobs and can introduce Finn on next hub'
   assert.equal(campaign.completedJobs, 0);
   const contract = new Curator().generateContract(campaign.rng);
   const run = campaign.deployCrewMember(campaign.crew[0].id, contract);
-  run.enterCombat(contract);
+  run.enterCombat();
   campaign.onJobEnd({ outcome: OUTCOME.EXIT, salvage: makeSalvage({ scrap: 1 }) });
   assert.equal(campaign.completedJobs, 1);
   assert.ok(campaign.hubReveals.finnIntroduced);

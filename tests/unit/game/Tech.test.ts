@@ -28,7 +28,15 @@ import {
 import { ITEM_ID } from '../../../src/game/items.js';
 import { makeSalvage, totalSalvage } from '../../../src/game/salvage.js';
 
-function makeWorld({ techAt = [3, 3], grid, extraEntities = [] } = {}) {
+function makeWorld({
+  techAt = [3, 3],
+  grid,
+  extraEntities = [],
+}: {
+  techAt?: [number, number];
+  grid?: Grid;
+  extraEntities?: Entity[];
+} = {}) {
   const g = grid ?? new Grid(8, 8);
   const w = new World(g);
   const tech = new Tech({ id: 'tech', x: techAt[0], y: techAt[1] });
@@ -169,7 +177,17 @@ test('Tech.deployTurret blocks a second deploy in the same job (no double-drop)'
 
 // --- M3: improvised turrets -----------------------------------------------
 
-function makeWorldWithInventory({ techAt = [3, 3], grid, salvage = 4, extraEntities = [] } = {}) {
+function makeWorldWithInventory({
+  techAt = [3, 3],
+  grid,
+  salvage = 4,
+  extraEntities = [],
+}: {
+  techAt?: [number, number];
+  grid?: Grid;
+  salvage?: number;
+  extraEntities?: Entity[];
+} = {}) {
   const g = grid ?? new Grid(8, 8);
   const w = new World(g);
   const tech = new Tech({ id: 'tech', x: techAt[0], y: techAt[1] });
@@ -177,7 +195,7 @@ function makeWorldWithInventory({ techAt = [3, 3], grid, salvage = 4, extraEntit
   // M4.2: improvised turrets cost scrap specifically. The `salvage` knob in
   // this helper now drives the scrap bucket so the existing test names ("with
   // salvage", "no salvage") keep their original meaning.
-  tech.inventory.salvage = makeSalvage({ scrap: salvage });
+  tech.inventory!.salvage = makeSalvage({ scrap: salvage });
   w.addEntity(tech);
   for (const e of extraEntities) w.addEntity(e);
   return { world: w, tech };
@@ -234,7 +252,7 @@ test('Tech.improviseTurret commits: deducts salvage + AP, places turret', () => 
   const { world, tech } = makeWorldWithInventory({ salvage: 4 });
   tech.turretReady = false;
   const apBefore = tech.ap;
-  const scrapBefore = tech.inventory.salvage.scrap;
+  const scrapBefore = tech.inventory!.salvage.scrap;
   const turret = tech.improviseTurret(world, 1, 0);
   assert.ok(turret instanceof Turret);
   assert.equal(turret.x, 4);
@@ -242,7 +260,7 @@ test('Tech.improviseTurret commits: deducts salvage + AP, places turret', () => 
   assert.equal(turret.faction, FACTION.PLAYER);
   assert.equal(tech.ap, apBefore - AP_COST.DEPLOY);
   assert.equal(
-    tech.inventory.salvage.scrap,
+    tech.inventory!.salvage.scrap,
     scrapBefore - SALVAGE_PER_IMPROVISED_TURRET,
     'scrap deducted by improvise cost'
   );
@@ -256,7 +274,7 @@ test('Tech.improviseTurret throws on illegal pre-conditions without mutating sta
   assert.throws(() => tech.improviseTurret(world, 1, 0), /Illegal/);
   assert.equal(tech.ap, apBefore, 'AP not debited on illegal improvise');
   assert.equal(
-    totalSalvage(tech.inventory.salvage),
+    totalSalvage(tech.inventory!.salvage),
     0,
     'salvage wallet untouched on illegal improvise'
   );

@@ -87,14 +87,20 @@ test('drivePlayerAftermath pumps one step per schedule tick', () => {
   const { world } = makeOpenWorld();
   world.addEntity(new Turret({ id: 't1', x: 2, y: 2 }));
   world.addEntity(new Turret({ id: 't2', x: 4, y: 4 }));
-  const calls = [];
-  const scheduleQueue = [];
-  const animLock = { pushes: [], push: ms => animLock.pushes.push(ms) };
+  const calls: string[] = [];
+  const scheduleQueue: { fn: () => void; ms: number }[] = [];
+  const animLock = {
+    pushes: [] as number[],
+    push: (ms: number) => animLock.pushes.push(ms),
+  };
 
   drivePlayerAftermath({
     world,
     rng: new Rng(1),
-    onStep: step => calls.push(step.turret.id),
+    onStep: step => {
+      assert.equal(step.type, 'turret-autofire');
+      if (step.type === 'turret-autofire') calls.push(step.turret.id);
+    },
     onFinish: () => calls.push('finish'),
     animLock,
     stepDelayMs: 50,
@@ -107,20 +113,20 @@ test('drivePlayerAftermath pumps one step per schedule tick', () => {
   assert.equal(scheduleQueue.length, 1);
   assert.equal(scheduleQueue[0].ms, 50);
 
-  scheduleQueue.shift().fn();
+  scheduleQueue.shift()!.fn();
   assert.deepEqual(calls, ['t1', 't1']);
-  scheduleQueue.shift().fn();
+  scheduleQueue.shift()!.fn();
   assert.deepEqual(calls, ['t1', 't1', 't2']);
-  scheduleQueue.shift().fn();
+  scheduleQueue.shift()!.fn();
   assert.deepEqual(calls, ['t1', 't1', 't2', 't2']);
-  scheduleQueue.shift().fn();
+  scheduleQueue.shift()!.fn();
   assert.deepEqual(calls, ['t1', 't1', 't2', 't2', 'finish']);
 });
 
 test('advanceFromPlayerTurn orders player aftermath before corp and final player handoff', () => {
   const { world } = makeOpenWorld();
   world.addEntity(new Turret({ id: 't1', x: 2, y: 2 }));
-  const calls = [];
+  const calls: string[] = [];
   const queue = {
     endTurn: () => calls.push('queue.endTurn'),
   };
@@ -154,8 +160,8 @@ test('advanceFromPlayerTurn orders player aftermath before corp and final player
 
 test('advanceFromPlayerTurn waits for async aftermath before starting corp', () => {
   const { world } = makeOpenWorld();
-  const calls = [];
-  let finishAftermath;
+  const calls: string[] = [];
+  let finishAftermath: (() => void) | undefined;
   const queue = {
     endTurn: () => calls.push('queue.endTurn'),
   };
@@ -176,7 +182,7 @@ test('advanceFromPlayerTurn waits for async aftermath before starting corp', () 
   });
 
   assert.deepEqual(calls, ['queue.endTurn', 'aftermath.drive']);
-  finishAftermath();
+  finishAftermath!();
   assert.deepEqual(calls, [
     'queue.endTurn',
     'aftermath.drive',
@@ -192,7 +198,7 @@ test('advanceFromPlayerTurn does not advance the queue when the run is already t
   // AP / bumping the turn counter) on a dead run.
   const { world } = makeOpenWorld();
   world.addEntity(new Turret({ id: 't1', x: 2, y: 2 }));
-  const calls = [];
+  const calls: string[] = [];
   const queue = {
     endTurn: () => calls.push('queue.endTurn'),
   };
@@ -268,8 +274,8 @@ test('hub operator AP refreshes after PLAYER→CORP→PLAYER queue flip', () => 
 
 test('advanceFromPlayerTurn lets async corp driver own when the player turn resumes', () => {
   const { world } = makeOpenWorld();
-  const calls = [];
-  let finishCorpTurn;
+  const calls: string[] = [];
+  let finishCorpTurn: (() => void) | undefined;
   const queue = {
     endTurn: () => calls.push('queue.endTurn'),
   };
@@ -287,7 +293,7 @@ test('advanceFromPlayerTurn lets async corp driver own when the player turn resu
   });
 
   assert.deepEqual(calls, ['queue.endTurn', 'corp.drive']);
-  finishCorpTurn();
+  finishCorpTurn!();
   assert.deepEqual(calls, ['queue.endTurn', 'corp.drive', 'queue.endTurn', 'player.ready']);
 });
 
@@ -299,12 +305,18 @@ test('advanceFromPlayerTurn rejects malformed ctx', () => {
     rng: new Rng(1),
     driveCorpTurn: () => {},
   };
+  // @ts-expect-error Runtime validation must reject null.
   assert.throws(() => advanceFromPlayerTurn(null), /ctx/);
+  // @ts-expect-error Runtime validation must reject a malformed queue.
   assert.throws(() => advanceFromPlayerTurn({ ...valid, queue: {} }), /queue\.endTurn/);
+  // @ts-expect-error Runtime validation must reject a malformed world.
   assert.throws(() => advanceFromPlayerTurn({ ...valid, world: {} }), /world\.entities/);
+  // @ts-expect-error Runtime validation must reject a malformed RNG.
   assert.throws(() => advanceFromPlayerTurn({ ...valid, rng: {} }), /Rng-like/);
+  // @ts-expect-error Runtime validation must reject a missing corp driver.
   assert.throws(() => advanceFromPlayerTurn({ ...valid, driveCorpTurn: null }), /driveCorpTurn/);
   assert.throws(
+    // @ts-expect-error Runtime validation must reject a malformed aftermath driver.
     () => advanceFromPlayerTurn({ ...valid, drivePlayerAftermath: null }),
     /drivePlayerAftermath/
   );

@@ -3,12 +3,31 @@ import assert from 'node:assert/strict';
 
 import { KeyboardController } from '../../../src/input/KeyboardController.js';
 import { MODE } from '../../../src/input/keymap.js';
+import type { Intent } from '../../../src/input/applyIntent.js';
+import type { Mode } from '../../../src/input/keymap.js';
+
+type TestKeyEvent = Pick<
+  KeyboardEvent,
+  'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'preventDefault'
+> & {
+  prevented: boolean;
+};
+type TestTarget = {
+  addEventListener(type: 'keydown', fn: (evt: KeyboardEvent) => void): void;
+  removeEventListener(type: 'keydown', fn: (evt: KeyboardEvent) => void): void;
+  keydown(
+    key: string,
+    mods?: Partial<Pick<KeyboardEvent, 'ctrlKey' | 'metaKey' | 'altKey'>>
+  ): TestKeyEvent;
+};
 
 /** Bare event-target stub good enough for `addEventListener` / `dispatchEvent`. */
-function makeTarget() {
-  const listeners = [];
+function makeTarget(): TestTarget {
+  const listeners: ((evt: KeyboardEvent) => void)[] = [];
   return {
-    addEventListener: (_type, fn) => listeners.push(fn),
+    addEventListener: (_type, fn) => {
+      listeners.push(fn);
+    },
     removeEventListener: (_type, fn) => {
       const i = listeners.indexOf(fn);
       if (i >= 0) listeners.splice(i, 1);
@@ -25,7 +44,7 @@ function makeTarget() {
           this.prevented = true;
         },
       };
-      for (const fn of listeners) fn(evt);
+      for (const fn of listeners) fn(evt as unknown as KeyboardEvent);
       return evt;
     },
   };
@@ -33,12 +52,14 @@ function makeTarget() {
 
 test('KeyboardController requires an onIntent callback', () => {
   const target = makeTarget();
+  // @ts-expect-error Runtime validation must reject a missing callback.
   assert.throws(() => new KeyboardController({ target }), /onIntent/);
 });
 
 test('KeyboardController rejects a non-function isBlocked', () => {
   const target = makeTarget();
   assert.throws(
+    // @ts-expect-error Runtime validation must reject a non-function predicate.
     () => new KeyboardController({ target, onIntent: () => {}, isBlocked: 'nope' }),
     /isBlocked/
   );
@@ -46,7 +67,7 @@ test('KeyboardController rejects a non-function isBlocked', () => {
 
 test('keydown produces an intent through the default (unblocked) path', () => {
   const target = makeTarget();
-  const intents = [];
+  const intents: Intent[] = [];
   const ctrl = new KeyboardController({
     target,
     onIntent: i => intents.push(i),
@@ -58,8 +79,8 @@ test('keydown produces an intent through the default (unblocked) path', () => {
 
 test('isBlocked() === true short-circuits keydown — no intent, no mode change', () => {
   const target = makeTarget();
-  const intents = [];
-  const modeChanges = [];
+  const intents: Intent[] = [];
+  const modeChanges: Mode[] = [];
   let blocked = true;
   const ctrl = new KeyboardController({
     target,
@@ -84,7 +105,7 @@ test('isBlocked() === true short-circuits keydown — no intent, no mode change'
 
 test('modifier-key presses are still ignored independently of isBlocked', () => {
   const target = makeTarget();
-  const intents = [];
+  const intents: Intent[] = [];
   const ctrl = new KeyboardController({
     target,
     onIntent: i => intents.push(i),

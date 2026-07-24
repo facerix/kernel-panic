@@ -19,12 +19,16 @@ import { EventBus, EVENT } from '../../../src/game/events.js';
 import { Rng } from '../../../src/rng.js';
 
 /** Fixed-sequence RNG that crashes if over-drained — pins dodge/hit outcomes. */
-class StubRng {
-  constructor(values) {
+class StubRng extends Rng {
+  values: number[];
+  calls: number;
+
+  constructor(values: number[]) {
+    super(0);
     this.values = [...values];
     this.calls = 0;
   }
-  next() {
+  override next() {
     if (this.calls >= this.values.length) {
       throw new Error('StubRng drained — test under-supplied rolls');
     }
@@ -178,5 +182,6 @@ test('Guard constructor rejects malformed waypoints', () => {
     () => new Guard({ id: 'guard-0', x: 1, y: 1, patrolWaypoints: [{ x: 0.5, y: 1 }] }),
     TypeError
   );
+  // @ts-expect-error Verify runtime validation of a non-array waypoint list.
   assert.throws(() => new Guard({ id: 'guard-0', x: 1, y: 1, patrolWaypoints: 'nope' }), TypeError);
 });
