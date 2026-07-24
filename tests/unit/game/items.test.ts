@@ -8,7 +8,6 @@ import {
   TILE,
   STIM_HEAL,
   SMOKE_RADIUS,
-  INCENDIARY_THROW_DIST,
   BREACHING_CHARGE_RANGE,
   TARGETING_BONUS,
   DODGE_BONUS,
@@ -26,11 +25,11 @@ import { Merc } from '../../../src/game/archetypes/Merc.js';
 import { Skirmisher } from '../../../src/game/ai/Skirmisher.js';
 import { Rng } from '../../../src/rng.js';
 import { ITEM_ID } from '../../../src/game/items.js';
-import { placeSmoke, clearSmoke } from '../../../src/game/Smoke.js';
+import { placeSmoke } from '../../../src/game/Smoke.js';
 import { resolveRanged, resolveMelee } from '../../../src/game/Combat.js';
 import { Razor } from '../../../src/game/archetypes/Razor.js';
 import { Entity } from '../../../src/game/Entity.js';
-import { FACTION } from '../../../src/game/constants.js';
+import { FACTION, SMOKE_DURATION } from '../../../src/game/constants.js';
 
 // ---------------------------------------------------------------------------
 // Crew.applyGear — Bone Lacing
@@ -354,13 +353,22 @@ test('useConsumable(SMOKE_CHARGE) returns smoke descriptor', () => {
 // Crew.useConsumable — Incendiary
 // ---------------------------------------------------------------------------
 
-test('useConsumable(MOLOTOV) returns thrown hazard descriptor', () => {
+test('useConsumable(MOLOTOV) reports the aim, not a landing tile', () => {
+  // P3.6: the bottle flies until something stops it, so the impact depends on
+  // grid + entity state Crew has no reference to. Crew must hand back the aim
+  // and let the shell resolve the ray (`resolveIncendiaryImpact`) — a
+  // `thrower + dir * DIST` centre here would be wrong the moment a drone, a
+  // wall, or the map edge is in the way. See incendiary.test.ts for the ray.
   const crew = new Merc({ id: 'merc', x: 3, y: 3, maxAp: 4 });
   crew.addConsumable(ITEM_ID.MOLOTOV);
   const result = crew.useConsumable(ITEM_ID.MOLOTOV, { dx: 1, dy: 0 });
   assert.equal(result.type, 'incendiary');
-  assert.equal(result.cx, 3 + INCENDIARY_THROW_DIST);
-  assert.equal(result.cy, 3);
+  assert.deepEqual({ dx: result.dx, dy: result.dy }, { dx: 1, dy: 0 });
+  assert.equal(
+    'cx' in result,
+    false,
+    'a precomputed centre would be a guess the shell then has to ignore'
+  );
   assert.equal(crew.inventory.consumables.length, 0);
 });
 
@@ -401,35 +409,33 @@ test('useConsumable enforces aim shape for aimed items only', () => {
 // Smoke placement and clearing
 // ---------------------------------------------------------------------------
 
+const smokeWorld = (w = 10, h = 10) => new World(new Grid(w, h, TILE.FLOOR));
+
 test('placeSmoke converts FLOOR tiles to SMOKE within radius', () => {
-  const grid = new Grid(10, 10, TILE.FLOOR);
-  const overlays = placeSmoke(grid, 5, 5, 2);
-  assert.ok(overlays.length > 0);
+  const world = smokeWorld();
+  const placed = placeSmoke(world, 5, 5, 2);
+  assert.ok(placed.length > 0);
   // Center should be smoke.
-  assert.equal(grid.tileAt(5, 5), TILE.SMOKE);
+  assert.equal(world.grid.tileAt(5, 5), TILE.SMOKE);
   // Corner of radius 2 (Chebyshev) should be smoke.
-  assert.equal(grid.tileAt(3, 3), TILE.SMOKE);
-  assert.equal(grid.tileAt(7, 7), TILE.SMOKE);
-  // All overlays should have FLOOR as originalTile.
-  for (const o of overlays) {
-    assert.equal(o.originalTile, TILE.FLOOR);
-  }
+  assert.equal(world.grid.tileAt(3, 3), TILE.SMOKE);
+  assert.equal(world.grid.tileAt(7, 7), TILE.SMOKE);
 });
 
 test('placeSmoke does not convert WALLs', () => {
-  const grid = new Grid(10, 10, TILE.FLOOR);
-  grid.setTile(5, 4, TILE.WALL);
-  const overlays = placeSmoke(grid, 5, 5, 2);
-  assert.equal(grid.tileAt(5, 4), TILE.WALL);
-  assert.ok(!overlays.some(o => o.x === 5 && o.y === 4));
+  const world = smokeWorld();
+  world.grid.setTile(5, 4, TILE.WALL);
+  const placed = placeSmoke(world, 5, 5, 2);
+  assert.equal(world.grid.tileAt(5, 4), TILE.WALL);
+  assert.ok(!placed.some(p => p.x === 5 && p.y === 4));
 });
 
 test('placeSmoke handles edge of grid gracefully', () => {
-  const grid = new Grid(6, 6, TILE.FLOOR);
+  const world = smokeWorld(6, 6);
   // Place near corner — some tiles will be OOB.
-  const overlays = placeSmoke(grid, 0, 0, 2);
-  assert.ok(overlays.length > 0);
-  assert.equal(grid.tileAt(0, 0), TILE.SMOKE);
+  const placed = placeSmoke(world, 0, 0, 2);
+  assert.ok(placed.length > 0);
+  assert.equal(world.grid.tileAt(0, 0), TILE.SMOKE);
 });
 
 test('SMOKE tile is passable', () => {
@@ -444,32 +450,60 @@ test('SMOKE tile blocks line of sight', () => {
   assert.equal(grid.blocksLineOfSight(2, 2), true);
 });
 
-test('clearSmoke restores original tiles', () => {
-  const grid = new Grid(10, 10, TILE.FLOOR);
-  const overlays = placeSmoke(grid, 5, 5, 1);
-  clearSmoke(grid, overlays);
+test('smoke clears itself after SMOKE_DURATION rounds', () => {
+  const world = smokeWorld();
+  placeSmoke(world, 5, 5, 1);
+  assert.equal(world.grid.tileAt(5, 5), TILE.SMOKE);
+
+  for (let i = 0; i < SMOKE_DURATION; i++) world.tickTileEffects();
+
   // All tiles should be back to FLOOR.
-  assert.equal(grid.tileAt(5, 5), TILE.FLOOR);
-  assert.equal(grid.tileAt(4, 4), TILE.FLOOR);
-  assert.equal(grid.tileAt(6, 6), TILE.FLOOR);
+  assert.equal(world.grid.tileAt(5, 5), TILE.FLOOR);
+  assert.equal(world.grid.tileAt(4, 4), TILE.FLOOR);
+  assert.equal(world.grid.tileAt(6, 6), TILE.FLOOR);
 });
 
-test('clearSmoke preserves EXIT tiles that were under smoke', () => {
-  const grid = new Grid(10, 10, TILE.FLOOR);
-  grid.setTile(5, 5, TILE.EXIT);
-  const overlays = placeSmoke(grid, 5, 5, 1);
+test('smoke survives the corp turn it was thrown to blind', () => {
+  // SMOKE_DURATION is measured in *rounds*, and the tick lands after the corp
+  // turn. A cloud that cleared before the drones moved would be pointless.
+  const world = smokeWorld();
+  placeSmoke(world, 5, 5, 1);
+  assert.equal(
+    world.grid.tileAt(5, 5),
+    TILE.SMOKE,
+    'still up between placement and the round boundary'
+  );
+});
+
+test('smoke over an EXIT tile restores the EXIT, not FLOOR', () => {
+  const world = smokeWorld();
+  world.grid.setTile(5, 5, TILE.EXIT);
+  placeSmoke(world, 5, 5, 1);
   // EXIT should have been converted to SMOKE.
-  assert.equal(grid.tileAt(5, 5), TILE.SMOKE);
-  const exitOverlay = overlays.find(o => o.x === 5 && o.y === 5);
-  assert.ok(exitOverlay);
-  assert.equal(exitOverlay.originalTile, TILE.EXIT);
-  // Clear restores EXIT.
-  clearSmoke(grid, overlays);
-  assert.equal(grid.tileAt(5, 5), TILE.EXIT);
+  assert.equal(world.grid.tileAt(5, 5), TILE.SMOKE);
+
+  for (let i = 0; i < SMOKE_DURATION; i++) world.tickTileEffects();
+
+  assert.equal(world.grid.tileAt(5, 5), TILE.EXIT, 'the exit must survive its own smoke cloud');
 });
 
-test('clearSmoke is idempotent on empty array', () => {
-  const grid = new Grid(5, 5, TILE.FLOOR);
-  clearSmoke(grid, []);
-  assert.equal(grid.tileAt(2, 2), TILE.FLOOR);
+test('smoke leaves a burning hazard tile to its own timer', () => {
+  // placeSmoke only takes FLOOR/EXIT, so a cloud thrown over fire must not
+  // capture HAZARD as its restore target and strand the fire permanently.
+  const world = smokeWorld();
+  world.applyTileEffect(5, 5, TILE.HAZARD, 2);
+  placeSmoke(world, 5, 5, 1);
+
+  assert.equal(world.grid.tileAt(5, 5), TILE.HAZARD, 'fire is not smothered by the cloud');
+  assert.equal(world.grid.tileAt(5, 4), TILE.SMOKE, 'but the tiles around it take smoke');
+
+  world.tickTileEffects();
+  world.tickTileEffects();
+  assert.equal(world.grid.tileAt(5, 5), TILE.FLOOR, 'and the fire still burns out on schedule');
+});
+
+test('tickTileEffects is a no-op when nothing is active', () => {
+  const world = smokeWorld(5, 5);
+  assert.deepEqual(world.tickTileEffects(), []);
+  assert.equal(world.grid.tileAt(2, 2), TILE.FLOOR);
 });

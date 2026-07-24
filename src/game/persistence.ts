@@ -32,6 +32,7 @@
 import { Rng } from '../rng.js';
 import { Grid } from './Grid.js';
 import { World } from './World.js';
+import type { TileEffectEntry } from './World.js';
 import { TurnQueue } from './TurnQueue.js';
 import { EventBus } from './events.js';
 import {
@@ -43,8 +44,8 @@ import {
   SURGE_AP_BONUS,
   TILE,
 } from './constants.js';
-import { migrateSalvage, type TypedSalvage } from './salvage.js';
-import { Entity } from './Entity.js';
+import { migrateSalvage, validateSalvage, type TypedSalvage } from './salvage.js';
+import { Entity, type LootableEntity } from './Entity.js';
 import { Crew } from './Crew.js';
 import { Merc } from './archetypes/Merc.js';
 import { Razor } from './archetypes/Razor.js';
@@ -1247,11 +1248,12 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
     run.meatActor = liveMeatPartner ?? player;
     run.activeLayer = liveMeatPartner && record.activeLayer !== 'cyber' ? 'meat' : 'cyber';
   } else {
-    run.meatActor = !extractedOperativeIds.includes(player.id)
-      ? player
-      : gridPartner && !extractedOperativeIds.includes(gridPartner.id)
-        ? gridPartner
-        : null;
+    // P3.6: mirror of the dead-partner repair above — a *dead* Decker can't be
+    // the meat operator either. A Score that outlived its Decker restores with
+    // control on the surviving partner rather than on the body it left behind.
+    const controllable = (crew: Crew | null): crew is Crew =>
+      !!crew && crew.alive && !extractedOperativeIds.includes(crew.id);
+    run.meatActor = controllable(player) ? player : controllable(gridPartner) ? gridPartner : null;
     run.activeLayer = 'meat';
   }
   run.exitTile = record.exitTile ? { ...record.exitTile } : null;
@@ -1263,6 +1265,7 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
   run.world.restoreSecuredPickups(
     normalizeObjectiveProgress(record.objectiveProgress).securedPickups
   );
+  run.world.restoreTileEffects(normalizeTileEffects(record.tileEffects));
   run.extractedOperativeIds = new Set(extractedOperativeIds);
   run.world.mutationDeltas = normalizeMutationDeltas(record.mutationDeltas, grid);
   if (record.alarm) {
@@ -1640,6 +1643,7 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
   }
 
   const activeEffects = readActiveEffects(rec);
+  const loot = readEntityLoot(rec);
 
   const extra = normalizeEntityExtra(rec);
   const entry = ENTITY_RESTORE[rec.archetype];
@@ -1685,6 +1689,12 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
   entity.hp = rec.hp;
   entity.alive = rec.alive ?? rec.hp > 0;
   entity.shieldHp = rec.shieldHp ?? 0;
+  if (loot) {
+    if (entity.alive) {
+      throw new Error(`restore: live entity ${rec.id} cannot carry corpse loot`);
+    }
+    (entity as Partial<LootableEntity>).loot = loot;
+  }
   if (Number.isInteger(rec.ap)) {
     const maxAp =
       rec.archetype === 'berserk' && activeEffects.has(STATUS_EFFECT.SURGE)
@@ -1726,6 +1736,25 @@ function restoreEntity(rec: RunEntitySnapshot, grid: Grid): Entity {
   // player from a heterogeneous entity set.
   (entity as Entity & { [ARCHETYPE_KEY]?: EntityArchetypeId })[ARCHETYPE_KEY] = rec.archetype;
   return entity;
+}
+
+function readEntityLoot(rec: RunEntitySnapshot): LootableEntity['loot'] | undefined {
+  if (rec.loot === undefined) return undefined;
+  if (rec.loot === null || typeof rec.loot !== 'object' || Array.isArray(rec.loot)) {
+    throw new TypeError(`restore: entity ${rec.id} loot must be a plain object`);
+  }
+  const loot = rec.loot as Record<string, unknown>;
+  for (const key of Object.keys(loot)) {
+    if (key !== 'salvage') {
+      throw new TypeError(`restore: entity ${rec.id} loot has unknown field "${key}"`);
+    }
+  }
+  if (!('salvage' in loot)) {
+    throw new TypeError(`restore: entity ${rec.id} loot missing required field "salvage"`);
+  }
+  return {
+    salvage: validateSalvage(loot.salvage, `restore: entity ${rec.id} loot.salvage`),
+  };
 }
 
 function validateRecord(record: unknown): asserts record is RunSnapshot {
@@ -2139,6 +2168,51 @@ function normalizeObjectiveProgress(progress: unknown): ObjectiveProgressSnapsho
     }
   }
   return { securedPickups: [...candidate.securedPickups] };
+}
+
+/**
+ * Timed tile effects — thrown fire, smoke clouds. Absent in pre-P3.6 saves → no
+ * timers, which leaves that save's fire and smoke permanent: the behaviour it
+ * was played under.
+ */
+function normalizeTileEffects(raw: unknown): TileEffectEntry[] {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) {
+    throw new TypeError('restore: tileEffects must be an array');
+  }
+  return raw.map(entry => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw new TypeError('restore: tileEffects entries must be objects');
+    }
+    const { x, y, tile, turnsLeft, restoreTo } = entry as Partial<TileEffectEntry>;
+    if (!Number.isInteger(x) || !Number.isInteger(y)) {
+      throw new TypeError(
+        `restore: tileEffects entry requires integer x,y; got (${String(x)}, ${String(y)})`
+      );
+    }
+    if (!isTileId(tile)) {
+      throw new TypeError(
+        `restore: tileEffects entry (${x}, ${y}) has an unknown tile ${String(tile)}`
+      );
+    }
+    if (!isTileId(restoreTo)) {
+      throw new TypeError(
+        `restore: tileEffects entry (${x}, ${y}) has an unknown restoreTo ${String(restoreTo)}`
+      );
+    }
+    if (!Number.isInteger(turnsLeft) || (turnsLeft as number) < 1) {
+      throw new RangeError(
+        `restore: tileEffects entry (${x}, ${y}) requires turnsLeft >= 1, got ${String(turnsLeft)}`
+      );
+    }
+    return { x, y, tile, turnsLeft, restoreTo } as TileEffectEntry;
+  });
+}
+
+const TILE_IDS: ReadonlySet<number> = new Set(Object.values(TILE));
+
+function isTileId(value: unknown): boolean {
+  return typeof value === 'number' && TILE_IDS.has(value);
 }
 
 function normalizeExtractedOperativeIds(raw: unknown): string[] {

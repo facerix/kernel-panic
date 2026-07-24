@@ -8,6 +8,8 @@ import {
   SHAKE_CLASS,
   createAnimationLock,
   restartCssAnimation,
+  runBurnFlash,
+  runIncendiaryImpactFlash,
   runInteractSecuredFlash,
   runMuzzleFlash,
   triggerCrashFlash,
@@ -19,8 +21,10 @@ import {
   triggerSurgeFlash,
 } from '../../../src/render/animations.js';
 import {
+  BURN_FLASH_FG,
   CRASH_FLASH_FG,
   HEAL_FLASH_FG,
+  INCENDIARY_IMPACT_FG,
   STUNNED_FG,
   SURGE_FLASH_FG,
 } from '../../../src/render/palette.js';
@@ -359,4 +363,88 @@ test('runInteractSecuredFlash: paints the prop glyph in white and schedules repa
   ]);
   timers.advance(ANIMATION_DURATIONS.INTERACT_SECURED_FLASH);
   assert.deepEqual(calls[1], ['repaint']);
+});
+
+// ---------------------------------------------------------------------------
+// P3.6 — molotov fire effects
+// ---------------------------------------------------------------------------
+
+test('runIncendiaryImpactFlash: bursts on the impact tile and schedules repaint', () => {
+  const timers = makeTimers();
+  const calls = [];
+  const renderer = {
+    flashCell: (wx, wy, opts) => {
+      calls.push(['flash', wx, wy, opts]);
+      return true;
+    },
+  };
+  const repaint = () => calls.push(['repaint']);
+
+  const fired = runIncendiaryImpactFlash(renderer, repaint, 6, 3, { timers });
+  assert.equal(fired, true);
+  assert.deepEqual(calls[0], [
+    'flash',
+    6,
+    3,
+    {
+      duration: ANIMATION_DURATIONS.INCENDIARY_IMPACT_FLASH,
+      char: '*',
+      color: INCENDIARY_IMPACT_FG,
+    },
+  ]);
+  timers.advance(ANIMATION_DURATIONS.INCENDIARY_IMPACT_FLASH);
+  assert.deepEqual(calls[1], ['repaint']);
+});
+
+test('runIncendiaryImpactFlash: does not overpaint with the HAZARD glyph', () => {
+  // The fire cluster is stamped onto this same cell in the same frame, so a
+  // burst drawn as `▓` would be invisible — the whole point of the effect is
+  // that the throw reads as a distinct beat before the fire settles.
+  const calls = [];
+  const renderer = {
+    flashCell: (_wx, _wy, opts) => {
+      calls.push(opts.char);
+      return true;
+    },
+  };
+  runIncendiaryImpactFlash(renderer, () => {}, 0, 0, { timers: makeTimers() });
+  assert.notEqual(calls[0], '▓');
+});
+
+test('runBurnFlash: tints the burning body’s own glyph rather than overpainting it', () => {
+  // Which body is burning is the information the player needs when several are
+  // alight at once — a generic fire glyph would erase exactly that.
+  const timers = makeTimers();
+  const calls = [];
+  const renderer = {
+    flashCell: (wx, wy, opts) => {
+      calls.push(['flash', wx, wy, opts]);
+      return true;
+    },
+  };
+  const repaint = () => calls.push(['repaint']);
+
+  const fired = runBurnFlash(renderer, repaint, 4, 9, 'd', { timers });
+  assert.equal(fired, true);
+  assert.deepEqual(calls[0], [
+    'flash',
+    4,
+    9,
+    { duration: ANIMATION_DURATIONS.BURN_FLASH, char: 'd', color: BURN_FLASH_FG },
+  ]);
+  timers.advance(ANIMATION_DURATIONS.BURN_FLASH);
+  assert.deepEqual(calls[1], ['repaint']);
+});
+
+test('the two fire effects are visually distinct from each other', () => {
+  // Impact and burn are different beats — the bottle breaking vs. a body being
+  // eaten — and land on the same tile when a throw catches someone square on.
+  assert.notEqual(INCENDIARY_IMPACT_FG, BURN_FLASH_FG);
+});
+
+test('a burn flash is short enough not to hold the input lock across a crowded fire', () => {
+  // One fires per burning entity per aftermath; the lock takes the longest
+  // outstanding window rather than summing, but the individual beat still has
+  // to stay under the impact burst it follows.
+  assert.ok(ANIMATION_DURATIONS.BURN_FLASH < ANIMATION_DURATIONS.INCENDIARY_IMPACT_FLASH);
 });

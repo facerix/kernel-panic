@@ -46,24 +46,50 @@ export const WIN_REWARD_KICKERS = [
   'FENCED INTEL',
 ] as const;
 
-/** Partial — got out, but the finale broke. */
+/**
+ * P3.6 Partial — the *costly win*. The Score landed and the payload walked out,
+ * but somebody didn't. The tone is a wake, not a failure report: never imply
+ * the job was abandoned or the payload lost, because neither is true.
+ */
 export const PARTIAL_BANNERS = [
-  'PARTIAL EXFIL',
-  'MESSY EXIT',
-  'HALF A SCORE',
-  'BURNED RUN',
+  'BOUGHT IN BLOOD',
+  'ONE DIDN’T COME BACK',
+  'COSTLY SCORE',
+  'PAID IN FULL',
 ] as const;
 
 export const PARTIAL_REASONS = [
-  'The Score is compromised.',
-  'You got out — but not clean.',
-  'The Score cracked, then the plan did.',
+  'The Score landed. The crew did not.',
+  'You got the payload. You lost an operator.',
+  'The job closed clean. The crew came back short.',
 ] as const;
 
 export const PARTIAL_DETAILS = [
-  'Someone made it out, but the finale broke before the crew could clear the target cleanly.',
-  'Part of the payload is yours; the rest burned with the run. The corp knows your face now.',
-  'You salvaged something from the wreck, but the corp will remember this one.',
+  'The payload cleared the fence and the blueprint is yours. It cost you someone who will not be spending the cut.',
+  'The target is gone, the data is stolen, and there is an empty chair at the table. The street calls that a win. Barely.',
+  'Everything the job asked for, delivered. The price was an operator who never made the exit.',
+] as const;
+
+/** The loot label above a blueprint that cost somebody their life. */
+export const PARTIAL_REWARD_KICKERS = [
+  'PAID FOR IN BLOOD',
+  'THEIR LAST SCORE',
+  'STOLEN AT A PRICE',
+] as const;
+
+/** P3.6 Aborted — walked out of the Score empty-handed. Nothing was secured. */
+export const ABORTED_BANNERS = ['WALKED AWAY', 'SCORE ABANDONED', 'GAME OVER'] as const;
+
+export const ABORTED_REASONS = [
+  'You walked out of the Score with nothing.',
+  'The crew aborted the finale.',
+  'The Score was left on the table.',
+] as const;
+
+export const ABORTED_DETAILS = [
+  'The payload never left its rack. The target is locked down for good and the campaign ends here.',
+  'You made the exit and nothing else. The corp patched the hole you left behind.',
+  'The one shot at the Score is spent. Nothing to fence, nothing to show.',
 ] as const;
 
 type FlavorPool = {
@@ -98,6 +124,11 @@ export const LOSS_FLAVOR = {
       'Black ICE took your Decker, and the only way in died with them.',
       'No Decker, no door. The Score is sealed for good.',
     ],
+  },
+  'score-aborted': {
+    banners: ABORTED_BANNERS,
+    reasons: ABORTED_REASONS,
+    details: ABORTED_DETAILS,
   },
   'crew-wipe': {
     banners: ['GAME OVER', 'CREW DOWN', 'NO SURVIVORS'],
@@ -148,7 +179,11 @@ export type EndFlavor = {
 
 /** Resolve the loss bucket for an end reason, defaulting to the crew-wipe pool. */
 function lossPool(endReason: CampaignEndReason): FlavorPool {
-  if (endReason === 'clock-expired' || endReason === 'decker-flatlined-score') {
+  if (
+    endReason === 'clock-expired' ||
+    endReason === 'decker-flatlined-score' ||
+    endReason === 'score-aborted'
+  ) {
     return LOSS_FLAVOR[endReason];
   }
   return LOSS_FLAVOR['crew-wipe'];
@@ -165,10 +200,17 @@ export function selectEndFlavor(summary: CampaignSummary): EndFlavor {
       rewardKicker: pickFlavor(seed, SALT.rewardKicker, WIN_REWARD_KICKERS),
     };
   }
-  const pool =
-    summary.result === 'partial'
-      ? { banners: PARTIAL_BANNERS, reasons: PARTIAL_REASONS, details: PARTIAL_DETAILS }
-      : lossPool(summary.endReason);
+  if (summary.result === 'partial') {
+    return {
+      banner: pickFlavor(seed, SALT.banner, PARTIAL_BANNERS),
+      reason: pickFlavor(seed, SALT.reason, PARTIAL_REASONS),
+      detail: pickFlavor(seed, SALT.detail, PARTIAL_DETAILS),
+      // P3.6: a costly Score still steals the blueprint, so it still earns a
+      // loot kicker — just one that names what it cost.
+      rewardKicker: pickFlavor(seed, SALT.rewardKicker, PARTIAL_REWARD_KICKERS),
+    };
+  }
+  const pool = lossPool(summary.endReason);
   return {
     banner: pickFlavor(seed, SALT.banner, pool.banners),
     reason: pickFlavor(seed, SALT.reason, pool.reasons),

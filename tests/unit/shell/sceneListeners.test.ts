@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { EventBus, EVENT } from '../../../src/game/events.js';
@@ -12,6 +12,67 @@ import {
 } from '../../../src/render/palette.js';
 import { SceneListenerController } from '../../../src/shell/sceneListeners.js';
 import type { ShellScene } from '../../../src/shell/sceneView.js';
+import { audioManager } from '../../../src/audio/soundBoard.js';
+import { Hostile } from '../../../src/game/Hostile.js';
+import { FACTION } from '../../../src/game/constants.js';
+
+/** Concrete stand-in for the abstract `Hostile` — a `takeTurn` never runs here. */
+class TestIce extends Hostile {
+  takeTurn(): void {}
+}
+
+function makeIce(id: string, x: number, y: number): TestIce {
+  return new TestIce({ id, x, y, faction: FACTION.CORP, glyph: 'i' });
+}
+
+/**
+ * Full deps stub — same shape the P3.5.M5 cyber-grid tests above use. The
+ * audio tests below share one scene per `EVENT.ENTITY_DAMAGED`/`NOISE` with
+ * `#attachCyberListeners`'s animation wiring (both attach in `rewire()`), so
+ * this needs real DOM/renderer stand-ins, not the bare `{}` the audio-only
+ * path would otherwise get away with.
+ */
+function fakeDeps(scene: ShellScene) {
+  const fakeClassList = { remove: () => {}, add: () => {}, toggle: () => {} };
+  const fakeStyle = { setProperty: () => {}, removeProperty: () => {} };
+  return {
+    getScene: () => scene,
+    getCampaign: () => null,
+    getMeatVision: () => new VisionField(),
+    getCyberVision: () => new VisionField(),
+    resetCyberVision: () => new VisionField(),
+    dom: {
+      stageEl: {
+        classList: fakeClassList,
+        style: fakeStyle,
+        offsetWidth: 0,
+      } as unknown as HTMLElement,
+      pipCanvas: {
+        classList: fakeClassList,
+        style: fakeStyle,
+        offsetWidth: 0,
+      } as unknown as HTMLCanvasElement,
+    },
+    renderers: {
+      main: { flashCell: () => true } as never,
+      pip: { flashCell: () => true } as never,
+    },
+    animLock: { push: () => {} },
+    effects: {
+      flash: () => {},
+      paint: () => {},
+      paintPip: () => {},
+      recomputeVision: () => {},
+    },
+    onCivilianHarmReset: () => {},
+    onCivilianHarmed: () => {},
+    onRepAdjust: () => {},
+    onAlarmTransition: () => {},
+    onObjectiveTimerExpired: () => {},
+    memoriseMeatCorpse: () => {},
+    memoriseCyberCorpse: () => {},
+  };
+}
 
 test('SceneListenerController rewire replaces bus handlers', () => {
   let flashCount = 0;
@@ -605,4 +666,175 @@ test('P3.M4.6: forced jack-out body repair is not memorised as a meat corpse', (
   bus.emit(EVENT.ENTITY_DAMAGED, { target: body, damage: 1, killed: true });
 
   assert.equal(memorised, 0);
+});
+
+// --- P3.6: Cyberspace SFX (zap / jolt / alarm / down on the cyber bus) ------
+
+test('P3.6: cyber ranged fire plays zap, not the meatspace rangedShot', () => {
+  const cyberBus = new EventBus();
+  const scene = {
+    bus: new EventBus(),
+    world: null,
+    player: null,
+    archetype: 'decker',
+    cyberspace: {
+      phase: 'active',
+      layer: { avatar: { id: 'avatar' }, bus: cyberBus, mapSeenKeys: () => [] },
+    },
+    activeLayer: 'cyber',
+    state: 'combat',
+  } as unknown as ShellScene;
+
+  const play = mock.method(audioManager, 'play', () => {});
+  try {
+    const controller = new SceneListenerController(fakeDeps(scene));
+    controller.rewire();
+
+    cyberBus.emit(EVENT.NOISE, { origin: { x: 1, y: 1 }, kind: 'ranged' });
+
+    assert.deepEqual(
+      play.mock.calls.map(c => c.arguments[0]),
+      ['zap']
+    );
+  } finally {
+    play.mock.restore();
+  }
+});
+
+test('P3.6: a connected cyber melee strike plays jolt; a dodge stays silent', () => {
+  const cyberBus = new EventBus();
+  const scene = {
+    bus: new EventBus(),
+    world: null,
+    player: null,
+    archetype: 'decker',
+    cyberspace: {
+      phase: 'active',
+      layer: { avatar: { id: 'avatar' }, bus: cyberBus, mapSeenKeys: () => [] },
+    },
+    activeLayer: 'cyber',
+    state: 'combat',
+  } as unknown as ShellScene;
+
+  const play = mock.method(audioManager, 'play', () => {});
+  try {
+    const controller = new SceneListenerController(fakeDeps(scene));
+    controller.rewire();
+
+    cyberBus.emit(EVENT.ENTITY_DAMAGED, {
+      source: 'melee',
+      dodged: true,
+      target: makeIce('probe-0', 2, 2),
+    });
+    assert.equal(play.mock.calls.length, 0, 'a dodge whiffs — no jolt');
+
+    cyberBus.emit(EVENT.ENTITY_DAMAGED, {
+      source: 'melee',
+      dodged: false,
+      target: makeIce('probe-1', 2, 2),
+    });
+    assert.deepEqual(
+      play.mock.calls.map(c => c.arguments[0]),
+      ['jolt']
+    );
+  } finally {
+    play.mock.restore();
+  }
+});
+
+test("P3.6: ICE going down plays the shared 'down' cue; the avatar's own RAM hitting 0 does not", () => {
+  const cyberBus = new EventBus();
+  const avatar = { id: 'avatar' };
+  const scene = {
+    bus: new EventBus(),
+    world: null,
+    player: null,
+    archetype: 'decker',
+    cyberspace: { phase: 'active', layer: { avatar, bus: cyberBus, mapSeenKeys: () => [] } },
+    activeLayer: 'cyber',
+    state: 'combat',
+  } as unknown as ShellScene;
+
+  const play = mock.method(audioManager, 'play', () => {});
+  try {
+    const controller = new SceneListenerController(fakeDeps(scene));
+    controller.rewire();
+
+    // The avatar is a plain Entity, not a Hostile — RAM hitting 0 stays quiet here
+    // (the RAM-wipe flash/log is handled elsewhere; this cue is ICE-specific).
+    cyberBus.emit(EVENT.ENTITY_DAMAGED, { target: avatar, killed: true, damage: 4 });
+    assert.equal(play.mock.calls.length, 0, "avatar death isn't a hostile 'down'");
+
+    cyberBus.emit(EVENT.ENTITY_DAMAGED, { target: makeIce('guardian-0', 3, 3), killed: true });
+    assert.deepEqual(
+      play.mock.calls.map(c => c.arguments[0]),
+      ['down']
+    );
+  } finally {
+    play.mock.restore();
+  }
+});
+
+test('P3.6: the cyber facility alarm raising reuses the shared alarm cue', () => {
+  const cyberBus = new EventBus();
+  const scene = {
+    bus: new EventBus(),
+    world: null,
+    player: null,
+    archetype: 'decker',
+    cyberspace: {
+      phase: 'active',
+      layer: { avatar: { id: 'avatar' }, bus: cyberBus, mapSeenKeys: () => [] },
+    },
+    activeLayer: 'cyber',
+    state: 'combat',
+  } as unknown as ShellScene;
+
+  const play = mock.method(audioManager, 'play', () => {});
+  try {
+    const controller = new SceneListenerController(fakeDeps(scene));
+    controller.rewire();
+
+    // Cooldown/quiet transitions are ambient — only the raise is worth a sting.
+    cyberBus.emit(EVENT.ALARM_CHANGED, { transition: 'cooldown' });
+    assert.equal(play.mock.calls.length, 0);
+
+    cyberBus.emit(EVENT.ALARM_CHANGED, { transition: 'raised' });
+    assert.deepEqual(
+      play.mock.calls.map(c => c.arguments[0]),
+      ['alarm']
+    );
+  } finally {
+    play.mock.restore();
+  }
+});
+
+test('P3.6: detachCyber tears down the cyber audio wiring — a stale layer bus stays silent', () => {
+  const cyberBus = new EventBus();
+  const scene = {
+    bus: new EventBus(),
+    world: null,
+    player: null,
+    archetype: 'decker',
+    cyberspace: {
+      phase: 'active',
+      layer: { avatar: { id: 'avatar' }, bus: cyberBus, mapSeenKeys: () => [] },
+    },
+    activeLayer: 'cyber',
+    state: 'combat',
+  } as unknown as ShellScene;
+
+  const play = mock.method(audioManager, 'play', () => {});
+  try {
+    const controller = new SceneListenerController(fakeDeps(scene));
+    controller.rewire();
+    controller.detachCyber();
+
+    cyberBus.emit(EVENT.NOISE, { origin: { x: 1, y: 1 }, kind: 'ranged' });
+    cyberBus.emit(EVENT.ALARM_CHANGED, { transition: 'raised' });
+
+    assert.equal(play.mock.calls.length, 0, 'no listeners remain on the stale layer bus');
+  } finally {
+    play.mock.restore();
+  }
 });

@@ -43,12 +43,15 @@ import {
   SALVAGE_DROP_MAX,
   ENEMY_ROLE,
   JACK_OUT_SHOCK_DAMAGE,
+  INCENDIARY_BURN_TURNS,
+  INCENDIARY_IMPACT_DAMAGE,
+  thrownFireCanTake,
   factionForPrincipalGroups,
   STATUS_EFFECT,
 } from './constants.js';
 import { coordKey, explorationReachableKeys, hasAdjacentPassableTile } from './mapConnectivity.js';
 import { isValidBlockingPlacement, checkPlacementIntegrity } from './placement.js';
-import { makeSalvage, type TypedSalvage } from './salvage.js';
+import { makeSalvage, validateSalvage, type TypedSalvage } from './salvage.js';
 import { Entity, type LootableEntity } from './Entity.js';
 import { Hostile } from './Hostile.js';
 import { hasLineOfSight } from './LineOfSight.js';
@@ -118,7 +121,7 @@ import { buildMap } from './procgen/mapBuild.js';
 import { normalizeMapDimensions } from './procgen/mapDimensions.js';
 import { findPath } from './Pathfinding.js';
 import type { Contract } from './hub/Curator.js';
-import type { FactionId } from './constants.js';
+import type { FactionId, TileId } from './constants.js';
 import type { GridPoint, KeyItem, TileDelta, EntitySnapshotExtra } from '../types.js';
 import type { CrewSnapshot } from './Crew.js';
 import type { TechSnapshot } from './archetypes/Tech.js';
@@ -142,7 +145,7 @@ import type { CyberAvatarSnapshot } from './cyber/CyberAvatar.js';
 import type { EntryPortSnapshot } from './cyber/EntryPort.js';
 import type { DataNodeSnapshot } from './cyber/DataNode.js';
 import type { DeckerSnapshot } from './archetypes/Decker.js';
-import type { AlarmState } from './World.js';
+import type { AlarmState, TileEffectEntry } from './World.js';
 
 export const RUN_STATE = Object.freeze({
   BRIEFING: 'BRIEFING',
@@ -284,6 +287,8 @@ export type RunEntitySnapshot = {
   /** Phase 2.9 principal theming — omitted for un-aliased entities (player, props). */
   displayName?: string;
   principalTag?: string;
+  /** Uncollected typed salvage on a dead entity. Omitted for ordinary entities and legacy saves. */
+  loot?: { salvage: TypedSalvage };
   /** Opaque per-archetype payload; strict shape owned by the entity module. */
   extra?: EntitySnapshotExtra;
 };
@@ -310,6 +315,13 @@ export type RunSnapshot = {
   objectiveTimer?: ObjectiveTimerSnapshot;
   /** Map memory. Missing in older saves → current LOS only. */
   mapMemory?: MapMemorySnapshot;
+  /**
+   * Timed tile effects — thrown fire and smoke clouds (P3.6). Missing in
+   * pre-3.6 saves → no timers, so any hazard or smoke on that grid stays put.
+   * That's exactly the behaviour those saves were played under (it's the bug
+   * this field exists to fix), so an old save reloads consistent with itself.
+   */
+  tileEffects?: TileEffectEntry[];
   /** Pickup unification: removed objective pickups still count as secured. */
   objectiveProgress?: ObjectiveProgressSnapshot;
   /** P3.M5: Score-only independent extraction latch. */
@@ -426,6 +438,10 @@ export type RunOptions = {
    *  field (the corp can kill it off-screen while the player is in Cyberspace),
    *  so the shell can surface an unconditional "operator down" alert. */
   onPartnerDown?: unknown;
+  /** P3.6 shell presentation — fired when the deployed Decker flatlines on a
+   *  Score that carries on without them (the surviving partner still has the
+   *  payload to walk out), so the shell can surface the loss mid-run. */
+  onDeckerDown?: unknown;
   /** Terrain mutations from a prior visit to this location (P2.5.M7.2), replayed
    *  onto the freshly-built map in `enterCombat`. Empty/omitted for a first visit. */
   priorMutationDeltas?: unknown;
@@ -523,6 +539,9 @@ export class Run {
   onJackOutPresent: (() => void) | null;
   /** P3.M4.4 shell presentation hook — fired with the partner when it flatlines. */
   onPartnerDown: ((partner: Crew) => void) | null;
+  /** P3.6 shell presentation hook — fired with the Decker when it flatlines on
+   *  a Score the surviving partner can still finish. */
+  onDeckerDown: ((decker: Crew | null) => void) | null;
   #pendingJackOut: JackOutRequest | null;
   _busUnsubs: (() => void)[];
 
@@ -539,6 +558,7 @@ export class Run {
     onJackInPresent,
     onJackOutPresent,
     onPartnerDown,
+    onDeckerDown,
     priorMutationDeltas,
     priorKeyItems,
     priorSeenKeys,
@@ -576,6 +596,9 @@ export class Run {
     }
     if (onPartnerDown !== undefined && typeof onPartnerDown !== 'function') {
       throw new TypeError('Run: onPartnerDown must be a function');
+    }
+    if (onDeckerDown !== undefined && typeof onDeckerDown !== 'function') {
+      throw new TypeError('Run: onDeckerDown must be a function');
     }
     if (priorMutationDeltas !== undefined && !Array.isArray(priorMutationDeltas)) {
       throw new TypeError('Run: priorMutationDeltas must be an array when supplied');
@@ -625,6 +648,7 @@ export class Run {
     this.onJackInPresent = (onJackInPresent as (() => void) | undefined) ?? null;
     this.onJackOutPresent = (onJackOutPresent as (() => void) | undefined) ?? null;
     this.onPartnerDown = (onPartnerDown as ((partner: Crew) => void) | undefined) ?? null;
+    this.onDeckerDown = (onDeckerDown as ((decker: Crew | null) => void) | undefined) ?? null;
     this.#pendingJackOut = null;
 
     /** @type {Array<() => void>} active bus subscriptions */
@@ -978,6 +1002,7 @@ export class Run {
       objectiveTimer: { ...this.objectiveTimer },
       mapMemory: { seen: this.mapSeenKeys() },
       objectiveProgress: { securedPickups: world.securedPickupIds() },
+      tileEffects: world.tileEffectsSnapshot(),
       ...(this.extractedOperativeIds.size > 0
         ? {
             extractedOperativeIds: [...this.extractedOperativeIds].sort(),
@@ -1189,6 +1214,60 @@ export class Run {
       }
     }
     this.onPartnerDown?.(partner);
+  }
+
+  /**
+   * P3.6: may this run outlive its Decker? Only the Score can — it is the one
+   * contract whose payload is an object rather than an intrusion, so a meat
+   * partner standing on the grid can still walk it out. Everywhere else the
+   * Decker *is* the run. Requires the partner alive and actually spawned (a
+   * reserved partner that never made it past jack-in cannot finish anything).
+   */
+  #scoreContinuesWithoutDecker(): boolean {
+    if (this.contract?.objective.kind !== OBJECTIVES.SCORE_FINAL) return false;
+    const partner = this.partnerMember;
+    return !!partner && partner.alive && !!this.world?.entities.has(partner.id);
+  }
+
+  /**
+   * P3.6: the Decker just flatlined on a Score that can still be finished.
+   * Resolve the Cyberspace layer at whatever progress it had latched (a core
+   * sliced before the kill still counts — the door it opened stays open), then
+   * hand the grid to the partner so the player is never left driving a corpse
+   * or staring at a dead layer. The shell hook mirrors `onPartnerDown` so an
+   * off-screen flatline still surfaces.
+   */
+  #onDeckerFlatlined({ tearDownLayer }: { tearDownLayer: CyberspaceLayer | null }): void {
+    if (tearDownLayer) {
+      // Latch before teardown — `#cyberObjectiveComplete` reads the live world.
+      const objectiveComplete = this.#cyberObjectiveComplete(tearDownLayer);
+      this.#pendingJackOut = null;
+      tearDownLayer.teardown();
+      this.cyberspace = { phase: 'resolved', objectiveComplete };
+    }
+    const decker = this.player;
+    if (decker) {
+      // Avatar death flatlines the Decker body too (blueprint rule) — the run
+      // only survives this because the *partner* does. Kill the body through
+      // the normal damage path so hp/alive stay consistent for persistence.
+      if (decker.alive) decker.damage(decker.hp);
+      // The body is a corpse, not a frozen operator — unfreeze so nothing
+      // downstream mistakes it for a jacked-in Decker awaiting control.
+      decker.frozen = false;
+    }
+    this.activeLayer = 'meat';
+    this.meatActor = this.partnerMember;
+    this.onDeckerDown?.(decker);
+  }
+
+  /**
+   * P3.6: true when the deployed Decker flatlined but the run carried on (the
+   * Score's surviving-partner path). Mirror of {@link partnerDown} —
+   * `Campaign.onJobEnd` reads it to flatline the Decker for good even though
+   * the run ended on EXIT rather than DEATH.
+   */
+  get deckerDown(): boolean {
+    return !!this.player && !this.player.alive;
   }
 
   /**
@@ -1425,6 +1504,13 @@ export class Run {
     if (!this.player.alive) {
       this.telemetry.hpAtDeath = 0;
       this.telemetry.cause = `neural-shock(${applied})`;
+      // P3.6: the shock landed after `#finalizeJackOut` already tore the layer
+      // down, so there is no layer left to resolve — just hand the grid to the
+      // partner if the Score can still be finished.
+      if (this.#scoreContinuesWithoutDecker()) {
+        this.#onDeckerFlatlined({ tearDownLayer: null });
+        return;
+      }
       this.enterResult({ outcome: OUTCOME.DEATH });
     }
   }
@@ -1758,6 +1844,14 @@ export class Run {
       if (killed) {
         this.telemetry.hpAtDeath = 0;
         this.telemetry.cause = `${attacker?.id ?? 'unknown'}::${source ?? 'unknown'}(${damage})`;
+        // P3.6: black ICE flatlines the Decker — body and all. On the Score,
+        // that is not automatically the end: a live meat partner can still
+        // carry the payload out (a costly win). Everywhere else, and with
+        // nobody left to finish, the run ends as it always has.
+        if (this.#scoreContinuesWithoutDecker()) {
+          this.#onDeckerFlatlined({ tearDownLayer: layer });
+          return;
+        }
         this.enterResult({ outcome: OUTCOME.DEATH });
       }
       return;
@@ -1789,6 +1883,12 @@ export class Run {
       if (killed) {
         this.telemetry.hpAtDeath = 0;
         this.telemetry.cause = `${attacker?.id ?? 'unknown'}::${source ?? 'unknown'}(${damage})`;
+        // P3.6: mirror of the cyber-side rule — the Score outlives its Decker
+        // while a live partner is still on the grid to finish the job.
+        if (this.#scoreContinuesWithoutDecker()) {
+          this.#onDeckerFlatlined({ tearDownLayer: null });
+          return;
+        }
         this.enterResult({ outcome: OUTCOME.DEATH });
       }
       return;
@@ -1934,28 +2034,26 @@ export class Run {
     if (this.player === actor && this.cyberspace?.phase === 'active') {
       throw new Error('Run.#extractScoreOperative: cannot extract a jacked-in Decker body');
     }
-    const required = this.#scoreOperativeIds();
-    if (
-      [this.crewMember, this.partnerMember].some(
-        crew => crew && required.includes(crew.id) && !crew.alive
-      )
-    ) {
-      this.telemetry.cause = 'score-partial';
-      this.enterResult({
-        outcome: OUTCOME.EXIT,
-        telemetry: {
-          objectiveComplete: false,
-          objectiveExpired: false,
-        },
-      });
-      return;
+    // P3.6: the Score ends when everyone who *can* still walk out has. A
+    // casualty no longer voids the job — the payload is secured and the
+    // survivor carried it through the exit, so the objective is complete
+    // either way. What the casualty changes is the *grade*: `score-partial`
+    // is a costly win, not the abandoned-job outcome it used to be conflated
+    // with (that is `exit-reached-objective-incomplete`, handled above).
+    const operatives = [this.crewMember, this.partnerMember].filter(
+      (crew): crew is Crew => !!crew && this.#scoreOperativeIds().includes(crew.id)
+    );
+    const survivors = operatives.filter(crew => crew.alive);
+    if (survivors.length === 0) {
+      throw new Error('Run.#extractScoreOperative: an extraction requires a living operative');
     }
-    const allExtracted = required.every(id => this.extractedOperativeIds.has(id));
-    if (!allExtracted) {
+    if (!survivors.every(crew => this.extractedOperativeIds.has(crew.id))) {
+      // Someone alive is still inside — the run continues.
       if (this.onPersist) this.onPersist(this.snapshot());
       return;
     }
-    this.telemetry.cause = 'score-extracted';
+    const lostAnyone = survivors.length < operatives.length;
+    this.telemetry.cause = lostAnyone ? 'score-partial' : 'score-extracted';
     this.enterResult({
       outcome: OUTCOME.EXIT,
       telemetry: {
@@ -2890,6 +2988,25 @@ function snapshotEntity(entity: Entity): RunEntitySnapshot {
   // keep a byte-stable snapshot and pre-2.9 saves stay unaffected.
   if (entity.displayName !== undefined) base.displayName = entity.displayName;
   if (entity.principalTag !== undefined) base.principalTag = entity.principalTag;
+  const loot = (entity as Entity & { loot?: unknown }).loot;
+  if (loot !== undefined) {
+    if (entity.alive) {
+      throw new Error(`Run.snapshot: live entity ${entity.id} cannot carry corpse loot`);
+    }
+    if (loot === null || typeof loot !== 'object' || Array.isArray(loot)) {
+      throw new TypeError(`Run.snapshot: entity ${entity.id} loot must be a plain object`);
+    }
+    const lootRecord = loot as Record<string, unknown>;
+    if (Object.keys(lootRecord).some(key => key !== 'salvage')) {
+      throw new TypeError(`Run.snapshot: entity ${entity.id} loot has unknown fields`);
+    }
+    base.loot = {
+      salvage: validateSalvage(
+        lootRecord.salvage,
+        `Run.snapshot: entity ${entity.id} loot.salvage`
+      ),
+    };
+  }
   const effects = Object.fromEntries(
     [...entity.effects].filter(([id]) => id !== STATUS_EFFECT.STEALTH)
   );
@@ -3430,15 +3547,53 @@ function findConsumablePickupAnchor(
   return rng.pick(candidates);
 }
 
+export type HazardClusterOptions = {
+  /**
+   * `true` when this cluster is a thrown incendiary rather than map scenery.
+   *
+   * This is not a style flag — the two callers want genuinely opposite things
+   * from the same geometry:
+   *
+   * - **Map generation** (`thrown: false`) stamps scenery around a cast that is
+   *   *already placed* (`enterCombat` spawns hostiles before objectives), so it
+   *   must not disturb anyone: every occupied tile is spared, nothing takes
+   *   damage, and the fire is permanent — a contaminated site stays
+   *   contaminated.
+   * - **A thrown molotov** (`thrown: true`) is an attack. Landing on someone is
+   *   the entire point, so only hazard-immune props spare their tile; everyone
+   *   else is set alight, takes `INCENDIARY_IMPACT_DAMAGE` on the spot, and the
+   *   fire burns out after `INCENDIARY_BURN_TURNS`.
+   */
+  thrown?: boolean;
+  /** Credited as `attacker` on `ENTITY_DAMAGED`. Thrown clusters only. */
+  attacker?: Entity | null;
+};
+
+export type HazardClusterResult = {
+  /** How many tiles actually caught. Zero means the throw hit hard cover. */
+  placed: number;
+  /** Entities hit by the ignition itself. Always empty for scenery. */
+  casualties: { entity: Entity; damage: number; killed: boolean }[];
+};
+
 /**
  * Place a cluster of HAZARD tiles near `center`. Stomps FLOOR tiles only —
- * walls, cover, exit, and tiles occupied by entities are left alone. The
- * cluster is a diamond/cross shape (center + cardinal neighbours) with a
- * random subset of diagonal neighbours, giving an organic 5–9 tile footprint.
+ * walls, cover, exit, and rubble are left alone. The cluster is a diamond/cross
+ * shape (center + cardinal neighbours) with a random subset of diagonal
+ * neighbours, giving an organic 5–9 tile footprint.
+ *
+ * Whether an *occupied* tile catches depends on `options.thrown` — see
+ * {@link HazardClusterOptions}.
  *
  * Exported for testing.
  */
-export function placeHazardCluster(world: World, center: GridPoint, rng: Rng): number {
+export function placeHazardCluster(
+  world: World,
+  center: GridPoint,
+  rng: Rng,
+  options: HazardClusterOptions = {}
+): HazardClusterResult {
+  const thrown = options.thrown === true;
   const candidates: GridPoint[] = [center];
   // Cardinal neighbours (always included when legal)
   for (const [dx, dy] of [
@@ -3461,14 +3616,74 @@ export function placeHazardCluster(world: World, center: GridPoint, rng: Rng): n
     }
   }
   let placed = 0;
+  const ignited: GridPoint[] = [];
   for (const { x, y } of candidates) {
     if (!world.grid.inBounds(x, y)) continue;
-    if (world.grid.tileAt(x, y) !== TILE.FLOOR) continue;
-    if (world.entityAt(x, y)) continue;
-    world.grid.setTile(x, y, TILE.HAZARD);
+    const tile = world.grid.tileAt(x, y) as TileId;
+    // Generated scenery stamps FLOOR only; a thrown bottle takes any ground
+    // fire can hold (FLOOR/RUBBLE/HAZARD — the shared `thrownFireCanTake`, which
+    // `incendiary.ts` also centres on so the two can't drift). EXIT and the rest
+    // are excluded so the extraction tile can never be buried in fire.
+    if (thrown ? !thrownFireCanTake(tile) : tile !== TILE.FLOOR) continue;
+    // Scenery spares anyone standing there; a thrown bomb only spares props
+    // that can't burn anyway (terminals, pickups, sync pads — everything that
+    // overrides `isHazardImmune`). Burying an objective in permanent fire
+    // would make it uninteractable, which no amount of tactical intent
+    // justifies.
+    const occupant = world.entityAt(x, y);
+    if (occupant && (!thrown || occupant.isHazardImmune())) continue;
+    if (thrown) {
+      // A tile already ablaze stays as-is: re-stamping HAZARD would throw on
+      // permanent hazard scenery (`applyTileEffect` refuses an effect equal to
+      // the tile underneath) and only redundantly refresh timed fire. We still
+      // push it to `ignited` below, so a body caught standing in an existing
+      // pool takes the impact hit rather than just the next standing tick.
+      if (tile !== TILE.HAZARD) {
+        // Registers a burn timer — thrown fire always goes out, reverting to
+        // whatever ground (FLOOR or RUBBLE) the registry recorded underneath.
+        world.applyTileEffect(x, y, TILE.HAZARD, INCENDIARY_BURN_TURNS);
+      }
+    } else {
+      // Raw setTile: generated hazard is permanent scenery, so it deliberately
+      // gets no timer and never appears in the tile-effect registry.
+      world.grid.setTile(x, y, TILE.HAZARD);
+    }
+    ignited.push({ x, y });
     placed++;
   }
-  return placed;
+  if (!thrown) return { placed, casualties: [] };
+  return { placed, casualties: burnEntitiesOn(world, ignited, options.attacker ?? null) };
+}
+
+/**
+ * Apply the incendiary's one-off impact damage to everything standing on a
+ * freshly-lit tile. Mirrors `breachBlast`: route through `Entity.damage()` so
+ * shields apply, and emit `ENTITY_DAMAGED` so Run's death-detection listener
+ * resolves kills through the normal path.
+ */
+function burnEntitiesOn(
+  world: World,
+  ignited: readonly GridPoint[],
+  attacker: Entity | null
+): { entity: Entity; damage: number; killed: boolean }[] {
+  const lit = new Set(ignited.map(p => `${p.x},${p.y}`));
+  const casualties: { entity: Entity; damage: number; killed: boolean }[] = [];
+  for (const entity of world.entities.values()) {
+    if (!entity.alive) continue;
+    if (entity.isHazardImmune()) continue;
+    if (!lit.has(`${entity.x},${entity.y}`)) continue;
+    const damage = entity.damage(INCENDIARY_IMPACT_DAMAGE);
+    const killed = !entity.alive;
+    casualties.push({ entity, damage, killed });
+    world.events?.emit(EVENT.ENTITY_DAMAGED, {
+      attacker,
+      target: entity,
+      damage,
+      killed,
+      source: 'incendiary',
+    });
+  }
+  return casualties;
 }
 
 function manhattan(a: GridPoint, b: GridPoint): number {

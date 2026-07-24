@@ -13,6 +13,11 @@
  *   grants a defender hit-modifier (applied in combat).
  * - EXIT: passable, transparent; same walk rules as FLOOR but painted so the
  *   objective tile is visible. `Run` still tracks `exitTile` for transitions.
+ * - HAZARD: fire/contamination. Passable and transparent, but costs extra AP to
+ *   enter and damages whoever ends a turn on it. Two sources with deliberately
+ *   different lifetimes: map-generated pools are permanent scenery, while a
+ *   thrown incendiary registers a burn timer on `World` and goes out (see
+ *   `INCENDIARY_BURN_TURNS`).
  * - RUBBLE: passable debris left by breaching charges; costs more AP to enter.
  */
 export const TILE = Object.freeze({
@@ -103,6 +108,7 @@ export type StatusEffectId = (typeof STATUS_EFFECT)[keyof typeof STATUS_EFFECT];
 export const AP_COST = Object.freeze({
   MOVE: 1,
   ENTER_RUBBLE: 2,
+  ENTER_HAZARD: 2, // picking your way through flame is slow — see moveStepApCost
   RANGED_ATTACK: 2,
   MELEE_ATTACK: 1,
   INTERACT: 1,
@@ -372,6 +378,9 @@ export const FLANKER_BASE_AP = 3;
  * tile at the end of a round (resolved during player aftermath). Same damage
  * as a ranged shot — enough to punish loitering but survivable for a healthy
  * entity.
+ *
+ * This is the *standing* tick only. A thrown incendiary also deals
+ * `INCENDIARY_IMPACT_DAMAGE` once, on the turn it lands.
  */
 export const HAZARD_DAMAGE = 1;
 
@@ -381,11 +390,50 @@ export const BREACH_BLAST_DAMAGE = 2;
 export const BREACHING_CHARGE_GLYPH = 'ø';
 
 /**
- * AP to spend when stepping onto a tile. Rubble uses ENTER_RUBBLE; all other
- * passable destinations use MOVE (including leaving rubble).
+ * AP to spend when stepping onto a tile. Rubble uses ENTER_RUBBLE, hazard uses
+ * ENTER_HAZARD; all other passable destinations use MOVE (including *leaving*
+ * rubble or hazard — the cost is charged on entry only).
+ *
+ * P3.6: hazard's entry cost is what gives fire teeth. With `DEFAULT_AP` of 4
+ * and a 1 AP step, an entity could cross a whole 3-wide incendiary cluster in
+ * a single turn and never be standing on fire when the aftermath tick fires —
+ * i.e. take zero damage. At 2 AP per tile a forced crossing ends the turn
+ * inside the burn, which is the entire point of throwing it.
  */
 export function moveStepApCost(destTile: TileId): number {
-  return destTile === TILE.RUBBLE ? AP_COST.ENTER_RUBBLE : AP_COST.MOVE;
+  switch (destTile) {
+    case TILE.RUBBLE:
+      return AP_COST.ENTER_RUBBLE;
+    case TILE.HAZARD:
+      return AP_COST.ENTER_HAZARD;
+    default:
+      return AP_COST.MOVE;
+  }
+}
+
+/**
+ * Which tiles a *thrown* incendiary can take fire on (P3.6). The single source
+ * of truth shared by `incendiary.ts`'s `canHoldFire` (where the bottle is
+ * allowed to centre) and `placeHazardCluster`'s thrown branch (where fire is
+ * actually stamped). These two MUST agree tile-for-tile: if the ray centres on
+ * a tile the cluster then refuses to light, you get the silent "used the charge,
+ * got nothing" bug the ray-walk exists to prevent — so they call this, not two
+ * hand-synced predicates.
+ *
+ * FLOOR and RUBBLE are open ground fire takes; HAZARD is already burning (a
+ * re-throw refreshes it and, crucially, catches a body standing in the pool).
+ * EXIT is deliberately excluded — burning the extraction tile would make it
+ * uninteractable — as are WALL/COVER (not passable ground) and SMOKE (transient
+ * and not something fire pools on). The tile-effect registry reads the tile
+ * underneath before stamping, so lighting RUBBLE or HAZARD reverts to the right
+ * terrain on burnout; this predicate never has to worry about restoration.
+ *
+ * Generated hazard scenery (`placeHazardCluster` with `thrown: false`) does NOT
+ * use this — it stays FLOOR-only so map generation can't spread permanent fire
+ * across rubble or bury an objective.
+ */
+export function thrownFireCanTake(tile: TileId): boolean {
+  return tile === TILE.FLOOR || tile === TILE.RUBBLE || tile === TILE.HAZARD;
 }
 
 /**
@@ -450,12 +498,39 @@ export const EMP_RADIUS = SMOKE_RADIUS;
 export const EMP_STUN_DURATION = 1;
 /**
  * Incendiary bomb: thrown along an aim direction (dx, dy) selected via
- * `MODE.AIM` with `aimKind: 'use-item'`. The target tile is `thrower + dir *
- * INCENDIARY_THROW_DIST`; LOS from thrower → target must be clear (no lobbing
- * through walls). Hazard cluster shape and size come from `placeHazardCluster`
- * (5–9 tile diamond/cross of `TILE.HAZARD`). Damage per tile: `HAZARD_DAMAGE`.
+ * `MODE.AIM` with `aimKind: 'use-item'`. This is the bottle's *maximum* carry,
+ * not its landing tile — `resolveIncendiaryImpact` (incendiary.ts) walks the
+ * ray and detonates on the first thing that stops it, so a body in the way is
+ * hit at 1 or 2 steps instead of being flown past. Walls stop the bottle
+ * (it lands short); cover is lobbed over. Hazard cluster shape and size come
+ * from `placeHazardCluster` (5–9 tile diamond/cross of `TILE.HAZARD`), centred
+ * on the impact. Damage per standing tick: `HAZARD_DAMAGE`.
  */
 export const INCENDIARY_THROW_DIST = 3;
+/**
+ * Damage dealt once, immediately, to every non-hazard-immune entity standing
+ * on a tile the incendiary ignites. Distinct from `HAZARD_DAMAGE` (the
+ * per-turn standing tick) — this is the bomb going off, not the fire burning.
+ *
+ * Tuning: at 2, a direct hit plus a single standing tick kills a `DEFAULT_HP`
+ * (3) drone. That's the intended payoff for 40 salvage and an item slot — but
+ * only if the drone can't just walk away for free, hence `ENTER_HAZARD`.
+ */
+export const INCENDIARY_IMPACT_DAMAGE = 2;
+/**
+ * Turns a thrown incendiary's fire burns before the tile reverts to FLOOR.
+ *
+ * Only *thrown* fire expires. Hazard placed by map generation (the "gassed
+ * clinic" contract flavor) is permanent scenery and is never registered with
+ * a burn timer — a contaminated site stays contaminated.
+ */
+export const INCENDIARY_BURN_TURNS = 3;
+/**
+ * Rounds a smoke cloud lasts. One round means: thrown on your turn, it blinds
+ * drones through the corp turn that immediately follows, and is gone before you
+ * act again — which is exactly the window it's bought for.
+ */
+export const SMOKE_DURATION = 1;
 /** Breaching charges are placed against an adjacent tile/entity. */
 export const BREACHING_CHARGE_RANGE = 1;
 export const TARGETING_BONUS = 0.1;

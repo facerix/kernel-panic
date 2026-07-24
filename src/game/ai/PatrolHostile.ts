@@ -26,7 +26,7 @@
  */
 
 import { Hostile, type HostileInit } from '../Hostile.js';
-import { AP_COST, FACTION, SIGHT_RANGE, moveStepApCost } from '../constants.js';
+import { AP_COST, FACTION, SIGHT_RANGE, TILE, moveStepApCost } from '../constants.js';
 import type { FactionId, TileId } from '../constants.js';
 import { findPath } from '../Pathfinding.js';
 import { withinRange } from '../LineOfSight.js';
@@ -324,6 +324,12 @@ export abstract class PatrolHostile extends Hostile {
    * Step one tile along an A* path toward `(gx, gy)`. Returns the move step on
    * success, or `null` when there's no path / not enough AP / the move is
    * illegal. `protected` so subclass engage logic can close distance.
+   *
+   * Paths twice: once with every hazard tile treated as blocked, and — only if
+   * that finds nothing at all — once without the restriction. So fire reads as
+   * a wall the AI respects, while never becoming a *real* wall: a hostile
+   * sealed in by flame still comes for you, it just has to walk through the
+   * burn to do it (and `moveStepApCost` makes sure that costs it).
    */
   protected stepToward(
     world: World,
@@ -331,7 +337,7 @@ export abstract class PatrolHostile extends Hostile {
     gy: number,
     kind: PatrolHostileMoveKind
   ): PatrolHostileMoveStep | null {
-    const path = findPath(world, { x: this.x, y: this.y }, { x: gx, y: gy });
+    const path = this.#pathAvoidingHazard(world, gx, gy);
     if (!path || path.length === 0) return null;
     const next = path[0];
     const stepCost = moveStepApCost(world.grid.tileAt(next.x, next.y) as TileId);
@@ -343,4 +349,48 @@ export abstract class PatrolHostile extends Hostile {
     world.moveEntity(this, dx, dy);
     return { type: `move-${kind}`, to: { x: this.x, y: this.y } } satisfies PatrolHostileMoveStep;
   }
+
+  /**
+   * Prefer a route that never touches fire; fall back to the direct route when
+   * no fire-free route exists at all.
+   *
+   * Deliberately *not* implemented by weighting A* or by making HAZARD
+   * impassable in `Grid.isPassable`. `findPath` is load-bearing for map
+   * generation and for the exit-reachability soft-lock check in `Run` — a
+   * player throwing a molotov must never be able to convince the game that the
+   * exit is unreachable. Keeping the avoidance here, at the one AI call site,
+   * means fire changes how hostiles *choose* to move without changing what the
+   * map believes is connected.
+   *
+   * The fallback is keyed on "no safe path exists", not "no safe path within
+   * this turn's AP" — `stepToward` paths the whole route and takes one step, so
+   * a hostile will happily walk the long way round over several turns rather
+   * than sprint through flame the moment the detour exceeds one turn's budget.
+   */
+  #pathAvoidingHazard(world: World, gx: number, gy: number): GridPoint[] | null {
+    const start = { x: this.x, y: this.y };
+    const goal = { x: gx, y: gy };
+    const burning = hazardKeys(world);
+    if (burning.size > 0) {
+      const safe = findPath(world, start, goal, { extraBlockers: burning });
+      if (safe && safe.length > 0) return safe;
+    }
+    return findPath(world, start, goal);
+  }
+}
+
+/**
+ * Coordinate keys of every hazard tile on the grid. Recomputed per call — fire
+ * changes between turns (thrown, burned out), and `findPath` already scans the
+ * grid, so caching would buy little for the extra staleness risk.
+ */
+function hazardKeys(world: World): Set<string> {
+  const keys = new Set<string>();
+  const { width, height } = world.grid;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (world.grid.tileAt(x, y) === TILE.HAZARD) keys.add(`${x},${y}`);
+    }
+  }
+  return keys;
 }

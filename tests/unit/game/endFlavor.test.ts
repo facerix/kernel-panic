@@ -9,6 +9,7 @@ import {
   PARTIAL_BANNERS,
   PARTIAL_REASONS,
   PARTIAL_DETAILS,
+  PARTIAL_REWARD_KICKERS,
   LOSS_FLAVOR,
   pickFlavor,
   selectEndFlavor,
@@ -24,6 +25,7 @@ const PROSE_POOLS = [
   PARTIAL_BANNERS,
   PARTIAL_REASONS,
   PARTIAL_DETAILS,
+  PARTIAL_REWARD_KICKERS,
   ...Object.values(LOSS_FLAVOR).flatMap(pool => [pool.banners, pool.reasons, pool.details]),
 ];
 
@@ -91,12 +93,33 @@ test('selectEndFlavor draws win copy from the win pools, with a loot kicker', ()
   );
 });
 
-test('selectEndFlavor draws partial copy from the partial pools, no loot kicker', () => {
+// P3.6: a partial Score is a *costly win* — it still steals the blueprint, so
+// it still earns a loot kicker, drawn from its own bereaved pool rather than
+// the clean-win one.
+test('selectEndFlavor draws partial copy from the partial pools, with its own loot kicker', () => {
   const flavor = selectEndFlavor(summary({ result: 'partial', endReason: 'score-partial' }));
   assert.ok(PARTIAL_BANNERS.includes(flavor.banner as (typeof PARTIAL_BANNERS)[number]));
   assert.ok(PARTIAL_REASONS.includes(flavor.reason as (typeof PARTIAL_REASONS)[number]));
   assert.ok(PARTIAL_DETAILS.includes(flavor.detail as (typeof PARTIAL_DETAILS)[number]));
-  assert.equal(flavor.rewardKicker, undefined);
+  assert.ok(
+    PARTIAL_REWARD_KICKERS.includes(flavor.rewardKicker as (typeof PARTIAL_REWARD_KICKERS)[number])
+  );
+  assert.equal(
+    WIN_REWARD_KICKERS.includes(flavor.rewardKicker as (typeof WIN_REWARD_KICKERS)[number]),
+    false,
+    'a costly win must not borrow the clean-win kicker'
+  );
+});
+
+test('selectEndFlavor gives an aborted Score its own empty-handed copy', () => {
+  const pool = LOSS_FLAVOR['score-aborted'];
+  for (let seed = 0; seed < 40; seed++) {
+    const flavor = selectEndFlavor(summary({ result: 'loss', endReason: 'score-aborted', seed }));
+    assert.ok(pool.banners.includes(flavor.banner), `seed ${seed} banner`);
+    assert.ok(pool.reasons.includes(flavor.reason), `seed ${seed} reason`);
+    assert.ok(pool.details.includes(flavor.detail), `seed ${seed} detail`);
+    assert.equal(flavor.rewardKicker, undefined, 'nothing was secured — no loot line');
+  }
 });
 
 test('selectEndFlavor keeps losses cause-aware so banners never cross pools', () => {

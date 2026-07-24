@@ -2,11 +2,12 @@
 // Increment shellEpoch only when the new app shell cannot safely coexist with
 // the previous worker (for example, removed or renamed runtime modules).
 self.KernelPanicRelease = Object.freeze({
-  version: '0.3.5',
+  version: '0.3.6',
   shellEpoch: 2,
-  title: 'Rolled crew stats & archetype unlocks',
+  title: 'Visual effects, Sound, and Quality-of-life improvements',
   highlights: Object.freeze([
-    'Crew stats are now rolled, not picked — every operator has a distinct hit/dodge profile.',
-    '3 new crew classes: Berserk, Adept, and Chimera; unlock one with a clean Score.',
+    'Improved visual effects throughout the game.',
+    'Ambient music and sound effects!',
+    'Improvements to the crew-management and Finn shop flows.',
   ]),
 });

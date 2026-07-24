@@ -366,8 +366,13 @@ class GameOver extends HTMLElement {
     this.#els.banner.textContent = flavor.banner;
     this.#els.reason.textContent = flavor.reason;
     this.#els.detail.textContent = flavor.detail;
-    // Score prize — present on a win that stole a specific blueprint.
-    const reward = summary.result === 'win' ? (summary.scoreReward ?? null) : null;
+    // Score prize — present on any Score that stole a specific blueprint. P3.6:
+    // that now includes a costly (`partial`) win, where the payload got out but
+    // an operator did not; the kicker copy carries the difference in tone.
+    const reward =
+      summary.result === 'win' || summary.result === 'partial'
+        ? (summary.scoreReward ?? null)
+        : null;
     if (reward && flavor.rewardKicker) {
       this.#els.rewardKicker.textContent = flavor.rewardKicker;
       this.#els.rewardName.textContent = reward.label;

@@ -11,6 +11,11 @@ import type {
 import { Campaign, CAMPAIGN_STATE, willEndCampaignAfterResult } from '/src/game/Campaign.js';
 import { buildCampaignSummary } from '/src/game/campaignSummary.js';
 import { totalSalvage, formatSalvageCompact } from '/src/game/salvage.js';
+import {
+  collectConsumablePickup,
+  collectKeycardPickup,
+  collectCorpseSalvage,
+} from '/src/game/lootCollection.js';
 import { RUN_STATE, Run } from '/src/game/Run.js';
 import { restoreCampaign, snapshotCampaign } from '/src/game/persistence.js';
 import { runCorpTurn as driveCorpTurn } from '/src/game/corpTurnDriver.js';
@@ -43,6 +48,7 @@ import { CrtFilter } from '/src/render/CrtFilter.js';
 import {
   ANIMATION_DURATIONS,
   createAnimationLock,
+  runIncendiaryImpactFlash,
   runInteractSecuredFlash,
   triggerHealFlash,
   triggerShake,
@@ -53,10 +59,10 @@ import { AIM_KIND, MODE } from '/src/input/keymap.js';
 import { applyIntent, PLAYER_ACTIONS } from '/src/input/applyIntent.js';
 import { recordStatusActionLine } from '/src/statusActivityRows.js';
 
-import { placeSmoke, clearSmoke } from '/src/game/Smoke.js';
+import { placeSmoke } from '/src/game/Smoke.js';
 import { placeHazardCluster } from '/src/game/Run.js';
 import { blastCells } from '/src/game/breachBlast.js';
-import { hasLineOfSight } from '/src/game/LineOfSight.js';
+import { resolveIncendiaryImpact } from '/src/game/incendiary.js';
 import { ITEM_ID, SCOREABLE_ITEMS, getItemById } from '/src/game/items.js';
 import type { CampaignSnapshot } from '/src/game/persistence.js';
 import type { Contract } from '/src/game/hub/Curator.js';
@@ -114,6 +120,14 @@ import {
   stateLabelForSceneState,
 } from '/src/shell/statusLine.js';
 import { applyMeatSeenRecord, syncVisionFields } from '/src/shell/visionSync.js';
+import { audioManager, musicDirector } from '/src/audio/soundBoard.js';
+import { EXTRACTION_MOTIF, TRANSACTION_MOTIF } from '/src/audio/sounds.js';
+import {
+  HUB_PALETTE,
+  HUB_TENSION,
+  paletteForRun,
+  tensionForAlarmPhase,
+} from '/src/shell/musicScore.js';
 import type {
   ChronicleArchiveElement,
   ClinicModalElement,
@@ -132,6 +146,7 @@ import type {
   KeyHelpElement,
   KeyItemView,
   RunBriefingElement,
+  SettingsModalElement,
   SystemStartElement,
   TouchPadElement,
   UpdateNotificationElement,
@@ -139,7 +154,6 @@ import type {
 
 import KeyHelp from '/components/KeyHelp.js';
 
-type SmokeOverlay = ReturnType<typeof placeSmoke>[number];
 type PointLike = Pick<Entity, 'x' | 'y'> | { x: number; y: number } | null | undefined;
 type HelpScope = import('/src/shell/domTypes.js').HelpScope;
 
@@ -206,6 +220,7 @@ let touchPadEl: TouchPadElement;
 let crewRosterEl: CrewRosterElement;
 let finnShopEl: FinnShopElement;
 let clinicModalEl: ClinicModalElement;
+let settingsModalEl: SettingsModalElement;
 let combatInventoryEl: CombatInventoryElement;
 let crewInventoryEl: CrewInventoryElement;
 let chronicleArchiveEl: ChronicleArchiveElement;
@@ -246,12 +261,6 @@ function scheduleCombatPump(fn: () => void, ms: number): void {
     fn();
   }, ms);
 }
-/**
- * Active smoke overlays from Smoke Charge consumables. Each entry records
- * the tile position and original tile type so `clearSmoke` can restore the
- * grid. Cleared at the start of the player's next turn (`onPlayerTurnReady`).
- */
-let activeSmokeOverlays: SmokeOverlay[] = [];
 /** Hazard-glyph blast flash — cleared on a short timer after each detonation. */
 let activeBreachBlastOverlayKeys = new Set<string>();
 let breachBlastOverlayTimer: ReturnType<typeof setTimeout> | null = null;
@@ -400,6 +409,7 @@ export async function boot() {
   crewRosterEl = mustGetElement<CrewRosterElement>('crew-roster');
   finnShopEl = mustGetElement<FinnShopElement>('finn-shop');
   clinicModalEl = mustGetElement<ClinicModalElement>('clinic-modal');
+  settingsModalEl = mustGetElement<SettingsModalElement>('settings-modal');
   combatInventoryEl = mustGetElement<CombatInventoryElement>('combat-inventory');
   crewInventoryEl = mustGetElement<CrewInventoryElement>('crew-inventory');
   chronicleArchiveEl = mustGetElement<ChronicleArchiveElement>('chronicle-archive');
@@ -435,6 +445,48 @@ export async function boot() {
   // panel is open keeps both behaviours clean.
   window.addEventListener('keydown', handleGlobalKey, true);
 
+  // Web Audio can't produce sound until a context is created/resumed after a
+  // user gesture. Resume on the first keydown or pointerdown, then unsubscribe —
+  // this covers every entry path (new campaign, resume, keyboard-only, touch).
+  const resumeAudio = () => {
+    audioManager.resume();
+    // The scene is usually already up by the time the player touches anything,
+    // and scene transitions before this point started a director that had no
+    // audio clock to schedule against. Re-sync now that one exists.
+    syncMusicToScene();
+    window.removeEventListener('keydown', resumeAudio, true);
+    window.removeEventListener('pointerdown', resumeAudio, true);
+  };
+  window.addEventListener('keydown', resumeAudio, true);
+  window.addEventListener('pointerdown', resumeAudio, true);
+
+  // Pause the score whenever the game loses the player's attention. Both event
+  // families are needed, because neither covers the other:
+  //   - `visibilitychange` fires when the tab is switched away or minimized, but
+  //     NOT when the player alt-tabs to another application (the tab stays
+  //     "visible" — it is simply behind another window).
+  //   - window `blur`/`focus` catch that case, but do not fire reliably on tab
+  //     switches in every browser.
+  // `document.hasFocus()` is the reconciling read: it is false in both cases.
+  //
+  // SFX are deliberately left alone. They only fire in response to the player's
+  // own actions, so an unattended tab produces none anyway — and silencing the
+  // master gain would also mute the audio the player *does* trigger on return.
+  const syncMusicToFocus = () => {
+    const attended = document.visibilityState === 'visible' && document.hasFocus();
+    audioManager.setMusicSuspended(!attended);
+    if (attended) {
+      // Re-derives palette/tension and restarts the director, whose beat clock
+      // re-anchors to now rather than backfilling the time spent away.
+      syncMusicToScene();
+    } else {
+      musicDirector.stop();
+    }
+  };
+  window.addEventListener('blur', syncMusicToFocus);
+  window.addEventListener('focus', syncMusicToFocus);
+  document.addEventListener('visibilitychange', syncMusicToFocus);
+
   contractSelectEl.addEventListener('contract-selected', onContractSelected);
   contractSelectEl.addEventListener('dismiss', () => contractSelectEl.hide());
   briefingEl.addEventListener('deploy', onBriefingDeploy);
@@ -456,12 +508,19 @@ export async function boot() {
   clinicModalEl.addEventListener('heal', onClinicHeal);
   clinicModalEl.addEventListener('dismiss', onClinicDismiss);
 
+  settingsModalEl.addEventListener('dismiss', () => settingsModalEl.hide());
+
   combatInventoryEl.addEventListener('use-item', onUseItem);
   combatInventoryEl.addEventListener('dismiss', () => combatInventoryEl.hide());
   crewInventoryEl.addEventListener('dismiss', () => crewInventoryEl.hide());
   chronicleArchiveEl.addEventListener('dismiss', () => chronicleArchiveEl.hide());
 
   keyHelpEl.addEventListener('dismiss', () => keyHelpEl.hide());
+
+  const settingsToggleEl = document.getElementById('settings-toggle');
+  if (settingsToggleEl) {
+    settingsToggleEl.addEventListener('click', () => toggleSettingsModal());
+  }
 
   const keyHelpToggleEl = document.getElementById('key-help-toggle');
   if (keyHelpToggleEl) {
@@ -473,6 +532,39 @@ export async function boot() {
       tryShowKeyHelpOverlay();
     });
   }
+  // UI click feedback (P3.6): one observer plays `uiClick` whenever any of the
+  // interactive modals toggles its `open` attribute — open or close, however it
+  // was triggered (button, key, backdrop, Esc). Flow/state screens (crash,
+  // game-over, fault, system-start) and the native confirm <dialog> are
+  // excluded — they aren't user-toggled panels.
+  const uiClickModals: HTMLElement[] = [
+    contractSelectEl,
+    briefingEl,
+    crewRosterEl,
+    finnShopEl,
+    clinicModalEl,
+    settingsModalEl,
+    combatInventoryEl,
+    crewInventoryEl,
+    chronicleArchiveEl,
+    keyHelpEl,
+  ];
+  const modalOpenState = new WeakMap<HTMLElement, boolean>();
+  for (const el of uiClickModals) modalOpenState.set(el, el.hasAttribute('open'));
+  const uiClickObserver = new MutationObserver(records => {
+    for (const rec of records) {
+      const el = rec.target as HTMLElement;
+      const open = el.hasAttribute('open');
+      // Dedupe: a same-value setAttribute still queues a record.
+      if (modalOpenState.get(el) === open) continue;
+      modalOpenState.set(el, open);
+      audioManager.play(open ? 'modalOpen' : 'modalClosed');
+    }
+  });
+  for (const el of uiClickModals) {
+    uiClickObserver.observe(el, { attributes: true, attributeFilter: ['open'] });
+  }
+
   confirmationModalEl.addEventListener('confirm', evt => {
     const detail = (evt as CustomEvent<{ context?: string }>).detail;
     switch (detail?.context) {
@@ -644,7 +736,6 @@ function abortShellForFault(): void {
   corpToneActivityBody = null;
   clearBreachBlastOverlay(false);
   resetInputModes();
-  activeSmokeOverlays = [];
   civilianHarmsThisJob = 0;
 }
 
@@ -940,6 +1031,10 @@ function onClinicHeal(evt: Event) {
   }
   const label = member?.callsign ?? memberId;
   flash(`PATCH: ${label} patched up. CREDS ${campaign.credits}.`);
+  // Same `heal` cue as Stim and the Chimera's Nanite Repair — the hub has no
+  // Run/bus to route through, so this is a direct call like the rest of this
+  // function's effects.
+  audioManager.play('heal');
   presentClinic();
 }
 
@@ -962,6 +1057,9 @@ function onFinnPurchase(evt: Event) {
     return;
   }
   flash(`FINN: Purchased ${itemId}. CREDS ${campaign.credits}.`);
+  // Same `transaction` cha-ching for buy and sell — the hub has no Run/bus to
+  // route through, so this is a direct call like the Clinic's `heal` cue.
+  audioManager.playSequence('transaction', TRANSACTION_MOTIF);
   // Refresh the shop to reflect new balance and purchased meta upgrades.
   presentFinnShop();
 }
@@ -981,6 +1079,8 @@ function onFinnSellSalvage(evt: Event) {
     flash(`SALE FAILED: ${errorMessage(err)}`);
     return;
   }
+  // Same `transaction` cha-ching as onFinnPurchase (see comment there).
+  audioManager.playSequence('transaction', TRANSACTION_MOTIF);
   presentFinnShop();
 }
 
@@ -1114,11 +1214,13 @@ function applyUseConsumableResult(
     flash(
       `Used STIM — healed ${healed} HP (now ${operator.hp}/${operator.maxHp}). ${operator.ap} AP left.`
     );
-    // Same green heal pulse as the Chimera's Nanite Repair — shared "HP
-    // restored" beat, direct trigger since useConsumable doesn't route
-    // through the bus (see pulseSecuredInteractable for the same shape).
+    // Same green heal pulse — and the same `heal` cue — as the Chimera's
+    // Nanite Repair: shared "HP restored" beat, direct triggers since
+    // useConsumable doesn't route through the bus (see
+    // pulseSecuredInteractable for the same shape).
     triggerHealFlash(stageEl);
     animLock.push(ANIMATION_DURATIONS.HEAL_FLASH);
+    audioManager.play('heal');
     return;
   }
   if (result.type === 'smoke') {
@@ -1126,29 +1228,68 @@ function applyUseConsumableResult(
     if (!Number.isInteger(cx) || !Number.isInteger(cy) || !Number.isInteger(radius)) {
       throw new Error('[shell] smoke consumable returned invalid placement data');
     }
-    const overlays = placeSmoke(run.world.grid, cx, cy, radius);
-    activeSmokeOverlays.push(...overlays);
+    // Lifetime is World's — `tickTileEffects` clears the cloud at the round
+    // boundary, so there's no shell-side overlay list to keep in sync (and
+    // none to be lost across a save).
+    placeSmoke(run.world, cx, cy, radius);
     recomputeVision();
     flash(`Used SMOKE CHARGE — LOS blocked in radius ${radius}. ${operator.ap} AP left.`);
     return;
   }
   if (result.type === 'incendiary') {
-    const { cx, cy } = result as { cx: number; cy: number };
-    if (!Number.isInteger(cx) || !Number.isInteger(cy)) {
-      throw new Error('[shell] incendiary consumable returned invalid placement data');
+    const { dx, dy } = result as { dx: number; dy: number };
+    // Crew reports the aim; the ray is resolved here because it needs World
+    // (P3.6). Resolving it a second time after the pre-check in
+    // `resolveAimedUseItem` is deliberate and cheap: the function is pure over
+    // grid + entity state, `useConsumable` only touches the operator's AP and
+    // inventory in between, and both calls run in one synchronous tick — so
+    // they cannot disagree. Same shape as the breaching charge's
+    // `canPlaceBreachingCharge` → `placeBreachingCharge` pair.
+    const impact = resolveIncendiaryImpact(run.world, operator, { dx, dy }, INCENDIARY_THROW_DIST);
+    if (!impact) {
+      // Unreachable: the pre-check refuses this before any AP is spent. If it
+      // fires, the two call sites have drifted apart and the player has just
+      // silently eaten a charge — crash loud rather than swallow it.
+      throw new Error(
+        `[shell] incendiary resolved to no impact after the pre-check passed (aim ${dx},${dy})`
+      );
     }
-    // `placeHazardCluster` only stamps onto FLOOR tiles inside bounds — if
-    // the target is on/past the map edge or buried in a wall, the cluster
-    // simply finds zero candidates and stamps nothing. We've already paid
-    // AP and consumed the charge in Crew.useConsumable; the LOS pre-check
-    // in `resolveAimedUseItem` is what protects the player from "throw
-    // through a wall and lose your bomb."
-    const stamped = placeHazardCluster(run.world, { x: cx, y: cy }, run.rng);
-    if (stamped === 0) {
-      flash(`Used MOLOTOV — landed on hard cover; no fire took. ${operator.ap} AP left.`);
+    // The impact tile is always FLOOR or a body standing on something, so the
+    // cluster has somewhere to take. `placed === 0` is still reachable — a body
+    // caught it while standing on rubble, or on the map edge with every
+    // neighbour a wall — so the dry-throw copy stays.
+    const { placed, casualties } = placeHazardCluster(run.world, impact, run.rng, {
+      thrown: true,
+      attacker: operator,
+    });
+    // Ignition burst on the impact tile, before the fire is drawn under it.
+    // Fires whatever the throw hit, so a dry throw still reads as a throw.
+    const burst = runIncendiaryImpactFlash(renderer, paint, impact.x, impact.y);
+    if (burst) animLock.push(ANIMATION_DURATIONS.INCENDIARY_IMPACT_FLASH);
+    // The impact burst is unconditional (a throw reads as a throw), but the
+    // `fire` sound tracks actual ignition — a dry throw that takes nowhere stays
+    // silent rather than crackling with no fire on the ground.
+    if (placed > 0) audioManager.play('fire');
+    const caught = casualties.length;
+    const downed = casualties.filter(c => c.killed).length;
+    const hit = caught === 0 ? '' : ` ${caught} caught${downed > 0 ? `, ${downed} DOWN` : ''}.`;
+    if (placed === 0) {
+      flash(`Used MOLOTOV — nothing there would take. ${operator.ap} AP left.`);
     } else {
+      // Only claim "square on" when the body it hit actually burned. A body
+      // caught on the one unburnable-but-standable tile (EXIT) is the impact
+      // point yet takes no impact damage, so it is not in `casualties` — without
+      // this guard the flash would read "Caught X square on. 0 caught." and lie.
+      const struckBody =
+        impact.intercepted && casualties.some(c => c.entity === impact.intercepted)
+          ? impact.intercepted
+          : null;
+      const short = struckBody
+        ? ` Caught ${resolveEntityLabel(struckBody.id, run.world.entities)} square on.`
+        : '';
       flash(
-        `Used MOLOTOV — ${stamped} tile${stamped === 1 ? '' : 's'} ignited. ${operator.ap} AP left.`
+        `Used MOLOTOV — ${placed} tile${placed === 1 ? '' : 's'} ignited.${short}${hit} ` +
+          `${operator.ap} AP left.`
       );
     }
     recomputeVision();
@@ -1196,20 +1337,14 @@ function resolveAimedUseItem(aim: { dx: number; dy: number }, run: Run): void {
   }
   pendingAimItemId = null;
   if (itemId === ITEM_ID.MOLOTOV) {
-    // LOS-clear-target pre-check: the throw lands at
-    // `player + dir * INCENDIARY_THROW_DIST`. If LOS from the thrower to
-    // that tile is blocked (or the tile is out of bounds), refuse the
-    // throw *before* spending AP / consuming the bomb.
-    const cx = operator.x + aim.dx * INCENDIARY_THROW_DIST;
-    const cy = operator.y + aim.dy * INCENDIARY_THROW_DIST;
-    if (!run.world.grid.inBounds(cx, cy)) {
-      flash('USE FAILED: target is off the map.');
-      paint();
-      return;
-    }
-    const blockers = run.world.blockerKeys();
-    if (!hasLineOfSight(run.world.grid, operator.x, operator.y, cx, cy, { blockers })) {
-      flash('USE FAILED: target is behind cover.');
+    // P3.6: a molotov no longer refuses on geometry — it flies until something
+    // stops it and burns there, walls and cover included. The one case left
+    // with no answer is a ray that never crosses ground fire can take (facing
+    // an adjacent wall, or throwing off the map edge). Refuse that *before*
+    // `useConsumable` spends the AP and the charge; Rylee's call is that this
+    // stays a refusal rather than smashing the bottle at your own feet.
+    if (!resolveIncendiaryImpact(run.world, operator, aim, INCENDIARY_THROW_DIST)) {
+      flash('USE FAILED: no clear ground to throw at.');
       paint();
       return;
     }
@@ -1343,6 +1478,15 @@ function pendingResultEndsCampaign(result: PendingJobResult): boolean {
 
 function handleResult({ outcome, telemetry }: RunResult) {
   if (degrading) return;
+  // The terminal sting, fired once on the live transition into RESULT (this is
+  // the onResult callback — the save-resume path calls pushPendingJobResultOverlay
+  // directly, so a reload never re-plays it). Death flatlines; a clean exit gets
+  // the rising extraction motif.
+  if (outcome === 'death') {
+    audioManager.play('flatline');
+  } else if (outcome === 'exit') {
+    audioManager.playSequence('extracted', EXTRACTION_MOTIF);
+  }
   pushPendingJobResultOverlay({
     ...telemetry,
     outcome: telemetry?.outcome ?? outcome,
@@ -1390,7 +1534,9 @@ function wireRunConfirmations(run: Run): void {
     confirmationModalEl.showModal(jackOutConfirmationCopy(request), 'jack-out-early');
   };
   run.onJackInPresent = () => {
-    sceneListenerController.rewire();
+    // Via the shared helper (not `rewire()` directly) so the score switches to
+    // the cyber palette as the grid comes up.
+    rewireSceneListeners();
     recomputeVision();
     flash('LINK ESTABLISHED — entering // THE GRID //.');
     paint();
@@ -1405,6 +1551,16 @@ function wireRunConfirmations(run: Run): void {
     recomputeVision();
     paint();
     flash(`⚠ OPERATOR DOWN — ${who} flatlined. Your meat cover is gone.`);
+  };
+  run.onDeckerDown = decker => {
+    // P3.6: on the Score, losing the Decker no longer ends the run — the
+    // partner still has a payload to walk out. The model has already resolved
+    // the dead layer and handed the grid back, so mirror the partner alert and
+    // repaint onto the surviving operator.
+    const who = decker?.callsign ?? decker?.id ?? 'The Decker';
+    recomputeVision();
+    paint();
+    flash(`⚠ DECKER FLATLINED — ${who} is gone. Finish it and get out.`);
   };
 }
 
@@ -1760,7 +1916,7 @@ export function handleIntent(intent: Intent): void {
         ...(kc.principalId ? { principalId: kc.principalId } : {}),
       });
     },
-    onSecuredInteract: handleSecuredInteract,
+    onSecuredInteract: (entity, opts) => handleSecuredInteract(run as Run, entity, opts),
     onPlayerAction: (actionName: string) => {
       switch (actionName) {
         case PLAYER_ACTIONS.INVENTORY:
@@ -1882,6 +2038,7 @@ function driveCombatTurnPipeline(run: Run, options: { resumeFromCorpSlice?: bool
         cyberLayer.world.entities.has(step.entity.id);
       if (step.type === 'breach-detonate' && !jacked) {
         showBreachBlastOverlay(step.charge.x, step.charge.y);
+        audioManager.play('explosion');
         if (scene?.player && vision.isVisible(step.charge.x, step.charge.y)) {
           triggerShake(stageEl);
           animLock.push(ANIMATION_DURATIONS.SHAKE);
@@ -1918,12 +2075,9 @@ function driveCombatTurnPipeline(run: Run, options: { resumeFromCorpSlice?: bool
     },
     onPlayerTurnReady: () => {
       if (degrading) return;
-      // Clear any smoke from last turn before the player acts.
-      if (activeSmokeOverlays.length > 0) {
-        clearSmoke(world.grid, activeSmokeOverlays);
-        activeSmokeOverlays = [];
-      }
-      // Stealth & vision may both have changed during the corp turn.
+      // Expired smoke/fire has already been cleared by `tickTileEffects` inside
+      // advanceFromPlayerTurn — vision recompute below picks up the sightlines
+      // that just reopened. Stealth may also have changed during the corp turn.
       recomputeVision();
       paint();
     },
@@ -2185,10 +2339,21 @@ function pulseSecuredInteractable(entity: Entity): boolean {
 }
 
 function handleSecuredInteract(
+  run: Run,
   entity: Interactable,
   { apExhausted }: { apExhausted: boolean }
 ): void {
   const fired = pulseSecuredInteractable(entity);
+  // Multi-step objectives (dual-site, escort) fire this on an interim beat —
+  // a sync pad touched or the escort contact linked — that doesn't finish the
+  // objective yet. `secured` is reserved for the full completion `paint()`
+  // detects below; here we play the smaller `checkpoint` cue instead, and
+  // only when this interaction didn't just complete the objective outright
+  // (single-target objectives resolve on this same interact, so they get
+  // `secured` alone via `paint()` — no `checkpoint` first).
+  if (fired && !run.isObjectiveSatisfied()) {
+    audioManager.play('checkpoint');
+  }
   if (!apExhausted) return;
   if (fired) {
     scheduleCombatPump(() => concludeOperatorTurn(), ANIMATION_DURATIONS.INTERACT_SECURED_FLASH);
@@ -2207,39 +2372,16 @@ function handleCombatInteract(): void {
   const world = activeWorldOf(run);
   const player = activeActorOf(run);
   if (!world || !player) throw new Error('[shell] combat interact requires an active world/actor');
-  // Corpse looting needs pockets — the avatar (no inventory) skips straight
-  // to interactables. ICE leaves no salvage in this slice.
+  // Field looting needs pockets — the avatar (no inventory) skips straight to
+  // interactables. ICE leaves no salvage in this slice.
   const inventory = 'inventory' in player ? (player as Crew).inventory : null;
   if (!isCyberView(run) && !inventory) {
     throw new Error('[shell] combat player inventory is not initialised');
   }
-  if (inventory) {
-    // Scan the 8 neighbours plus the player's own tile for lootable corpses.
-    for (let dy = -1; dy <= 1; dy++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        const tx = player.x + dx;
-        const ty = player.y + dy;
-        const entity = world.lootableCorpseAt(tx, ty);
-        if (entity && !entity.alive && entity.loot && totalSalvage(entity.loot.salvage) > 0) {
-          if (!player.canAfford(AP_COST.INTERACT)) {
-            flash('Insufficient AP to loot.');
-            return;
-          }
-          // Typed salvage — show pickup total + post-pickup compact wallet.
-          const amount = totalSalvage(entity.loot.salvage);
-          (player as Crew).collectSalvage(world, entity);
-          activeVisionField(run).forgetCorpse(entity);
-          flash(
-            `Salvaged +${amount} — carrying ${formatSalvageCompact(inventory.salvage)}. ${player.ap} AP left.`
-          );
-          paint();
-          concludeOperatorTurn();
-          return;
-        }
-      }
-    }
-  }
 
+  // Priority 1: a secured / objective interactable. Objective *retrieve* pickups
+  // are Interactables (`Pickup.interact`) and resolve here too, so they outrank
+  // field loot per the interact priority.
   const interactable = world.adjacentInteractables(player)[0];
   if (interactable) {
     const result = interactable.interact(world, player);
@@ -2250,12 +2392,73 @@ function handleCombatInteract(): void {
       interactable.secured &&
       interactable.alive
     ) {
-      handleSecuredInteract(interactable, { apExhausted: player.ap === 0 });
+      handleSecuredInteract(run, interactable, { apExhausted: player.ap === 0 });
     } else if (result.ok && player.ap === 0) {
       concludeOperatorTurn();
     }
-    paint();
-    return;
+    if (result.ok) {
+      // some object can't be interacted with (e.g. an already open door); only bail if our interaction succeeds
+      paint();
+      return;
+    }
+  }
+
+  // Priority 2-4: adjacent field pickups — a deliberate action costing INTERACT
+  // AP, one item per press, by priority: keycard > consumable > corpse salvage.
+  // Scans the player's own tile plus the 8 neighbours (Chebyshev ≤ 1).
+  if (inventory) {
+    const scanAdjacent = <T>(query: (x: number, y: number) => T | null): T | null => {
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const hit = query(player.x + dx, player.y + dy);
+          if (hit) return hit;
+        }
+      }
+      return null;
+    };
+
+    const keycard = scanAdjacent((x, y) => world.keycardAt(x, y));
+    const consumable = keycard ? null : scanAdjacent((x, y) => world.consumablePickupAt(x, y));
+    const corpse =
+      keycard || consumable
+        ? null
+        : scanAdjacent((x, y) => {
+            const c = world.lootableCorpseAt(x, y);
+            return c && !c.alive && c.loot && totalSalvage(c.loot.salvage) > 0 ? c : null;
+          });
+
+    if (keycard || consumable || corpse) {
+      if (!player.canAfford(AP_COST.INTERACT)) {
+        flash('Insufficient AP to loot.');
+        return;
+      }
+      if (keycard) {
+        collectKeycardPickup(world, keycard, kc =>
+          (run as Run).addKeyItem({
+            id: kc.id,
+            label: kc.label,
+            doorId: kc.doorId,
+            ...(kc.principalId ? { principalId: kc.principalId } : {}),
+          })
+        );
+        (player as Crew).spendAp(AP_COST.INTERACT);
+        flash(`Picked up ${keycard.label}. ${player.ap} AP left.`);
+      } else if (consumable) {
+        collectConsumablePickup(world, player as Crew, consumable);
+        (player as Crew).spendAp(AP_COST.INTERACT);
+        flash(`Picked up ${consumable.label}. ${player.ap} AP left.`);
+      } else if (corpse) {
+        // Standalone interact salvage pays its own INTERACT AP.
+        const amount = collectCorpseSalvage(world, player as Crew, corpse, { spendAp: true });
+        activeVisionField(run).forgetCorpse(corpse);
+        flash(
+          `Salvaged +${amount} — carrying ${formatSalvageCompact(inventory.salvage)}. ${player.ap} AP left.`
+        );
+      }
+      paint();
+      concludeOperatorTurn();
+      return;
+    }
   }
 
   flash('Nothing to interact with nearby.');
@@ -2278,15 +2481,29 @@ function settlePendingJobResult(): 'ended' | 'hub' {
   const salvage = member?.inventory?.salvage;
   const objectiveComplete =
     outcome === 'exit' ? jobResult.telemetry.objectiveComplete !== false : false;
+  // P3.6: the run's own verdict on the Score. `score-partial` is a costly win —
+  // objectives complete, payload extracted, an operative lost.
+  const costlyScore = jobResult.telemetry.cause === 'score-partial';
+  const scoreRun = campaign.activeRun?.contract?.context.recipeId === 'score-final';
   // Apply the clean completion bonus before `onJobEnd`, so the terminal
   // Chronicle record sees the final Rep value and Hub recruitment gates retain
-  // their existing ordering on non-terminal jobs.
-  if (outcome === 'exit' && objectiveComplete && civilianHarmsThisJob === 0) {
+  // their existing ordering on non-terminal jobs. A Score that cost an operator
+  // is not a "clean extraction" by any reading — skip the bonus and its line.
+  if (outcome === 'exit' && objectiveComplete && civilianHarmsThisJob === 0 && !costlyScore) {
     const actual = campaign.adjustRep(REP.CLEAN_COMPLETION_BONUS);
     flash(`REP +${actual}: clean extraction — no civilian casualties.`);
   }
   if (outcome === 'exit' && !objectiveComplete) {
-    flash(`ABORT: Objective abandoned. REP ${REP.ABORT_PENALTY}.`);
+    // The Score's abort is terminal and takes no Rep penalty (`Campaign`
+    // skips it) — promising one here was a lie the player could read.
+    flash(
+      scoreRun
+        ? 'SCORE ABANDONED: you walked out with nothing.'
+        : `ABORT: Objective abandoned. REP ${REP.ABORT_PENALTY}.`
+    );
+  }
+  if (costlyScore) {
+    flash('SCORE SECURED — at a cost. The payload is out; the crew is not whole.');
   }
   campaign.onJobEnd({ outcome, salvage, completed: objectiveComplete });
   if (campaign.state === CAMPAIGN_STATE.ENDED) {
@@ -2323,10 +2540,57 @@ function onNewRunRequested(): void {
 
 function rewireSceneListeners(): void {
   sceneListenerController.rewire();
+  syncMusicToScene();
+}
+
+/**
+ * Point the generative score at whatever is on screen now.
+ *
+ * Called on every scene transition (and on jack in/out), so it is the one place
+ * that decides whether music plays at all, in which palette, and at what
+ * tension. Everything it calls is idempotent, so re-running it on an unchanged
+ * scene is free.
+ *
+ * Deriving tension from persisted alarm *state* here — rather than relying only
+ * on the ALARM_CHANGED listener in `sceneListeners` — is what makes a run saved
+ * mid-alarm reload scored as tense. Both paths share `musicScore.ts`.
+ */
+function syncMusicToScene(): void {
+  const scene = currentScene();
+
+  // No campaign yet: the title screen is deliberately unscored. Cut any tail
+  // still ringing from a previous campaign rather than letting it play under it.
+  if (!scene) {
+    musicDirector.stop();
+    audioManager.stopMusic();
+    return;
+  }
+
+  if (!isRun(scene)) {
+    musicDirector.setPalette(HUB_PALETTE);
+    musicDirector.setTension(HUB_TENSION);
+    musicDirector.start();
+    return;
+  }
+
+  // Palette tracks the *run*: a job with a cyberspace component is scored cyber
+  // start to finish, whether or not the grid is currently on screen.
+  musicDirector.setPalette(paletteForRun(scene));
+
+  // Tension tracks whichever layer the player is actually looking at — while
+  // flipped to the grid, the cyber layer runs its own world and its own alarm
+  // cadence, so the meat grid's alarm says nothing about the danger on screen.
+  const world = isCyberView(scene) ? cyberLayerOf(scene)?.world : scene.world;
+  musicDirector.setTension(tensionForAlarmPhase(world?.alarm?.phase));
+  musicDirector.start();
 }
 
 function completeJackOutShellSwap(): void {
   sceneListenerController.detachCyber();
+  // Back in the body: tension re-reads the meat grid's alarm. The palette stays
+  // cyber — this is still a net run, and flipping the key on jack-out would
+  // churn it every time the Decker surfaces.
+  syncMusicToScene();
   pipCanvas.hidden = true;
   flash('LINK DROPPED — back in your body.', { priority: true });
   recomputeVision();
@@ -2423,6 +2687,11 @@ function paintPip(): void {
   });
 }
 
+// The run instance we've already played the `secured` sting for, so objective
+// completion chimes exactly once per run (paint runs after every action, and
+// the objective can be satisfied by any of them).
+let objectiveSecuredForScene: object | null = null;
+
 export function paint(stateHint: InputState = activeInputState()): void {
   const run = currentScene();
   // P3.M4.3: surface the simstim FLIP fab only when a flip target exists right
@@ -2453,6 +2722,7 @@ export function paint(stateHint: InputState = activeInputState()): void {
     run.state === RUN_STATE.COMBAT && !jacked
       ? campaign?.activeRun?.contract?.context?.principal?.id
       : undefined;
+  const combatHud = buildCombatHudSnapshot(run);
   renderer.draw(world, actor, {
     vision: activeVision,
     player: actor,
@@ -2462,8 +2732,13 @@ export function paint(stateHint: InputState = activeInputState()): void {
     tileset: activeTileset(run),
     locationLabel: currentLocationLabel(campaign, run),
     hudRows: buildHubHudRows(campaign, run),
-    combatHud: buildCombatHudSnapshot(run),
+    combatHud,
   });
+  // `secured` on the objective flipping to done — once per run.
+  if (combatHud?.objective?.done && objectiveSecuredForScene !== run) {
+    objectiveSecuredForScene = run;
+    audioManager.play('secured');
+  }
   crt.alertTint = run.state === RUN_STATE.COMBAT && world.alarmActive;
   crt.apply();
   paintPip();
@@ -2714,12 +2989,29 @@ function tryShowKeyHelpOverlay(): 'ok' | 'blocking' | 'no-scope' | 'none' {
 }
 
 /**
+ * `o`/`O` toggles <settings-modal> — same rules as the header toolbar button.
+ * Suppressed while another blocking modal owns the foreground (falls through
+ * un-prevented so, e.g., typing "o" into a search field inside that modal
+ * still works); closing an already-open settings modal always succeeds.
+ */
+function toggleSettingsModal(): boolean {
+  if (settingsModalEl.isOpen) {
+    settingsModalEl.hide();
+    return true;
+  }
+  if (isAnyBlockingModalOpen()) return false;
+  settingsModalEl.show();
+  return true;
+}
+
+/**
  * `?` toggles the help overlay. Esc, when the help overlay is open, dismisses
  * it (and we swallow the event so the keymap doesn't also turn it into a
  * `cancel` intent for whatever aim mode was active).
  *
  * `?` is suppressed while any blocking modal owns the foreground — opening
  * help over a briefing or crew-roster would just stack panels.
+ * `o`/`O` for Options follows the same rule (see `toggleSettingsModal`).
  */
 export function handleGlobalKey(evt: KeyboardEvent): void {
   if (evt.ctrlKey || evt.metaKey || evt.altKey) return;
@@ -2744,6 +3036,11 @@ export function handleGlobalKey(evt: KeyboardEvent): void {
     // Everything else: block, don't process.
     evt.preventDefault();
     evt.stopPropagation();
+    return;
+  }
+
+  if (evt.key === 'o' || evt.key === 'O') {
+    if (toggleSettingsModal()) evt.preventDefault();
     return;
   }
 
@@ -2779,6 +3076,7 @@ function isAnyBlockingModalOpen(): boolean {
   if (crewRosterEl?.isOpen) return true;
   if (finnShopEl?.isOpen) return true;
   if (clinicModalEl?.isOpen) return true;
+  if (settingsModalEl?.isOpen) return true;
   if (combatInventoryEl?.isOpen) return true;
   if (crewInventoryEl?.isOpen) return true;
   if (chronicleArchiveEl?.isOpen) return true;

@@ -48,6 +48,35 @@ When an item lands, gets reclassified, or develops new context, edit it in place
 
 ## ◇ Monitored
 
+- **No throw preview / reticle for the Molotov.** A thrown incendiary commits AP and the charge on
+  a single direction press with no indication of where the bottle will land or what it will hit.
+  This bites hardest since P3.6 made your own crew backstops (a crewmate on the ray eats the
+  bottle — intended and tested, but a body clustered in front of you now silently shortens the
+  throw). A trajectory/impact preview at aim time — highlight the resolved impact tile and flag a
+  friendly interceptor before commit — would make both the range and the friendly-fire rule
+  legible. `resolveIncendiaryImpact` is pure over grid + entity state and already returns the
+  impact point, so a preview is a render pass over its result, not new geometry. **Note:** an
+  earlier `IncendiaryImpact.steps` field was carried speculatively for exactly this and pulled in
+  P3.6 (unused, untested) — re-add it *with* its consumer and a test if the preview needs travel
+  distance. **Revisit trigger:** first playtest complaint about a throw that "went nowhere" or
+  burned a teammate, or when a second thrown item lands (shares the reticle work). Pairs naturally
+  with the fixed-`INCENDIARY_THROW_DIST` item below.
+
+- **Generated hazard and thrown fire are visually identical but behave differently.** Both
+  render as `▓`, but a map-generated pool is permanent scenery while a thrown molotov burns
+  out after `INCENDIARY_BURN_TURNS`. A player has no way to tell which fire will still be
+  there in three turns, which makes it hard to plan around either. Options: a distinct glyph
+  or colour ramp for burning-out fire, or an intensity ramp as the timer runs down (a natural
+  fit for the 3.6 "effects" work). **Revisit trigger:** first playtest where someone waits out
+  a permanent pool, or routes into fire that they expected to have gone out.
+- **`INCENDIARY_THROW_DIST` is a fixed 3 tiles in 8 directions.** You cannot lob short, long,
+  or drop at your feet — the only Molotov play is "exactly 3 tiles that way". The cluster's
+  radius-1 spread softens this to an effective 2–4 band on-axis, but it still means a hostile
+  at range 1, 2, or 5+ simply cannot be targeted. Left alone in P3.6 because free targeting is
+  a real UX design problem (needs a cursor/reticle mode, not just a direction press) and the
+  fixed throw is at least legible. **Revisit trigger:** when any second thrown item wants
+  variable range, or the first playtest complaint about "I couldn't hit the thing next to me".
+
 - **Debug save Import relies on `prompt()`.** The in-app browser used for local smoke tests
   does not support native `prompt()`, so `/debug/save.html` logs an error and cannot import a
   prepared save there. Normal browsers may still support it, but the debug surface should use
@@ -76,8 +105,48 @@ When an item lands, gets reclassified, or develops new context, edit it in place
   - **`chebyshev` / `manhattan` helpers.** `Pathfinding.chebyshev(ax, ay, bx, by)` vs `Run.chebyshev` / `Run.manhattan` (GridPoint) vs `mapBuild.manhattan` — unify on GridPoint wrappers or a small `gridMath.ts` when convenient.
   - **`LineOfSight` inline `` `${x},${y}` `` keys.** Could import `coordKey` from `mapConnectivity.js`; isolated, low drift risk at current scale.
 
+- **Dual-site and escort objectives have no HUD progress chip.** Surfaced 2026-07-20 while adding a distinct `checkpoint` audio cue (`src/audio/sounds.ts`) for their interim beats — sync pad 1 of 2 touched, escort contact linked up — via `handleSecuredInteract` in `shellRuntime.ts` gating on `run.isObjectiveSatisfied()`. That closes the *audio* gap, but `objectiveProgress()` in `src/game/objectiveProgress.ts` still has no `case` for `OBJECTIVES.DUAL_SITE` or `OBJECTIVES.ESCORT_EXTRACT`, unlike `RECON`/`SWEEP`/`DATA_NODE_SLICE`/`SCORE_FINAL`, which all render a `[LABEL:current/total]` chip. Players get a sound but no on-screen `[SYNC:1/2]`-style readout. Would need progress tallies analogous to `dataNodeProgress` (count `SyncPad.synced` / `EscortNpc.activated` across the world) plumbed through `buildCombatHudSnapshot`. **Revisit trigger:** first playtest confusion about dual-site/escort state, or next time the HUD chip work is touched.
+
 ## ✓ Closed
 
+- ~~**A body caught square on by a molotov takes no impact damage unless it's standing on FLOOR.**~~
+  Surfaced in P3.6 while adding ray-walked throws; closed the same phase. `placeHazardCluster`
+  stamped `TILE.FLOOR` only, and `burnEntitiesOn` only damages entities on tiles it actually
+  ignited — so a drone on `RUBBLE` or in an existing `HAZARD` pool intercepted the bottle, was
+  reported as the impact point, and took zero `INCENDIARY_IMPACT_DAMAGE` because its own tile
+  refused to light: "Caught X square on. 0 caught." in one flash. **Fix:** thrown fire now takes
+  any ground fire can hold via a shared `thrownFireCanTake(tile)` predicate (constants.ts) — the
+  single source of truth for both `incendiary.ts`'s `canHoldFire` (where the ray centres) and
+  `placeHazardCluster`'s thrown branch (where fire stamps), so the two cannot drift into the
+  silent "used the charge, got nothing" bug. Whitelist is `FLOOR | RUBBLE | HAZARD`; `EXIT` stays
+  unburnable (extraction tile) and generated scenery (`thrown: false`) stays FLOOR-only. An
+  already-burning tile is left as-is rather than re-stamped (`applyTileEffect` refuses an effect
+  equal to the tile underneath, which would crash on permanent hazard scenery) but is still counted
+  so a body in the pool takes the impact. The one residual — a body parked on `EXIT` takes no
+  impact damage because that tile must never burn — no longer lies: the shell only prints "square
+  on" when the struck body is an actual casualty. Tests: `hazard.test.ts` (RUBBLE/HAZARD impact +
+  RUBBLE burnout-restore + EXIT spare), `incendiary.test.ts` (rubble/exit centring, re-centre on
+  burning tile, open-doorway catch).
+
+- ~~**Smoke tiles survive a mid-mission save as permanent LOS blockers.**~~ Surfaced and closed
+  in P3.6 while fixing the Molotov. `placeSmoke` stamped `TILE.SMOKE` onto the grid and handed
+  the restore records to the *shell*, which held them in `shellRuntime.activeSmokeOverlays` and
+  cleared them on `onPlayerTurnReady`. But `grid.tiles` **is** persisted and
+  `activeSmokeOverlays` **was not** — and autosave fires at the player→corp `turn:ended`, which
+  is exactly when smoke is on the grid. Save inside your own cloud, reload, and the overlay list
+  came back `[]` while the SMOKE tiles remained: a permanent sight-line wall nothing would ever
+  clean up. Reachable in ordinary play, and silent when it happened.
+  **Fix:** effect lifetimes moved onto `World` as one shared registry — `applyTileEffect(x, y,
+  tile, turns)` / `tickTileEffects()` — that thrown fire and smoke both use, snapshotted as
+  `RunSnapshot.tileEffects`. Two details worth keeping: the registry **reads the tile underneath
+  itself** rather than taking it from the caller (a caller passing FLOOR for a cloud over the
+  EXIT tile would have silently deleted the exit), and re-applying to an already-affected tile
+  keeps the *original* restore target, so terrain can't be lost to a chain of effects. Ticked
+  once per round from `advanceFromPlayerTurn` at the CORP→PLAYER handoff — the only point both
+  the shell and the debug harness share, and necessarily *after* the corp turn, since smoke
+  exists to blind the drones that move next. `clearSmoke` and the shell's overlay list are gone.
+  Tests: `items.test.ts` (smoke lifetime, EXIT restore, fire/smoke interaction),
+  `persistence.test.ts` (save-mid-cloud round-trip), `hazard.test.ts` (round-boundary ordering).
 - ~~**Unwinnable runs.**~~ Closed in Phase 2.5 — two-part fix: (1) **Abort extraction:** player can exit via the EXIT tile with an incomplete objective; forfeits all rewards (creds, salvage, rep gain) and takes `REP.ABORT_PENALTY` (−5). (2) **Breach charge auto-grant:** `Campaign.deployCrewMember` grants 1× breaching charge when accepting a breach contract if the operative doesn't already carry one, so the objective is always completable regardless of Finn's shop access.
 
 - ~~**`advanceFromPlayerTurn` advances the turn queue on a terminal run.**~~ Closed at Phase 2 closeout — TIER-1 item #1 from the [2026-05-17 adversarial review](./2026-05-17-adversarial-review-findings.md#1). Stepping onto the exit tile transitions the run to RESULT synchronously; the pipeline then still called `queue.endTurn(world)`, refreshing corp AP and bumping the turn counter on a dead run. The `isTerminal()` guard now runs *before* `queue.endTurn` / `onCorpTurnReady`. Regression test in `combatTurnPipeline.test.ts`.

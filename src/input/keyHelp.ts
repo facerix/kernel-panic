@@ -14,8 +14,8 @@
  *   - `'combat'`  — visible during COMBAT only (perks, attacks)
  *   - `'both'`    — visible everywhere the help overlay can mount
  *
- * `?` itself is a UI-level binding (handled in the shell, not in
- * `keymap.js`); the test skips its keymap-dispatch check.
+ * `?` and `o` are UI-level bindings (handled in the shell, not in
+ * `keymap.js`); the test skips their keymap-dispatch check.
  */
 
 export const HELP_ROWS = Object.freeze([
@@ -111,6 +111,12 @@ export const HELP_ROWS = Object.freeze([
   {
     keys: Object.freeze(['?']),
     label: 'Toggle this help',
+    scope: 'both',
+    group: 'system',
+  },
+  {
+    keys: Object.freeze(['O']),
+    label: 'Options (audio settings)',
     scope: 'both',
     group: 'system',
   },

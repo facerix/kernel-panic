@@ -86,6 +86,7 @@ const END_REASONS: readonly CampaignEndReason[] = [
   'clock-expired',
   'decker-flatlined-score',
   'score-partial',
+  'score-aborted',
   'score-complete',
 ];
 

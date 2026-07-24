@@ -1,5 +1,5 @@
 // Service Worker for Kernel Panic - Development Version
-const VERSION = '0.3.5';
+const VERSION = '0.3.6';
 importScripts(`/sw-release.js?v=${VERSION}`);
 importScripts(`/sw-core.js?v=${VERSION}-dev`);
 

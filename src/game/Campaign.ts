@@ -132,6 +132,13 @@ export function casedPrincipalSiteCount(
 }
 /** Campaign-ending payday for completing THE SCORE. */
 export const SCORE_CREDITS_REWARD = 5_000;
+/**
+ * P3.6: the share of the Score payday a *costly* completion pays — objectives
+ * done and the payload extracted, but an operative did not come home. The
+ * blueprint unlock is unaffected (the prototype left the building either way);
+ * this is the fence taking their cut for a job that drew heat.
+ */
+export const SCORE_PARTIAL_CREDIT_FACTOR = 0.5;
 const SYNTHETIC_SCORE_TARGET_DIFFICULTY = CONTRACT_DIFFICULTY.CRITICAL;
 /**
  * Salt mixed into the Score target seed when picking the heist payload (P3.M6.4),
@@ -271,6 +278,19 @@ export type CampaignState = (typeof CAMPAIGN_STATE)[keyof typeof CAMPAIGN_STATE]
 // tiers replace them. Old saves may still carry those keys as dead data; the
 // type is a plain Record so they don't cause a type error on restore.
 export type CampaignMeta = Record<string, unknown>;
+
+/**
+ * How a settled job turned out, as the chronicle needs to read it. P3.6 adds
+ * `costlyScore`: `completed` alone can no longer distinguish a clean Score from
+ * one that got the payload out but left an operator behind — both complete the
+ * objective, and only the second is a wake.
+ */
+type ChronicleJobOutcome = {
+  outcome: Outcome;
+  completed: boolean;
+  activeContract: Contract | null;
+  costlyScore: boolean;
+};
 
 export type CampaignArc = {
   arcStage: CampaignArcStage;
@@ -648,6 +668,7 @@ export class Campaign {
     if (this.state !== CAMPAIGN_STATE.ENDED) return null;
     if (this.arc.scoreCompleted) return 'score-complete';
     if (this.meta.scorePartial === true) return 'score-partial';
+    if (this.meta.scoreAborted === true) return 'score-aborted';
     if (this.arc.scoreAttempted && this.arc.arcStage === 'score') {
       return 'decker-flatlined-score';
     }
@@ -873,18 +894,19 @@ export class Campaign {
     // Capture the contract before settlement clears `activeRun` — the completed
     // Score's payload id (P3.M6.4) is read from it after the run is torn down.
     const activeContract = this.activeRun.contract;
-    const completedScoreRun =
-      activeContract !== null &&
-      isScoreContract(activeContract) &&
-      outcome === OUTCOME.EXIT &&
-      completed;
-    const partialScoreRun =
-      activeContract !== null &&
-      isScoreContract(activeContract) &&
-      outcome === OUTCOME.EXIT &&
-      !completed;
-    const failedScoreRun =
-      activeContract !== null && isScoreContract(activeContract) && outcome === OUTCOME.DEATH;
+    const scoreRun = activeContract !== null && isScoreContract(activeContract);
+    const scoreExit = scoreRun && outcome === OUTCOME.EXIT;
+    // P3.6: a Score that finished its objectives but lost an operative is a
+    // *costly win*, not an abandoned job. The payload left the building, so it
+    // pays (at a reduced cut) and still lands the blueprint; what separates it
+    // from a clean run is the body count, not the objective state.
+    const scoreCasualty = this.activeRun.partnerDown || this.activeRun.deckerDown;
+    const completedScoreRun = scoreExit && completed && !scoreCasualty;
+    const partialScoreRun = scoreExit && completed && scoreCasualty;
+    // Walking out with the job unfinished is the outcome `score-partial` used
+    // to be conflated with. It is terminal and pays nothing.
+    const abortedScoreRun = scoreExit && !completed;
+    const failedScoreRun = scoreRun && outcome === OUTCOME.DEATH;
     const chroniclePending = this.pendingChronicleRun;
 
     // P3.M4.4: a meat partner that flatlined on the field is gone for good —
@@ -892,6 +914,12 @@ export class Campaign {
     // while the partner died covering the body; flatline the partner either way.
     if (this.deployedPartnerId && this.activeRun.partnerDown) {
       this.flatlineMember(this.deployedPartnerId);
+    }
+    // P3.6 mirror: a Score can now outlive its Decker (the partner carries the
+    // payload out), so the run can end on EXIT with the Decker dead on the
+    // grid. Flatline them here — the DEATH branch below never sees this case.
+    if (this.deployedMemberId && this.activeRun.deckerDown) {
+      this.flatlineMember(this.deployedMemberId);
     }
 
     if (outcome === OUTCOME.DEATH) {
@@ -909,11 +937,19 @@ export class Campaign {
         this.completedJobs += 1;
         addSalvage(this.salvage, extracted);
         const reward = this.activeRun.contract?.reward;
-        this.credits += reward?.credits ?? 0;
+        const credits = reward?.credits ?? 0;
+        // P3.6: the costly Score pays a reduced cut. The salvage the survivor
+        // physically carried through the exit is kept either way — same rule
+        // the keycards above already follow.
+        this.credits += partialScoreRun
+          ? Math.floor(credits * SCORE_PARTIAL_CREDIT_FACTOR)
+          : credits;
         if (reward) this.adjustRep(reward.repDelta);
         if (reward?.recruit) this.pendingRecruitReward = true;
-      } else if (!partialScoreRun) {
-        // Abort extraction: objective abandoned — rep penalty, no rewards.
+      } else if (!abortedScoreRun) {
+        // Abort extraction: objective abandoned — rep penalty, no rewards. The
+        // Score's own abort is terminal and skips the penalty (there is no
+        // campaign left for the Rep to matter to).
         this.adjustRep(REP.ABORT_PENALTY);
       }
     }
@@ -939,6 +975,9 @@ export class Campaign {
         outcome,
         completed,
         activeContract,
+        // P3.6: the chronicle must tell a costly Score apart from a clean one
+        // and from an abandoned one — `completed` alone can no longer.
+        costlyScore: partialScoreRun,
       });
     }
 
@@ -949,9 +988,22 @@ export class Campaign {
       return;
     }
 
+    if (abortedScoreRun) {
+      this.meta.scoreAborted = true;
+      this.arc.arcStage = 'score';
+      this.state = CAMPAIGN_STATE.ENDED;
+      this.#tearDownHubWorld();
+      this.#persist();
+      return;
+    }
+
     if (partialScoreRun) {
       this.meta.scorePartial = true;
       this.arc.arcStage = 'score';
+      // P3.6: the payload physically left the building, so the blueprint is
+      // stolen — a costly win unlocks it exactly as a clean one does. Only the
+      // credit cut differs.
+      this.#recordScorePayloadUnlock(activeContract);
       this.state = CAMPAIGN_STATE.ENDED;
       this.#tearDownHubWorld();
       this.#persist();
@@ -968,15 +1020,7 @@ export class Campaign {
     if (completedScoreRun) {
       this.arc.scoreCompleted = true;
       this.arc.arcStage = 'score';
-      // P3.M6.4 / P3.5.M7: record exactly one of the drawn reward's two kinds
-      // so settlement writes it to the cross-campaign meta-store. Persisted on
-      // `meta` (alongside `scorePartial`) so a refresh after completion still
-      // surfaces the unlock to the shell — the actual `DataStore.archive*`
-      // write is idempotent. Never both — one Score, one reward.
-      const payloadItemId = scorePayloadItemId(activeContract);
-      const payloadArchetypeId = scorePayloadArchetypeId(activeContract);
-      if (payloadItemId) this.meta.scoreUnlockedItemId = payloadItemId;
-      else if (payloadArchetypeId) this.meta.scoreUnlockedArchetypeId = payloadArchetypeId;
+      this.#recordScorePayloadUnlock(activeContract);
       this.state = CAMPAIGN_STATE.ENDED;
       this.#tearDownHubWorld();
       this.#persist();
@@ -1115,6 +1159,20 @@ export class Campaign {
       },
       reward: { credits: SCORE_CREDITS_REWARD, repDelta: 0 },
     };
+  }
+
+  /**
+   * P3.M6.4 / P3.5.M7: record exactly one of the drawn reward's two kinds so
+   * settlement writes it to the cross-campaign meta-store. Persisted on `meta`
+   * so a refresh after the Score still surfaces the unlock to the shell — the
+   * actual `DataStore.archive*` write is idempotent. Never both — one Score,
+   * one reward. P3.6: shared by the clean and costly completion paths.
+   */
+  #recordScorePayloadUnlock(activeContract: Contract | null): void {
+    const payloadItemId = scorePayloadItemId(activeContract);
+    const payloadArchetypeId = scorePayloadArchetypeId(activeContract);
+    if (payloadItemId) this.meta.scoreUnlockedItemId = payloadItemId;
+    else if (payloadArchetypeId) this.meta.scoreUnlockedArchetypeId = payloadArchetypeId;
   }
 
   flatlineMember(memberId: string): void {
@@ -1781,10 +1839,7 @@ export class Campaign {
     };
   }
 
-  #appendChronicleJobEntry(
-    pending: PendingChronicleRun,
-    opts: { outcome: Outcome; completed: boolean; activeContract: Contract | null }
-  ): void {
+  #appendChronicleJobEntry(pending: PendingChronicleRun, opts: ChronicleJobOutcome): void {
     const crewLosses = this.crew
       .filter(member => member.flatlined && !pending.flatlinedCrewIdsBefore.includes(member.id))
       .map(member => member.callsign ?? member.id);
@@ -1826,14 +1881,12 @@ export class Campaign {
     });
   }
 
-  #chronicleJobTitle(
-    pending: PendingChronicleRun,
-    opts: { outcome: Outcome; completed: boolean; activeContract: Contract | null }
-  ): string {
+  #chronicleJobTitle(pending: PendingChronicleRun, opts: ChronicleJobOutcome): string {
     if (pending.isScore) {
       if (opts.outcome === OUTCOME.DEATH) return 'THE SCORE — FLATLINED';
+      if (opts.costlyScore) return 'THE SCORE — BOUGHT IN BLOOD';
       if (opts.completed) return 'THE SCORE — COMPLETE';
-      return 'THE SCORE — PARTIAL';
+      return 'THE SCORE — ABANDONED';
     }
     if (pending.isCasing && pending.principalLabel) {
       return `CASING — ${pending.principalLabel.toUpperCase()}`;
@@ -1845,12 +1898,24 @@ export class Campaign {
 
   #chronicleJobSummary(
     pending: PendingChronicleRun,
-    opts: { outcome: Outcome; completed: boolean; activeContract: Contract | null },
+    opts: ChronicleJobOutcome,
     crewLosses: string[]
   ): string {
     if (pending.isScore) {
       if (opts.outcome === OUTCOME.DEATH) {
         return `The push on ${pending.scoreTargetName ?? pending.contractLabel} flatlined the Decker and ended the campaign.`;
+      }
+      // P3.6: the payload got out and somebody didn't. Name them — this is the
+      // campaign's defining moment and the chronicle is where it is remembered.
+      if (opts.costlyScore) {
+        const target = pending.scoreTargetName ?? pending.contractLabel;
+        const reward = this.#scoreRewardSummary(opts.activeContract);
+        const took = reward ? `stole ${reward}` : 'walked with the payday';
+        const lost =
+          crewLosses.length > 0
+            ? `${crewLosses.join(', ')} never made the exit`
+            : 'the crew came back short';
+        return `The crew cracked ${target} and ${took} — ${lost}.`;
       }
       if (opts.completed) {
         const reward = this.#scoreRewardSummary(opts.activeContract);
@@ -1881,13 +1946,11 @@ export class Campaign {
     return `${pending.contractLabel} landed clean.`;
   }
 
-  #chronicleOutcomeLabel(
-    pending: PendingChronicleRun,
-    opts: { outcome: Outcome; completed: boolean }
-  ): string {
+  #chronicleOutcomeLabel(pending: PendingChronicleRun, opts: ChronicleJobOutcome): string {
     if (pending.isScore) {
       if (opts.outcome === OUTCOME.DEATH) return 'campaign loss';
-      return opts.completed ? 'score complete' : 'score partial';
+      if (opts.costlyScore) return 'score complete — operator lost';
+      return opts.completed ? 'score complete' : 'score abandoned';
     }
     if (opts.outcome === OUTCOME.DEATH) return 'operator flatlined';
     return opts.completed ? 'objective complete' : 'objective aborted';
@@ -2099,7 +2162,7 @@ export class Campaign {
    * Commit the (terminal) Score attempt — idempotent. Invoked from the active
    * run's `onCombatEntered` hook, i.e. only after the Score map built and every
    * objective fixture placed. Until this fires, a generation failure leaves the
-   * campaign able to redeploy rather than stranded in `score-partial`.
+   * campaign able to redeploy rather than stranded in a terminal Score outcome.
    */
   #commitScoreAttempt(): void {
     if (this.arc.scoreAttempted) return;

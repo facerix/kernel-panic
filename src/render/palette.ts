@@ -94,6 +94,26 @@ export const MIND_INFLUENCE_FG = '#a64dff';
 export const CLOAK_FLASH_FG = '#babfb6';
 
 /**
+ * Hot ignition burst on a thrown molotov's impact tile (P3.6). Deliberately far
+ * brighter and yellower than the HAZARD tile's own ember red (`#d45a3a`): the
+ * burst is painted a frame before that fire is stamped underneath it, so a
+ * closer hue would read as "nothing happened." This is the bottle breaking, not
+ * the fire that follows.
+ */
+export const INCENDIARY_IMPACT_FG = '#ffb03a';
+
+/**
+ * Ember-orange burst on an entity's own tile as fire eats it (P3.6) — both the
+ * ignition tick (`INCENDIARY_IMPACT_DAMAGE`) and each standing tick
+ * (`HAZARD_DAMAGE`). Sits between the HAZARD tile's red and the impact burst's
+ * gold: the same fire family, so "this body is burning" reads as continuous
+ * with the tile it's standing on, while still separating from it. Painted on
+ * the entity's own glyph, like `MIND_INFLUENCE_FG` — something happening *to* a
+ * body, not a place.
+ */
+export const BURN_FLASH_FG = '#ff7a2f';
+
+/**
  * Sentinel glyph for cells outside the world (camera near the map edge).
  * We render *something* rather than leaving holes so the playfield always
  * fills the canvas — easier on the eyes and on the CRT post-pass. Stays a

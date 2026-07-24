@@ -9,7 +9,6 @@ import {
   FACTION,
   STIM_HEAL,
   SMOKE_RADIUS,
-  INCENDIARY_THROW_DIST,
   BREACHING_CHARGE_RANGE,
   TARGETING_BONUS,
   TURRET_DAMAGE,
@@ -572,17 +571,18 @@ export class Crew extends Entity {
         // is the center; radius comes from constants.
         return { type: 'smoke', cx: this.x, cy: this.y, radius: SMOKE_RADIUS };
       case ITEM_ID.MOLOTOV: {
-        // Thrown: target tile is `thrower + dir * INCENDIARY_THROW_DIST`.
-        // LOS-clear-target validation is the shell's job (it owns the Grid /
-        // World refs); Crew just reports the intended center. The shell may
-        // refuse to stamp if LOS is blocked or the tile is out of bounds — in
-        // that case Crew has already paid AP and consumed the charge, which
-        // matches stim's "used up on commit" semantics. The shell should
-        // gate before calling, not after.
+        // Thrown along a direction, not at a point (P3.6): the bottle flies
+        // until a wall or a body stops it, so the impact tile depends on the
+        // whole ray — Grid and entity state Crew has no reference to. We
+        // report the aim and let the shell resolve it via
+        // `resolveIncendiaryImpact`; returning a `thrower + dir * DIST` centre
+        // here would be a guess that's wrong the moment anything is in the way.
+        //
+        // The shell must resolve the impact *before* calling this — a throw
+        // with nowhere to land is refused, and by the time we return, AP and
+        // the charge are already spent ("used up on commit", same as stim).
         const { dx, dy } = aim!;
-        const cx = this.x + dx * INCENDIARY_THROW_DIST;
-        const cy = this.y + dy * INCENDIARY_THROW_DIST;
-        return { type: 'incendiary', cx, cy };
+        return { type: 'incendiary', dx, dy };
       }
       case ITEM_ID.BREACHING_CHARGE: {
         const { dx, dy } = aim!;

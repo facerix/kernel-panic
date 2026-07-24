@@ -7,6 +7,10 @@ dist/
 build/
 *.min.js
 
+# Vendored libraries — kept byte-for-byte as upstream emits them (re-vendor,
+# don't reformat). Our co-located .d.ts boundaries are NOT ignored.
+src/vendor/**/*.js
+
 # Generated files
 *.xml
 
