@@ -1552,6 +1552,16 @@ function wireRunConfirmations(run: Run): void {
     paint();
     flash(`⚠ OPERATOR DOWN — ${who} flatlined. Your meat cover is gone.`);
   };
+  run.onDeckerDown = decker => {
+    // P3.6: on the Score, losing the Decker no longer ends the run — the
+    // partner still has a payload to walk out. The model has already resolved
+    // the dead layer and handed the grid back, so mirror the partner alert and
+    // repaint onto the surviving operator.
+    const who = decker?.callsign ?? decker?.id ?? 'The Decker';
+    recomputeVision();
+    paint();
+    flash(`⚠ DECKER FLATLINED — ${who} is gone. Finish it and get out.`);
+  };
 }
 
 function jackOutConfirmationCopy(request: JackOutRequest): string {
@@ -2471,15 +2481,29 @@ function settlePendingJobResult(): 'ended' | 'hub' {
   const salvage = member?.inventory?.salvage;
   const objectiveComplete =
     outcome === 'exit' ? jobResult.telemetry.objectiveComplete !== false : false;
+  // P3.6: the run's own verdict on the Score. `score-partial` is a costly win —
+  // objectives complete, payload extracted, an operative lost.
+  const costlyScore = jobResult.telemetry.cause === 'score-partial';
+  const scoreRun = campaign.activeRun?.contract?.context.recipeId === 'score-final';
   // Apply the clean completion bonus before `onJobEnd`, so the terminal
   // Chronicle record sees the final Rep value and Hub recruitment gates retain
-  // their existing ordering on non-terminal jobs.
-  if (outcome === 'exit' && objectiveComplete && civilianHarmsThisJob === 0) {
+  // their existing ordering on non-terminal jobs. A Score that cost an operator
+  // is not a "clean extraction" by any reading — skip the bonus and its line.
+  if (outcome === 'exit' && objectiveComplete && civilianHarmsThisJob === 0 && !costlyScore) {
     const actual = campaign.adjustRep(REP.CLEAN_COMPLETION_BONUS);
     flash(`REP +${actual}: clean extraction — no civilian casualties.`);
   }
   if (outcome === 'exit' && !objectiveComplete) {
-    flash(`ABORT: Objective abandoned. REP ${REP.ABORT_PENALTY}.`);
+    // The Score's abort is terminal and takes no Rep penalty (`Campaign`
+    // skips it) — promising one here was a lie the player could read.
+    flash(
+      scoreRun
+        ? 'SCORE ABANDONED: you walked out with nothing.'
+        : `ABORT: Objective abandoned. REP ${REP.ABORT_PENALTY}.`
+    );
+  }
+  if (costlyScore) {
+    flash('SCORE SECURED — at a cost. The payload is out; the crew is not whole.');
   }
   campaign.onJobEnd({ outcome, salvage, completed: objectiveComplete });
   if (campaign.state === CAMPAIGN_STATE.ENDED) {

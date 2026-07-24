@@ -21,7 +21,14 @@ export type CampaignEndReason =
   | 'crew-wipe'
   | 'clock-expired'
   | 'decker-flatlined-score'
+  /** P3.6: a *costly win* — objectives complete and the payload extracted, but
+   *  an operative did not come home. Pays a reduced cut and still unlocks the
+   *  stolen payload. Distinct from `score-aborted`, which it used to be
+   *  conflated with. */
   | 'score-partial'
+  /** P3.6: the crew walked out of the Score with the job unfinished. Terminal,
+   *  and pays nothing — nothing was secured. */
+  | 'score-aborted'
   | 'score-complete';
 
 /**

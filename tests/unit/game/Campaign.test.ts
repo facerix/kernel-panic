@@ -2032,7 +2032,10 @@ test('settlement records the drawn archetype reward when items are exhausted, ne
   assert.equal(campaign.scoreUnlockedItemId, null, 'never both');
 });
 
-test('a score-partial outcome writes nothing to either meta-store key', () => {
+// P3.6: this guard now belongs to `score-aborted` — the crew walked out with
+// nothing secured. A `score-partial` (costly win) *does* write the unlock,
+// covered in scoreCasualty.test.ts.
+test('a score-aborted outcome writes nothing to either meta-store key', () => {
   const campaign = m7ScoreReadyCampaign();
   const decker = campaign.crew.find(m => m.archetype === 'Decker')!;
   const partner = campaign.crew.find(m => m.archetype !== 'Decker')!;
@@ -2042,7 +2045,7 @@ test('a score-partial outcome writes nothing to either meta-store key', () => {
     .enterCombat();
 
   campaign.onJobEnd({ outcome: OUTCOME.EXIT, completed: false });
-  assert.equal(campaign.endReason, 'score-partial');
+  assert.equal(campaign.endReason, 'score-aborted');
   assert.equal(campaign.scoreUnlockedItemId, null);
   assert.equal(campaign.scoreUnlockedArchetypeId, null);
 });

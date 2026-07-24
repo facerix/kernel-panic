@@ -322,7 +322,10 @@ test('early Score exit requests confirmation and confirmed extraction is partial
   assert.equal(run.telemetry.objectiveComplete, false);
 });
 
-test('Campaign records partial Score as terminal without full reward', () => {
+// P3.6: an early exit with the job unfinished is `score-aborted`, not
+// `score-partial`. The costly-win path (objectives done, an operative lost)
+// lives in scoreCasualty.test.ts and does pay.
+test('Campaign records an abandoned Score as terminal without reward', () => {
   const campaign = new Campaign({
     seed: 42,
     credits: 25,
@@ -342,7 +345,7 @@ test('Campaign records partial Score as terminal without full reward', () => {
 
   campaign.onJobEnd({ outcome: OUTCOME.EXIT, completed: false });
   assert.equal(campaign.state, CAMPAIGN_STATE.ENDED);
-  assert.equal(campaign.endReason, 'score-partial');
+  assert.equal(campaign.endReason, 'score-aborted');
   assert.equal(campaign.credits, 25);
 });
 
@@ -504,7 +507,7 @@ test('clean Score completion records the stolen blueprint for the meta-store', (
   assert.equal(campaign.scoreUnlockedItemId, expectedId, 'unlock recorded for settlement');
 });
 
-test('partial Score records no blueprint unlock (prototype not secured)', () => {
+test('abandoned Score records no blueprint unlock (prototype not secured)', () => {
   const campaign = scoreReadyCampaign();
   const decker = campaign.crew.find(member => member.archetype === 'Decker')!;
   const partner = campaign.crew.find(member => member.archetype !== 'Decker')!;
@@ -517,7 +520,7 @@ test('partial Score records no blueprint unlock (prototype not secured)', () => 
     .enterCombat();
 
   campaign.onJobEnd({ outcome: OUTCOME.EXIT, completed: false });
-  assert.equal(campaign.endReason, 'score-partial');
+  assert.equal(campaign.endReason, 'score-aborted');
   assert.equal(campaign.scoreUnlockedItemId, null);
 });
 

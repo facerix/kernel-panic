@@ -1248,11 +1248,12 @@ export function restore(record: unknown, options: RestoreOptions = {}) {
     run.meatActor = liveMeatPartner ?? player;
     run.activeLayer = liveMeatPartner && record.activeLayer !== 'cyber' ? 'meat' : 'cyber';
   } else {
-    run.meatActor = !extractedOperativeIds.includes(player.id)
-      ? player
-      : gridPartner && !extractedOperativeIds.includes(gridPartner.id)
-        ? gridPartner
-        : null;
+    // P3.6: mirror of the dead-partner repair above — a *dead* Decker can't be
+    // the meat operator either. A Score that outlived its Decker restores with
+    // control on the surviving partner rather than on the body it left behind.
+    const controllable = (crew: Crew | null): crew is Crew =>
+      !!crew && crew.alive && !extractedOperativeIds.includes(crew.id);
+    run.meatActor = controllable(player) ? player : controllable(gridPartner) ? gridPartner : null;
     run.activeLayer = 'meat';
   }
   run.exitTile = record.exitTile ? { ...record.exitTile } : null;

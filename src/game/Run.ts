@@ -438,6 +438,10 @@ export type RunOptions = {
    *  field (the corp can kill it off-screen while the player is in Cyberspace),
    *  so the shell can surface an unconditional "operator down" alert. */
   onPartnerDown?: unknown;
+  /** P3.6 shell presentation — fired when the deployed Decker flatlines on a
+   *  Score that carries on without them (the surviving partner still has the
+   *  payload to walk out), so the shell can surface the loss mid-run. */
+  onDeckerDown?: unknown;
   /** Terrain mutations from a prior visit to this location (P2.5.M7.2), replayed
    *  onto the freshly-built map in `enterCombat`. Empty/omitted for a first visit. */
   priorMutationDeltas?: unknown;
@@ -535,6 +539,9 @@ export class Run {
   onJackOutPresent: (() => void) | null;
   /** P3.M4.4 shell presentation hook — fired with the partner when it flatlines. */
   onPartnerDown: ((partner: Crew) => void) | null;
+  /** P3.6 shell presentation hook — fired with the Decker when it flatlines on
+   *  a Score the surviving partner can still finish. */
+  onDeckerDown: ((decker: Crew | null) => void) | null;
   #pendingJackOut: JackOutRequest | null;
   _busUnsubs: (() => void)[];
 
@@ -551,6 +558,7 @@ export class Run {
     onJackInPresent,
     onJackOutPresent,
     onPartnerDown,
+    onDeckerDown,
     priorMutationDeltas,
     priorKeyItems,
     priorSeenKeys,
@@ -588,6 +596,9 @@ export class Run {
     }
     if (onPartnerDown !== undefined && typeof onPartnerDown !== 'function') {
       throw new TypeError('Run: onPartnerDown must be a function');
+    }
+    if (onDeckerDown !== undefined && typeof onDeckerDown !== 'function') {
+      throw new TypeError('Run: onDeckerDown must be a function');
     }
     if (priorMutationDeltas !== undefined && !Array.isArray(priorMutationDeltas)) {
       throw new TypeError('Run: priorMutationDeltas must be an array when supplied');
@@ -637,6 +648,7 @@ export class Run {
     this.onJackInPresent = (onJackInPresent as (() => void) | undefined) ?? null;
     this.onJackOutPresent = (onJackOutPresent as (() => void) | undefined) ?? null;
     this.onPartnerDown = (onPartnerDown as ((partner: Crew) => void) | undefined) ?? null;
+    this.onDeckerDown = (onDeckerDown as ((decker: Crew | null) => void) | undefined) ?? null;
     this.#pendingJackOut = null;
 
     /** @type {Array<() => void>} active bus subscriptions */
@@ -1205,6 +1217,60 @@ export class Run {
   }
 
   /**
+   * P3.6: may this run outlive its Decker? Only the Score can — it is the one
+   * contract whose payload is an object rather than an intrusion, so a meat
+   * partner standing on the grid can still walk it out. Everywhere else the
+   * Decker *is* the run. Requires the partner alive and actually spawned (a
+   * reserved partner that never made it past jack-in cannot finish anything).
+   */
+  #scoreContinuesWithoutDecker(): boolean {
+    if (this.contract?.objective.kind !== OBJECTIVES.SCORE_FINAL) return false;
+    const partner = this.partnerMember;
+    return !!partner && partner.alive && !!this.world?.entities.has(partner.id);
+  }
+
+  /**
+   * P3.6: the Decker just flatlined on a Score that can still be finished.
+   * Resolve the Cyberspace layer at whatever progress it had latched (a core
+   * sliced before the kill still counts — the door it opened stays open), then
+   * hand the grid to the partner so the player is never left driving a corpse
+   * or staring at a dead layer. The shell hook mirrors `onPartnerDown` so an
+   * off-screen flatline still surfaces.
+   */
+  #onDeckerFlatlined({ tearDownLayer }: { tearDownLayer: CyberspaceLayer | null }): void {
+    if (tearDownLayer) {
+      // Latch before teardown — `#cyberObjectiveComplete` reads the live world.
+      const objectiveComplete = this.#cyberObjectiveComplete(tearDownLayer);
+      this.#pendingJackOut = null;
+      tearDownLayer.teardown();
+      this.cyberspace = { phase: 'resolved', objectiveComplete };
+    }
+    const decker = this.player;
+    if (decker) {
+      // Avatar death flatlines the Decker body too (blueprint rule) — the run
+      // only survives this because the *partner* does. Kill the body through
+      // the normal damage path so hp/alive stay consistent for persistence.
+      if (decker.alive) decker.damage(decker.hp);
+      // The body is a corpse, not a frozen operator — unfreeze so nothing
+      // downstream mistakes it for a jacked-in Decker awaiting control.
+      decker.frozen = false;
+    }
+    this.activeLayer = 'meat';
+    this.meatActor = this.partnerMember;
+    this.onDeckerDown?.(decker);
+  }
+
+  /**
+   * P3.6: true when the deployed Decker flatlined but the run carried on (the
+   * Score's surviving-partner path). Mirror of {@link partnerDown} —
+   * `Campaign.onJobEnd` reads it to flatline the Decker for good even though
+   * the run ended on EXIT rather than DEATH.
+   */
+  get deckerDown(): boolean {
+    return !!this.player && !this.player.alive;
+  }
+
+  /**
    * The *other* live meat operator on the grid (Decker ↔ partner), distinct
    * from the current `meatActor`. `null` when there is no second one — pre-jack
    * solo runs, or after a partner flatline. Used only outside an active
@@ -1438,6 +1504,13 @@ export class Run {
     if (!this.player.alive) {
       this.telemetry.hpAtDeath = 0;
       this.telemetry.cause = `neural-shock(${applied})`;
+      // P3.6: the shock landed after `#finalizeJackOut` already tore the layer
+      // down, so there is no layer left to resolve — just hand the grid to the
+      // partner if the Score can still be finished.
+      if (this.#scoreContinuesWithoutDecker()) {
+        this.#onDeckerFlatlined({ tearDownLayer: null });
+        return;
+      }
       this.enterResult({ outcome: OUTCOME.DEATH });
     }
   }
@@ -1771,6 +1844,14 @@ export class Run {
       if (killed) {
         this.telemetry.hpAtDeath = 0;
         this.telemetry.cause = `${attacker?.id ?? 'unknown'}::${source ?? 'unknown'}(${damage})`;
+        // P3.6: black ICE flatlines the Decker — body and all. On the Score,
+        // that is not automatically the end: a live meat partner can still
+        // carry the payload out (a costly win). Everywhere else, and with
+        // nobody left to finish, the run ends as it always has.
+        if (this.#scoreContinuesWithoutDecker()) {
+          this.#onDeckerFlatlined({ tearDownLayer: layer });
+          return;
+        }
         this.enterResult({ outcome: OUTCOME.DEATH });
       }
       return;
@@ -1802,6 +1883,12 @@ export class Run {
       if (killed) {
         this.telemetry.hpAtDeath = 0;
         this.telemetry.cause = `${attacker?.id ?? 'unknown'}::${source ?? 'unknown'}(${damage})`;
+        // P3.6: mirror of the cyber-side rule — the Score outlives its Decker
+        // while a live partner is still on the grid to finish the job.
+        if (this.#scoreContinuesWithoutDecker()) {
+          this.#onDeckerFlatlined({ tearDownLayer: null });
+          return;
+        }
         this.enterResult({ outcome: OUTCOME.DEATH });
       }
       return;
@@ -1947,28 +2034,26 @@ export class Run {
     if (this.player === actor && this.cyberspace?.phase === 'active') {
       throw new Error('Run.#extractScoreOperative: cannot extract a jacked-in Decker body');
     }
-    const required = this.#scoreOperativeIds();
-    if (
-      [this.crewMember, this.partnerMember].some(
-        crew => crew && required.includes(crew.id) && !crew.alive
-      )
-    ) {
-      this.telemetry.cause = 'score-partial';
-      this.enterResult({
-        outcome: OUTCOME.EXIT,
-        telemetry: {
-          objectiveComplete: false,
-          objectiveExpired: false,
-        },
-      });
-      return;
+    // P3.6: the Score ends when everyone who *can* still walk out has. A
+    // casualty no longer voids the job — the payload is secured and the
+    // survivor carried it through the exit, so the objective is complete
+    // either way. What the casualty changes is the *grade*: `score-partial`
+    // is a costly win, not the abandoned-job outcome it used to be conflated
+    // with (that is `exit-reached-objective-incomplete`, handled above).
+    const operatives = [this.crewMember, this.partnerMember].filter(
+      (crew): crew is Crew => !!crew && this.#scoreOperativeIds().includes(crew.id)
+    );
+    const survivors = operatives.filter(crew => crew.alive);
+    if (survivors.length === 0) {
+      throw new Error('Run.#extractScoreOperative: an extraction requires a living operative');
     }
-    const allExtracted = required.every(id => this.extractedOperativeIds.has(id));
-    if (!allExtracted) {
+    if (!survivors.every(crew => this.extractedOperativeIds.has(crew.id))) {
+      // Someone alive is still inside — the run continues.
       if (this.onPersist) this.onPersist(this.snapshot());
       return;
     }
-    this.telemetry.cause = 'score-extracted';
+    const lostAnyone = survivors.length < operatives.length;
+    this.telemetry.cause = lostAnyone ? 'score-partial' : 'score-extracted';
     this.enterResult({
       outcome: OUTCOME.EXIT,
       telemetry: {
